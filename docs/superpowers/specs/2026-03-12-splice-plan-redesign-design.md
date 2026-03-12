@@ -32,9 +32,8 @@ Groups multiple closure-level splice plans into a single route/job scope.
 |-------------|-------------------------------|------------------------------------|
 | name        | CharField(100)                | e.g., "Main St CO → Elm St Drop"  |
 | description | TextField (blank)             |                                    |
-| plans       | M2M → SplicePlan              | Ordered                            |
 
-Status is computed from child plans (all applied = complete).
+Plans are accessed via reverse FK (`SplicePlan.project`). Status is computed from child plans (all applied = complete).
 
 ### SplicePlan
 
@@ -43,10 +42,10 @@ One per closure (Device). Represents the desired state of all splice connections
 | Field        | Type                          | Notes                                        |
 |--------------|-------------------------------|----------------------------------------------|
 | closure      | FK → dcim.Device              | The splice closure                           |
-| group        | FK → SpliceProject (nullable) | Parent project, if part of a route           |
+| project      | FK → SpliceProject (nullable) | Parent project, if part of a route           |
 | name         | CharField(100)                |                                              |
 | description  | TextField (blank)             |                                              |
-| status       | ChoiceField                   | draft, pending_review, ready_to_apply        |
+| status       | ChoiceField                   | draft, pending_review, ready_to_apply, applied |
 | cached_diff  | JSONField (nullable)          | Cached diff per tray, invalidated by signals |
 | diff_stale   | BooleanField (default=True)   | Set by signal, cleared on recompute          |
 
@@ -59,11 +58,18 @@ A single desired FrontPort↔FrontPort connection within a plan. Each entry repr
 | Field          | Type                          | Notes                                           |
 |----------------|-------------------------------|-------------------------------------------------|
 | plan           | FK → SplicePlan               |                                                 |
-| tray           | FK → dcim.Module              | The tray this entry belongs to                  |
+| tray           | FK → dcim.Module              | Tray owning fiber_a (canonical tray for this entry) |
 | fiber_a        | FK → dcim.FrontPort           | A-side fiber position on tray                   |
 | fiber_b        | FK → dcim.FrontPort           | B-side fiber position (same or different tray)  |
-| is_inter_platter | BooleanField (computed)     | True if fiber_a and fiber_b are on different trays |
 | notes          | TextField (blank)             | Per-splice crew instructions                    |
+
+**Computed property:** `is_inter_platter` — `@property` returning `fiber_a.module_id != fiber_b.module_id`. Not stored.
+
+**Constraints:**
+- `unique_together: (plan, fiber_a)` — each FrontPort can appear as fiber_a at most once per plan
+- `unique_together: (plan, fiber_b)` — each FrontPort can appear as fiber_b at most once per plan
+- `clean()` validates both FrontPorts belong to tray modules on the plan's closure Device
+- `tray` must equal `fiber_a`'s parent Module. For inter-platter entries, the entry appears on fiber_a's tray page; the fiber_b tray page shows it as an incoming inter-platter link (query-time, not duplicated).
 
 ### ClosureCableEntry
 
@@ -75,6 +81,10 @@ Tracks which physical port/gland on the closure each cable enters through.
 | fiber_cable    | FK → FiberCable               |                                          |
 | entrance_port  | FK → dcim.RearPort            | The gland/port on the closure device     |
 | notes          | TextField (blank)             |                                          |
+
+**Constraints:**
+- `unique_together: (closure, entrance_port)` — each port has at most one cable
+- **Usage:** Import reads ClosureCableEntry to determine which cables feed which trays. Export uses it for the header (cable entrance labels). Populated manually or via a "register cable entrance" action when linking a FiberCable to a closure.
 
 ---
 
@@ -94,7 +104,7 @@ Tracks which physical port/gland on the closure each cable enters through.
 
 ### Remove from choices.py
 - `SplicePlanModeChoices` (passthrough/sequential/manual — no longer needed)
-- Update `SplicePlanStatusChoices` to: draft, pending_review, ready_to_apply
+- Update `SplicePlanStatusChoices` to: draft, pending_review, ready_to_apply, applied, applied
 
 ---
 
@@ -106,7 +116,7 @@ Reads the current actual connections on a closure's trays:
 
 1. Find all tray Modules on the closure Device
 2. For each tray, find all FrontPorts
-3. For each FrontPort, check if it's connected via a 0-length cable to another FrontPort on a tray of the same closure
+3. For each FrontPort, check if it's connected via a cable to another FrontPort on a tray of the same closure. A "splice cable" is identified by: both terminations are FrontPorts on modules of the same closure Device, regardless of cable length (length=0, length=None, or any short length are all valid — the termination topology is what matters, not the length).
 4. Return: `{tray_id: set((port_a_id, port_b_id), ...)}`
 
 ### Desired State
@@ -132,10 +142,12 @@ Inter-platter entries appear on both trays' pages.
 
 ### Signal-Based Invalidation
 
-Django signals on `Cable` and `CableTermination` (`post_save`, `post_delete`):
+Django `post_save` / `post_delete` signals on `Cable`:
 
-1. Check: does this cable terminate on a FrontPort belonging to a closure that has a SplicePlan?
+1. On cable save/delete, check both terminations: does this cable terminate on a FrontPort belonging to a closure that has a SplicePlan?
 2. If yes: set `diff_stale = True` on that closure's plan
+
+Note: Hook on `Cable` only (not `CableTermination`) since NetBox manages terminations through the Cable save workflow and may bulk-create them without firing individual signals.
 
 This ensures any external changes to connections (manual edits, other plugins, API calls) are reflected in the diff.
 
@@ -165,7 +177,9 @@ Executes the diff against NetBox.
 5. Recompute diff (should now be empty — desired = live)
 6. Update plan status
 
-Apply is an atomic operation (wrapped in a transaction).
+Apply is an atomic operation (wrapped in a transaction). If a conflict occurs (e.g., another user created a cable on a target FrontPort between diff computation and apply), the transaction rolls back and the user is shown the updated diff to retry.
+
+**Status lifecycle:** After apply, status moves to `applied`. If the user later edits the plan (adding new entries), status resets to `draft` — the plan has a non-empty diff again. This supports iterative workflows: import → edit → apply → edit more → apply again.
 
 ### Edit
 
@@ -185,7 +199,7 @@ Standard NetBox CRUD on `SplicePlanEntry` rows. The plan page shows:
 Generates a `.drawio` file (mxGraph XML) with:
 - One page/tab per tray
 - Visual splice tray layout:
-  - A-side fibers on left, B-side fibers on right
+  - Fibers grouped by cable entrance (determined from ClosureCableEntry → RearPort → FrontPort mappings). Each cable's fibers form a column/group.
   - Fibers drawn with EIA-598 colors
   - Connection lines between spliced pairs
 - Diff annotations:
@@ -231,7 +245,7 @@ A `SpliceProject` links multiple `SplicePlan` objects (one per closure) into a r
 - Journal entries on the closure Device can annotate apply events
 
 ### Signals
-- `post_save` / `post_delete` on `Cable` and `CableTermination` for diff cache invalidation
+- `post_save` / `post_delete` on `Cable` for diff cache invalidation
 - Scoped to closures that have a SplicePlan to avoid performance impact
 
 ### Existing FMS Models
@@ -245,12 +259,12 @@ A `SpliceProject` links multiple `SplicePlan` objects (one per closure) into a r
 1. Drop `SplicePlanModeChoices`
 2. Alter `SplicePlanStatusChoices` → draft, pending_review, ready_to_apply
 3. Remove `SplicePlan.mode`, `SplicePlan.tray` fields
-4. Add `SplicePlan.cached_diff`, `SplicePlan.diff_stale`, `SplicePlan.group`
-5. Add unique constraint on `SplicePlan.closure`
-6. Change `SplicePlanEntry.fiber_a` / `fiber_b` from FiberStrand FK → FrontPort FK
-7. Remove `SplicePlanEntry.cable`, `SplicePlanEntry.mode_override`
-8. Add `SplicePlanEntry.tray`, `SplicePlanEntry.notes`
-9. Create `SpliceProject` model
-10. Create `ClosureCableEntry` model
+4. Create `SpliceProject` model (must exist before FK in step 5)
+5. Add `SplicePlan.cached_diff`, `SplicePlan.diff_stale`, `SplicePlan.project`
+6. Add unique constraint on `SplicePlan.closure`
+7. Change `SplicePlanEntry.fiber_a` / `fiber_b` from FiberStrand FK → FrontPort FK
+8. Remove `SplicePlanEntry.cable`, `SplicePlanEntry.mode_override`
+9. Add `SplicePlanEntry.tray`, `SplicePlanEntry.notes`, unique constraints on `(plan, fiber_a)` and `(plan, fiber_b)`
+10. Create `ClosureCableEntry` model with unique constraint on `(closure, entrance_port)`
 
 **Note:** This is a breaking migration — existing SplicePlan/SplicePlanEntry data is not preservable since the FK targets change. The plugin is pre-release so this is acceptable.
