@@ -311,8 +311,69 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
     table = SplicePlanTable
 
 
-# SplicePlanImplementView and SplicePlanRollbackView removed — implement/rollback
-# functionality has been replaced by import_live_state / apply_diff workflow.
+class SplicePlanImportFromDeviceView(View):
+    """Import current live connections into a splice plan."""
+
+    def post(self, request, pk):
+        plan = get_object_or_404(SplicePlan, pk=pk)
+        from .services import import_live_state
+
+        try:
+            count = import_live_state(plan)
+            messages.success(
+                request,
+                _('Imported {count} connections into "{plan}".').format(count=count, plan=plan),
+            )
+        except Exception as e:
+            messages.error(request, str(e))
+        return redirect(plan.get_absolute_url())
+
+
+class SplicePlanApplyView(View):
+    """Preview and apply a splice plan's diff to NetBox."""
+
+    def get(self, request, pk):
+        plan = get_object_or_404(SplicePlan, pk=pk)
+        from .services import get_or_recompute_diff
+
+        diff = get_or_recompute_diff(plan)
+        return render(
+            request,
+            "netbox_fms/spliceplan_apply_confirm.html",
+            {"object": plan, "diff": diff},
+        )
+
+    @transaction.atomic
+    def post(self, request, pk):
+        plan = get_object_or_404(SplicePlan, pk=pk)
+        from .services import apply_diff
+
+        try:
+            result = apply_diff(plan)
+            messages.success(
+                request,
+                _('Applied {added} additions and {removed} removals for "{plan}".').format(
+                    added=result["added"], removed=result["removed"], plan=plan
+                ),
+            )
+        except Exception as e:
+            messages.error(request, str(e))
+        return redirect(plan.get_absolute_url())
+
+
+class SplicePlanExportDrawioView(View):
+    """Export splice plan as draw.io XML."""
+
+    def get(self, request, pk):
+        from django.http import HttpResponse
+
+        from .export import generate_drawio
+
+        plan = get_object_or_404(SplicePlan, pk=pk)
+        xml_content = generate_drawio(plan)
+        response = HttpResponse(xml_content, content_type="application/xml")
+        response["Content-Disposition"] = f'attachment; filename="{plan.name}.drawio"'
+        return response
 
 
 # ---------------------------------------------------------------------------
