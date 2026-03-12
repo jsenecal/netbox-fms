@@ -6,6 +6,7 @@ from .types import (
     BufferTubeType,
     CableElementTemplateType,
     CableElementType,
+    ClosureCableEntryType,
     FiberCableInstanceType,
     FiberCableTypeType,
     FiberPathLossType,
@@ -14,6 +15,7 @@ from .types import (
     RibbonType,
     SplicePlanEntryType,
     SplicePlanType,
+    SpliceProjectType,
 )
 
 
@@ -51,6 +53,12 @@ class NetBoxFMSQuery:
 
     splice_plan_entry: SplicePlanEntryType = strawberry_django.field()
     splice_plan_entry_list: list[SplicePlanEntryType] = strawberry_django.field()
+
+    splice_project: SpliceProjectType = strawberry_django.field()
+    splice_project_list: list[SpliceProjectType] = strawberry_django.field()
+
+    closure_cable_entry: ClosureCableEntryType = strawberry_django.field()
+    closure_cable_entry_list: list[ClosureCableEntryType] = strawberry_django.field()
 
     fiber_path_loss: FiberPathLossType = strawberry_django.field()
     fiber_path_loss_list: list[FiberPathLossType] = strawberry_django.field()

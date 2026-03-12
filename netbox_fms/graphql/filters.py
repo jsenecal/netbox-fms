@@ -3,12 +3,14 @@ import strawberry_django
 from ..models import (
     BufferTubeTemplate,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
+    SpliceProject,
 )
 
 __all__ = (
@@ -19,6 +21,8 @@ __all__ = (
     "FiberCableFilter",
     "SplicePlanFilter",
     "SplicePlanEntryFilter",
+    "SpliceProjectFilter",
+    "ClosureCableEntryFilter",
     "FiberPathLossFilter",
 )
 
@@ -61,6 +65,16 @@ class SplicePlanFilter:
 
 @strawberry_django.filters.filter(SplicePlanEntry)
 class SplicePlanEntryFilter:
+    id: int | None
+
+
+@strawberry_django.filters.filter(SpliceProject)
+class SpliceProjectFilter:
+    id: int | None
+
+
+@strawberry_django.filters.filter(ClosureCableEntry)
+class ClosureCableEntryFilter:
     id: int | None
 
 

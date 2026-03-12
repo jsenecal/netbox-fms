@@ -9,6 +9,7 @@ from ..models import (
     BufferTubeTemplate,
     CableElement,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
@@ -17,6 +18,7 @@ from ..models import (
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
+    SpliceProject,
 )
 
 __all__ = (
@@ -31,6 +33,8 @@ __all__ = (
     "CableElementType",
     "SplicePlanType",
     "SplicePlanEntryType",
+    "SpliceProjectType",
+    "ClosureCableEntryType",
     "FiberPathLossType",
 )
 
@@ -94,6 +98,16 @@ class SplicePlanType(NetBoxObjectType):
 
 @strawberry_django.type(SplicePlanEntry, fields="__all__")
 class SplicePlanEntryType(NetBoxObjectType):
+    pass
+
+
+@strawberry_django.type(SpliceProject, fields="__all__")
+class SpliceProjectType(NetBoxObjectType):
+    pass
+
+
+@strawberry_django.type(ClosureCableEntry, fields="__all__")
+class ClosureCableEntryType(NetBoxObjectType):
     pass
 
 
