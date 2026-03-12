@@ -13,8 +13,10 @@ router.register("buffer-tubes", views.BufferTubeViewSet)
 router.register("ribbons", views.RibbonViewSet)
 router.register("fiber-strands", views.FiberStrandViewSet)
 router.register("cable-elements", views.CableElementViewSet)
+router.register("splice-projects", views.SpliceProjectViewSet)
 router.register("splice-plans", views.SplicePlanViewSet)
 router.register("splice-plan-entries", views.SplicePlanEntryViewSet)
+router.register("closure-cable-entries", views.ClosureCableEntryViewSet)
 router.register("fiber-path-losses", views.FiberPathLossViewSet)
 
 urlpatterns = router.urls + [

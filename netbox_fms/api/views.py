@@ -15,6 +15,7 @@ from ..filters import (
     BufferTubeTemplateFilterSet,
     CableElementFilterSet,
     CableElementTemplateFilterSet,
+    ClosureCableEntryFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
     FiberPathLossFilterSet,
@@ -23,12 +24,14 @@ from ..filters import (
     RibbonTemplateFilterSet,
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
+    SpliceProjectFilterSet,
 )
 from ..models import (
     BufferTube,
     BufferTubeTemplate,
     CableElement,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
@@ -37,13 +40,14 @@ from ..models import (
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
+    SpliceProject,
 )
 from .serializers import (
     BufferTubeSerializer,
     BufferTubeTemplateSerializer,
-    BulkSpliceInputSerializer,
     CableElementSerializer,
     CableElementTemplateSerializer,
+    ClosureCableEntrySerializer,
     FiberCableSerializer,
     FiberCableTypeSerializer,
     FiberPathLossSerializer,
@@ -53,6 +57,7 @@ from .serializers import (
     RibbonTemplateSerializer,
     SplicePlanEntrySerializer,
     SplicePlanSerializer,
+    SpliceProjectSerializer,
 )
 
 
@@ -118,36 +123,52 @@ class SplicePlanEntryViewSet(NetBoxModelViewSet):
     filterset_class = SplicePlanEntryFilterSet
 
 
+class SpliceProjectViewSet(NetBoxModelViewSet):
+    queryset = SpliceProject.objects.prefetch_related("tags").annotate(plan_count=Count("plans"))
+    serializer_class = SpliceProjectSerializer
+    filterset_class = SpliceProjectFilterSet
+
+
+class ClosureCableEntryViewSet(NetBoxModelViewSet):
+    queryset = ClosureCableEntry.objects.prefetch_related("closure", "fiber_cable", "entrance_port", "tags")
+    serializer_class = ClosureCableEntrySerializer
+    filterset_class = ClosureCableEntryFilterSet
+
+
 class SplicePlanViewSet(NetBoxModelViewSet):
-    queryset = SplicePlan.objects.prefetch_related("closure", "tags").annotate(entry_count=Count("entries"))
+    queryset = SplicePlan.objects.prefetch_related("closure", "project", "tags").annotate(entry_count=Count("entries"))
     serializer_class = SplicePlanSerializer
     filterset_class = SplicePlanFilterSet
 
-    @action(detail=True, methods=["post", "delete"], url_path="bulk-splice")
-    def bulk_splice(self, request, pk=None):
+    @action(detail=True, methods=["post"], url_path="import-from-device")
+    def import_from_device(self, request, pk=None):
         plan = self.get_object()
+        from ..services import import_live_state
 
-        if request.method == "POST":
-            serializer = BulkSpliceInputSerializer(data=request.data, many=True)
-            serializer.is_valid(raise_exception=True)
-            created = []
-            for item in serializer.validated_data:
-                entry = SplicePlanEntry.objects.create(
-                    plan=plan,
-                    tray_id=item["tray_id"],
-                    fiber_a_id=item["fiber_a"],
-                    fiber_b_id=item["fiber_b"],
-                )
-                created.append(entry.pk)
-            return Response({"created": created}, status=status.HTTP_201_CREATED)
+        try:
+            count = import_live_state(plan)
+            return Response({"imported": count})
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        if request.method == "DELETE":
-            entry_ids = request.data.get("entry_ids", [])
-            if entry_ids:
-                deleted, _ = plan.entries.filter(pk__in=entry_ids).delete()
-            else:
-                deleted, _ = plan.entries.all().delete()
-            return Response({"deleted": deleted})
+    @action(detail=True, methods=["post"], url_path="apply")
+    def apply_plan(self, request, pk=None):
+        plan = self.get_object()
+        from ..services import apply_diff
+
+        try:
+            result = apply_diff(plan)
+            return Response(result)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def get_diff(self, request, pk=None):
+        plan = self.get_object()
+        from ..services import get_or_recompute_diff
+
+        diff = get_or_recompute_diff(plan)
+        return Response(diff)
 
 
 class FiberPathLossViewSet(NetBoxModelViewSet):
