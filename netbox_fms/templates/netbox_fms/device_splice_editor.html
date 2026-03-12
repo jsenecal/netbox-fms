@@ -16,11 +16,14 @@
         <div class="card">
             <h5 class="card-header d-flex justify-content-between align-items-center">
                 <span>
-                    {% trans "Splice Editor" %} &mdash; {{ plan.name }}
+                    {% trans "Splice Editor" %}{% if plan %} &mdash; {{ plan.name }}{% endif %}
                 </span>
+                {% if plan %}
                 <span class="badge bg-{{ plan.status }}">{{ plan.get_status_display }}</span>
+                {% endif %}
             </h5>
             <div class="card-body p-0">
+                {% if plan %}
                 <!-- Toolbar -->
                 <div class="splice-toolbar p-2 border-bottom" id="splice-toolbar">
                     <div class="btn-group me-3" role="group">
@@ -47,10 +50,19 @@
                 <div class="p-2 border-top text-muted small" id="splice-status">
                     {% trans "Loading strands..." %}
                 </div>
+                {% else %}
+                <div class="p-3">
+                    <p class="text-muted">{% trans "No splice plan exists for this device yet." %}</p>
+                    <a href="{% url 'plugins:netbox_fms:spliceplan_add' %}" class="btn btn-sm btn-primary">
+                        <i class="mdi mdi-plus-thick"></i> {% trans "Create Splice Plan" %}
+                    </a>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
+{% if plan %}
 <script>
     window.SPLICE_EDITOR_CONFIG = {
         planId: {{ plan.pk }},
@@ -58,12 +70,11 @@
         planMode: "single",
         planStatus: "{{ plan.status }}",
         apiBase: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=device.pk %}",
-        bulkSpliceUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-bulk-splice' pk=plan.pk %}",
+        diffUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-get-diff' pk=plan.pk %}",
         csrfToken: "{{ csrf_token }}",
     };
-
-
 </script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="{% static 'netbox_fms/js/splice_editor.js' %}"></script>
+{% endif %}
 {% endblock %}

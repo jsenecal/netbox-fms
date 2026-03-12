@@ -56,7 +56,7 @@
         planMode: "single",
         planStatus: "{{ object.status }}",
         apiBase: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=object.closure_id %}",
-        bulkSpliceUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-bulk-splice' pk=object.pk %}",
+        diffUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-get-diff' pk=object.pk %}",
         csrfToken: "{{ csrf_token }}",
     };
 </script>
