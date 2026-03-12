@@ -19,6 +19,10 @@
                     <td>{{ object.closure|linkify }}</td>
                 </tr>
                 <tr>
+                    <th scope="row">{% trans "Project" %}</th>
+                    <td>{% if object.project %}{{ object.project|linkify }}{% else %}&mdash;{% endif %}</td>
+                </tr>
+                <tr>
                     <th scope="row">{% trans "Status" %}</th>
                     <td>{{ object.get_status_display }}</td>
                 </tr>
@@ -41,6 +45,18 @@
             <div class="card-body">
                 <a href="{% url 'plugins:netbox_fms:spliceplan_editor' pk=object.pk %}" class="btn btn-info mb-2">
                     <i class="mdi mdi-pencil"></i> {% trans "Visual Splice Editor" %}
+                </a>
+                <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_import_device' pk=object.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning mb-2">
+                        <i class="mdi mdi-download"></i> {% trans "Import from Device" %}
+                    </button>
+                </form>
+                <a href="{% url 'plugins:netbox_fms:spliceplan_apply' pk=object.pk %}" class="btn btn-success mb-2">
+                    <i class="mdi mdi-check-circle"></i> {% trans "Apply" %}
+                </a>
+                <a href="{% url 'plugins:netbox_fms:spliceplan_export' pk=object.pk %}" class="btn btn-secondary mb-2">
+                    <i class="mdi mdi-export"></i> {% trans "Export Draw.io" %}
                 </a>
             </div>
         </div>
