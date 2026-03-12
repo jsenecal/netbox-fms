@@ -10,16 +10,20 @@ from utilities.views import ViewTab, register_model_view
 from .filters import (
     BufferTubeTemplateFilterSet,
     CableElementTemplateFilterSet,
+    ClosureCableEntryFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
     FiberPathLossFilterSet,
     RibbonTemplateFilterSet,
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
+    SpliceProjectFilterSet,
 )
 from .forms import (
     BufferTubeTemplateForm,
     CableElementTemplateForm,
+    ClosureCableEntryFilterForm,
+    ClosureCableEntryForm,
     FiberCableBulkEditForm,
     FiberCableFilterForm,
     FiberCableForm,
@@ -38,6 +42,8 @@ from .forms import (
     SplicePlanFilterForm,
     SplicePlanForm,
     SplicePlanImportForm,
+    SpliceProjectFilterForm,
+    SpliceProjectForm,
 )
 from .models import (
     BufferTubeTemplate,
@@ -56,6 +62,7 @@ from .tables import (
     BufferTubeTemplateTable,
     CableElementTable,
     CableElementTemplateTable,
+    ClosureCableEntryTable,
     FiberCableTable,
     FiberCableTypeTable,
     FiberPathLossTable,
@@ -64,6 +71,7 @@ from .tables import (
     RibbonTemplateTable,
     SplicePlanEntryTable,
     SplicePlanTable,
+    SpliceProjectTable,
 )
 
 # ---------------------------------------------------------------------------
@@ -312,8 +320,30 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+class ClosureCableEntryListView(generic.ObjectListView):
+    queryset = ClosureCableEntry.objects.select_related("closure", "fiber_cable", "entrance_port")
+    table = ClosureCableEntryTable
+    filterset = ClosureCableEntryFilterSet
+    filterset_form = ClosureCableEntryFilterForm
+
+
 class ClosureCableEntryView(generic.ObjectView):
     queryset = ClosureCableEntry.objects.all()
+
+
+class ClosureCableEntryEditView(generic.ObjectEditView):
+    queryset = ClosureCableEntry.objects.all()
+    form = ClosureCableEntryForm
+
+
+class ClosureCableEntryDeleteView(generic.ObjectDeleteView):
+    queryset = ClosureCableEntry.objects.all()
+
+
+class ClosureCableEntryBulkDeleteView(generic.BulkDeleteView):
+    queryset = ClosureCableEntry.objects.all()
+    filterset = ClosureCableEntryFilterSet
+    table = ClosureCableEntryTable
 
 
 # ---------------------------------------------------------------------------
@@ -377,8 +407,35 @@ class FiberPathLossDeleteView(generic.ObjectDeleteView):
 # ---------------------------------------------------------------------------
 
 
+class SpliceProjectListView(generic.ObjectListView):
+    queryset = SpliceProject.objects.annotate(plan_count=models.Count("plans"))
+    table = SpliceProjectTable
+    filterset = SpliceProjectFilterSet
+    filterset_form = SpliceProjectFilterForm
+
+
 class SpliceProjectView(generic.ObjectView):
     queryset = SpliceProject.objects.all()
+
+    def get_extra_context(self, request, instance):
+        plans_table = SplicePlanTable(instance.plans.all())
+        plans_table.configure(request)
+        return {"plans_table": plans_table}
+
+
+class SpliceProjectEditView(generic.ObjectEditView):
+    queryset = SpliceProject.objects.all()
+    form = SpliceProjectForm
+
+
+class SpliceProjectDeleteView(generic.ObjectDeleteView):
+    queryset = SpliceProject.objects.all()
+
+
+class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
+    queryset = SpliceProject.objects.all()
+    filterset = SpliceProjectFilterSet
+    table = SpliceProjectTable
 
 
 # ---------------------------------------------------------------------------
