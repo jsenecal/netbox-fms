@@ -13,6 +13,7 @@ from ..models import (
     BufferTubeTemplate,
     CableElement,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
@@ -21,6 +22,7 @@ from ..models import (
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
+    SpliceProject,
 )
 
 # Re-export FrontPortSerializer for use in nested fields
@@ -236,8 +238,45 @@ class CableElementSerializer(NetBoxModelSerializer):
         brief_fields = ("id", "url", "display", "name", "element_type")
 
 
+class SpliceProjectSerializer(NetBoxModelSerializer):
+    class Meta:
+        model = SpliceProject
+        fields = (
+            "id",
+            "url",
+            "display",
+            "name",
+            "description",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "name")
+
+
+class ClosureCableEntrySerializer(NetBoxModelSerializer):
+    class Meta:
+        model = ClosureCableEntry
+        fields = (
+            "id",
+            "url",
+            "display",
+            "closure",
+            "fiber_cable",
+            "entrance_port",
+            "notes",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "closure", "fiber_cable")
+
+
 class SplicePlanSerializer(NetBoxModelSerializer):
     closure = DeviceSerializer(nested=True)
+    project = SpliceProjectSerializer(nested=True, required=False, allow_null=True)
     entry_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
@@ -247,6 +286,7 @@ class SplicePlanSerializer(NetBoxModelSerializer):
             "url",
             "display",
             "closure",
+            "project",
             "name",
             "description",
             "status",
@@ -339,12 +379,6 @@ class CableGroupSerializer(serializers.Serializer):
     cable_label = serializers.CharField()
     tubes = TubeGroupSerializer(many=True)
     loose_strands = ClosureStrandSerializer(many=True)
-
-
-class BulkSpliceInputSerializer(serializers.Serializer):
-    tray_id = serializers.IntegerField()
-    fiber_a = serializers.IntegerField()
-    fiber_b = serializers.IntegerField()
 
 
 class ProvisionPortsInputSerializer(serializers.Serializer):
