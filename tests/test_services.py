@@ -14,7 +14,14 @@ from dcim.models import (
 from django.test import TestCase
 
 from netbox_fms.models import SplicePlan, SplicePlanEntry
-from netbox_fms.services import compute_diff, get_desired_state, get_live_state, get_or_recompute_diff
+from netbox_fms.services import (
+    apply_diff,
+    compute_diff,
+    get_desired_state,
+    get_live_state,
+    get_or_recompute_diff,
+    import_live_state,
+)
 from tests.conftest import make_front_port
 
 
@@ -149,3 +156,87 @@ class TestDesiredStateAndDiff(TestCase):
         # Second call should use cache
         diff2 = get_or_recompute_diff(self.plan)
         assert diff == diff2
+
+
+class TestImportLiveState(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="Imp Site", slug="imp-site")
+        mfr = Manufacturer.objects.create(name="Imp Mfr", slug="imp-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="imp-closure")
+        role = DeviceRole.objects.create(name="Imp Role", slug="imp-role")
+        cls.closure = Device.objects.create(name="C-Imp", site=site, device_type=dt, role=role)
+
+        mt = ModuleType.objects.create(manufacturer=mfr, model="Tray")
+        bay = ModuleBay.objects.create(device=cls.closure, name="Bay 1")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
+
+        cls.fp1 = make_front_port(device=cls.closure, module=cls.tray, name="F1")
+        cls.fp2 = make_front_port(device=cls.closure, module=cls.tray, name="F2")
+
+    def test_import_creates_entries(self):
+        cable = Cable.objects.create(length=0, length_unit="m")
+        CableTermination.objects.create(cable=cable, cable_end="A", termination=self.fp1)
+        CableTermination.objects.create(cable=cable, cable_end="B", termination=self.fp2)
+
+        plan = SplicePlan.objects.create(closure=self.closure, name="Import Plan")
+        count = import_live_state(plan)
+        assert count == 1
+        assert plan.entries.count() == 1
+        entry = plan.entries.first()
+        assert {entry.fiber_a_id, entry.fiber_b_id} == {self.fp1.pk, self.fp2.pk}
+
+    def test_import_empty_closure(self):
+        plan = SplicePlan.objects.create(closure=self.closure, name="Empty Plan")
+        count = import_live_state(plan)
+        assert count == 0
+
+
+class TestApplyDiff(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="App Site", slug="app-site")
+        mfr = Manufacturer.objects.create(name="App Mfr", slug="app-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="app-closure")
+        role = DeviceRole.objects.create(name="App Role", slug="app-role")
+        cls.closure = Device.objects.create(name="C-App", site=site, device_type=dt, role=role)
+
+        mt = ModuleType.objects.create(manufacturer=mfr, model="Tray")
+        bay = ModuleBay.objects.create(device=cls.closure, name="Bay 1")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
+
+        cls.fp1 = make_front_port(device=cls.closure, module=cls.tray, name="F1")
+        cls.fp2 = make_front_port(device=cls.closure, module=cls.tray, name="F2")
+        cls.fp3 = make_front_port(device=cls.closure, module=cls.tray, name="F3")
+        cls.fp4 = make_front_port(device=cls.closure, module=cls.tray, name="F4")
+
+    def test_apply_creates_cables(self):
+        plan = SplicePlan.objects.create(closure=self.closure, name="Apply Plan")
+        SplicePlanEntry.objects.create(plan=plan, tray=self.tray, fiber_a=self.fp1, fiber_b=self.fp2)
+        result = apply_diff(plan)
+        assert result["added"] == 1
+        assert result["removed"] == 0
+
+        from django.contrib.contenttypes.models import ContentType
+
+        fp_ct = ContentType.objects.get_for_model(FrontPort)
+        terms = CableTermination.objects.filter(termination_type=fp_ct, termination_id=self.fp1.pk)
+        assert terms.exists()
+
+    def test_apply_removes_cables(self):
+        cable = Cable.objects.create(length=0, length_unit="m")
+        CableTermination.objects.create(cable=cable, cable_end="A", termination=self.fp3)
+        CableTermination.objects.create(cable=cable, cable_end="B", termination=self.fp4)
+
+        plan = SplicePlan.objects.create(closure=self.closure, name="Remove Plan")
+        result = apply_diff(plan)
+        assert result["removed"] == 1
+        assert not Cable.objects.filter(pk=cable.pk).exists()
+
+    def test_apply_sets_status_to_applied(self):
+        from netbox_fms.choices import SplicePlanStatusChoices
+
+        plan = SplicePlan.objects.create(closure=self.closure, name="Status Plan")
+        apply_diff(plan)
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.APPLIED

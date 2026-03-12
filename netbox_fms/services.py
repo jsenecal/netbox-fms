@@ -109,3 +109,116 @@ def get_or_recompute_diff(plan):
     plan.save(update_fields=["cached_diff", "diff_stale"])
 
     return diff
+
+
+def import_live_state(plan):
+    """
+    Bootstrap a plan from the closure's current live connections.
+    Creates SplicePlanEntry rows for each existing FrontPort<->FrontPort pair.
+    Returns the number of entries created.
+    """
+    from dcim.models import FrontPort
+
+    from .models import SplicePlanEntry
+
+    live = get_live_state(plan.closure)
+
+    # Collect unique pairs across all trays
+    all_pairs = set()
+    for pairs in live.values():
+        all_pairs.update(pairs)
+
+    # Build port -> module lookup
+    port_ids = set()
+    for pa, pb in all_pairs:
+        port_ids.add(pa)
+        port_ids.add(pb)
+    port_to_module = dict(FrontPort.objects.filter(pk__in=port_ids).values_list("pk", "module_id"))
+
+    entries = []
+    for port_a_id, port_b_id in all_pairs:
+        tray_id = port_to_module.get(port_a_id)
+        if tray_id is None:
+            continue
+        entries.append(
+            SplicePlanEntry(
+                plan=plan,
+                tray_id=tray_id,
+                fiber_a_id=port_a_id,
+                fiber_b_id=port_b_id,
+            )
+        )
+
+    SplicePlanEntry.objects.bulk_create(entries)
+    plan.diff_stale = True
+    plan.save(update_fields=["diff_stale"])
+    return len(entries)
+
+
+def apply_diff(plan):
+    """
+    Execute the diff: create cables for "add", delete cables for "remove".
+    Returns {"added": int, "removed": int}.
+    """
+    from dcim.models import CableTermination, FrontPort
+    from django.contrib.contenttypes.models import ContentType
+    from django.db import transaction
+
+    from .choices import SplicePlanStatusChoices
+
+    diff = compute_diff(plan)
+
+    fp_ct = ContentType.objects.get_for_model(FrontPort)
+    added = 0
+    removed = 0
+
+    # Deduplicate inter-platter pairs (same pair appears on both trays)
+    all_adds = set()
+    all_removes = set()
+    for _tray_id, tray_diff in diff.items():
+        for pair in tray_diff["add"]:
+            all_adds.add(tuple(pair))
+        for pair in tray_diff["remove"]:
+            all_removes.add(tuple(pair))
+
+    with transaction.atomic():
+        # Process removals
+        for port_a_id, port_b_id in all_removes:
+            cable_ids_a = set(
+                CableTermination.objects.filter(termination_type=fp_ct, termination_id=port_a_id).values_list(
+                    "cable_id", flat=True
+                )
+            )
+            cable_ids_b = set(
+                CableTermination.objects.filter(termination_type=fp_ct, termination_id=port_b_id).values_list(
+                    "cable_id", flat=True
+                )
+            )
+            common = cable_ids_a & cable_ids_b
+            for cable_id in common:
+                Cable.objects.filter(pk=cable_id).delete()
+                removed += 1
+
+        # Process additions
+        for port_a_id, port_b_id in all_adds:
+            cable = Cable(length=0, length_unit="m")
+            cable.save()
+            CableTermination.objects.create(
+                cable=cable,
+                cable_end="A",
+                termination_type=fp_ct,
+                termination_id=port_a_id,
+            )
+            CableTermination.objects.create(
+                cable=cable,
+                cable_end="B",
+                termination_type=fp_ct,
+                termination_id=port_b_id,
+            )
+            added += 1
+
+        plan.status = SplicePlanStatusChoices.APPLIED
+        plan.diff_stale = True
+        plan.save(update_fields=["status", "diff_stale"])
+
+    return {"added": added, "removed": removed}
