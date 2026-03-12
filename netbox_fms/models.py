@@ -720,20 +720,21 @@ class SpliceProject(NetBoxModel):
 
 class SplicePlan(NetBoxModel):
     """
-    A splice plan maps fibers between cables within a splice closure tray.
+    A splice plan represents the desired state of all splice connections
+    within a closure (Device). One plan per closure.
     """
 
-    closure = models.ForeignKey(
+    closure = models.OneToOneField(
         to="dcim.Device",
         on_delete=models.CASCADE,
-        related_name="splice_plans",
+        related_name="splice_plan",
         verbose_name=_("closure"),
     )
-    tray = models.ForeignKey(
-        to="dcim.Module",
-        on_delete=models.CASCADE,
-        related_name="splice_plans",
-        verbose_name=_("tray"),
+    project = models.ForeignKey(
+        to="netbox_fms.SpliceProject",
+        on_delete=models.SET_NULL,
+        related_name="plans",
+        verbose_name=_("project"),
         blank=True,
         null=True,
     )
@@ -745,15 +746,20 @@ class SplicePlan(NetBoxModel):
         verbose_name=_("description"),
         blank=True,
     )
-    mode = models.CharField(
-        verbose_name=_("mode"),
-        max_length=50,
-    )
     status = models.CharField(
         verbose_name=_("status"),
         max_length=50,
         choices=SplicePlanStatusChoices,
         default=SplicePlanStatusChoices.DRAFT,
+    )
+    cached_diff = models.JSONField(
+        verbose_name=_("cached diff"),
+        blank=True,
+        null=True,
+    )
+    diff_stale = models.BooleanField(
+        verbose_name=_("diff stale"),
+        default=True,
     )
 
     class Meta:
@@ -766,70 +772,6 @@ class SplicePlan(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:spliceplan", args=[self.pk])
-
-    def validate_for_implement(self):
-        """Check all strands have materialized FrontPorts. Returns list of errors."""
-        errors = []
-        for entry in self.entries.select_related("fiber_a", "fiber_b").all():
-            effective_mode = entry.mode_override or self.mode
-            if effective_mode == "passthrough":
-                continue
-            if not entry.fiber_a.front_port_id:
-                errors.append(_('Fiber A "{strand}" has no provisioned FrontPort.').format(strand=entry.fiber_a))
-            if not entry.fiber_b.front_port_id:
-                errors.append(_('Fiber B "{strand}" has no provisioned FrontPort.').format(strand=entry.fiber_b))
-        return errors
-
-    def implement(self):
-        """
-        Create 0-length cables for all entries not marked as pass-through.
-        Requires all strands to have provisioned FrontPorts.
-        Sets status to implemented.
-        """
-        from dcim.models import Cable, CableTermination
-
-        if self.status == SplicePlanStatusChoices.APPLIED:
-            raise ValidationError(_("This plan is already implemented."))
-
-        errors = self.validate_for_implement()
-        if errors:
-            raise ValidationError(errors)
-
-        for entry in self.entries.select_related("fiber_a", "fiber_b").all():
-            effective_mode = entry.mode_override or self.mode
-            if effective_mode == "passthrough":
-                continue
-
-            cable = Cable(length=0, length_unit="m")
-            cable.save()
-            CableTermination.objects.create(
-                cable=cable,
-                cable_end="A",
-                termination=entry.fiber_a.front_port,
-            )
-            CableTermination.objects.create(
-                cable=cable,
-                cable_end="B",
-                termination=entry.fiber_b.front_port,
-            )
-            entry.cable = cable
-            entry.save()
-
-        self.status = SplicePlanStatusChoices.APPLIED
-        self.save()
-
-    def rollback(self):
-        """Delete all splice cables and reset status to draft."""
-        if self.status != SplicePlanStatusChoices.APPLIED:
-            raise ValidationError(_("Only implemented plans can be rolled back."))
-
-        for entry in self.entries.filter(cable__isnull=False).select_related("cable"):
-            entry.cable.delete()
-            entry.cable = None
-            entry.save()
-
-        self.status = SplicePlanStatusChoices.DRAFT
-        self.save()
 
 
 class SplicePlanEntry(NetBoxModel):

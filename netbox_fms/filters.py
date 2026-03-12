@@ -1,5 +1,5 @@
 import django_filters
-from dcim.models import Cable, Device, Manufacturer, Module
+from dcim.models import Cable, Device, Manufacturer
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from netbox.filtersets import NetBoxModelFilterSet
@@ -256,16 +256,11 @@ class SplicePlanFilterSet(NetBoxModelFilterSet):
         field_name="closure",
         label=_("Closure (ID)"),
     )
-    tray_id = django_filters.ModelMultipleChoiceFilter(
-        queryset=Module.objects.all(),
-        field_name="tray",
-        label=_("Tray (ID)"),
-    )
     status = django_filters.MultipleChoiceFilter(choices=SplicePlanStatusChoices)
 
     class Meta:
         model = SplicePlan
-        fields = ("id", "closure_id", "tray_id", "name", "status")
+        fields = ("id", "closure_id", "name", "status")
 
     def search(self, queryset, name, value):
         if not value.strip():

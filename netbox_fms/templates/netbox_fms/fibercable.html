@@ -1,0 +1,109 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load render_table from django_tables2 %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Fiber Cable" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Cable" %}</th>
+                    <td>{{ object.cable|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Fiber Cable Type" %}</th>
+                    <td>{{ object.fiber_cable_type|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Manufacturer" %}</th>
+                    <td>{{ object.fiber_cable_type.manufacturer|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Construction" %}</th>
+                    <td>{{ object.fiber_cable_type.get_construction_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Fiber Type" %}</th>
+                    <td>{{ object.fiber_cable_type.get_fiber_type_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Strand Count" %}</th>
+                    <td>{{ object.fiber_cable_type.strand_count }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Identification" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Serial Number" %}</th>
+                    <td>{{ object.serial_number|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Install Date" %}</th>
+                    <td>{{ object.install_date|placeholder }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Buffer Tubes" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table tubes_table %}
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Ribbons" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table ribbons_table %}
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Fiber Strands" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table strands_table %}
+            </div>
+        </div>
+    </div>
+</div>
+{% if elements_table.rows|length %}
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Cable Elements" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table elements_table %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% if object.notes %}
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Notes" %}</h5>
+            <div class="card-body">{{ object.notes|markdown }}</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% plugin_full_width_page object %}
+{% endblock %}

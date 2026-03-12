@@ -71,8 +71,6 @@ urlpatterns = [
     path("splice-plans/<int:pk>/", views.SplicePlanView.as_view(), name="spliceplan"),
     path("splice-plans/<int:pk>/edit/", views.SplicePlanEditView.as_view(), name="spliceplan_edit"),
     path("splice-plans/<int:pk>/delete/", views.SplicePlanDeleteView.as_view(), name="spliceplan_delete"),
-    path("splice-plans/<int:pk>/implement/", views.SplicePlanImplementView.as_view(), name="spliceplan_implement"),
-    path("splice-plans/<int:pk>/rollback/", views.SplicePlanRollbackView.as_view(), name="spliceplan_rollback"),
     path("splice-plans/<int:pk>/editor/", views.SpliceEditorView.as_view(), name="spliceplan_editor"),
     # SplicePlanEntry
     path("splice-plan-entries/", views.SplicePlanEntryListView.as_view(), name="spliceplanentry_list"),

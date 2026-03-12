@@ -1,0 +1,29 @@
+{% extends 'generic/object_edit.html' %}
+{% load helpers %}
+{% load form_helpers %}
+{% load i18n %}
+
+{% block title %}{% trans "Provision Ports" %}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-8 col-lg-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Provision Ports" %}</h5>
+            <div class="card-body">
+                <p>{% trans "Create dcim FrontPorts, a RearPort, and PortMappings for a fiber cable on a device. Each fiber strand gets its own FrontPort." %}</p>
+                <form method="post">
+                    {% csrf_token %}
+                    {% render_form form %}
+                    <div class="text-end">
+                        <a href="{% url 'plugins:netbox_fms:fibercable_list' %}" class="btn btn-outline-secondary">{% trans "Cancel" %}</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="mdi mdi-check-bold"></i> {% trans "Provision Ports" %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

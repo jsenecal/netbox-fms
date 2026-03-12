@@ -302,58 +302,8 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
     table = SplicePlanTable
 
 
-class SplicePlanImplementView(View):
-    """Two-step implement: GET shows preview, POST executes."""
-
-    def get(self, request, pk):
-        plan = get_object_or_404(SplicePlan, pk=pk)
-        entries = plan.entries.select_related("fiber_a", "fiber_b", "fiber_a__front_port", "fiber_b__front_port").all()
-        errors = plan.validate_for_implement()
-        preview = []
-        for entry in entries:
-            effective_mode = entry.mode_override or plan.mode
-            preview.append(
-                {
-                    "entry": entry,
-                    "fiber_a": entry.fiber_a,
-                    "fiber_b": entry.fiber_b,
-                    "front_port_a": entry.fiber_a.front_port,
-                    "front_port_b": entry.fiber_b.front_port,
-                    "mode": effective_mode,
-                    "skip": effective_mode == "passthrough",
-                }
-            )
-        return render(
-            request,
-            "netbox_fms/spliceplan_implement_confirm.html",
-            {
-                "object": plan,
-                "preview": preview,
-                "errors": errors,
-            },
-        )
-
-    def post(self, request, pk):
-        plan = get_object_or_404(SplicePlan, pk=pk)
-        try:
-            plan.implement()
-            messages.success(request, _('Splice plan "{plan}" has been implemented.').format(plan=plan))
-        except Exception as e:
-            messages.error(request, str(e))
-        return redirect(plan.get_absolute_url())
-
-
-class SplicePlanRollbackView(View):
-    """Rollback an implemented splice plan."""
-
-    def post(self, request, pk):
-        plan = get_object_or_404(SplicePlan, pk=pk)
-        try:
-            plan.rollback()
-            messages.success(request, _('Splice plan "{plan}" has been rolled back.').format(plan=plan))
-        except Exception as e:
-            messages.error(request, str(e))
-        return redirect(plan.get_absolute_url())
+# SplicePlanImplementView and SplicePlanRollbackView removed — implement/rollback
+# functionality has been replaced by import_live_state / apply_diff workflow.
 
 
 # ---------------------------------------------------------------------------
@@ -550,19 +500,11 @@ class DeviceSpliceEditorView(View):
     def get(self, request, pk):
         device = get_object_or_404(Device, pk=pk)
 
-        # Get or create a default splice plan for this closure
-        plans = SplicePlan.objects.filter(closure=device).order_by("name")
-        plan_pk = request.GET.get("plan")
-
-        if plan_pk:
-            plan = get_object_or_404(plans, pk=plan_pk)
-        elif plans.exists():
-            plan = plans.first()
-        else:
-            plan = SplicePlan.objects.create(
-                closure=device,
-                name=f"Default – {device.name}",
-            )
+        # Get or create the single splice plan for this closure (OneToOne)
+        plan, _ = SplicePlan.objects.get_or_create(
+            closure=device,
+            defaults={"name": f"Default – {device.name}"},
+        )
 
         return render(
             request,
@@ -571,7 +513,6 @@ class DeviceSpliceEditorView(View):
                 "object": device,
                 "device": device,
                 "plan": plan,
-                "plans": plans,
                 "tab": self.tab,
             },
         )

@@ -1,0 +1,65 @@
+{% extends 'generic/object.html' %}
+{% load static %}
+{% load helpers %}
+{% load i18n %}
+
+{% block title %}{% trans "Splice Editor" %}: {{ object }}{% endblock %}
+
+{% block head %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'netbox_fms/css/splice_editor.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header d-flex justify-content-between align-items-center">
+                <span>{% trans "Splice Editor" %} &mdash; {{ object.name }}</span>
+                <span class="badge bg-{{ object.status }}">{{ object.get_status_display }}</span>
+            </h5>
+            <div class="card-body p-0">
+                <!-- Toolbar -->
+                <div class="splice-toolbar p-2 border-bottom" id="splice-toolbar">
+                    <div class="btn-group me-3" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-primary active" data-mode="single" title="{% trans 'Single splice mode' %}">
+                            <i class="mdi mdi-ray-start-end"></i> {% trans "Single" %}
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-mode="sequential" title="{% trans 'Sequential bulk splice mode' %}">
+                            <i class="mdi mdi-format-list-numbered"></i> {% trans "Sequential" %}
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-mode="delete" title="{% trans 'Delete splice mode' %}">
+                            <i class="mdi mdi-close"></i> {% trans "Delete" %}
+                        </button>
+                    </div>
+                    <a href="{{ object.get_absolute_url }}" class="btn btn-sm btn-outline-secondary ms-2">
+                        <i class="mdi mdi-arrow-left"></i> {% trans "Back to Plan" %}
+                    </a>
+                    <span class="text-muted small ms-3">{% trans "Scroll each column independently. Splicing works across or within sides." %}</span>
+                </div>
+
+                <!-- D3 splice canvas -->
+                <div class="splice-editor-container" id="splice-canvas-container"></div>
+
+                <!-- Status bar -->
+                <div class="p-2 border-top text-muted small" id="splice-status">
+                    {% trans "Loading strands..." %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    window.SPLICE_EDITOR_CONFIG = {
+        planId: {{ object.pk }},
+        closureId: {{ object.closure_id }},
+        planMode: "single",
+        planStatus: "{{ object.status }}",
+        apiBase: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=object.closure_id %}",
+        bulkSpliceUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-bulk-splice' pk=object.pk %}",
+        csrfToken: "{{ csrf_token }}",
+    };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="{% static 'netbox_fms/js/splice_editor.js' %}"></script>
+{% endblock %}

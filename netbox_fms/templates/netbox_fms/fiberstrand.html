@@ -1,0 +1,44 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Fiber Strand" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Fiber Cable" %}</th>
+                    <td>{{ object.fiber_cable|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Buffer Tube" %}</th>
+                    <td>{{ object.buffer_tube|linkify|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Name" %}</th>
+                    <td>{{ object.name }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Position" %}</th>
+                    <td>{{ object.position }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Color" %}</th>
+                    <td>
+                        {% if object.color %}
+                            <span class="color-label" style="background-color: #{{ object.color }}">&nbsp;</span>
+                            {{ object.color }}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% plugin_full_width_page object %}
+{% endblock %}

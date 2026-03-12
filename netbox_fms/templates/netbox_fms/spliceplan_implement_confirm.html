@@ -1,0 +1,77 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load i18n %}
+
+{% block title %}{% trans "Implement Splice Plan" %}: {{ object }}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Implementation Preview" %}</h5>
+            <div class="card-body">
+                {% if errors %}
+                <div class="alert alert-danger">
+                    <h6>{% trans "Cannot implement — the following issues must be resolved:" %}</h6>
+                    <ul class="mb-0">
+                        {% for error in errors %}
+                        <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                    <p class="mt-2 mb-0">
+                        <a href="{% url 'plugins:netbox_fms:provision_ports' %}" class="btn btn-sm btn-outline-primary">
+                            <i class="mdi mdi-ethernet"></i> {% trans "Provision Ports" %}
+                        </a>
+                    </p>
+                </div>
+                {% endif %}
+
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Fiber A" %}</th>
+                            <th>{% trans "FrontPort A" %}</th>
+                            <th></th>
+                            <th>{% trans "Fiber B" %}</th>
+                            <th>{% trans "FrontPort B" %}</th>
+                            <th>{% trans "Mode" %}</th>
+                            <th>{% trans "Action" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in preview %}
+                        <tr{% if item.skip %} class="text-muted"{% endif %}>
+                            <td>{{ item.fiber_a }}</td>
+                            <td>{% if item.front_port_a %}{{ item.front_port_a }}{% else %}<span class="text-danger">{% trans "Not provisioned" %}</span>{% endif %}</td>
+                            <td><i class="mdi mdi-arrow-right"></i></td>
+                            <td>{{ item.fiber_b }}</td>
+                            <td>{% if item.front_port_b %}{{ item.front_port_b }}{% else %}<span class="text-danger">{% trans "Not provisioned" %}</span>{% endif %}</td>
+                            <td>{{ item.mode }}</td>
+                            <td>
+                                {% if item.skip %}
+                                <span class="badge bg-secondary">{% trans "Skip (passthrough)" %}</span>
+                                {% else %}
+                                <span class="badge bg-primary">{% trans "Create cable" %}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                {% if not errors %}
+                <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_implement' pk=object.pk %}">
+                    {% csrf_token %}
+                    <div class="text-end">
+                        <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">{% trans "Cancel" %}</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="mdi mdi-play"></i> {% trans "Implement Plan" %}
+                        </button>
+                    </div>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

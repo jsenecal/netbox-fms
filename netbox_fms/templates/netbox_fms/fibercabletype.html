@@ -1,0 +1,122 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load render_table from django_tables2 %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Cable Type" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Manufacturer" %}</th>
+                    <td>{{ object.manufacturer|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Model" %}</th>
+                    <td>{{ object.model }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Part Number" %}</th>
+                    <td>{{ object.part_number|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Construction" %}</th>
+                    <td>{{ object.get_construction_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Fiber Type" %}</th>
+                    <td>{{ object.get_fiber_type_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Strand Count" %}</th>
+                    <td>{{ object.strand_count }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Physical Properties" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Sheath Material" %}</th>
+                    <td>{{ object.get_sheath_material_display|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Jacket Color" %}</th>
+                    <td>
+                        {% if object.jacket_color %}
+                            <span class="color-label" style="background-color: #{{ object.jacket_color }}">&nbsp;</span>
+                            {{ object.jacket_color }}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Armored" %}</th>
+                    <td>{% if object.is_armored %}<span class="text-success"><i class="mdi mdi-check-bold"></i></span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+                </tr>
+                {% if object.is_armored %}
+                <tr>
+                    <th scope="row">{% trans "Armor Type" %}</th>
+                    <td>{{ object.get_armor_type_display }}</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <th scope="row">{% trans "Deployment" %}</th>
+                    <td>{{ object.get_deployment_display|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Fire Rating" %}</th>
+                    <td>{{ object.get_fire_rating_display|placeholder }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Buffer Tubes" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table tubes_table %}
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Ribbon Templates" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table ribbons_table %}
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Cable Elements" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table elements_table %}
+            </div>
+        </div>
+    </div>
+</div>
+{% if object.notes %}
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Notes" %}</h5>
+            <div class="card-body">{{ object.notes|markdown }}</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% plugin_full_width_page object %}
+{% endblock %}

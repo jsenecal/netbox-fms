@@ -1,0 +1,137 @@
+/* Main container */
+.splice-editor-container {
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bs-tertiary-bg, #f8f9fa);
+}
+
+.splice-editor-container svg {
+    display: block;
+    cursor: default;
+}
+
+/* Cable group labels */
+.cable-label {
+    font-size: 11px;
+    font-weight: 700;
+    fill: var(--bs-body-color, #212529);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Cable group subtitle (fiber type, strand count) */
+.cable-subtitle {
+    font-size: 9px;
+    fill: var(--bs-secondary-color, #6c757d);
+}
+
+/* Tube group labels */
+.tube-label {
+    font-size: 10px;
+    font-weight: 600;
+    fill: var(--bs-secondary-color, #6c757d);
+    cursor: pointer;
+}
+
+.tube-label:hover {
+    fill: var(--bs-primary, #0d6efd);
+}
+
+/* Tube color indicator */
+.tube-dot {
+    stroke: var(--bs-border-color, #dee2e6);
+    stroke-width: 1;
+}
+
+/* Fiber strand nodes */
+.strand-node {
+    cursor: pointer;
+}
+
+.strand-dot {
+    stroke: var(--bs-border-color, #dee2e6);
+    stroke-width: 1.5;
+    transition: stroke-width 0.1s, stroke 0.1s;
+}
+
+.strand-node:hover .strand-dot {
+    stroke-width: 2.5;
+    stroke: var(--bs-primary, #0d6efd);
+}
+
+.strand-node.selected .strand-dot {
+    stroke-width: 3;
+    stroke: var(--bs-primary, #0d6efd);
+}
+
+.strand-node.spliced .strand-dot {
+    stroke: var(--bs-success, #198754);
+    stroke-width: 2;
+}
+
+.strand-name {
+    font-size: 10px;
+    fill: var(--bs-body-color, #212529);
+    pointer-events: none;
+}
+
+.strand-node.spliced .strand-name {
+    fill: var(--bs-secondary-color, #6c757d);
+}
+
+/* Splice link curves */
+.splice-link {
+    fill: none;
+    stroke: var(--bs-success, #198754);
+    stroke-width: 1.5;
+    opacity: 0.5;
+    pointer-events: stroke;
+    cursor: pointer;
+    transition: stroke-width 0.1s, opacity 0.1s;
+}
+
+.splice-link:hover {
+    stroke-width: 3;
+    opacity: 1;
+}
+
+.splice-link.same-side {
+    stroke: var(--bs-info, #0dcaf0);
+}
+
+/* Column background */
+.column-bg {
+    fill: var(--bs-body-bg, #fff);
+    stroke: var(--bs-border-color, #dee2e6);
+    stroke-width: 1;
+}
+
+/* Column header */
+.column-header {
+    font-size: 10px;
+    font-weight: 600;
+    fill: var(--bs-secondary-color, #6c757d);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-anchor: middle;
+}
+
+/* Scroll hint */
+.scroll-hint {
+    font-size: 9px;
+    fill: var(--bs-secondary-color, #adb5bd);
+    text-anchor: middle;
+}
+
+/* Divider line */
+.center-line {
+    stroke: var(--bs-border-color, #dee2e6);
+    stroke-width: 1;
+    stroke-dasharray: 4, 4;
+}
+
+/* Toolbar */
+.splice-toolbar .btn.active {
+    font-weight: 600;
+}

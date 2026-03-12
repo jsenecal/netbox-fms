@@ -1,0 +1,37 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Splice Entry" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Plan" %}</th>
+                    <td>{{ object.plan|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Fiber A" %}</th>
+                    <td>{{ object.fiber_a|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Fiber B" %}</th>
+                    <td>{{ object.fiber_b|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Mode Override" %}</th>
+                    <td>{{ object.get_mode_override_display|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Cable" %}</th>
+                    <td>{{ object.cable|linkify|placeholder }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% plugin_full_width_page object %}
+{% endblock %}

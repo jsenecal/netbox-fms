@@ -1,0 +1,60 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load render_table from django_tables2 %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Splice Plan" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Name" %}</th>
+                    <td>{{ object.name }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Closure" %}</th>
+                    <td>{{ object.closure|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Status" %}</th>
+                    <td>{{ object.get_status_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Diff Stale" %}</th>
+                    <td>{{ object.diff_stale|yesno }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        {% if object.description %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Description" %}</h5>
+            <div class="card-body">{{ object.description|markdown }}</div>
+        </div>
+        {% endif %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Actions" %}</h5>
+            <div class="card-body">
+                <a href="{% url 'plugins:netbox_fms:spliceplan_editor' pk=object.pk %}" class="btn btn-info mb-2">
+                    <i class="mdi mdi-pencil"></i> {% trans "Visual Splice Editor" %}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Splice Entries" %}</h5>
+            <div class="card-body table-responsive">
+                {% render_table entries_table %}
+            </div>
+        </div>
+    </div>
+</div>
+{% plugin_full_width_page object %}
+{% endblock %}
