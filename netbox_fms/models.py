@@ -27,6 +27,7 @@ __all__ = (
     "Ribbon",
     "FiberStrand",
     "CableElement",
+    "SpliceProject",
     "SplicePlan",
     "SplicePlanEntry",
     "FiberPathLoss",
@@ -691,6 +692,30 @@ class CableElement(NetBoxModel):
 # ---------------------------------------------------------------------------
 # Splice planning
 # ---------------------------------------------------------------------------
+
+
+class SpliceProject(NetBoxModel):
+    """Groups multiple closure-level splice plans into a route/job scope."""
+
+    name = models.CharField(
+        verbose_name=_("name"),
+        max_length=100,
+    )
+    description = models.TextField(
+        verbose_name=_("description"),
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name = _("splice project")
+        verbose_name_plural = _("splice projects")
+
+    def __str__(self):
+        return self.name
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:spliceproject", args=[self.pk])
 
 
 class SplicePlan(NetBoxModel):
