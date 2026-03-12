@@ -283,16 +283,15 @@ class SplicePlanTable(NetBoxTable):
 class SplicePlanEntryTable(NetBoxTable):
     pk = columns.ToggleColumn()
     plan = tables.Column(linkify=True, verbose_name=_("Plan"))
+    tray = tables.Column(linkify=True, verbose_name=_("Tray"))
     fiber_a = tables.Column(linkify=True, verbose_name=_("Fiber A"))
     fiber_b = tables.Column(linkify=True, verbose_name=_("Fiber B"))
-    mode_override = tables.Column(verbose_name=_("Mode Override"))
-    cable = tables.Column(linkify=True, verbose_name=_("Cable"))
     actions = columns.ActionsColumn()
 
     class Meta(NetBoxTable.Meta):
         model = SplicePlanEntry
-        fields = ("pk", "id", "plan", "fiber_a", "fiber_b", "mode_override", "cable", "actions")
-        default_columns = ("pk", "plan", "fiber_a", "fiber_b", "mode_override", "cable", "actions")
+        fields = ("pk", "id", "plan", "tray", "fiber_a", "fiber_b", "notes", "actions")
+        default_columns = ("pk", "plan", "tray", "fiber_a", "fiber_b", "actions")
 
 
 # ---------------------------------------------------------------------------

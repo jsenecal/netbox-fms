@@ -277,7 +277,7 @@ class SplicePlanEntryFilterSet(NetBoxModelFilterSet):
 
     class Meta:
         model = SplicePlanEntry
-        fields = ("id", "plan_id", "fiber_a", "fiber_b", "mode_override")
+        fields = ("id", "plan_id", "fiber_a", "fiber_b")
 
     def search(self, queryset, name, value):
         if not value.strip():

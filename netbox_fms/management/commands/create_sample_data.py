@@ -528,7 +528,8 @@ class Command(BaseCommand):
                         device=closure,
                         name=f"Cable-{side_b} F{start_b + i}",
                     )
-                    SplicePlanEntry.objects.create(plan=plan, fiber_a=fiber_a, fiber_b=fiber_b)
+                    tray = fiber_a.module
+                    SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fiber_a, fiber_b=fiber_b)
 
         self.stdout.write(
             f"  Created splice plan with {SplicePlanEntry.objects.filter(plan__closure=closure).count()} entries."

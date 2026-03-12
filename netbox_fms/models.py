@@ -776,7 +776,8 @@ class SplicePlan(NetBoxModel):
 
 class SplicePlanEntry(NetBoxModel):
     """
-    A single fiber-to-fiber mapping within a splice plan.
+    A single desired FrontPort↔FrontPort connection within a splice plan.
+    Each entry represents one splice or inter-platter route.
     """
 
     plan = models.ForeignKey(
@@ -784,34 +785,36 @@ class SplicePlanEntry(NetBoxModel):
         on_delete=models.CASCADE,
         related_name="entries",
     )
+    tray = models.ForeignKey(
+        to="dcim.Module",
+        on_delete=models.CASCADE,
+        related_name="splice_plan_entries",
+        verbose_name=_("tray"),
+        help_text=_("Tray owning fiber_a (canonical tray for this entry)."),
+    )
     fiber_a = models.ForeignKey(
-        to="netbox_fms.FiberStrand",
+        to="dcim.FrontPort",
         on_delete=models.CASCADE,
         related_name="splice_entries_a",
         verbose_name=_("fiber A"),
     )
     fiber_b = models.ForeignKey(
-        to="netbox_fms.FiberStrand",
+        to="dcim.FrontPort",
         on_delete=models.CASCADE,
         related_name="splice_entries_b",
         verbose_name=_("fiber B"),
     )
-    mode_override = models.CharField(
-        verbose_name=_("mode override"),
-        max_length=50,
+    notes = models.TextField(
+        verbose_name=_("notes"),
         blank=True,
-    )
-    cable = models.ForeignKey(
-        to="dcim.Cable",
-        on_delete=models.SET_NULL,
-        related_name="splice_plan_entries",
-        blank=True,
-        null=True,
-        verbose_name=_("cable"),
     )
 
     class Meta:
         ordering = ("plan", "pk")
+        unique_together = (
+            ("plan", "fiber_a"),
+            ("plan", "fiber_b"),
+        )
         verbose_name = _("splice plan entry")
         verbose_name_plural = _("splice plan entries")
 
@@ -820,6 +823,22 @@ class SplicePlanEntry(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:spliceplanentry", args=[self.pk])
+
+    @property
+    def is_inter_platter(self):
+        """True if fiber_a and fiber_b are on different tray modules."""
+        return self.fiber_a.module_id != self.fiber_b.module_id
+
+    def clean(self):
+        super().clean()
+        # Validate both FrontPorts belong to the plan's closure Device
+        if self.fiber_a.device_id != self.plan.closure_id:
+            raise ValidationError({"fiber_a": _("FrontPort must belong to the plan's closure device.")})
+        if self.fiber_b.device_id != self.plan.closure_id:
+            raise ValidationError({"fiber_b": _("FrontPort must belong to the plan's closure device.")})
+        # Validate tray matches fiber_a's module
+        if self.fiber_a.module_id != self.tray_id:
+            raise ValidationError({"tray": _("Tray must match fiber_a's parent module.")})
 
 
 # ---------------------------------------------------------------------------

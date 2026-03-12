@@ -1,28 +1,20 @@
-from dcim.models import FrontPort, RearPort
+from dcim.models import FrontPort
 
-# Counter to ensure unique RearPort names across tests
-_rp_counter = 0
+# Counter to ensure unique FrontPort names across tests (no longer needed but kept for safety)
+_fp_counter = 0
 
 
 def make_front_port(device, name, module=None, port_type="lc"):
     """
-    Create a FrontPort with its required backing RearPort.
-    NetBox FrontPort requires rear_port + rear_port_position.
+    Create a FrontPort.
+    NetBox 4.5+ FrontPort no longer requires a backing RearPort.
     """
-    global _rp_counter
-    _rp_counter += 1
-    rp = RearPort.objects.create(
-        device=device,
-        name=f"_RP-{_rp_counter}",
-        type=port_type,
-        positions=1,
-    )
+    global _fp_counter
+    _fp_counter += 1
     kwargs = {
         "device": device,
         "name": name,
         "type": port_type,
-        "rear_port": rp,
-        "rear_port_position": 1,
     }
     if module is not None:
         kwargs["module"] = module

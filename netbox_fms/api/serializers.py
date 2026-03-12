@@ -3,6 +3,7 @@ from dcim.api.serializers import (
     DeviceSerializer,
     FrontPortSerializer,
     ManufacturerSerializer,
+    ModuleSerializer,
 )
 from netbox.api.serializers import NetBoxModelSerializer
 from rest_framework import serializers
@@ -262,9 +263,9 @@ class SplicePlanSerializer(NetBoxModelSerializer):
 
 class SplicePlanEntrySerializer(NetBoxModelSerializer):
     plan = SplicePlanSerializer(nested=True)
-    fiber_a = FiberStrandSerializer(nested=True)
-    fiber_b = FiberStrandSerializer(nested=True)
-    cable = CableSerializer(nested=True, required=False, allow_null=True)
+    tray = ModuleSerializer(nested=True)
+    fiber_a = FrontPortSerializer(nested=True)
+    fiber_b = FrontPortSerializer(nested=True)
 
     class Meta:
         model = SplicePlanEntry
@@ -273,10 +274,10 @@ class SplicePlanEntrySerializer(NetBoxModelSerializer):
             "url",
             "display",
             "plan",
+            "tray",
             "fiber_a",
             "fiber_b",
-            "mode_override",
-            "cable",
+            "notes",
             "tags",
             "custom_fields",
             "created",
@@ -341,6 +342,7 @@ class CableGroupSerializer(serializers.Serializer):
 
 
 class BulkSpliceInputSerializer(serializers.Serializer):
+    tray_id = serializers.IntegerField()
     fiber_a = serializers.IntegerField()
     fiber_b = serializers.IntegerField()
 

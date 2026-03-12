@@ -1,4 +1,4 @@
-from dcim.models import Cable, Device, Manufacturer
+from dcim.models import Cable, Device, FrontPort, Manufacturer, Module
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
@@ -29,7 +29,6 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberPathLoss,
-    FiberStrand,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
@@ -362,19 +361,19 @@ class SplicePlanFilterForm(NetBoxModelFilterSetForm):
 
 class SplicePlanEntryForm(NetBoxModelForm):
     plan = DynamicModelChoiceField(queryset=SplicePlan.objects.all(), label=_("Plan"))
-    fiber_a = DynamicModelChoiceField(queryset=FiberStrand.objects.all(), label=_("Fiber A"))
-    fiber_b = DynamicModelChoiceField(queryset=FiberStrand.objects.all(), label=_("Fiber B"))
-    cable = DynamicModelChoiceField(queryset=Cable.objects.all(), required=False, label=_("Cable"))
+    tray = DynamicModelChoiceField(queryset=Module.objects.all(), label=_("Tray"))
+    fiber_a = DynamicModelChoiceField(queryset=FrontPort.objects.all(), label=_("Fiber A"))
+    fiber_b = DynamicModelChoiceField(queryset=FrontPort.objects.all(), label=_("Fiber B"))
 
     fieldsets = (
-        FieldSet("plan", "fiber_a", "fiber_b", name=_("Splice Entry")),
-        FieldSet("mode_override", "cable", name=_("Configuration")),
+        FieldSet("plan", "tray", "fiber_a", "fiber_b", name=_("Splice Entry")),
+        FieldSet("notes", name=_("Notes")),
         FieldSet("tags", name=_("Additional")),
     )
 
     class Meta:
         model = SplicePlanEntry
-        fields = ("plan", "fiber_a", "fiber_b", "mode_override", "cable", "tags")
+        fields = ("plan", "tray", "fiber_a", "fiber_b", "notes", "tags")
 
 
 class SplicePlanEntryFilterForm(NetBoxModelFilterSetForm):

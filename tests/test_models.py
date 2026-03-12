@@ -1,8 +1,10 @@
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
+from django.db import IntegrityError
 from django.test import TestCase
 
 from netbox_fms.choices import SplicePlanStatusChoices
-from netbox_fms.models import SplicePlan, SpliceProject
+from netbox_fms.models import SplicePlan, SplicePlanEntry, SpliceProject
+from tests.conftest import make_front_port
 
 
 class TestSplicePlanStatusChoices(TestCase):
@@ -93,3 +95,63 @@ class TestSplicePlanRework(TestCase):
     def test_no_rollback_method(self):
         plan = SplicePlan.objects.create(closure=self.closure, name="Plan 1")
         assert not hasattr(plan, "rollback")
+
+
+class TestSplicePlanEntryRework(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="Test Site 2", slug="test-site-2")
+        manufacturer = Manufacturer.objects.create(name="Test Mfr 2", slug="test-mfr-2")
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="Closure 2", slug="closure-2")
+        role = DeviceRole.objects.create(name="Splice Closure 2", slug="splice-closure-2")
+        cls.closure = Device.objects.create(name="Closure-2", site=site, device_type=device_type, role=role)
+        cls.plan = SplicePlan.objects.create(closure=cls.closure, name="Plan")
+
+        # Create a tray (Module) on the closure
+        module_type = ModuleType.objects.create(manufacturer=manufacturer, model="Tray-12")
+        bay = ModuleBay.objects.create(device=cls.closure, name="Tray Slot 1")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=module_type)
+
+        # Create FrontPorts on the tray module using make_front_port helper
+        cls.fp_a = make_front_port(device=cls.closure, module=cls.tray, name="F1")
+        cls.fp_b = make_front_port(device=cls.closure, module=cls.tray, name="F2")
+
+    def test_create_entry_with_frontports(self):
+        entry = SplicePlanEntry.objects.create(
+            plan=self.plan,
+            tray=self.tray,
+            fiber_a=self.fp_a,
+            fiber_b=self.fp_b,
+        )
+        assert entry.pk is not None
+
+    def test_entry_notes_field(self):
+        entry = SplicePlanEntry.objects.create(
+            plan=self.plan,
+            tray=self.tray,
+            fiber_a=self.fp_a,
+            fiber_b=self.fp_b,
+            notes="Splice with blue heat-shrink",
+        )
+        assert entry.notes == "Splice with blue heat-shrink"
+
+    def test_no_cable_field(self):
+        assert not hasattr(SplicePlanEntry, "cable")
+
+    def test_no_mode_override_field(self):
+        entry = SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=self.fp_a, fiber_b=self.fp_b)
+        assert not hasattr(entry, "mode_override")
+
+    def test_unique_fiber_a_per_plan(self):
+        """Each FrontPort can appear as fiber_a at most once per plan."""
+        fp_c = make_front_port(device=self.closure, module=self.tray, name="F3")
+        SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=self.fp_a, fiber_b=fp_c)
+        with self.assertRaises(IntegrityError):
+            SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=self.fp_a, fiber_b=self.fp_b)
+
+    def test_unique_fiber_b_per_plan(self):
+        """Each FrontPort can appear as fiber_b at most once per plan."""
+        fp_c = make_front_port(device=self.closure, module=self.tray, name="F4")
+        SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=self.fp_a, fiber_b=self.fp_b)
+        with self.assertRaises(IntegrityError):
+            SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=fp_c, fiber_b=self.fp_b)

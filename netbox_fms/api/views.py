@@ -113,7 +113,7 @@ class CableElementViewSet(NetBoxModelViewSet):
 
 
 class SplicePlanEntryViewSet(NetBoxModelViewSet):
-    queryset = SplicePlanEntry.objects.prefetch_related("plan", "fiber_a", "fiber_b", "cable", "tags")
+    queryset = SplicePlanEntry.objects.prefetch_related("plan", "tray", "fiber_a", "fiber_b", "tags")
     serializer_class = SplicePlanEntrySerializer
     filterset_class = SplicePlanEntryFilterSet
 
@@ -134,6 +134,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
             for item in serializer.validated_data:
                 entry = SplicePlanEntry.objects.create(
                     plan=plan,
+                    tray_id=item["tray_id"],
                     fiber_a_id=item["fiber_a"],
                     fiber_b_id=item["fiber_b"],
                 )
