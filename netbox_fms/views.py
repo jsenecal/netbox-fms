@@ -42,6 +42,7 @@ from .forms import (
 from .models import (
     BufferTubeTemplate,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
@@ -304,6 +305,15 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
 
 # SplicePlanImplementView and SplicePlanRollbackView removed — implement/rollback
 # functionality has been replaced by import_live_state / apply_diff workflow.
+
+
+# ---------------------------------------------------------------------------
+# ClosureCableEntry
+# ---------------------------------------------------------------------------
+
+
+class ClosureCableEntryView(generic.ObjectView):
+    queryset = ClosureCableEntry.objects.all()
 
 
 # ---------------------------------------------------------------------------

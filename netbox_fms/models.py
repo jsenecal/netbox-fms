@@ -30,6 +30,7 @@ __all__ = (
     "SpliceProject",
     "SplicePlan",
     "SplicePlanEntry",
+    "ClosureCableEntry",
     "FiberPathLoss",
 )
 
@@ -839,6 +840,45 @@ class SplicePlanEntry(NetBoxModel):
         # Validate tray matches fiber_a's module
         if self.fiber_a.module_id != self.tray_id:
             raise ValidationError({"tray": _("Tray must match fiber_a's parent module.")})
+
+
+class ClosureCableEntry(NetBoxModel):
+    """Tracks which port/gland on a closure each cable enters through."""
+
+    closure = models.ForeignKey(
+        to="dcim.Device",
+        on_delete=models.CASCADE,
+        related_name="cable_entries",
+        verbose_name=_("closure"),
+    )
+    fiber_cable = models.ForeignKey(
+        to="netbox_fms.FiberCable",
+        on_delete=models.CASCADE,
+        related_name="closure_entries",
+        verbose_name=_("fiber cable"),
+    )
+    entrance_port = models.ForeignKey(
+        to="dcim.RearPort",
+        on_delete=models.CASCADE,
+        related_name="closure_cable_entries",
+        verbose_name=_("entrance port"),
+    )
+    notes = models.TextField(
+        verbose_name=_("notes"),
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ("closure", "entrance_port")
+        unique_together = (("closure", "entrance_port"),)
+        verbose_name = _("closure cable entry")
+        verbose_name_plural = _("closure cable entries")
+
+    def __str__(self):
+        return f"{self.closure} → {self.entrance_port.name} ({self.fiber_cable})"
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])
 
 
 # ---------------------------------------------------------------------------

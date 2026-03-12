@@ -88,6 +88,8 @@ urlpatterns = [
         views.SplicePlanEntryDeleteView.as_view(),
         name="spliceplanentry_delete",
     ),
+    # ClosureCableEntry
+    path("closure-cable-entries/<int:pk>/", views.ClosureCableEntryView.as_view(), name="closurecableentry"),
     # SpliceProject
     path("splice-projects/<int:pk>/", views.SpliceProjectView.as_view(), name="spliceproject"),
     # FiberPathLoss

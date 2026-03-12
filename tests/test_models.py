@@ -1,9 +1,9 @@
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, RearPort, Site
 from django.db import IntegrityError
 from django.test import TestCase
 
 from netbox_fms.choices import SplicePlanStatusChoices
-from netbox_fms.models import SplicePlan, SplicePlanEntry, SpliceProject
+from netbox_fms.models import ClosureCableEntry, FiberCable, FiberCableType, SplicePlan, SplicePlanEntry, SpliceProject
 from tests.conftest import make_front_port
 
 
@@ -155,3 +155,55 @@ class TestSplicePlanEntryRework(TestCase):
         SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=self.fp_a, fiber_b=self.fp_b)
         with self.assertRaises(IntegrityError):
             SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=fp_c, fiber_b=self.fp_b)
+
+
+class TestClosureCableEntry(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="Test Site 3", slug="test-site-3")
+        manufacturer = Manufacturer.objects.create(name="Test Mfr 3", slug="test-mfr-3")
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="Closure 3", slug="closure-3")
+        role = DeviceRole.objects.create(name="Splice Closure 3", slug="splice-closure-3")
+        cls.closure = Device.objects.create(name="Closure-3", site=site, device_type=device_type, role=role)
+        fct = FiberCableType.objects.create(
+            manufacturer=manufacturer,
+            model="Test Cable Type",
+            construction="loose_tube",
+            fiber_type="smf_os2",
+            strand_count=12,
+        )
+        from dcim.models import Cable
+
+        cable = Cable.objects.create()
+        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        cls.rear_port = RearPort.objects.create(device=cls.closure, name="Port 1", type="lc", positions=12)
+
+    def test_create_entry(self):
+        entry = ClosureCableEntry.objects.create(
+            closure=self.closure,
+            fiber_cable=self.fiber_cable,
+            entrance_port=self.rear_port,
+        )
+        assert entry.pk is not None
+
+    def test_unique_entrance_port(self):
+        ClosureCableEntry.objects.create(
+            closure=self.closure,
+            fiber_cable=self.fiber_cable,
+            entrance_port=self.rear_port,
+        )
+        from dcim.models import Cable
+
+        cable2 = Cable.objects.create()
+        fct = self.fiber_cable.fiber_cable_type
+        fc2 = FiberCable.objects.create(cable=cable2, fiber_cable_type=fct)
+        with self.assertRaises(IntegrityError):
+            ClosureCableEntry.objects.create(closure=self.closure, fiber_cable=fc2, entrance_port=self.rear_port)
+
+    def test_get_absolute_url(self):
+        entry = ClosureCableEntry.objects.create(
+            closure=self.closure,
+            fiber_cable=self.fiber_cable,
+            entrance_port=self.rear_port,
+        )
+        assert "/closure-cable-entries/" in entry.get_absolute_url()
