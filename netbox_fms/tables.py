@@ -7,6 +7,7 @@ from .models import (
     BufferTubeTemplate,
     CableElement,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
@@ -15,6 +16,7 @@ from .models import (
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
+    SpliceProject,
 )
 
 # ---------------------------------------------------------------------------
@@ -253,9 +255,27 @@ class CableElementTable(NetBoxTable):
 # ---------------------------------------------------------------------------
 
 
+class SpliceProjectTable(NetBoxTable):
+    pk = columns.ToggleColumn()
+    name = tables.Column(linkify=True, verbose_name=_("Name"))
+    description = tables.Column(verbose_name=_("Description"))
+    plan_count = columns.LinkedCountColumn(
+        viewname="plugins:netbox_fms:spliceplan_list",
+        url_params={"project_id": "pk"},
+        verbose_name=_("Plans"),
+    )
+    actions = columns.ActionsColumn()
+
+    class Meta(NetBoxTable.Meta):
+        model = SpliceProject
+        fields = ("pk", "id", "name", "description", "plan_count", "actions")
+        default_columns = ("pk", "name", "plan_count", "actions")
+
+
 class SplicePlanTable(NetBoxTable):
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
+    project = tables.Column(linkify=True, verbose_name=_("Project"))
     closure = tables.Column(linkify=True, verbose_name=_("Closure"))
     status = tables.Column(verbose_name=_("Status"))
     entry_count = columns.LinkedCountColumn(
@@ -271,13 +291,14 @@ class SplicePlanTable(NetBoxTable):
             "pk",
             "id",
             "name",
+            "project",
             "closure",
             "status",
             "entry_count",
             "description",
             "actions",
         )
-        default_columns = ("pk", "name", "closure", "status", "entry_count", "actions")
+        default_columns = ("pk", "name", "project", "closure", "status", "entry_count", "actions")
 
 
 class SplicePlanEntryTable(NetBoxTable):
@@ -292,6 +313,19 @@ class SplicePlanEntryTable(NetBoxTable):
         model = SplicePlanEntry
         fields = ("pk", "id", "plan", "tray", "fiber_a", "fiber_b", "notes", "actions")
         default_columns = ("pk", "plan", "tray", "fiber_a", "fiber_b", "actions")
+
+
+class ClosureCableEntryTable(NetBoxTable):
+    pk = columns.ToggleColumn()
+    closure = tables.Column(linkify=True, verbose_name=_("Closure"))
+    fiber_cable = tables.Column(linkify=True, verbose_name=_("Fiber Cable"))
+    entrance_port = tables.Column(linkify=True, verbose_name=_("Entrance Port"))
+    actions = columns.ActionsColumn()
+
+    class Meta(NetBoxTable.Meta):
+        model = ClosureCableEntry
+        fields = ("pk", "id", "closure", "fiber_cable", "entrance_port", "notes", "actions")
+        default_columns = ("pk", "closure", "fiber_cable", "entrance_port", "actions")
 
 
 # ---------------------------------------------------------------------------
