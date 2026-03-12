@@ -603,11 +603,19 @@ class SpliceEditorView(View):
 # ---------------------------------------------------------------------------
 
 
-def _device_has_fiber_cables(device):
-    """Return True if any FiberCable's dcim.Cable terminates at this device."""
+def _device_has_splice_plan_or_fiber_cables(device):
+    """Return True if this device has a splice plan or FiberCable terminations."""
+    if SplicePlan.objects.filter(closure=device).exists():
+        return True
     from dcim.models import CableTermination
 
-    return CableTermination.objects.filter(_device_id=device.pk).exclude(cable__isnull=True).exists()
+    cable_ids = (
+        CableTermination.objects.filter(_device_id=device.pk)
+        .exclude(cable__isnull=True)
+        .values_list("cable_id", flat=True)
+        .distinct()
+    )
+    return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
 
 
 @register_model_view(Device, "splice_editor", path="splice-editor")
@@ -621,7 +629,7 @@ class DeviceSpliceEditorView(View):
 
     tab = ViewTab(
         label=_("Splice Editor"),
-        visible=_device_has_fiber_cables,
+        visible=_device_has_splice_plan_or_fiber_cables,
         weight=1500,
     )
 
