@@ -628,11 +628,13 @@ class DeviceSpliceEditorView(View):
     def get(self, request, pk):
         device = get_object_or_404(Device, pk=pk)
 
-        # Get or create the single splice plan for this closure (OneToOne)
-        plan, _ = SplicePlan.objects.get_or_create(
-            closure=device,
-            defaults={"name": f"Default – {device.name}"},
-        )
+        plan = SplicePlan.objects.filter(closure=device).first()
+
+        diff = None
+        if plan:
+            from .services import get_or_recompute_diff
+
+            diff = get_or_recompute_diff(plan)
 
         return render(
             request,
@@ -641,6 +643,7 @@ class DeviceSpliceEditorView(View):
                 "object": device,
                 "device": device,
                 "plan": plan,
+                "diff": diff,
                 "tab": self.tab,
             },
         )
