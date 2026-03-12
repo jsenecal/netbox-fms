@@ -88,10 +88,46 @@ urlpatterns = [
         views.SplicePlanEntryDeleteView.as_view(),
         name="spliceplanentry_delete",
     ),
-    # ClosureCableEntry
-    path("closure-cable-entries/<int:pk>/", views.ClosureCableEntryView.as_view(), name="closurecableentry"),
     # SpliceProject
+    path("splice-projects/", views.SpliceProjectListView.as_view(), name="spliceproject_list"),
+    path("splice-projects/add/", views.SpliceProjectEditView.as_view(), name="spliceproject_add"),
+    path(
+        "splice-projects/delete/",
+        views.SpliceProjectBulkDeleteView.as_view(),
+        name="spliceproject_bulk_delete",
+    ),
+    path("splice-projects/<int:pk>/", include(get_model_urls("netbox_fms", "spliceproject"))),
     path("splice-projects/<int:pk>/", views.SpliceProjectView.as_view(), name="spliceproject"),
+    path("splice-projects/<int:pk>/edit/", views.SpliceProjectEditView.as_view(), name="spliceproject_edit"),
+    path("splice-projects/<int:pk>/delete/", views.SpliceProjectDeleteView.as_view(), name="spliceproject_delete"),
+    # ClosureCableEntry
+    path("closure-cable-entries/", views.ClosureCableEntryListView.as_view(), name="closurecableentry_list"),
+    path("closure-cable-entries/add/", views.ClosureCableEntryEditView.as_view(), name="closurecableentry_add"),
+    path(
+        "closure-cable-entries/delete/",
+        views.ClosureCableEntryBulkDeleteView.as_view(),
+        name="closurecableentry_bulk_delete",
+    ),
+    path("closure-cable-entries/<int:pk>/", include(get_model_urls("netbox_fms", "closurecableentry"))),
+    path("closure-cable-entries/<int:pk>/", views.ClosureCableEntryView.as_view(), name="closurecableentry"),
+    path(
+        "closure-cable-entries/<int:pk>/edit/",
+        views.ClosureCableEntryEditView.as_view(),
+        name="closurecableentry_edit",
+    ),
+    path(
+        "closure-cable-entries/<int:pk>/delete/",
+        views.ClosureCableEntryDeleteView.as_view(),
+        name="closurecableentry_delete",
+    ),
+    # Import/Apply/Export for SplicePlan
+    path(
+        "splice-plans/<int:pk>/import/",
+        views.SplicePlanImportFromDeviceView.as_view(),
+        name="spliceplan_import_device",
+    ),
+    path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
+    path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
     # FiberPathLoss
     # Provision Ports
     path("provision-ports/", views.ProvisionPortsView.as_view(), name="provision_ports"),
