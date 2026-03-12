@@ -1,4 +1,4 @@
-from dcim.models import Cable, Device, FrontPort, Manufacturer, Module
+from dcim.models import Cable, Device, FrontPort, Manufacturer, Module, RearPort
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
@@ -26,12 +26,14 @@ from .choices import (
 from .models import (
     BufferTubeTemplate,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
+    SpliceProject,
 )
 
 # ---------------------------------------------------------------------------
@@ -301,23 +303,64 @@ class FiberCableFilterForm(NetBoxModelFilterSetForm):
 
 
 # ---------------------------------------------------------------------------
+# SpliceProject
+# ---------------------------------------------------------------------------
+
+
+class SpliceProjectForm(NetBoxModelForm):
+    comments = CommentField()
+
+    fieldsets = (
+        FieldSet("name", "description", name=_("Splice Project")),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = SpliceProject
+        fields = ("name", "description", "tags")
+
+
+class SpliceProjectImportForm(NetBoxModelImportForm):
+    class Meta:
+        model = SpliceProject
+        fields = ("name", "description")
+
+
+class SpliceProjectBulkEditForm(NetBoxModelBulkEditForm):
+    model = SpliceProject
+    description = forms.CharField(required=False)
+    fieldsets = (FieldSet("description"),)
+    nullable_fields = ("description",)
+
+
+class SpliceProjectFilterForm(NetBoxModelFilterSetForm):
+    model = SpliceProject
+    fieldsets = (FieldSet("q", "filter_id", "tag"),)
+
+
+# ---------------------------------------------------------------------------
 # SplicePlan
 # ---------------------------------------------------------------------------
 
 
 class SplicePlanForm(NetBoxModelForm):
     closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
+    project = DynamicModelChoiceField(
+        queryset=SpliceProject.objects.all(),
+        required=False,
+        label=_("Project"),
+    )
     comments = CommentField()
 
     fieldsets = (
-        FieldSet("closure", "name", "description", name=_("Splice Plan")),
+        FieldSet("closure", "name", "description", "project", name=_("Splice Plan")),
         FieldSet("status", name=_("Configuration")),
         FieldSet("tags", name=_("Additional")),
     )
 
     class Meta:
         model = SplicePlan
-        fields = ("closure", "name", "description", "status", "tags")
+        fields = ("closure", "name", "description", "project", "status", "tags")
 
 
 class SplicePlanImportForm(NetBoxModelImportForm):
@@ -388,6 +431,40 @@ class SplicePlanEntryFilterForm(NetBoxModelFilterSetForm):
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
         FieldSet("plan_id", name=_("Attributes")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# ClosureCableEntry
+# ---------------------------------------------------------------------------
+
+
+class ClosureCableEntryForm(NetBoxModelForm):
+    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
+    fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
+    entrance_port = DynamicModelChoiceField(queryset=RearPort.objects.all(), label=_("Entrance Port"))
+
+    fieldsets = (
+        FieldSet("closure", "fiber_cable", "entrance_port", name=_("Cable Entry")),
+        FieldSet("notes", name=_("Notes")),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = ClosureCableEntry
+        fields = ("closure", "fiber_cable", "entrance_port", "notes", "tags")
+
+
+class ClosureCableEntryFilterForm(NetBoxModelFilterSetForm):
+    model = ClosureCableEntry
+    closure_id = DynamicModelMultipleChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        label=_("Closure"),
+    )
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("closure_id", name=_("Attributes")),
     )
 
 
