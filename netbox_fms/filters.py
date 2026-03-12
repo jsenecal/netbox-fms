@@ -1,5 +1,5 @@
 import django_filters
-from dcim.models import Cable, Device, Manufacturer
+from dcim.models import Cable, Device, Manufacturer, Module
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from netbox.filtersets import NetBoxModelFilterSet
@@ -18,6 +18,7 @@ from .models import (
     BufferTubeTemplate,
     CableElement,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberPathLoss,
@@ -26,6 +27,7 @@ from .models import (
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
+    SpliceProject,
 )
 
 
@@ -250,17 +252,33 @@ class CableElementFilterSet(NetBoxModelFilterSet):
         return queryset.filter(models.Q(name__icontains=value))
 
 
+class SpliceProjectFilterSet(NetBoxModelFilterSet):
+    class Meta:
+        model = SpliceProject
+        fields = ("id", "name")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
+
+
 class SplicePlanFilterSet(NetBoxModelFilterSet):
     closure_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Device.objects.all(),
         field_name="closure",
         label=_("Closure (ID)"),
     )
+    project_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=SpliceProject.objects.all(),
+        field_name="project",
+        label=_("Project (ID)"),
+    )
     status = django_filters.MultipleChoiceFilter(choices=SplicePlanStatusChoices)
 
     class Meta:
         model = SplicePlan
-        fields = ("id", "closure_id", "name", "status")
+        fields = ("id", "closure_id", "project_id", "name", "status")
 
     def search(self, queryset, name, value):
         if not value.strip():
@@ -274,15 +292,37 @@ class SplicePlanEntryFilterSet(NetBoxModelFilterSet):
         field_name="plan",
         label=_("Plan (ID)"),
     )
+    tray_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Module.objects.all(),
+        field_name="tray",
+        label=_("Tray (ID)"),
+    )
 
     class Meta:
         model = SplicePlanEntry
-        fields = ("id", "plan_id", "fiber_a", "fiber_b")
+        fields = ("id", "plan_id", "tray_id", "fiber_a", "fiber_b")
 
     def search(self, queryset, name, value):
         if not value.strip():
             return queryset
         return queryset.filter(models.Q(plan__name__icontains=value))
+
+
+class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
+    closure_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        field_name="closure",
+        label=_("Closure (ID)"),
+    )
+
+    class Meta:
+        model = ClosureCableEntry
+        fields = ("id", "closure_id", "fiber_cable", "entrance_port")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(notes__icontains=value))
 
 
 class FiberPathLossFilterSet(NetBoxModelFilterSet):
