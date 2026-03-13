@@ -1,0 +1,129 @@
+/** Context mode determines save behavior and UI chrome. */
+export type ContextMode = 'view' | 'edit' | 'plan-edit';
+
+/** Splice action mode from toolbar buttons. */
+export type ActionMode = 'single' | 'sequential' | 'delete';
+
+/** Configuration injected from Django template via window.SPLICE_EDITOR_CONFIG. */
+export interface EditorConfig {
+  deviceId: number;
+  planId: number | null;
+  contextMode: ContextMode;
+  planStatus: string;
+  strandsUrl: string;
+  bulkUpdateUrl: string | null;
+  quickAddFormUrl: string;
+  quickAddApiUrl: string;
+  csrfToken: string;
+}
+
+/** A single fiber strand as returned by ClosureStrandsAPIView. */
+export interface StrandData {
+  id: number;
+  name: string;
+  position: number;
+  color: string;
+  tube_color: string | null;
+  tube_name: string | null;
+  ribbon_name: string | null;
+  ribbon_color: string | null;
+  front_port_id: number | null;
+  live_spliced_to: number | null;
+  plan_entry_id: number | null;
+  plan_spliced_to: number | null;
+}
+
+/** A tube group as returned by the API. */
+export interface TubeData {
+  id: number;
+  name: string;
+  color: string;
+  stripe_color: string | null;
+  strand_count: number;
+  strands: StrandData[];
+}
+
+/** A cable group as returned by the API. */
+export interface CableGroupData {
+  fiber_cable_id: number;
+  cable_label: string;
+  fiber_type: string;
+  strand_count: number;
+  tubes: TubeData[];
+  loose_strands: StrandData[];
+}
+
+/** Layout node types for the column renderer. */
+export type NodeType = 'cable' | 'tube' | 'strand';
+
+/** A node in the column layout (cable header, tube header, or strand). */
+export interface LayoutNode {
+  type: NodeType;
+  y: number;
+  hidden: boolean;
+
+  // Cable fields
+  label?: string;
+  cableId?: number;
+  fiberType?: string;
+  strandCount?: number;
+
+  // Tube fields
+  tubeId?: number;
+  color?: string;
+  stripeColor?: string | null;
+  collapsed?: boolean;
+
+  // Strand fields
+  id?: number;
+  tubeColor?: string | null;
+  tubeName?: string | null;
+  ribbonName?: string | null;
+  ribbonColor?: string | null;
+  frontPortId?: number | null;
+  liveSplicedTo?: number | null;
+  planEntryId?: number | null;
+  planSplicedTo?: number | null;
+  parentTubeNode?: LayoutNode;
+}
+
+/** A pending splice change (add or remove). */
+export interface PendingChange {
+  action: 'add' | 'remove';
+  fiberA: number;    // strand ID (not front_port_id)
+  fiberB: number;    // strand ID
+  portA: number;     // front_port_id
+  portB: number;     // front_port_id
+}
+
+/** An existing splice connection (live or plan). */
+export interface SpliceEntry {
+  sourceId: number;      // strand ID
+  targetId: number;      // strand ID
+  entryId: number | null; // plan entry ID (null for live-only)
+  isLive: boolean;
+  isPlan: boolean;
+}
+
+/** Bulk update request body. */
+export interface BulkUpdatePayload {
+  add: Array<{ fiber_a: number; fiber_b: number }>;
+  remove: Array<{ fiber_a: number; fiber_b: number }>;
+}
+
+/** Quick-add plan creation payload. */
+export interface QuickAddPayload {
+  name: string;
+  closure: number;
+  status: string;
+  description: string;
+  project: number | null;
+  tags: number[];
+}
+
+/** Quick-add plan response. */
+export interface QuickAddResponse {
+  id: number;
+  name: string;
+  url: string;
+}
