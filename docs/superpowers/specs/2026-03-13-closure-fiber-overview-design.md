@@ -10,7 +10,7 @@ Add a "Fiber Overview" tab to devices acting as splice closures. The tab surface
 
 ## Architecture
 
-A new device tab registered via `@register_model_view`. The view queries connected cables, FiberCables, FiberStrands, ClosureCableEntries, and SplicePlan to build a summary. Three modal actions (Create FiberCable, Provision Strands, Edit Gland Label) are powered by lightweight API endpoints that reuse existing business logic. The ClosureCableEntry model is simplified: `entrance_port` FK is replaced with a plain `entrance_label` CharField.
+A new device tab registered via `@register_model_view`. The view queries connected cables, FiberCables, FiberStrands, ClosureCableEntries, and SplicePlan to build a summary. Three modal actions (Create FiberCable, Provision Strands, Edit Gland Label) use HTMX — modals are loaded on demand via `hx-get`, forms submit via `hx-post`. NetBox 4.x ships HTMX, so no extra dependency. The ClosureCableEntry model is simplified: `entrance_port` FK is replaced with a plain `entrance_label` CharField.
 
 ---
 
@@ -166,26 +166,33 @@ def get(self, request, pk):
 
 ---
 
-## 4. Modal Actions
+## 4. Modal Actions (HTMX)
 
-All three modals use the same pattern: a Bootstrap 5 modal pre-rendered in the template. Form submission via standard POST (not AJAX) that redirects back to the overview tab on success. This keeps things simple — no custom JS needed, just Django form handling.
+All three modals use HTMX. Action buttons use `hx-get` to fetch a modal form fragment from the server. The form inside the modal submits via `hx-post`. No modals are pre-rendered in the page template — they are loaded on demand into a shared `<div id="modal-container">` target.
 
-**Modal population:** Each action button stores context in `data-cable-id` / `data-fiber-cable-id` attributes. A shared inline click handler reads these attributes and sets the corresponding hidden form fields before calling `modal.show()`.
+**HTMX pattern:**
+- Button: `hx-get="<form-url>?cable_id=X"` `hx-target="#modal-container"` `hx-swap="innerHTML"`
+- Server GET returns: a complete Bootstrap 5 modal `<div class="modal">` with form inside
+- Form: `hx-post="<action-url>"` with `{% csrf_token %}`
+- A small inline script at the end of the fragment calls `new bootstrap.Modal(el).show()`
+
+**Post-action response strategy:**
+- **Create FiberCable / Provision Strands:** These change multiple pieces of state (stats, row status, new objects). Server returns `HX-Redirect` header pointing to the overview tab — full page reload guarantees consistent state.
+- **Edit Gland Label:** Only changes one cell. Server returns the updated table row HTML fragment. The form uses `hx-target="closest tr"` `hx-swap="outerHTML"` to swap the row in-place (no page reload). This requires a row partial template.
 
 **Permissions:** All action views require `LoginRequiredMixin`. Create FiberCable requires `netbox_fms.add_fibercable`. Provision Strands requires `dcim.add_frontport`. Edit Gland Label requires `netbox_fms.add_closurecableentry` and `netbox_fms.change_closurecableentry`. Action buttons are hidden in the template when the user lacks the corresponding permission.
 
-**CSRF:** All modal forms include `{% csrf_token %}`. Views use Django's standard CSRF middleware.
-
-**Redirect:** All action views redirect to `reverse('dcim:device', kwargs={'pk': pk})` + `'fiber-overview/'` on success.
+**Error handling in modals:** On validation error, the POST view re-renders the modal form HTML with error messages and returns it (200, not redirect). HTMX swaps the modal content, keeping the modal open with errors visible.
 
 ### 4.1 Create FiberCable
 
 **Trigger:** "Create FiberCable" button on a cable row.
 
-**URL:** `POST /plugins/netbox-fms/fiber-overview/<device_pk>/create-fiber-cable/`
+**GET URL:** `/plugins/netbox-fms/fiber-overview/<device_pk>/create-fiber-cable/?cable_id=<id>`
+**POST URL:** `/plugins/netbox-fms/fiber-overview/<device_pk>/create-fiber-cable/`
 
 **Form fields:**
-- `cable_id` — hidden, pre-filled from the row
+- `cable_id` — hidden, pre-filled from query param
 - `fiber_cable_type` — DynamicModelChoiceField (FiberCableType)
 - `name` — CharField, pre-filled with cable label
 
@@ -193,18 +200,21 @@ All three modals use the same pattern: a Bootstrap 5 modal pre-rendered in the t
 1. Validate FiberCableType selected
 2. Create `FiberCable(cable=cable, fiber_cable_type=type, name=name)`
 3. FiberCable's `save()` auto-instantiates strands via `_instantiate_components()`
-4. Redirect back to fiber overview tab
+4. Return `HX-Redirect` to fiber overview tab
 
-**View:** `CreateFiberCableFromCableView(LoginRequiredMixin, View)` — handles POST only (modal is pre-rendered in template).
+**View:** `CreateFiberCableFromCableView(LoginRequiredMixin, View)` — GET returns modal fragment, POST processes form.
+
+**Template:** `netbox_fms/htmx/create_fiber_cable_modal.html` — modal with form.
 
 ### 4.2 Provision Strands
 
 **Trigger:** "Provision Strands" button on a FiberCable row.
 
-**URL:** `POST /plugins/netbox-fms/fiber-overview/<device_pk>/provision-strands/`
+**GET URL:** `/plugins/netbox-fms/fiber-overview/<device_pk>/provision-strands/?fiber_cable_id=<id>`
+**POST URL:** `/plugins/netbox-fms/fiber-overview/<device_pk>/provision-strands/`
 
 **Form fields:**
-- `fiber_cable_id` — hidden, pre-filled from the row
+- `fiber_cable_id` — hidden, pre-filled from query param
 - `target_module` — DynamicModelChoiceField (Module, filtered to this device)
 - `port_type` — ChoiceField (LC, SC, MPO, etc.), default "splice"
 
@@ -212,21 +222,32 @@ All three modals use the same pattern: a Bootstrap 5 modal pre-rendered in the t
 
 **Note:** The existing logic creates ports at device level. For the overview modal, when `module` is provided, all created objects — RearPort, FrontPorts, and PortMappings — should be created with `module=target_module` (in addition to `device=device`, which NetBox requires regardless). The refactored helper accepts an optional `module` parameter.
 
-**View:** `ProvisionStrandsView(LoginRequiredMixin, View)` — handles POST only (modal is pre-rendered in template).
+**Post-action:** Return `HX-Redirect` to fiber overview tab.
+
+**View:** `ProvisionStrandsView(LoginRequiredMixin, View)` — GET returns modal fragment, POST processes form.
+
+**Template:** `netbox_fms/htmx/provision_strands_modal.html` — modal with form.
 
 ### 4.3 Edit Gland Label
 
 **Trigger:** Pencil icon on any row with a FiberCable.
 
-**URL:** `POST /plugins/netbox-fms/fiber-overview/<device_pk>/update-gland/`
+**GET URL:** `/plugins/netbox-fms/fiber-overview/<device_pk>/update-gland/?fiber_cable_id=<id>`
+**POST URL:** `/plugins/netbox-fms/fiber-overview/<device_pk>/update-gland/`
 
 **Form fields:**
-- `fiber_cable_id` — hidden
-- `entrance_label` — CharField
+- `fiber_cable_id` — hidden, pre-filled from query param
+- `entrance_label` — CharField, pre-filled with current value if exists
 
 **Logic:** Creates or updates `ClosureCableEntry` for this closure+fiber_cable pair.
 
-**View:** `UpdateGlandLabelView(LoginRequiredMixin, View)` — handles POST only.
+**Post-action:** Dismiss modal (via `HX-Trigger: modalClose` event + listener) and return the updated table row HTML using the row partial template. The `hx-post` on the form uses `hx-target="closest tr"` `hx-swap="outerHTML"` to swap in-place.
+
+**View:** `UpdateGlandLabelView(LoginRequiredMixin, View)` — GET returns modal fragment, POST returns updated row.
+
+**Templates:**
+- `netbox_fms/htmx/edit_gland_modal.html` — modal with form
+- `netbox_fms/htmx/fiber_overview_row.html` — single `<tr>` partial, shared with the main table rendering
 
 ---
 
@@ -239,24 +260,23 @@ All three modals use the same pattern: a Bootstrap 5 modal pre-rendered in the t
 
 Card: "Fiber Management Summary"
 ├── Stats bar: trays | cables | fiber cables | strands | plan status
-├── Table: cable rows with status and action buttons
-│   └── Each action button opens a Bootstrap modal (pre-rendered in template)
-└── Splice Plan section: status + links
-
-Modal: #createFiberCableModal
-├── Form with fiber_cable_type + name fields
-└── Submit → POST to create-fiber-cable view
-
-Modal: #provisionStrandsModal
-├── Form with target_module + port_type fields
-└── Submit → POST to provision-strands view
-
-Modal: #editGlandModal
-├── Form with entrance_label field
-└── Submit → POST to update-gland view
+├── Table: cable rows (each row uses fiber_overview_row.html partial via {% include %})
+│   └── Action buttons with hx-get to load modal forms on demand
+├── Splice Plan section: status + links
+└── <div id="modal-container"></div>  ← HTMX modal target
 ```
 
-Modals are standard Bootstrap 5 modals rendered in the template. Each action button sets hidden field values via `data-*` attributes and a small inline script before showing the modal.
+### `htmx/fiber_overview_row.html`
+
+Single `<tr>` partial template. Used by:
+- The main table (via `{% include %}` in a loop)
+- The gland label update response (returned directly to swap a row in-place)
+
+### `htmx/create_fiber_cable_modal.html`
+### `htmx/provision_strands_modal.html`
+### `htmx/edit_gland_modal.html`
+
+Each is a complete Bootstrap 5 `<div class="modal">` with a form inside. Loaded into `#modal-container` via `hx-get`. Includes a small `<script>` at the bottom to auto-show the modal on load. Forms use `hx-post` for submission.
 
 ---
 
@@ -264,11 +284,11 @@ Modals are standard Bootstrap 5 modals rendered in the template. Each action but
 
 ### New plugin URLs (`urls.py`)
 
-| URL | View | Name |
-|-----|------|------|
-| `fiber-overview/<int:pk>/create-fiber-cable/` | `CreateFiberCableFromCableView` | `fiber_overview_create_fibercable` |
-| `fiber-overview/<int:pk>/provision-strands/` | `ProvisionStrandsView` | `fiber_overview_provision_strands` |
-| `fiber-overview/<int:pk>/update-gland/` | `UpdateGlandLabelView` | `fiber_overview_update_gland` |
+| URL | Methods | View | Name |
+|-----|---------|------|------|
+| `fiber-overview/<int:pk>/create-fiber-cable/` | GET, POST | `CreateFiberCableFromCableView` | `fiber_overview_create_fibercable` |
+| `fiber-overview/<int:pk>/provision-strands/` | GET, POST | `ProvisionStrandsView` | `fiber_overview_provision_strands` |
+| `fiber-overview/<int:pk>/update-gland/` | GET, POST | `UpdateGlandLabelView` | `fiber_overview_update_gland` |
 
 The overview tab itself is auto-registered by `@register_model_view`.
 
@@ -336,5 +356,7 @@ The removed views/URLs remain functional for direct linking and API access. Only
 ### Manual verification
 
 - Visual check of summary table states and action buttons
-- Modal open/close/submit flow
-- Redirect back to overview tab after each action
+- HTMX modal load/submit flow (verify modal appears, form submits)
+- Create/Provision: verify HX-Redirect reloads the page with updated state
+- Edit Gland Label: verify row swaps in-place without page reload
+- Error state: verify modal stays open with validation errors on bad input
