@@ -1,0 +1,16 @@
+# Ignore local customizations
+home/
+initializers/
+netbox-demo-data/
+
+# Keep structure files
+!home/.config/.gitkeep
+!home/.claude/.gitkeep
+
+# Keep fish shell config
+!home/.config/fish/
+!home/.config/fish/**
+
+# Keep omf config
+!home/.config/omf/
+!home/.config/omf/**
