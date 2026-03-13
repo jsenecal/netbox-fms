@@ -311,6 +311,25 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
     table = SplicePlanTable
 
 
+class SplicePlanQuickAddFormView(View):
+    """Return rendered SplicePlanForm HTML for the quick-add modal."""
+
+    def get(self, request):
+        from django.http import HttpResponse
+
+        closure_id = request.GET.get("closure_id")
+        initial = {}
+        if closure_id:
+            initial["closure"] = closure_id
+        form = SplicePlanForm(initial=initial)
+        html = render(
+            request,
+            "netbox_fms/spliceplan_quick_add_form.html",
+            {"form": form},
+        ).content.decode()
+        return HttpResponse(html)
+
+
 class SplicePlanImportFromDeviceView(View):
     """Import current live connections into a splice plan."""
 

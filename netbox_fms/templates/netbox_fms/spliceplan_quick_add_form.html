@@ -1,0 +1,19 @@
+{% load i18n %}
+
+{% for fieldset in form.fieldsets %}
+<fieldset class="mb-3">
+    {% if fieldset.name %}
+    <legend class="fs-6 fw-bold">{{ fieldset.name }}</legend>
+    {% endif %}
+    {% for field in fieldset.fields %}
+    <div class="mb-2 row">
+        <label class="col-sm-3 col-form-label col-form-label-sm" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        <div class="col-sm-9">
+            {{ field }}
+            {% if field.help_text %}<div class="form-text small">{{ field.help_text }}</div>{% endif %}
+            {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</fieldset>
+{% endfor %}

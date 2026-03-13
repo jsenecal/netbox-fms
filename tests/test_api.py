@@ -91,3 +91,52 @@ class TestBulkUpdateAPI(TestCase):
         )
         assert resp.status_code == 400
         assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 0
+
+
+class TestQuickAddAPI(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="QA Site", slug="qa-site")
+        mfr = Manufacturer.objects.create(name="QA Mfr", slug="qa-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="qa-closure")
+        role = DeviceRole.objects.create(name="QA Role", slug="qa-role")
+        cls.closure = Device.objects.create(name="C-QA", site=site, device_type=dt, role=role)
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        user_model = get_user_model()
+        self.user = user_model.objects.create_superuser("qaadmin", "qa@test.com", "password")
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def test_quick_add_creates_plan(self):
+        url = "/api/plugins/fms/splice-plans/quick-add/"
+        resp = self.client.post(
+            url,
+            {
+                "name": "Quick Plan",
+                "closure": self.closure.pk,
+                "status": "draft",
+                "description": "",
+            },
+            format="json",
+        )
+        assert resp.status_code == 201, resp.content
+        assert resp.json()["name"] == "Quick Plan"
+        assert SplicePlan.objects.filter(closure=self.closure).exists()
+
+    def test_quick_add_duplicate_closure_fails(self):
+        SplicePlan.objects.create(closure=self.closure, name="Existing")
+        url = "/api/plugins/fms/splice-plans/quick-add/"
+        resp = self.client.post(
+            url,
+            {
+                "name": "Dupe Plan",
+                "closure": self.closure.pk,
+                "status": "draft",
+            },
+            format="json",
+        )
+        assert resp.status_code in (400, 500), f"Expected 400 or 500 but got {resp.status_code}"
+        assert resp.status_code != 201  # Must not succeed

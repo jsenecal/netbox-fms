@@ -63,6 +63,11 @@ urlpatterns = [
     path("fiber-cables/<int:pk>/delete/", views.FiberCableDeleteView.as_view(), name="fibercable_delete"),
     # SplicePlan
     path("splice-plans/", views.SplicePlanListView.as_view(), name="spliceplan_list"),
+    path(
+        "splice-plans/quick-add-form/",
+        views.SplicePlanQuickAddFormView.as_view(),
+        name="spliceplan_quick_add_form",
+    ),
     path("splice-plans/add/", views.SplicePlanEditView.as_view(), name="spliceplan_add"),
     path("splice-plans/import/", views.SplicePlanBulkImportView.as_view(), name="spliceplan_import"),
     path("splice-plans/edit/", views.SplicePlanBulkEditView.as_view(), name="spliceplan_bulk_edit"),

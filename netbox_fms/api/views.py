@@ -186,8 +186,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                     SplicePlanEntry.objects.filter(
                         plan=plan,
                     ).filter(
-                        models.Q(fiber_a_id=fa_id, fiber_b_id=fb_id)
-                        | models.Q(fiber_a_id=fb_id, fiber_b_id=fa_id)
+                        models.Q(fiber_a_id=fa_id, fiber_b_id=fb_id) | models.Q(fiber_a_id=fb_id, fiber_b_id=fa_id)
                     ).delete()
 
                 # Process adds
@@ -214,11 +213,17 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         return Response(
             {
                 "entries": [
-                    {"id": e.pk, "fiber_a": e.fiber_a_id, "fiber_b": e.fiber_b_id, "tray": e.tray_id}
-                    for e in entries
+                    {"id": e.pk, "fiber_a": e.fiber_a_id, "fiber_b": e.fiber_b_id, "tray": e.tray_id} for e in entries
                 ]
             }
         )
+
+    @action(detail=False, methods=["post"], url_path="quick-add")
+    def quick_add(self, request):
+        serializer = SplicePlanSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class FiberPathLossViewSet(NetBoxModelViewSet):
