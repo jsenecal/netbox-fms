@@ -863,6 +863,12 @@ class ClosureCableEntry(NetBoxModel):
         related_name="closure_cable_entries",
         verbose_name=_("entrance port"),
     )
+    entrance_label = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("entrance label"),
+        help_text=_("Free-text gland/entrance name"),
+    )
     notes = models.TextField(
         verbose_name=_("notes"),
         blank=True,
