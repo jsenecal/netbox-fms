@@ -26,7 +26,10 @@ A new device tab registered via `@register_model_view`. The view queries connect
 | `entrance_label` | — | **new** CharField(max_length=100, blank=True) — free-text gland name |
 | `notes` | TextField | *unchanged* |
 
-**Migration:** Drop `entrance_port` FK, add `entrance_label`. Update `unique_together` from `(closure, entrance_port)` to `(closure, fiber_cable)` (one entry per cable per closure). Update `ordering` to `(closure, entrance_label)`. Update `__str__` to use `entrance_label`.
+**Migration:** Three-step migration:
+1. **Schema migration:** Add `entrance_label` CharField while keeping `entrance_port` FK.
+2. **Data migration:** For each existing `ClosureCableEntry` with `entrance_port` set, copy `entrance_port.name` into `entrance_label`.
+3. **Schema migration:** Drop `entrance_port` FK. Update `unique_together` from `(closure, entrance_port)` to `(closure, fiber_cable)`. Update `ordering` to `(closure, entrance_label)`. Update `__str__` to use `entrance_label`.
 
 **Forms:** Update `ClosureCableEntryForm` — remove `entrance_port`, add `entrance_label`. Keep the form for the standalone CRUD views (they stay functional, just removed from nav).
 
@@ -44,7 +47,7 @@ Registered as `@register_model_view(Device, "fiber_overview", path="fiber-overvi
 
 **Tab config:**
 - Label: "Fiber Overview"
-- Visibility: same function as Splice Editor tab (`_device_has_splice_plan_or_fiber_cables`)
+- Visibility: new function `_device_has_modules_or_fiber_cables` — returns True if device has any modules (trays) OR any FiberCables connected via cables on its RearPorts. This differs from the Splice Editor's visibility function because the Fiber Overview is specifically about the module/tray-based fiber management layer.
 - Weight: 1400 (before Splice Editor at 1500)
 
 **Template:** `netbox_fms/templates/netbox_fms/device_fiber_overview.html`
@@ -60,7 +63,7 @@ Registered as `@register_model_view(Device, "fiber_overview", path="fiber-overvi
 
 **Cable/Fiber status table:**
 
-Each row represents a `dcim.Cable` connected to a RearPort on this device (specifically module-attached RearPorts, since those are tray attachment points).
+Each row represents a `dcim.Cable` connected to a RearPort on this device (specifically module-attached RearPorts, since those are tray attachment points). Device-level RearPorts (without a module) are not part of the fiber management layer and are excluded.
 
 | Column | Source |
 |--------|--------|
@@ -78,7 +81,7 @@ Each row represents a `dcim.Cable` connected to a RearPort on this device (speci
 | Cable connected, no FiberCable | "Create FiberCable" button |
 | FiberCable exists, strands not provisioned | "Provision Strands" button |
 | FiberCable exists, strands provisioned | Checkmark (done) |
-| Any row | Pencil icon to edit gland label |
+| Any row with a FiberCable | Pencil icon to edit gland label |
 
 **Splice plan section** (bottom):
 - If plan exists: name, status badge, entry count, link to plan detail, link to Splice Editor tab
@@ -88,7 +91,7 @@ Each row represents a `dcim.Cable` connected to a RearPort on this device (speci
 
 ## 3. View Implementation
 
-### `DeviceFiberOverviewView.get()`
+### `DeviceFiberOverviewView.get()` — Reference Implementation
 
 ```python
 def get(self, request, pk):
@@ -165,7 +168,15 @@ def get(self, request, pk):
 
 ## 4. Modal Actions
 
-All three modals use the same pattern: a Bootstrap 5 modal loaded inline on the overview page. Form submission via standard POST (not AJAX) that redirects back to the overview tab on success. This keeps things simple — no custom JS needed, just Django form handling.
+All three modals use the same pattern: a Bootstrap 5 modal pre-rendered in the template. Form submission via standard POST (not AJAX) that redirects back to the overview tab on success. This keeps things simple — no custom JS needed, just Django form handling.
+
+**Modal population:** Each action button stores context in `data-cable-id` / `data-fiber-cable-id` attributes. A shared inline click handler reads these attributes and sets the corresponding hidden form fields before calling `modal.show()`.
+
+**Permissions:** All action views require `LoginRequiredMixin`. Create FiberCable requires `netbox_fms.add_fibercable`. Provision Strands requires `dcim.add_frontport`. Edit Gland Label requires `netbox_fms.add_closurecableentry` and `netbox_fms.change_closurecableentry`. Action buttons are hidden in the template when the user lacks the corresponding permission.
+
+**CSRF:** All modal forms include `{% csrf_token %}`. Views use Django's standard CSRF middleware.
+
+**Redirect:** All action views redirect to `reverse('dcim:device', kwargs={'pk': pk})` + `'fiber-overview/'` on success.
 
 ### 4.1 Create FiberCable
 
@@ -184,7 +195,7 @@ All three modals use the same pattern: a Bootstrap 5 modal loaded inline on the 
 3. FiberCable's `save()` auto-instantiates strands via `_instantiate_components()`
 4. Redirect back to fiber overview tab
 
-**View:** `CreateFiberCableFromCableView(View)` — handles GET (return form HTML fragment for modal) and POST.
+**View:** `CreateFiberCableFromCableView(LoginRequiredMixin, View)` — handles POST only (modal is pre-rendered in template).
 
 ### 4.2 Provision Strands
 
@@ -197,11 +208,11 @@ All three modals use the same pattern: a Bootstrap 5 modal loaded inline on the 
 - `target_module` — DynamicModelChoiceField (Module, filtered to this device)
 - `port_type` — ChoiceField (LC, SC, MPO, etc.), default "splice"
 
-**Logic:** Reuses `ProvisionPortsView._provision()` logic — creates RearPort on target module, FrontPorts per strand, PortMappings, links FiberStrand.front_port.
+**Logic:** Reuses the provisioning logic from `ProvisionPortsView.post()`. That method must be refactored: extract the core logic into a helper function (e.g., `_provision_strands(fiber_cable, device, module, port_type)`) that both the existing view and this new view can call. The helper creates a RearPort on the target module, FrontPorts per strand, PortMappings, and links `FiberStrand.front_port`.
 
-**Note:** The existing `_provision()` creates ports on the device level. For the overview modal, we should provision ports on the **module** (tray) instead. This means FrontPorts get `module=target_module` set. The existing logic needs a small modification to accept an optional module parameter.
+**Note:** The existing logic creates ports at device level. For the overview modal, when `module` is provided, all created objects — RearPort, FrontPorts, and PortMappings — should be created with `module=target_module` (in addition to `device=device`, which NetBox requires regardless). The refactored helper accepts an optional `module` parameter.
 
-**View:** `ProvisionStrandsView(View)` — handles GET and POST.
+**View:** `ProvisionStrandsView(LoginRequiredMixin, View)` — handles POST only (modal is pre-rendered in template).
 
 ### 4.3 Edit Gland Label
 
@@ -215,7 +226,7 @@ All three modals use the same pattern: a Bootstrap 5 modal loaded inline on the 
 
 **Logic:** Creates or updates `ClosureCableEntry` for this closure+fiber_cable pair.
 
-**View:** `UpdateGlandLabelView(View)` — handles POST only.
+**View:** `UpdateGlandLabelView(LoginRequiredMixin, View)` — handles POST only.
 
 ---
 
@@ -261,6 +272,8 @@ Modals are standard Bootstrap 5 modals rendered in the template. Each action but
 
 The overview tab itself is auto-registered by `@register_model_view`.
 
+**Note:** These URL names are feature-namespaced (`fiber_overview_*`) rather than model-namespaced (`fibercable_*`) because they are contextual actions on a device tab, not standard model CRUD operations.
+
 ---
 
 ## 7. Navigation Changes
@@ -302,7 +315,9 @@ The removed views/URLs remain functional for direct linking and API access. Only
 - **Create FiberCable:** If FiberCable already exists for that cable, show error message and redirect back.
 - **Provision Strands:** If strands already provisioned on this device, show error. If no strands on the FiberCable, show error.
 - **Edit Gland Label:** Simple upsert, unlikely to fail. Validate label length.
-- **Tab visibility:** If device has no modules and no fiber cables, tab doesn't appear. Once user adds a module or connects a fiber cable, tab becomes visible.
+- **Tab visibility:** Controlled by `_device_has_modules_or_fiber_cables` — if device has no modules and no connected fiber cables, tab doesn't appear.
+
+**Note on "strands provisioned":** This count reflects FiberStrand.front_port assignment (port provisioning), which is distinct from the live splice state tracked in the unified splice visualization spec. Provisioning means strands have FrontPorts on this device; splicing means those FrontPorts are connected to each other.
 
 ---
 
