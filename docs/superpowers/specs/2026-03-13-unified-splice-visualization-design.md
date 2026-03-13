@@ -50,7 +50,7 @@ The splice editor becomes a single TypeScript component with three context modes
 
 | Mode | When | Behavior |
 |------|------|----------|
-| `view` | Device tab, no plan exists | Read-only visualization of live FrontPort↔FrontPort connections. Editing allowed — changes buffered in-memory. Save opens quick-add modal to create plan. |
+| `view` | Device tab, no plan exists | Visualization of live FrontPort↔FrontPort connections (queried from CableTermination, not plan entries). Editing allowed — changes buffered in-memory. Save opens quick-add modal to create plan. |
 | `edit` | Device tab, plan exists | Shows live splices + plan entries. Editing allowed. Save bulk-updates plan via API. |
 | `plan-edit` | Standalone plan editor page | Same as `edit`, accessed from SplicePlan detail page. |
 
@@ -67,6 +67,8 @@ The splice editor becomes a single TypeScript component with three context modes
 | Unspliced strand | Normal dot (unchanged from current behavior) |
 
 **Ghost style:** opacity ~0.2, stroke-width reduced to 1px, color preserved but faded.
+
+**Re-splice detection:** The renderer correlates pending changes: if a strand appears in both a pending `remove` and a pending `add`, it is a re-splice. The old connection renders as ghost, the new connection renders as solid green. The state module exposes a `getReSplices()` method that returns these correlated pairs.
 
 ---
 
@@ -106,6 +108,7 @@ The splice editor becomes a single TypeScript component with three context modes
 - Click strand A, click strand B → creates N pending splices: A+0↔B+0, A+1↔B+1, ..., A+(N−1)↔B+(N−1).
 - Strands are ordered by position within their respective tubes/cable groups.
 - If fewer than N strands remain in either direction from the clicked starting points, splice as many as possible and show a status bar message: "Spliced X of Y requested (not enough strands)".
+- Sequential walks do **not** cross tube boundaries. If strand A is in tube T1, only strands within T1 are counted. Same for strand B's tube.
 
 ---
 
@@ -122,12 +125,11 @@ window.SPLICE_EDITOR_CONFIG = {
     deviceId: {{ device.pk }},
     planId: {{ plan.pk|default:"null" }},
     contextMode: "{{ context_mode }}",  // "view" or "edit"
-    planStatus: {{ plan.status|default:"null"|safe }},
+    planStatus: "{{ plan.status|default:'' }}",
     strandsUrl: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=device.pk %}",
     bulkUpdateUrl: {% if plan %}"{% url 'plugins-api:netbox_fms-api:spliceplan-bulk-update' pk=plan.pk %}"{% else %}null{% endif %},
     quickAddFormUrl: "{% url 'plugins:netbox_fms:spliceplan_quick_add_form' %}?closure_id={{ device.pk }}",
     quickAddApiUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-quick-add' %}",
-    diffUrl: {% if plan %}"{% url 'plugins-api:netbox_fms-api:spliceplan-get-diff' pk=plan.pk %}"{% else %}null{% endif %},
     csrfToken: "{{ csrf_token }}",
 };
 ```
@@ -181,21 +183,23 @@ window.SPLICE_EDITOR_CONFIG = {
 ```json
 {
     "add": [
-        {"fiber_a": <front_port_id>, "fiber_b": <front_port_id>, "tray": <module_id>}
+        {"fiber_a": <front_port_id>, "fiber_b": <front_port_id>}
     ],
     "remove": [
         {"fiber_a": <front_port_id>, "fiber_b": <front_port_id>}
     ]
 }
 ```
-- **Logic:** Wrapped in `transaction.atomic()`. Creates SplicePlanEntry for each `add`, deletes matching entries for each `remove`. Returns updated list of plan entries.
+- **Logic:** Wrapped in `transaction.atomic()`. Creates SplicePlanEntry for each `add` (server auto-derives `tray` from `fiber_a.module`), deletes matching entries for each `remove`. Returns updated list of plan entries.
 - **Response:** `{ "entries": [<SplicePlanEntrySerializer>, ...] }`
 
 ### Modified: `ClosureStrandsAPIView`
 
-- Accept optional query param `?plan_id=<id>`.
-- When provided, include `plan_entry_id` and `plan_spliced_to` per strand (from plan entries), in addition to existing `splice_entry_id` and `spliced_to` (from live connections).
-- When not provided, only return live splice info (current behavior).
+The existing implementation returns plan-based splice lookups (`splice_entry_id`, `spliced_to` from `SplicePlanEntry`). This must be split into two distinct data sources:
+
+- **Live splice data** (always returned): Query `CableTermination` pairs where both endpoints are `FrontPort` on the same device, connected via a 0-length cable. This uses the same logic as `services.get_live_state()`. Fields: `live_spliced_to` (FrontPort ID).
+- **Plan splice data** (returned when `?plan_id=<id>` is provided): From `SplicePlanEntry` records. Fields: `plan_entry_id`, `plan_spliced_to`.
+- Rename existing `splice_entry_id`/`spliced_to` fields to avoid ambiguity.
 
 ### Removed
 
