@@ -139,6 +139,7 @@ def get(self, request, pk):
             "gland_entry": gland_entry,
         })
 
+    # SplicePlan.closure is a OneToOneField — at most one plan per device
     plan = SplicePlan.objects.filter(closure=device).first()
 
     # Summary stats
@@ -182,7 +183,9 @@ All three modals use HTMX. Action buttons use `hx-get` to fetch a modal form fra
 
 **Permissions:** All action views require `LoginRequiredMixin`. Create FiberCable requires `netbox_fms.add_fibercable`. Provision Strands requires `dcim.add_frontport`. Edit Gland Label requires `netbox_fms.add_closurecableentry` and `netbox_fms.change_closurecableentry`. Action buttons are hidden in the template when the user lacks the corresponding permission.
 
-**Error handling in modals:** On validation error, the POST view re-renders the modal form HTML with error messages and returns it (200, not redirect). HTMX swaps the modal content, keeping the modal open with errors visible.
+**Error handling in modals:** For Create FiberCable and Provision Strands, the form's `hx-post` targets `#modal-container` (same as the GET). On validation error, the POST view re-renders the modal form HTML with error messages and returns it (200, not redirect). HTMX swaps the modal content, keeping the modal open with errors visible.
+
+For Edit Gland Label, the form's `hx-post` targets `closest tr` on success, which conflicts with error responses. To handle this: on validation error, return the modal form fragment with `HX-Retarget: #modal-container` and `HX-Reswap: innerHTML` response headers. HTMX will override the form's target and swap the error form back into the modal container. On success, return the row fragment normally (targeting `closest tr`).
 
 ### 4.1 Create FiberCable
 
@@ -197,9 +200,9 @@ All three modals use HTMX. Action buttons use `hx-get` to fetch a modal form fra
 - `name` — CharField, pre-filled with cable label
 
 **Logic:**
-1. Validate FiberCableType selected
-2. Create `FiberCable(cable=cable, fiber_cable_type=type, name=name)`
-3. FiberCable's `save()` auto-instantiates strands via `_instantiate_components()`
+1. **Pre-condition check (GET):** If a FiberCable already exists for this cable, the GET view returns the modal with an info message ("FiberCable already exists for this cable") and no form. This prevents the user from submitting a duplicate.
+2. Validate FiberCableType selected
+3. Wrap in `@transaction.atomic`: Create `FiberCable(cable=cable, fiber_cable_type=type, name=name)`. FiberCable's `save()` auto-instantiates strands via `_instantiate_components()`. If instantiation fails, the entire transaction rolls back.
 4. Return `HX-Redirect` to fiber overview tab
 
 **View:** `CreateFiberCableFromCableView(LoginRequiredMixin, View)` — GET returns modal fragment, POST processes form.
@@ -215,10 +218,10 @@ All three modals use HTMX. Action buttons use `hx-get` to fetch a modal form fra
 
 **Form fields:**
 - `fiber_cable_id` — hidden, pre-filled from query param
-- `target_module` — DynamicModelChoiceField (Module, filtered to this device)
+- `target_module` — DynamicModelChoiceField (Module, filtered to this device). Pre-filled with the module of the RearPort the cable terminates on (if any). The user may select a different module if they want strands provisioned on a different tray than where the cable physically connects.
 - `port_type` — ChoiceField (LC, SC, MPO, etc.), default "splice"
 
-**Logic:** Reuses the provisioning logic from `ProvisionPortsView.post()`. That method must be refactored: extract the core logic into a helper function (e.g., `_provision_strands(fiber_cable, device, module, port_type)`) that both the existing view and this new view can call. The helper creates a RearPort on the target module, FrontPorts per strand, PortMappings, and links `FiberStrand.front_port`.
+**Logic:** Wrapped in `@transaction.atomic`. Reuses the provisioning logic from `ProvisionPortsView.post()`. That method must be refactored: extract the core logic into a helper function (e.g., `_provision_strands(fiber_cable, device, module, port_type)`) that both the existing view and this new view can call. The helper creates a RearPort on the target module, FrontPorts per strand, PortMappings, and links `FiberStrand.front_port`.
 
 **Note:** The existing logic creates ports at device level. For the overview modal, when `module` is provided, all created objects — RearPort, FrontPorts, and PortMappings — should be created with `module=target_module` (in addition to `device=device`, which NetBox requires regardless). The refactored helper accepts an optional `module` parameter.
 
@@ -271,6 +274,8 @@ Card: "Fiber Management Summary"
 Single `<tr>` partial template. Used by:
 - The main table (via `{% include %}` in a loop)
 - The gland label update response (returned directly to swap a row in-place)
+
+**Required context:** The row partial needs `device`, `row` (dict with `rearport`, `cable`, `fiber_cable`, `strand_info`, `gland_entry`), and `perms` (user permissions). Both the main view and `UpdateGlandLabelView.post()` must provide this context. Extract a shared helper `_build_cable_row(device, rearport)` that returns the row dict, used by both views.
 
 ### `htmx/create_fiber_cable_modal.html`
 ### `htmx/provision_strands_modal.html`
@@ -332,7 +337,7 @@ The removed views/URLs remain functional for direct linking and API access. Only
 
 ## 8. Error Handling
 
-- **Create FiberCable:** If FiberCable already exists for that cable, show error message and redirect back.
+- **Create FiberCable:** Pre-condition checked on GET — if FiberCable already exists, modal shows info message with no form (prevents duplicate submission).
 - **Provision Strands:** If strands already provisioned on this device, show error. If no strands on the FiberCable, show error.
 - **Edit Gland Label:** Simple upsert, unlikely to fail. Validate label length.
 - **Tab visibility:** Controlled by `_device_has_modules_or_fiber_cables` — if device has no modules and no connected fiber cables, tab doesn't appear.
