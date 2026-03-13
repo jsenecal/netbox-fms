@@ -51,15 +51,17 @@
 </div>
 <script>
     window.SPLICE_EDITOR_CONFIG = {
+        deviceId: {{ object.closure_id }},
         planId: {{ object.pk }},
-        closureId: {{ object.closure_id }},
-        planMode: "single",
+        contextMode: "plan-edit",
         planStatus: "{{ object.status }}",
-        apiBase: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=object.closure_id %}",
-        diffUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-get-diff' pk=object.pk %}",
+        strandsUrl: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=object.closure_id %}",
+        bulkUpdateUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-bulk-update-entries' pk=object.pk %}",
+        quickAddFormUrl: "",
+        quickAddApiUrl: "",
         csrfToken: "{{ csrf_token }}",
     };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
-<script src="{% static 'netbox_fms/js/splice_editor.js' %}"></script>
+<script src="{% static 'netbox_fms/dist/splice-editor.min.js' %}"></script>
 {% endblock %}

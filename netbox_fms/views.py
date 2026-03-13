@@ -614,7 +614,14 @@ class SpliceEditorView(View):
 
     def get(self, request, pk):
         plan = get_object_or_404(SplicePlan.objects.select_related("closure"), pk=pk)
-        return render(request, "netbox_fms/splice_editor.html", {"object": plan})
+        return render(
+            request,
+            "netbox_fms/splice_editor.html",
+            {
+                "object": plan,
+                "context_mode": "plan-edit",
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -654,14 +661,8 @@ class DeviceSpliceEditorView(View):
 
     def get(self, request, pk):
         device = get_object_or_404(Device, pk=pk)
-
         plan = SplicePlan.objects.filter(closure=device).first()
-
-        diff = None
-        if plan:
-            from .services import get_or_recompute_diff
-
-            diff = get_or_recompute_diff(plan)
+        context_mode = "edit" if plan else "view"
 
         return render(
             request,
@@ -670,7 +671,7 @@ class DeviceSpliceEditorView(View):
                 "object": device,
                 "device": device,
                 "plan": plan,
-                "diff": diff,
+                "context_mode": context_mode,
                 "tab": self.tab,
             },
         )

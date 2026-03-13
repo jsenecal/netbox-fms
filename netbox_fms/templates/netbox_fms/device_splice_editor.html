@@ -23,7 +23,6 @@
                 {% endif %}
             </h5>
             <div class="card-body p-0">
-                {% if plan %}
                 <!-- Toolbar -->
                 <div class="splice-toolbar p-2 border-bottom" id="splice-toolbar">
                     <div class="btn-group me-3" role="group">
@@ -37,9 +36,11 @@
                             <i class="mdi mdi-close"></i> {% trans "Delete" %}
                         </button>
                     </div>
+                    {% if plan %}
                     <a href="{{ plan.get_absolute_url }}" class="btn btn-sm btn-outline-secondary ms-2">
                         <i class="mdi mdi-eye"></i> {% trans "Plan Details" %}
                     </a>
+                    {% endif %}
                     <span class="text-muted small ms-3">{% trans "Scroll each column independently. Splicing works across or within sides." %}</span>
                 </div>
 
@@ -50,31 +51,23 @@
                 <div class="p-2 border-top text-muted small" id="splice-status">
                     {% trans "Loading strands..." %}
                 </div>
-                {% else %}
-                <div class="p-3">
-                    <p class="text-muted">{% trans "No splice plan exists for this device yet." %}</p>
-                    <a href="{% url 'plugins:netbox_fms:spliceplan_add' %}" class="btn btn-sm btn-primary">
-                        <i class="mdi mdi-plus-thick"></i> {% trans "Create Splice Plan" %}
-                    </a>
-                </div>
-                {% endif %}
             </div>
         </div>
     </div>
 </div>
-{% if plan %}
 <script>
     window.SPLICE_EDITOR_CONFIG = {
-        planId: {{ plan.pk }},
-        closureId: {{ device.pk }},
-        planMode: "single",
-        planStatus: "{{ plan.status }}",
-        apiBase: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=device.pk %}",
-        diffUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-get-diff' pk=plan.pk %}",
+        deviceId: {{ device.pk }},
+        planId: {{ plan.pk|default:"null" }},
+        contextMode: "{{ context_mode }}",
+        planStatus: "{{ plan.status|default:'' }}",
+        strandsUrl: "{% url 'plugins-api:netbox_fms-api:closure_strands' device_id=device.pk %}",
+        bulkUpdateUrl: {% if plan %}"{% url 'plugins-api:netbox_fms-api:spliceplan-bulk-update-entries' pk=plan.pk %}"{% else %}null{% endif %},
+        quickAddFormUrl: "{% url 'plugins:netbox_fms:spliceplan_quick_add_form' %}?closure_id={{ device.pk }}",
+        quickAddApiUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-quick-add' %}",
         csrfToken: "{{ csrf_token }}",
     };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
-<script src="{% static 'netbox_fms/js/splice_editor.js' %}"></script>
-{% endif %}
+<script src="{% static 'netbox_fms/dist/splice-editor.min.js' %}"></script>
 {% endblock %}
