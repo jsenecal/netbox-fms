@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "node bundle.cjs",
+    "watch": "node bundle.cjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "~5.8.0",
+    "@types/d3": "^7.4.0"
+  }
+}
