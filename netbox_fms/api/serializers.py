@@ -363,8 +363,9 @@ class ClosureStrandSerializer(serializers.Serializer):
     position = serializers.IntegerField()
     color = serializers.CharField()
     front_port_id = serializers.IntegerField(allow_null=True)
-    splice_entry_id = serializers.IntegerField(allow_null=True)
-    spliced_to = serializers.IntegerField(allow_null=True)
+    live_spliced_to = serializers.IntegerField(allow_null=True)
+    plan_entry_id = serializers.IntegerField(allow_null=True)
+    plan_spliced_to = serializers.IntegerField(allow_null=True)
 
 
 class TubeGroupSerializer(serializers.Serializer):

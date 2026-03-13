@@ -189,7 +189,8 @@ class ClosureStrandsAPIView(APIView):
 
     def get(self, request, device_id):
         # Find all FiberCables whose dcim.Cable terminates at this device
-        from dcim.models import CableTermination
+        from dcim.models import CableTermination, FrontPort
+        from django.contrib.contenttypes.models import ContentType
 
         # Get all cables connected to this device
         cable_ids = (
@@ -202,14 +203,49 @@ class ClosureStrandsAPIView(APIView):
 
         fiber_cables = FiberCable.objects.filter(cable_id__in=cable_ids).select_related("cable", "fiber_cable_type")
 
-        # Build splice entry lookup: strand_id → (entry_id, spliced_to_id)
-        splice_lookup = {}
-        all_plan_entries = SplicePlanEntry.objects.filter(
-            plan__closure_id=device_id,
-        ).values_list("id", "fiber_a_id", "fiber_b_id")
-        for entry_id, fa_id, fb_id in all_plan_entries:
-            splice_lookup[fa_id] = (entry_id, fb_id)
-            splice_lookup[fb_id] = (entry_id, fa_id)
+        # --- A) Build LIVE splice lookup (front_port_id → front_port_id) ---
+        fp_ct = ContentType.objects.get_for_model(FrontPort)
+        tray_front_port_ids = set(
+            FrontPort.objects.filter(
+                device_id=device_id,
+                module__isnull=False,
+            ).values_list("pk", flat=True)
+        )
+        live_lookup = {}  # front_port_id -> front_port_id
+        if tray_front_port_ids:
+            terms = CableTermination.objects.filter(
+                termination_type=fp_ct,
+                termination_id__in=tray_front_port_ids,
+            ).values_list("cable_id", "termination_id", "cable_end")
+
+            cable_terms = {}
+            for cable_id, term_id, cable_end in terms:
+                cable_terms.setdefault(cable_id, {})[cable_end] = term_id
+
+            for _cable_id, ends in cable_terms.items():
+                if "A" in ends and "B" in ends:
+                    a_id, b_id = ends["A"], ends["B"]
+                    if a_id in tray_front_port_ids and b_id in tray_front_port_ids:
+                        live_lookup[a_id] = b_id
+                        live_lookup[b_id] = a_id
+
+        # --- B) Build PLAN splice lookup (optional, when plan_id param provided) ---
+        plan_lookup = {}
+        plan_id = request.query_params.get("plan_id")
+        if plan_id:
+            plan_entries = SplicePlanEntry.objects.filter(
+                plan_id=plan_id,
+            ).values_list("id", "fiber_a_id", "fiber_b_id")
+            for entry_id, fa_id, fb_id in plan_entries:
+                plan_lookup[fa_id] = (entry_id, fb_id)
+                plan_lookup[fb_id] = (entry_id, fa_id)
+
+        # --- C) Build front_port_id → strand_id reverse mapping ---
+        fp_to_strand = {}
+        for fc in fiber_cables:
+            for s in fc.fiber_strands.all():
+                if s.front_port_id:
+                    fp_to_strand[s.front_port_id] = s.pk
 
         cable_groups = []
         for fc in fiber_cables:
@@ -219,7 +255,10 @@ class ClosureStrandsAPIView(APIView):
             tubes_dict = OrderedDict()
             loose = []
             for s in strands:
-                entry_info = splice_lookup.get(s.pk, (None, None))
+                live_fp = live_lookup.get(s.front_port_id)
+                live_strand = fp_to_strand.get(live_fp) if live_fp else None
+                plan_info = plan_lookup.get(s.front_port_id, (None, None))
+                plan_strand = fp_to_strand.get(plan_info[1]) if plan_info[1] else None
                 strand_data = {
                     "id": s.pk,
                     "name": s.name,
@@ -230,8 +269,9 @@ class ClosureStrandsAPIView(APIView):
                     "ribbon_name": s.ribbon.name if s.ribbon else None,
                     "ribbon_color": s.ribbon.color if s.ribbon else None,
                     "front_port_id": s.front_port_id,
-                    "splice_entry_id": entry_info[0],
-                    "spliced_to": entry_info[1],
+                    "live_spliced_to": live_strand,
+                    "plan_entry_id": plan_info[0],
+                    "plan_spliced_to": plan_strand,
                 }
                 if s.buffer_tube:
                     tube_id = s.buffer_tube.pk
