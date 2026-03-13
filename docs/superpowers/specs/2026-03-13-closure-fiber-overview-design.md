@@ -79,7 +79,7 @@ Each row represents a `dcim.Cable` connected to a RearPort on this device (speci
 | State | Action shown |
 |-------|-------------|
 | Cable connected, no FiberCable | "Create FiberCable" button |
-| FiberCable exists, strands not provisioned | "Provision Strands" button |
+| FiberCable exists, strands not provisioned on this device | "Provision Strands" button |
 | FiberCable exists, strands provisioned | Checkmark (done) |
 | Any row with a FiberCable | Pencil icon to edit gland label |
 
@@ -197,7 +197,6 @@ For Edit Gland Label, the form's `hx-post` targets `closest tr` on success, whic
 **Form fields:**
 - `cable_id` — hidden, pre-filled from query param
 - `fiber_cable_type` — DynamicModelChoiceField (FiberCableType)
-- `name` — CharField, pre-filled with cable label
 
 **Logic:**
 1. **Pre-condition check (GET):** If a FiberCable already exists for this cable, the GET view returns the modal with an info message ("FiberCable already exists for this cable") and no form. This prevents the user from submitting a duplicate.
