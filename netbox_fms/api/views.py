@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
@@ -169,6 +169,56 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 
         diff = get_or_recompute_diff(plan)
         return Response(diff)
+
+    @action(detail=True, methods=["post"], url_path="bulk-update")
+    def bulk_update_entries(self, request, pk=None):
+        plan = self.get_object()
+        adds = request.data.get("add", [])
+        removes = request.data.get("remove", [])
+
+        from dcim.models import FrontPort
+
+        try:
+            with transaction.atomic():
+                # Process removes
+                for item in removes:
+                    fa_id, fb_id = item["fiber_a"], item["fiber_b"]
+                    SplicePlanEntry.objects.filter(
+                        plan=plan,
+                    ).filter(
+                        models.Q(fiber_a_id=fa_id, fiber_b_id=fb_id)
+                        | models.Q(fiber_a_id=fb_id, fiber_b_id=fa_id)
+                    ).delete()
+
+                # Process adds
+                for item in adds:
+                    fa_id, fb_id = item["fiber_a"], item["fiber_b"]
+                    fa = FrontPort.objects.get(pk=fa_id)
+                    tray = fa.module
+                    if tray is None:
+                        raise ValueError(f"FrontPort {fa_id} has no module (tray)")
+                    SplicePlanEntry.objects.create(
+                        plan=plan,
+                        tray=tray,
+                        fiber_a_id=fa_id,
+                        fiber_b_id=fb_id,
+                    )
+
+                plan.diff_stale = True
+                plan.save(update_fields=["diff_stale"])
+
+        except (FrontPort.DoesNotExist, ValueError) as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        entries = SplicePlanEntry.objects.filter(plan=plan)
+        return Response(
+            {
+                "entries": [
+                    {"id": e.pk, "fiber_a": e.fiber_a_id, "fiber_b": e.fiber_b_id, "tray": e.tray_id}
+                    for e in entries
+                ]
+            }
+        )
 
 
 class FiberPathLossViewSet(NetBoxModelViewSet):
