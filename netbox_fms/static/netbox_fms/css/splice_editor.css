@@ -135,3 +135,47 @@
 .splice-toolbar .btn.active {
     font-weight: 600;
 }
+
+/* Pending splice states */
+.splice-link.pending-add {
+    stroke: var(--bs-success, #198754);
+    stroke-width: 2;
+    opacity: 0.9;
+    pointer-events: none;
+}
+
+.splice-link.pending-delete {
+    stroke: var(--bs-danger, #dc3545);
+    stroke-width: 2;
+    stroke-dasharray: 6, 3;
+    opacity: 0.8;
+    pointer-events: none;
+}
+
+/* Ghost splice (existing but pending change) */
+.splice-link.ghost {
+    opacity: 0.2;
+    stroke-width: 1;
+}
+
+/* Save button pulse */
+#splice-save-btn:not(.d-none) {
+    animation: save-pulse 2s ease-in-out infinite;
+}
+
+@keyframes save-pulse {
+    0%, 100% { box-shadow: none; }
+    50% { box-shadow: 0 0 0 3px rgba(25, 135, 84, 0.3); }
+}
+
+/* Sequential count selector */
+#sequential-count input[type="number"] {
+    text-align: center;
+    -moz-appearance: textfield;
+}
+
+#sequential-count input[type="number"]::-webkit-outer-spin-button,
+#sequential-count input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
