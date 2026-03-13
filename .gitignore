@@ -20,3 +20,5 @@ site/
 .devcontainer/home/.claude/
 .devcontainer/home/.claude.json
 .devcontainer/env/
+.superpowers/
+.worktrees/
