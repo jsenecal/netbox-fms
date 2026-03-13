@@ -1189,15 +1189,19 @@ Replace the splice lookup section (lines 205-212) with:
         from dcim.models import FrontPort
 
         # Build LIVE splice lookup: front_port_id -> spliced_to_front_port_id
+        # Only match module-attached FrontPorts (tray ports), matching get_live_state() logic
         fp_ct = ContentType.objects.get_for_model(FrontPort)
-        all_front_port_ids = set(
-            FrontPort.objects.filter(device_id=device_id).values_list("pk", flat=True)
+        tray_front_port_ids = set(
+            FrontPort.objects.filter(
+                device_id=device_id,
+                module__isnull=False,
+            ).values_list("pk", flat=True)
         )
         live_lookup = {}  # front_port_id -> front_port_id
-        if all_front_port_ids:
+        if tray_front_port_ids:
             terms = CableTermination.objects.filter(
                 termination_type=fp_ct,
-                termination_id__in=all_front_port_ids,
+                termination_id__in=tray_front_port_ids,
             ).values_list("cable_id", "termination_id", "cable_end")
 
             cable_terms = {}
@@ -1207,7 +1211,7 @@ Replace the splice lookup section (lines 205-212) with:
             for _cable_id, ends in cable_terms.items():
                 if "A" in ends and "B" in ends:
                     a_id, b_id = ends["A"], ends["B"]
-                    if a_id in all_front_port_ids and b_id in all_front_port_ids:
+                    if a_id in tray_front_port_ids and b_id in tray_front_port_ids:
                         live_lookup[a_id] = b_id
                         live_lookup[b_id] = a_id
 
@@ -1223,11 +1227,25 @@ Replace the splice lookup section (lines 205-212) with:
                 plan_lookup[fb_id] = (entry_id, fa_id)
 ```
 
+Then build a `front_port_id -> strand_id` reverse mapping (needed because the renderer looks up nodes by strand ID, but splices are tracked by front_port_id):
+
+```python
+        # Build front_port_id -> strand_id reverse lookup
+        # so we can return strand IDs (not front_port IDs) for splice targets
+        fp_to_strand = {}
+        for fc in fiber_cables:
+            for s in fc.fiber_strands.all():
+                if s.front_port_id:
+                    fp_to_strand[s.front_port_id] = s.pk
+```
+
 Then update the strand_data dict (replace `splice_entry_id` and `spliced_to`):
 
 ```python
-                live_info = live_lookup.get(s.front_port_id)
+                live_fp = live_lookup.get(s.front_port_id)
+                live_strand = fp_to_strand.get(live_fp) if live_fp else None
                 plan_info = plan_lookup.get(s.front_port_id, (None, None))
+                plan_strand = fp_to_strand.get(plan_info[1]) if plan_info[1] else None
                 strand_data = {
                     "id": s.pk,
                     "name": s.name,
@@ -1238,11 +1256,13 @@ Then update the strand_data dict (replace `splice_entry_id` and `spliced_to`):
                     "ribbon_name": s.ribbon.name if s.ribbon else None,
                     "ribbon_color": s.ribbon.color if s.ribbon else None,
                     "front_port_id": s.front_port_id,
-                    "live_spliced_to": live_info,
+                    "live_spliced_to": live_strand,
                     "plan_entry_id": plan_info[0],
-                    "plan_spliced_to": plan_info[1],
+                    "plan_spliced_to": plan_strand,
                 }
 ```
+
+**Important:** `live_spliced_to` and `plan_spliced_to` are **strand IDs** (not front_port IDs). The renderer uses strand IDs to look up layout nodes for drawing splice lines.
 
 - [ ] **Step 4: Update ClosureStrandSerializer**
 
