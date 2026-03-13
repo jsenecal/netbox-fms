@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["netbox_fms", "netbox_fms.*"]
+
+[tool.setuptools.package-data]
+netbox_fms = [
+    "templates/**/*",
+]
+
+[project]
+name = "netbox-fms"
+version = "0.1.0"
+description = "Fiber Management System - Enhanced fiber cable topology visualization and management for NetBox"
+readme = "README.md"
+authors = [
+    { name = "Jonathan Senecal", email = "contact@jonathansenecal.com" },
+]
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    'Intended Audience :: Developers',
+    'Natural Language :: English',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "bumpver",
+    "pre-commit>=4.0.0",
+    "pytest",
+    "pytest-django>=4.5.0",
+    "pytest-cov>=3.0.0",
+    "ruff",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/jsenecal/netbox-fms"
+Source = "https://github.com/jsenecal/netbox-fms"
+Tracker = "https://github.com/jsenecal/netbox-fms/issues"
+
+[tool.bumpver]
+current_version = "0.1.0"
+version_pattern = "MAJOR.MINOR.PATCH"
+commit_message = "chore: bump version {old_version} -> {new_version}"
+tag_pattern = "vMAJOR.MINOR.PATCH"
+commit = true
+tag = true
+push = true
+
+[tool.bumpver.file_patterns]
+"pyproject.toml" = [
+    'current_version = "{version}"',
+    'version = "{version}"',
+]
+"netbox_fms/__init__.py" = [
+    '__version__ = "{version}"',
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "DJ", "PIE"]
+ignore = ["E501", "S101", "DJ01"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/*" = ["N806", "N999"]
+"tests/*" = ["S101", "S105"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=netbox_fms --cov-report=term-missing --reuse-db"
