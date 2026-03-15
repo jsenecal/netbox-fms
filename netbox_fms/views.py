@@ -1,6 +1,8 @@
 from dcim.models import Device
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import models, transaction
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
 from django.views import View
@@ -636,6 +638,58 @@ class SpliceEditorView(View):
 # ---------------------------------------------------------------------------
 
 
+def _device_has_modules_or_fiber_cables(device):
+    """Return True if device has modules (trays) or FiberCable terminations."""
+    if device.modules.exists():
+        return True
+    from dcim.models import CableTermination
+
+    cable_ids = (
+        CableTermination.objects.filter(_device_id=device.pk)
+        .exclude(cable__isnull=True)
+        .values_list("cable_id", flat=True)
+        .distinct()
+    )
+    return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
+
+
+def _build_cable_row(device, rearport):
+    """Build context dict for a single cable row in the Fiber Overview table."""
+    from dcim.models import CableTermination, RearPort
+    from django.contrib.contenttypes.models import ContentType
+
+    rp_ct = ContentType.objects.get_for_model(RearPort)
+    term = (
+        CableTermination.objects.filter(
+            termination_type=rp_ct,
+            termination_id=rearport.pk,
+        )
+        .select_related("cable")
+        .first()
+    )
+
+    cable = term.cable if term else None
+    fiber_cable = None
+    strand_info = None
+    gland_entry = None
+
+    if cable:
+        fiber_cable = FiberCable.objects.filter(cable=cable).first()
+        if fiber_cable:
+            total = fiber_cable.fiber_strands.count()
+            provisioned = fiber_cable.fiber_strands.filter(front_port__device=device).count()
+            strand_info = {"provisioned": provisioned, "total": total}
+            gland_entry = ClosureCableEntry.objects.filter(closure=device, fiber_cable=fiber_cable).first()
+
+    return {
+        "rearport": rearport,
+        "cable": cable,
+        "fiber_cable": fiber_cable,
+        "strand_info": strand_info,
+        "gland_entry": gland_entry,
+    }
+
+
 def _device_has_splice_plan_or_fiber_cables(device):
     """Return True if this device has a splice plan or FiberCable terminations."""
     if SplicePlan.objects.filter(closure=device).exists():
@@ -649,6 +703,49 @@ def _device_has_splice_plan_or_fiber_cables(device):
         .distinct()
     )
     return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
+
+
+@register_model_view(Device, "fiber_overview", path="fiber-overview")
+class DeviceFiberOverviewView(View):
+    """Fiber Overview tab on a dcim.Device detail page."""
+
+    tab = ViewTab(
+        label=_("Fiber Overview"),
+        visible=_device_has_modules_or_fiber_cables,
+        weight=1400,
+    )
+
+    def get(self, request, pk):
+        device = get_object_or_404(Device, pk=pk)
+
+        from dcim.models import RearPort
+
+        module_rearports = RearPort.objects.filter(device=device, module__isnull=False).select_related("module")
+
+        cable_rows = [_build_cable_row(device, rp) for rp in module_rearports]
+
+        plan = SplicePlan.objects.filter(closure=device).first()
+
+        stats = {
+            "tray_count": device.modules.count(),
+            "cable_count": sum(1 for r in cable_rows if r["cable"]),
+            "fiber_cable_count": sum(1 for r in cable_rows if r["fiber_cable"]),
+            "strand_provisioned": sum(r["strand_info"]["provisioned"] for r in cable_rows if r["strand_info"]),
+            "strand_total": sum(r["strand_info"]["total"] for r in cable_rows if r["strand_info"]),
+        }
+
+        return render(
+            request,
+            "netbox_fms/device_fiber_overview.html",
+            {
+                "object": device,
+                "device": device,
+                "cable_rows": cable_rows,
+                "plan": plan,
+                "stats": stats,
+                "tab": self.tab,
+            },
+        )
 
 
 @register_model_view(Device, "splice_editor", path="splice-editor")
@@ -682,3 +779,32 @@ class DeviceSpliceEditorView(View):
                 "tab": self.tab,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Fiber Overview HTMX action views (placeholders)
+# ---------------------------------------------------------------------------
+
+
+class CreateFiberCableFromCableView(LoginRequiredMixin, View):
+    def get(self, request, pk):
+        return HttpResponse("Not implemented", status=501)
+
+    def post(self, request, pk):
+        return HttpResponse("Not implemented", status=501)
+
+
+class ProvisionStrandsFromOverviewView(LoginRequiredMixin, View):
+    def get(self, request, pk):
+        return HttpResponse("Not implemented", status=501)
+
+    def post(self, request, pk):
+        return HttpResponse("Not implemented", status=501)
+
+
+class UpdateGlandLabelView(LoginRequiredMixin, View):
+    def get(self, request, pk):
+        return HttpResponse("Not implemented", status=501)
+
+    def post(self, request, pk):
+        return HttpResponse("Not implemented", status=501)

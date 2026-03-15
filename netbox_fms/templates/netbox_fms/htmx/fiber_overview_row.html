@@ -1,0 +1,66 @@
+{% load helpers %}
+{% load i18n %}
+<tr id="row-rp-{{ row.rearport.pk }}">
+    <td>
+        {% if row.cable %}
+            <a href="{{ row.cable.get_absolute_url }}">{{ row.cable }}</a>
+        {% else %}
+            <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+    <td>{{ row.rearport.module.name }} / {{ row.rearport.name }}</td>
+    <td>
+        {% if row.fiber_cable %}
+            <a href="{{ row.fiber_cable.get_absolute_url }}">{{ row.fiber_cable }}</a>
+        {% else %}
+            <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if row.gland_entry and row.gland_entry.entrance_label %}
+            {{ row.gland_entry.entrance_label }}
+        {% else %}
+            <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if row.strand_info %}
+            {{ row.strand_info.provisioned }}/{{ row.strand_info.total }} provisioned
+        {% else %}
+            <span class="text-muted">—</span>
+        {% endif %}
+    </td>
+    <td>
+        {% if row.cable and not row.fiber_cable %}
+            {% if perms.netbox_fms.add_fibercable %}
+            <button type="button" class="btn btn-sm btn-success"
+                    hx-get="{% url 'plugins:netbox_fms:fiber_overview_create_fibercable' pk=device.pk %}"
+                    hx-vals='{"cable_id": "{{ row.cable.pk }}"}'
+                    hx-target="#modal-container" hx-swap="innerHTML">
+                <i class="mdi mdi-plus"></i> Create FiberCable
+            </button>
+            {% endif %}
+        {% elif row.fiber_cable and row.strand_info and row.strand_info.provisioned == 0 %}
+            {% if perms.dcim.add_frontport %}
+            <button type="button" class="btn btn-sm btn-primary"
+                    hx-get="{% url 'plugins:netbox_fms:fiber_overview_provision_strands' pk=device.pk %}"
+                    hx-vals='{"fiber_cable_id": "{{ row.fiber_cable.pk }}"}'
+                    hx-target="#modal-container" hx-swap="innerHTML">
+                <i class="mdi mdi-lan-connect"></i> Provision Strands
+            </button>
+            {% endif %}
+        {% elif row.fiber_cable and row.strand_info and row.strand_info.provisioned > 0 %}
+            <span class="text-success"><i class="mdi mdi-check-circle"></i></span>
+        {% endif %}
+        {% if row.fiber_cable %}
+            {% if perms.netbox_fms.add_closurecableentry or perms.netbox_fms.change_closurecableentry %}
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-1"
+                    hx-get="{% url 'plugins:netbox_fms:fiber_overview_update_gland' pk=device.pk %}"
+                    hx-vals='{"fiber_cable_id": "{{ row.fiber_cable.pk }}", "rearport_id": "{{ row.rearport.pk }}"}'
+                    hx-target="#modal-container" hx-swap="innerHTML">
+                <i class="mdi mdi-pencil"></i>
+            </button>
+            {% endif %}
+        {% endif %}
+    </td>
+</tr>

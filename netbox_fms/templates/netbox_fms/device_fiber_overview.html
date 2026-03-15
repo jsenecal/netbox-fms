@@ -1,0 +1,104 @@
+{% extends 'dcim/device/base.html' %}
+{% load helpers %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col">
+        <div class="card">
+            <h5 class="card-header">{% trans "Fiber Management Summary" %}</h5>
+            <div class="card-body">
+                {# Stats bar #}
+                <div class="row text-center mb-3">
+                    <div class="col">
+                        <h4>{{ stats.tray_count }}</h4>
+                        <small class="text-muted">{% trans "Trays" %}</small>
+                    </div>
+                    <div class="col">
+                        <h4>{{ stats.cable_count }}</h4>
+                        <small class="text-muted">{% trans "Cables Connected" %}</small>
+                    </div>
+                    <div class="col">
+                        <h4>{{ stats.fiber_cable_count }}</h4>
+                        <small class="text-muted">{% trans "FiberCables" %}</small>
+                    </div>
+                    <div class="col">
+                        <h4>{{ stats.strand_provisioned }}/{{ stats.strand_total }}</h4>
+                        <small class="text-muted">{% trans "Strands Provisioned" %}</small>
+                    </div>
+                    <div class="col">
+                        {% if plan %}
+                            <h4><span class="badge bg-{{ plan.status }}">{{ plan.get_status_display }}</span></h4>
+                        {% else %}
+                            <h4><span class="text-muted">{% trans "None" %}</span></h4>
+                        {% endif %}
+                        <small class="text-muted">{% trans "Splice Plan" %}</small>
+                    </div>
+                </div>
+
+                {# Cable/Fiber status table #}
+                {% if cable_rows %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>{% trans "Cable" %}</th>
+                                <th>{% trans "Tray (RearPort)" %}</th>
+                                <th>{% trans "FiberCable" %}</th>
+                                <th>{% trans "Gland" %}</th>
+                                <th>{% trans "Strands" %}</th>
+                                <th>{% trans "Actions" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in cable_rows %}
+                                {% include "netbox_fms/htmx/fiber_overview_row.html" with row=row device=device %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-muted text-center py-3">
+                    {% trans "No module-attached RearPorts found. Add modules (trays) and connect cables to see fiber status here." %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Splice Plan section #}
+<div class="row mb-3">
+    <div class="col">
+        <div class="card">
+            <h5 class="card-header">{% trans "Splice Plan" %}</h5>
+            <div class="card-body">
+                {% if plan %}
+                    <p>
+                        <strong>{{ plan.name }}</strong>
+                        <span class="badge bg-{{ plan.status }}">{{ plan.get_status_display }}</span>
+                    </p>
+                    <a href="{{ plan.get_absolute_url }}" class="btn btn-sm btn-outline-primary">
+                        <i class="mdi mdi-eye"></i> {% trans "View Plan" %}
+                    </a>
+                {% else %}
+                    <p class="text-muted">{% trans "No splice plan" %}</p>
+                    <a href="{% url 'plugins:netbox_fms:spliceplan_add' %}?closure={{ device.pk }}" class="btn btn-sm btn-success">
+                        <i class="mdi mdi-plus"></i> {% trans "Create Plan" %}
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# HTMX modal container #}
+<div id="modal-container"></div>
+
+<script>
+    document.body.addEventListener('modalClose', () => {
+        const modal = document.querySelector('.modal.show');
+        if (modal) bootstrap.Modal.getInstance(modal)?.hide();
+    });
+</script>
+{% endblock %}
