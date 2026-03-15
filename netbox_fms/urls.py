@@ -143,4 +143,20 @@ urlpatterns = [
     path("fiber-path-losses/<int:pk>/", views.FiberPathLossView.as_view(), name="fiberpathloss"),
     path("fiber-path-losses/<int:pk>/edit/", views.FiberPathLossEditView.as_view(), name="fiberpathloss_edit"),
     path("fiber-path-losses/<int:pk>/delete/", views.FiberPathLossDeleteView.as_view(), name="fiberpathloss_delete"),
+    # Fiber Overview HTMX actions
+    path(
+        "fiber-overview/<int:pk>/create-fiber-cable/",
+        views.CreateFiberCableFromCableView.as_view(),
+        name="fiber_overview_create_fibercable",
+    ),
+    path(
+        "fiber-overview/<int:pk>/provision-strands/",
+        views.ProvisionStrandsFromOverviewView.as_view(),
+        name="fiber_overview_provision_strands",
+    ),
+    path(
+        "fiber-overview/<int:pk>/update-gland/",
+        views.UpdateGlandLabelView.as_view(),
+        name="fiber_overview_update_gland",
+    ),
 ]
