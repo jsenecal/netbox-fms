@@ -155,6 +155,18 @@ class FiberCableType(NetBoxModel):
         if not self.is_armored and self.armor_type:
             raise ValidationError({"armor_type": _("Armor type should be blank when cable is not armored.")})
 
+        # Validate strand_count matches templates (only if templates exist)
+        if self.pk:
+            template_count = self.get_strand_count_from_templates()
+            if template_count > 0 and template_count != self.strand_count:
+                raise ValidationError(
+                    {
+                        "strand_count": _(
+                            "strand_count ({declared}) does not match the total fibers from templates ({computed})."
+                        ).format(declared=self.strand_count, computed=template_count)
+                    }
+                )
+
     def get_strand_count_from_templates(self):
         """Compute total fiber count from buffer tube templates."""
         total = self.buffer_tube_templates.aggregate(total=models.Sum("fiber_count"))["total"]
