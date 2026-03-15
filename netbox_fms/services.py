@@ -10,17 +10,16 @@ def get_live_state(closure):
     Returns: {tray_module_id: set((port_a_id, port_b_id), ...)}
     Pairs are normalized: (min_id, max_id).
     """
-    tray_frontport_ids = set(
-        FrontPort.objects.filter(
-            device=closure,
-            module__isnull=False,
-        ).values_list("pk", flat=True)
-    )
+    port_module_pairs = FrontPort.objects.filter(
+        device=closure,
+        module__isnull=False,
+    ).values_list("pk", "module_id")
+
+    port_to_module = dict(port_module_pairs)
+    tray_frontport_ids = set(port_to_module.keys())
 
     if not tray_frontport_ids:
         return {}
-
-    port_to_module = dict(FrontPort.objects.filter(pk__in=tray_frontport_ids).values_list("pk", "module_id"))
 
     fp_ct = ContentType.objects.get_for_model(FrontPort)
     terminations = CableTermination.objects.filter(
