@@ -56,13 +56,17 @@ def get_desired_state(plan):
     Read desired FrontPort<->FrontPort connections from a SplicePlan's entries.
     Returns: {tray_module_id: set((port_a_id, port_b_id), ...)}
     """
+    entries = list(plan.entries.values_list("tray_id", "fiber_a_id", "fiber_b_id"))
+
+    fb_ids = {fb_id for _, _, fb_id in entries}
+    fb_to_module = dict(FrontPort.objects.filter(pk__in=fb_ids).values_list("pk", "module_id"))
+
     state = {}
-    for tray_id, fa_id, fb_id in plan.entries.values_list("tray_id", "fiber_a_id", "fiber_b_id"):
+    for tray_id, fa_id, fb_id in entries:
         pair = (min(fa_id, fb_id), max(fa_id, fb_id))
         state.setdefault(tray_id, set()).add(pair)
 
-        # For inter-platter: also add to fiber_b's tray if different
-        fb_module_id = FrontPort.objects.filter(pk=fb_id).values_list("module_id", flat=True).first()
+        fb_module_id = fb_to_module.get(fb_id)
         if fb_module_id and fb_module_id != tray_id:
             state.setdefault(fb_module_id, set()).add(pair)
 
