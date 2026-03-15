@@ -523,6 +523,56 @@ class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@transaction.atomic
+def provision_strands(fiber_cable, device, port_type, module=None):
+    """
+    Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device.
+    If module is provided, all ports are created on that module (in addition to device).
+    """
+    from dcim.models import FrontPort, PortMapping, RearPort
+
+    strands = fiber_cable.fiber_strands.select_related("buffer_tube").order_by("position")
+    strand_count = strands.count()
+    if strand_count == 0:
+        raise ValueError("This fiber cable has no strands.")
+
+    cable_label = str(fiber_cable.cable) if fiber_cable.cable else f"FiberCable-{fiber_cable.pk}"
+
+    # PortMapping only has device, front_port, rear_port — no module field.
+    component_kwargs = {"device": device}
+    if module is not None:
+        component_kwargs["module"] = module
+
+    rear_port = RearPort(
+        **component_kwargs,
+        name=cable_label,
+        type=port_type,
+        positions=strand_count,
+        color="",
+    )
+    rear_port.save()
+
+    for strand in strands:
+        fp = FrontPort(
+            **component_kwargs,
+            name=strand.name,
+            type=port_type,
+            color=strand.color,
+        )
+        fp.save()
+
+        PortMapping.objects.create(
+            device=device,
+            front_port=fp,
+            rear_port=rear_port,
+            front_port_position=1,
+            rear_port_position=strand.position,
+        )
+
+        strand.front_port = fp
+        strand.save(update_fields=["front_port"])
+
+
 class ProvisionPortsView(View):
     """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device."""
 
@@ -539,69 +589,26 @@ class ProvisionPortsView(View):
         device = form.cleaned_data["device"]
         port_type = form.cleaned_data["port_type"]
 
-        strands = fiber_cable.fiber_strands.select_related("buffer_tube").order_by("position")
-        strand_count = strands.count()
-
-        if strand_count == 0:
-            messages.error(request, _("This fiber cable has no strands."))
-            return render(request, "netbox_fms/provision_ports.html", {"form": form})
-
         # Check for already provisioned strands on this device
-        already = strands.filter(front_port__device=device).exists()
+        already = fiber_cable.fiber_strands.filter(front_port__device=device).exists()
         if already:
             messages.error(request, _("Some strands are already provisioned on this device."))
             return render(request, "netbox_fms/provision_ports.html", {"form": form})
 
         try:
-            self._provision(fiber_cable, device, port_type, strands, strand_count)
+            provision_strands(fiber_cable, device, port_type)
+            strand_count = fiber_cable.fiber_strands.count()
             messages.success(
                 request,
                 _('Provisioned {count} ports for "{cable}" on {device}.').format(
                     count=strand_count, cable=fiber_cable, device=device
                 ),
             )
-        except Exception as e:
+        except ValueError as e:
             messages.error(request, str(e))
             return render(request, "netbox_fms/provision_ports.html", {"form": form})
 
         return redirect(fiber_cable.get_absolute_url())
-
-    @transaction.atomic
-    def _provision(self, fiber_cable, device, port_type, strands, strand_count):
-        from dcim.models import FrontPort, PortMapping, RearPort
-
-        cable_label = str(fiber_cable.cable) if fiber_cable.cable else f"FiberCable-{fiber_cable.pk}"
-
-        # Create one RearPort with positions = strand_count
-        rear_port = RearPort(
-            device=device,
-            name=cable_label,
-            type=port_type,
-            positions=strand_count,
-            color="",
-        )
-        rear_port.save()
-
-        # Create FrontPorts and PortMappings
-        for strand in strands:
-            fp = FrontPort(
-                device=device,
-                name=strand.name,
-                type=port_type,
-                color=strand.color,
-            )
-            fp.save()
-
-            PortMapping.objects.create(
-                device=device,
-                front_port=fp,
-                rear_port=rear_port,
-                front_port_position=1,
-                rear_port_position=strand.position,
-            )
-
-            strand.front_port = fp
-            strand.save(update_fields=["front_port"])
 
 
 # ---------------------------------------------------------------------------

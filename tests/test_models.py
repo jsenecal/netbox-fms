@@ -1,9 +1,10 @@
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
+from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.db import IntegrityError
 from django.test import TestCase
 
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import ClosureCableEntry, FiberCable, FiberCableType, SplicePlan, SplicePlanEntry, SpliceProject
+from netbox_fms.views import provision_strands
 from tests.conftest import make_front_port
 
 
@@ -227,3 +228,59 @@ class TestClosureCableEntry(TestCase):
             entrance_label="Gland D",
         )
         assert "/closure-cable-entries/" in entry.get_absolute_url()
+
+
+class TestProvisionStrandsHelper(TestCase):
+    """Uses setUp (not setUpTestData) because each test provisions strands,
+    mutating FiberStrand.front_port. Tests need isolated FiberCable instances."""
+
+    def setUp(self):
+        from dcim.models import Module, ModuleBay, ModuleType
+
+        site = Site.objects.create(name="Prov Test Site", slug="prov-test-site")
+        manufacturer = Manufacturer.objects.create(name="Prov Mfr", slug="prov-mfr")
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="Prov Closure", slug="prov-closure")
+        role = DeviceRole.objects.create(name="Prov Role", slug="prov-role")
+        self.device = Device.objects.create(name="Prov-Device", site=site, device_type=device_type, role=role)
+
+        module_type = ModuleType.objects.create(manufacturer=manufacturer, model="Tray-1")
+        bay = ModuleBay.objects.create(device=self.device, name="Bay 1")
+        self.module = Module.objects.create(device=self.device, module_bay=bay, module_type=module_type)
+
+        self.fct = FiberCableType.objects.create(
+            manufacturer=manufacturer,
+            model="Prov-FCT",
+            construction="loose_tube",
+            fiber_type="smf_os2",
+            strand_count=4,
+        )
+
+    def test_provision_creates_ports_on_module(self):
+        from dcim.models import FrontPort, RearPort
+
+        cable = Cable.objects.create()
+        fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
+        provision_strands(fiber_cable, self.device, module=self.module, port_type="splice")
+
+        rp = RearPort.objects.filter(device=self.device, module=self.module)
+        assert rp.count() == 1
+
+        fps = FrontPort.objects.filter(device=self.device, module=self.module)
+        assert fps.count() == 4
+
+        for strand in fiber_cable.fiber_strands.all():
+            assert strand.front_port is not None
+            assert strand.front_port.module == self.module
+
+    def test_provision_creates_ports_without_module(self):
+        from dcim.models import FrontPort, RearPort
+
+        cable = Cable.objects.create()
+        fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
+        provision_strands(fiber_cable, self.device, port_type="splice")
+
+        rp = RearPort.objects.filter(device=self.device, module__isnull=True)
+        assert rp.count() == 1
+
+        fps = FrontPort.objects.filter(device=self.device, module__isnull=True)
+        assert fps.count() == 4
