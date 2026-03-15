@@ -1,9 +1,11 @@
-from django.contrib.auth.models import User
-from django.test import TestCase
 from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Site
+from django.contrib.auth import get_user_model
+from django.test import TestCase
 from rest_framework.test import APIClient
 
 from netbox_fms.models import FiberCable, FiberCableType, SplicePlan
+
+User = get_user_model()
 
 
 class TestUnauthenticatedAccess(TestCase):
