@@ -1,0 +1,50 @@
+{% load i18n %}
+<div class="modal fade" id="provisionStrandsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{% trans "Provision Strands" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form hx-post="{{ post_url }}" hx-target="#modal-container" hx-swap="innerHTML">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <input type="hidden" name="fiber_cable_id" value="{{ fiber_cable.pk }}">
+                    {% if error_message %}
+                    <div class="alert alert-danger">{{ error_message }}</div>
+                    {% endif %}
+                    {% if form.errors %}
+                    <div class="alert alert-danger">
+                        {% for field, errors in form.errors.items %}
+                            {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="mb-3">
+                        <label class="form-label">{% trans "Fiber Cable" %}</label>
+                        <input type="text" class="form-control" value="{{ fiber_cable }}" disabled>
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_target_module" class="form-label">{% trans "Target Module (Tray)" %} *</label>
+                        {{ form.target_module }}
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_port_type" class="form-label">{% trans "Port Type" %}</label>
+                        {{ form.port_type }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-primary">{% trans "Provision" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+    (() => {
+        const el = document.getElementById('provisionStrandsModal');
+        new bootstrap.Modal(el).show();
+        el.addEventListener('hidden.bs.modal', () => el.remove());
+    })();
+</script>
