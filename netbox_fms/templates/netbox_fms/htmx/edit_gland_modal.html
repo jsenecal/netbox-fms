@@ -1,0 +1,41 @@
+{% load i18n %}
+<div class="modal fade" id="editGlandModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{% trans "Edit Gland Label" %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form hx-post="{{ post_url }}"
+                  hx-target="#row-rp-{{ rearport_id }}" hx-swap="outerHTML">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <input type="hidden" name="fiber_cable_id" value="{{ fiber_cable.pk }}">
+                    <input type="hidden" name="rearport_id" value="{{ rearport_id }}">
+                    <div class="mb-3">
+                        <label class="form-label">{% trans "Fiber Cable" %}</label>
+                        <input type="text" class="form-control" value="{{ fiber_cable }}" disabled>
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_entrance_label" class="form-label">{% trans "Entrance Label" %}</label>
+                        <input type="text" class="form-control" id="id_entrance_label"
+                               name="entrance_label" value="{{ current_label }}" maxlength="100"
+                               placeholder="e.g. Gland A">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+                    <button type="submit" class="btn btn-primary">{% trans "Save" %}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+    (() => {
+        const el = document.getElementById('editGlandModal');
+        const modal = new bootstrap.Modal(el);
+        modal.show();
+        el.addEventListener('hidden.bs.modal', () => el.remove());
+    })();
+</script>
