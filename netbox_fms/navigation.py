@@ -80,29 +80,6 @@ menu = PluginMenu(
                         ),
                     ),
                 ),
-                PluginMenuItem(
-                    link="plugins:netbox_fms:spliceplanentry_list",
-                    link_text="Splice Entries",
-                    permissions=["netbox_fms.view_spliceplanentry"],
-                ),
-                PluginMenuItem(
-                    link="plugins:netbox_fms:closurecableentry_list",
-                    link_text="Cable Entries",
-                    permissions=["netbox_fms.view_closurecableentry"],
-                    buttons=(
-                        PluginMenuButton(
-                            link="plugins:netbox_fms:closurecableentry_add",
-                            title="Add",
-                            icon_class="mdi mdi-plus-thick",
-                            permissions=["netbox_fms.add_closurecableentry"],
-                        ),
-                    ),
-                ),
-                PluginMenuItem(
-                    link="plugins:netbox_fms:provision_ports",
-                    link_text="Provision Ports",
-                    permissions=["netbox_fms.change_fiberstrand"],
-                ),
             ),
         ),
         (

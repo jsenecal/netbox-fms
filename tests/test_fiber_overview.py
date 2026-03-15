@@ -266,3 +266,30 @@ class TestUpdateGlandLabelAction(TestCase):
 
         entry = ClosureCableEntry.objects.get(closure=self.device, fiber_cable=self.fiber_cable)
         assert entry.entrance_label == "New Label"
+
+
+class TestNavigationCleanup(TestCase):
+    def _get_link_texts(self):
+        from netbox_fms.navigation import menu
+
+        link_texts = []
+        for group in menu.groups:
+            for item in group.items:
+                link_texts.append(item.link_text)
+        return link_texts
+
+    def test_removed_items_not_in_menu(self):
+        link_texts = self._get_link_texts()
+
+        assert "Splice Entries" not in link_texts
+        assert "Cable Entries" not in link_texts
+        assert "Provision Ports" not in link_texts
+
+    def test_kept_items_in_menu(self):
+        link_texts = self._get_link_texts()
+
+        assert "Fiber Cable Types" in link_texts
+        assert "Fiber Cables" in link_texts
+        assert "Splice Projects" in link_texts
+        assert "Splice Plans" in link_texts
+        assert "Fiber Path Losses" in link_texts
