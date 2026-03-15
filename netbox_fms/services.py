@@ -149,6 +149,9 @@ def import_live_state(plan):
             )
         )
 
+    for entry in entries:
+        entry.full_clean()
+
     SplicePlanEntry.objects.bulk_create(entries)
     plan.diff_stale = True
     plan.save(update_fields=["diff_stale"])

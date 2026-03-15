@@ -204,6 +204,24 @@ class TestFiberPathLossUniqueness:
 
 
 @pytest.mark.django_db
+class TestImportLiveStateValidation:
+    """import_live_state should validate entries before bulk_create."""
+
+    def test_import_empty_returns_zero(self):
+        from unittest.mock import patch
+        from netbox_fms.services import import_live_state
+        from netbox_fms.models import SplicePlan
+
+        plan = MagicMock(spec=SplicePlan)
+        plan.pk = 999
+        plan.closure_id = 1
+
+        with patch("netbox_fms.services.get_live_state", return_value={}):
+            count = import_live_state(plan)
+            assert count == 0
+
+
+@pytest.mark.django_db
 class TestRibbonTemplateUniqueness:
     """RibbonTemplate should enforce name uniqueness even with NULL tube."""
 
