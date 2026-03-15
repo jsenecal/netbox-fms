@@ -201,3 +201,38 @@ class TestFiberPathLossUniqueness:
                 wavelength_nm=1310,
                 measured_loss_db=0.8,
             )
+
+
+@pytest.mark.django_db
+class TestRibbonTemplateUniqueness:
+    """RibbonTemplate should enforce name uniqueness even with NULL tube."""
+
+    def test_duplicate_central_ribbon_name_rejected(self):
+        from dcim.models import Manufacturer
+        from netbox_fms.models import RibbonTemplate
+
+        mfr = Manufacturer.objects.create(name="TestMfr-rt", slug="testmfr-rt")
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="RT-Test",
+            strand_count=24,
+            fiber_type="sm",
+            construction="ribbon",
+            deployment="underground",
+        )
+        RibbonTemplate.objects.create(
+            fiber_cable_type=fct,
+            buffer_tube_template=None,
+            name="R1",
+            position=1,
+            fiber_count=12,
+        )
+
+        with pytest.raises(IntegrityError):
+            RibbonTemplate.objects.create(
+                fiber_cable_type=fct,
+                buffer_tube_template=None,
+                name="R1",
+                position=2,
+                fiber_count=12,
+            )

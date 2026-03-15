@@ -303,7 +303,18 @@ class RibbonTemplate(NetBoxModel):
 
     class Meta:
         ordering = ("fiber_cable_type", "buffer_tube_template", "position")
-        unique_together = ("fiber_cable_type", "buffer_tube_template", "name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["fiber_cable_type", "buffer_tube_template", "name"],
+                name="unique_ribbon_template_with_tube",
+                condition=models.Q(buffer_tube_template__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["fiber_cable_type", "name"],
+                name="unique_ribbon_template_without_tube",
+                condition=models.Q(buffer_tube_template__isnull=True),
+            ),
+        ]
         verbose_name = _("ribbon template")
         verbose_name_plural = _("ribbon templates")
 
