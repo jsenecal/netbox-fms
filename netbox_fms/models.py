@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import NetBoxModel
@@ -400,10 +400,12 @@ class FiberCable(NetBoxModel):
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
-        super().save(*args, **kwargs)
-
         if is_new:
-            self._instantiate_components()
+            with transaction.atomic():
+                super().save(*args, **kwargs)
+                self._instantiate_components()
+        else:
+            super().save(*args, **kwargs)
 
     def _instantiate_components(self):
         """
@@ -857,11 +859,11 @@ class ClosureCableEntry(NetBoxModel):
         related_name="closure_entries",
         verbose_name=_("fiber cable"),
     )
-    entrance_port = models.ForeignKey(
-        to="dcim.RearPort",
-        on_delete=models.CASCADE,
-        related_name="closure_cable_entries",
-        verbose_name=_("entrance port"),
+    entrance_label = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("entrance label"),
+        help_text=_("Free-text gland/entrance name"),
     )
     notes = models.TextField(
         verbose_name=_("notes"),
@@ -869,13 +871,14 @@ class ClosureCableEntry(NetBoxModel):
     )
 
     class Meta:
-        ordering = ("closure", "entrance_port")
-        unique_together = (("closure", "entrance_port"),)
+        ordering = ("closure", "entrance_label")
+        unique_together = (("closure", "fiber_cable"),)
         verbose_name = _("closure cable entry")
         verbose_name_plural = _("closure cable entries")
 
     def __str__(self):
-        return f"{self.closure} → {self.entrance_port.name} ({self.fiber_cable})"
+        label = self.entrance_label or "\u2014"
+        return f"{self.closure} \u2192 {label} ({self.fiber_cable})"
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])
