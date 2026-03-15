@@ -566,3 +566,24 @@ class ProvisionPortsForm(forms.Form):
     )
 
     fieldsets = (FieldSet("fiber_cable", "device", "port_type", name=_("Provision Ports")),)
+
+
+class CreateFiberCableFromCableForm(forms.Form):
+    cable_id = forms.IntegerField(widget=forms.HiddenInput)
+    fiber_cable_type = DynamicModelChoiceField(
+        queryset=FiberCableType.objects.all(),
+        label=_("Fiber Cable Type"),
+    )
+
+
+class ProvisionStrandsFromOverviewForm(forms.Form):
+    fiber_cable_id = forms.IntegerField(widget=forms.HiddenInput)
+    target_module = DynamicModelChoiceField(
+        queryset=Module.objects.all(),
+        label=_("Target Module (Tray)"),
+    )
+    port_type = forms.ChoiceField(
+        choices=PORT_TYPE_CHOICES,
+        label=_("Port Type"),
+        initial="splice",
+    )

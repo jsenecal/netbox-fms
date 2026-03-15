@@ -1,9 +1,10 @@
-from dcim.models import Device
+from dcim.models import Cable, Device, Module
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import models, transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from netbox.views import generic
@@ -26,6 +27,7 @@ from .forms import (
     CableElementTemplateForm,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
+    CreateFiberCableFromCableForm,
     FiberCableBulkEditForm,
     FiberCableFilterForm,
     FiberCableForm,
@@ -37,6 +39,7 @@ from .forms import (
     FiberPathLossFilterForm,
     FiberPathLossForm,
     ProvisionPortsForm,
+    ProvisionStrandsFromOverviewForm,
     RibbonTemplateForm,
     SplicePlanBulkEditForm,
     SplicePlanEntryFilterForm,
@@ -788,23 +791,214 @@ class DeviceSpliceEditorView(View):
 
 class CreateFiberCableFromCableView(LoginRequiredMixin, View):
     def get(self, request, pk):
-        return HttpResponse("Not implemented", status=501)
+        if not request.user.has_perm("netbox_fms.add_fibercable"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        cable_id = request.GET.get("cable_id")
+        cable = get_object_or_404(Cable, pk=cable_id)
 
+        already_exists = FiberCable.objects.filter(cable=cable).exists()
+
+        form = None
+        if not already_exists:
+            form = CreateFiberCableFromCableForm()
+
+        return render(
+            request,
+            "netbox_fms/htmx/create_fiber_cable_modal.html",
+            {
+                "device": device,
+                "cable": cable,
+                "already_exists": already_exists,
+                "form": form,
+                "post_url": reverse("plugins:netbox_fms:fiber_overview_create_fibercable", kwargs={"pk": pk}),
+            },
+        )
+
+    @transaction.atomic
     def post(self, request, pk):
-        return HttpResponse("Not implemented", status=501)
+        if not request.user.has_perm("netbox_fms.add_fibercable"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        form = CreateFiberCableFromCableForm(request.POST)
+        if not form.is_valid():
+            cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
+            return render(
+                request,
+                "netbox_fms/htmx/create_fiber_cable_modal.html",
+                {
+                    "device": device,
+                    "cable": cable,
+                    "already_exists": False,
+                    "form": form,
+                    "post_url": reverse("plugins:netbox_fms:fiber_overview_create_fibercable", kwargs={"pk": pk}),
+                },
+            )
+
+        cable = get_object_or_404(Cable, pk=form.cleaned_data["cable_id"])
+        FiberCable.objects.create(
+            cable=cable,
+            fiber_cable_type=form.cleaned_data["fiber_cable_type"],
+        )
+
+        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = redirect_url
+        return response
 
 
 class ProvisionStrandsFromOverviewView(LoginRequiredMixin, View):
     def get(self, request, pk):
-        return HttpResponse("Not implemented", status=501)
+        if not request.user.has_perm("dcim.add_frontport"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        fiber_cable_id = request.GET.get("fiber_cable_id")
+        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+
+        initial = {"fiber_cable_id": fiber_cable.pk}
+        if fiber_cable.cable:
+            from dcim.models import CableTermination, RearPort
+            from django.contrib.contenttypes.models import ContentType
+
+            rp_ct = ContentType.objects.get_for_model(RearPort)
+            term = CableTermination.objects.filter(
+                cable=fiber_cable.cable,
+                termination_type=rp_ct,
+            ).first()
+            if term:
+                rp = RearPort.objects.filter(pk=term.termination_id).select_related("module").first()
+                if rp and rp.module:
+                    initial["target_module"] = rp.module.pk
+
+        form = ProvisionStrandsFromOverviewForm(initial=initial)
+        form.fields["target_module"].queryset = Module.objects.filter(device=device)
+
+        return render(
+            request,
+            "netbox_fms/htmx/provision_strands_modal.html",
+            {
+                "device": device,
+                "fiber_cable": fiber_cable,
+                "form": form,
+                "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
+            },
+        )
 
     def post(self, request, pk):
-        return HttpResponse("Not implemented", status=501)
+        if not request.user.has_perm("dcim.add_frontport"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        form = ProvisionStrandsFromOverviewForm(request.POST)
+        form.fields["target_module"].queryset = Module.objects.filter(device=device)
+
+        fiber_cable_id = request.POST.get("fiber_cable_id")
+        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+
+        if not form.is_valid():
+            return render(
+                request,
+                "netbox_fms/htmx/provision_strands_modal.html",
+                {
+                    "device": device,
+                    "fiber_cable": fiber_cable,
+                    "form": form,
+                    "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
+                },
+            )
+
+        module = form.cleaned_data["target_module"]
+        port_type = form.cleaned_data["port_type"]
+
+        already = fiber_cable.fiber_strands.filter(front_port__device=device).exists()
+        if already:
+            return render(
+                request,
+                "netbox_fms/htmx/provision_strands_modal.html",
+                {
+                    "device": device,
+                    "fiber_cable": fiber_cable,
+                    "form": form,
+                    "error_message": _("Strands are already provisioned on this device."),
+                    "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
+                },
+            )
+
+        try:
+            provision_strands(fiber_cable, device, port_type, module=module)
+        except ValueError as e:
+            return render(
+                request,
+                "netbox_fms/htmx/provision_strands_modal.html",
+                {
+                    "device": device,
+                    "fiber_cable": fiber_cable,
+                    "form": form,
+                    "error_message": str(e),
+                    "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
+                },
+            )
+
+        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = redirect_url
+        return response
 
 
 class UpdateGlandLabelView(LoginRequiredMixin, View):
     def get(self, request, pk):
-        return HttpResponse("Not implemented", status=501)
+        if not request.user.has_perm("netbox_fms.change_closurecableentry") and not request.user.has_perm(
+            "netbox_fms.add_closurecableentry"
+        ):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        fiber_cable_id = request.GET.get("fiber_cable_id")
+        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+        rearport_id = request.GET.get("rearport_id")
+
+        entry = ClosureCableEntry.objects.filter(closure=device, fiber_cable=fiber_cable).first()
+        current_label = entry.entrance_label if entry else ""
+
+        return render(
+            request,
+            "netbox_fms/htmx/edit_gland_modal.html",
+            {
+                "device": device,
+                "fiber_cable": fiber_cable,
+                "rearport_id": rearport_id,
+                "current_label": current_label,
+                "post_url": reverse("plugins:netbox_fms:fiber_overview_update_gland", kwargs={"pk": pk}),
+            },
+        )
 
     def post(self, request, pk):
-        return HttpResponse("Not implemented", status=501)
+        if not request.user.has_perm("netbox_fms.change_closurecableentry") and not request.user.has_perm(
+            "netbox_fms.add_closurecableentry"
+        ):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        fiber_cable_id = request.POST.get("fiber_cable_id")
+        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+        rearport_id = request.POST.get("rearport_id")
+        entrance_label = request.POST.get("entrance_label", "").strip()
+
+        entry, _created = ClosureCableEntry.objects.update_or_create(
+            closure=device,
+            fiber_cable=fiber_cable,
+            defaults={"entrance_label": entrance_label},
+        )
+
+        from dcim.models import RearPort
+
+        rearport = get_object_or_404(RearPort, pk=rearport_id)
+        row = _build_cable_row(device, rearport)
+
+        response = render(
+            request,
+            "netbox_fms/htmx/fiber_overview_row.html",
+            {
+                "device": device,
+                "row": row,
+            },
+        )
+        response["HX-Trigger"] = "modalClose"
+        return response
