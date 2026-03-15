@@ -882,6 +882,12 @@ class CreateFiberCableFromCableView(LoginRequiredMixin, View):
             )
 
         cable = get_object_or_404(Cable, pk=form.cleaned_data["cable_id"])
+
+        from dcim.models import CableTermination
+
+        if not CableTermination.objects.filter(cable=cable, _device_id=device.pk).exists():
+            return HttpResponse("Cable does not terminate on this device", status=400)
+
         FiberCable.objects.create(
             cable=cable,
             fiber_cable_type=form.cleaned_data["fiber_cable_type"],
@@ -939,6 +945,14 @@ class ProvisionStrandsFromOverviewView(LoginRequiredMixin, View):
 
         fiber_cable_id = request.POST.get("fiber_cable_id")
         fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+
+        from dcim.models import CableTermination
+
+        if (
+            fiber_cable.cable
+            and not CableTermination.objects.filter(cable=fiber_cable.cable, _device_id=device.pk).exists()
+        ):
+            return HttpResponse("Fiber cable does not terminate on this device", status=400)
 
         if not form.is_valid():
             return render(

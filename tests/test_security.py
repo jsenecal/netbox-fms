@@ -126,3 +126,72 @@ class TestAPIActionPermissions(TestCase):
             format="json",
         )
         assert response.status_code == 403
+
+
+class TestHiddenFieldTampering(TestCase):
+    """Verify HTMX views reject tampered hidden field values."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="Tamper Site", slug="tamper-site")
+        manufacturer = Manufacturer.objects.create(name="Tamper Mfr", slug="tamper-mfr")
+        device_type = DeviceType.objects.create(
+            manufacturer=manufacturer, model="Tamper Closure", slug="tamper-closure"
+        )
+        role = DeviceRole.objects.create(name="Tamper Role", slug="tamper-role")
+        cls.device = Device.objects.create(name="Tamper-Device", site=site, device_type=device_type, role=role)
+        cls.other_device = Device.objects.create(name="Other-Device", site=site, device_type=device_type, role=role)
+
+        fct = FiberCableType.objects.create(
+            manufacturer=manufacturer,
+            model="Tamper-FCT",
+            construction="loose_tube",
+            fiber_type="smf_os2",
+            strand_count=4,
+        )
+
+        cls.cable_on_device = Cable.objects.create()
+        cls.fc_on_device = FiberCable.objects.create(cable=cls.cable_on_device, fiber_cable_type=fct)
+
+        cls.cable_on_other = Cable.objects.create()
+        cls.fc_on_other = FiberCable.objects.create(cable=cls.cable_on_other, fiber_cable_type=fct)
+
+        cls.user = User.objects.create_user(username="tamper_user", password="testpass", is_superuser=True)
+
+    def test_create_fibercable_rejects_unrelated_cable(self):
+        """POST cable_id for a cable that doesn't terminate on the device."""
+        self.client.force_login(self.user)
+        fct = FiberCableType.objects.first()
+        url = f"/plugins/fms/fiber-overview/{self.device.pk}/create-fiber-cable/"
+        response = self.client.post(
+            url,
+            {
+                "cable_id": self.cable_on_other.pk,
+                "fiber_cable_type": fct.pk,
+            },
+        )
+        assert response.status_code in (400, 404) or (
+            b"error" in response.content.lower() or b"alert" in response.content.lower()
+        )
+
+    def test_provision_strands_rejects_unrelated_fibercable(self):
+        """POST fiber_cable_id for a cable that doesn't terminate on the device."""
+        from dcim.models import Module, ModuleBay, ModuleType
+
+        module_type = ModuleType.objects.create(manufacturer=Manufacturer.objects.first(), model="Tamper Tray")
+        bay = ModuleBay.objects.create(device=self.device, name="Tamper Bay")
+        module = Module.objects.create(device=self.device, module_bay=bay, module_type=module_type)
+
+        self.client.force_login(self.user)
+        url = f"/plugins/fms/fiber-overview/{self.device.pk}/provision-strands/"
+        response = self.client.post(
+            url,
+            {
+                "fiber_cable_id": self.fc_on_other.pk,
+                "target_module": module.pk,
+                "port_type": "splice",
+            },
+        )
+        assert response.status_code in (400, 404) or (
+            b"error" in response.content.lower() or b"alert" in response.content.lower()
+        )
