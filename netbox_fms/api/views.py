@@ -130,7 +130,7 @@ class SpliceProjectViewSet(NetBoxModelViewSet):
 
 
 class ClosureCableEntryViewSet(NetBoxModelViewSet):
-    queryset = ClosureCableEntry.objects.prefetch_related("closure", "fiber_cable", "entrance_port", "tags")
+    queryset = ClosureCableEntry.objects.prefetch_related("closure", "fiber_cable", "tags")
     serializer_class = ClosureCableEntrySerializer
     filterset_class = ClosureCableEntryFilterSet
 

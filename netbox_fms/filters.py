@@ -317,12 +317,14 @@ class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
 
     class Meta:
         model = ClosureCableEntry
-        fields = ("id", "closure_id", "fiber_cable", "entrance_port")
+        fields = ("id", "closure_id", "fiber_cable", "entrance_label")
 
     def search(self, queryset, name, value):
         if not value.strip():
             return queryset
-        return queryset.filter(models.Q(notes__icontains=value))
+        return queryset.filter(
+            models.Q(entrance_label__icontains=value) | models.Q(notes__icontains=value)
+        )
 
 
 class FiberPathLossFilterSet(NetBoxModelFilterSet):

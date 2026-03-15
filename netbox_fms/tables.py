@@ -319,13 +319,13 @@ class ClosureCableEntryTable(NetBoxTable):
     pk = columns.ToggleColumn()
     closure = tables.Column(linkify=True, verbose_name=_("Closure"))
     fiber_cable = tables.Column(linkify=True, verbose_name=_("Fiber Cable"))
-    entrance_port = tables.Column(linkify=True, verbose_name=_("Entrance Port"))
+    entrance_label = tables.Column(verbose_name=_("Entrance Label"))
     actions = columns.ActionsColumn()
 
     class Meta(NetBoxTable.Meta):
         model = ClosureCableEntry
-        fields = ("pk", "id", "closure", "fiber_cable", "entrance_port", "notes", "actions")
-        default_columns = ("pk", "closure", "fiber_cable", "entrance_port", "actions")
+        fields = ("pk", "id", "closure", "fiber_cable", "entrance_label", "notes", "actions")
+        default_columns = ("pk", "closure", "fiber_cable", "entrance_label", "actions")
 
 
 # ---------------------------------------------------------------------------

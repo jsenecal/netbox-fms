@@ -857,12 +857,6 @@ class ClosureCableEntry(NetBoxModel):
         related_name="closure_entries",
         verbose_name=_("fiber cable"),
     )
-    entrance_port = models.ForeignKey(
-        to="dcim.RearPort",
-        on_delete=models.CASCADE,
-        related_name="closure_cable_entries",
-        verbose_name=_("entrance port"),
-    )
     entrance_label = models.CharField(
         max_length=100,
         blank=True,
@@ -875,13 +869,14 @@ class ClosureCableEntry(NetBoxModel):
     )
 
     class Meta:
-        ordering = ("closure", "entrance_port")
-        unique_together = (("closure", "entrance_port"),)
+        ordering = ("closure", "entrance_label")
+        unique_together = (("closure", "fiber_cable"),)
         verbose_name = _("closure cable entry")
         verbose_name_plural = _("closure cable entries")
 
     def __str__(self):
-        return f"{self.closure} → {self.entrance_port.name} ({self.fiber_cable})"
+        label = self.entrance_label or "\u2014"
+        return f"{self.closure} \u2192 {label} ({self.fiber_cable})"
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])

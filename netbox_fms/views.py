@@ -401,7 +401,7 @@ class SplicePlanExportDrawioView(View):
 
 
 class ClosureCableEntryListView(generic.ObjectListView):
-    queryset = ClosureCableEntry.objects.select_related("closure", "fiber_cable", "entrance_port")
+    queryset = ClosureCableEntry.objects.select_related("closure", "fiber_cable")
     table = ClosureCableEntryTable
     filterset = ClosureCableEntryFilterSet
     filterset_form = ClosureCableEntryFilterForm

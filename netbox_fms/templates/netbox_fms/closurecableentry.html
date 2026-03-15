@@ -18,8 +18,8 @@
                     <td>{{ object.fiber_cable|linkify }}</td>
                 </tr>
                 <tr>
-                    <th scope="row">{% trans "Entrance Port" %}</th>
-                    <td>{{ object.entrance_port|linkify }}</td>
+                    <th scope="row">{% trans "Entrance Label" %}</th>
+                    <td>{{ object.entrance_label|default:"—" }}</td>
                 </tr>
             </table>
         </div>

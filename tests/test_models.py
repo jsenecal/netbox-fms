@@ -1,4 +1,4 @@
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, RearPort, Site
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.db import IntegrityError
 from django.test import TestCase
 
@@ -176,34 +176,54 @@ class TestClosureCableEntry(TestCase):
 
         cable = Cable.objects.create()
         cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        cls.rear_port = RearPort.objects.create(device=cls.closure, name="Port 1", type="lc", positions=12)
 
     def test_create_entry(self):
         entry = ClosureCableEntry.objects.create(
             closure=self.closure,
             fiber_cable=self.fiber_cable,
-            entrance_port=self.rear_port,
+            entrance_label="Gland A",
         )
         assert entry.pk is not None
 
-    def test_unique_entrance_port(self):
+    def test_entrance_label_field_exists(self):
+        entry = ClosureCableEntry.objects.create(
+            closure=self.closure,
+            fiber_cable=self.fiber_cable,
+            entrance_label="Gland A",
+        )
+        assert entry.entrance_label == "Gland A"
+        assert entry.pk is not None
+
+    def test_entrance_port_field_removed(self):
+        field_names = [f.name for f in ClosureCableEntry._meta.get_fields()]
+        assert "entrance_port" not in field_names
+        assert "entrance_label" in field_names
+
+    def test_unique_together_closure_fiber_cable(self):
         ClosureCableEntry.objects.create(
             closure=self.closure,
             fiber_cable=self.fiber_cable,
-            entrance_port=self.rear_port,
+            entrance_label="Gland A",
         )
-        from dcim.models import Cable
-
-        cable2 = Cable.objects.create()
-        fct = self.fiber_cable.fiber_cable_type
-        fc2 = FiberCable.objects.create(cable=cable2, fiber_cable_type=fct)
         with self.assertRaises(IntegrityError):
-            ClosureCableEntry.objects.create(closure=self.closure, fiber_cable=fc2, entrance_port=self.rear_port)
+            ClosureCableEntry.objects.create(
+                closure=self.closure,
+                fiber_cable=self.fiber_cable,
+                entrance_label="Gland B",
+            )
+
+    def test_str_uses_entrance_label(self):
+        entry = ClosureCableEntry.objects.create(
+            closure=self.closure,
+            fiber_cable=self.fiber_cable,
+            entrance_label="Gland C",
+        )
+        assert "Gland C" in str(entry)
 
     def test_get_absolute_url(self):
         entry = ClosureCableEntry.objects.create(
             closure=self.closure,
             fiber_cable=self.fiber_cable,
-            entrance_port=self.rear_port,
+            entrance_label="Gland D",
         )
         assert "/closure-cable-entries/" in entry.get_absolute_url()

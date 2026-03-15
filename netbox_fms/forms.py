@@ -1,4 +1,4 @@
-from dcim.models import Cable, Device, FrontPort, Manufacturer, Module, RearPort
+from dcim.models import Cable, Device, FrontPort, Manufacturer, Module
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
@@ -442,17 +442,16 @@ class SplicePlanEntryFilterForm(NetBoxModelFilterSetForm):
 class ClosureCableEntryForm(NetBoxModelForm):
     closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
-    entrance_port = DynamicModelChoiceField(queryset=RearPort.objects.all(), label=_("Entrance Port"))
 
     fieldsets = (
-        FieldSet("closure", "fiber_cable", "entrance_port", name=_("Cable Entry")),
+        FieldSet("closure", "fiber_cable", "entrance_label", name=_("Cable Entry")),
         FieldSet("notes", name=_("Notes")),
         FieldSet("tags", name=_("Additional")),
     )
 
     class Meta:
         model = ClosureCableEntry
-        fields = ("closure", "fiber_cable", "entrance_port", "notes", "tags")
+        fields = ("closure", "fiber_cable", "entrance_label", "notes", "tags")
 
 
 class ClosureCableEntryFilterForm(NetBoxModelFilterSetForm):

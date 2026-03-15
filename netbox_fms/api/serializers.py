@@ -264,7 +264,7 @@ class ClosureCableEntrySerializer(NetBoxModelSerializer):
             "display",
             "closure",
             "fiber_cable",
-            "entrance_port",
+            "entrance_label",
             "notes",
             "tags",
             "custom_fields",
