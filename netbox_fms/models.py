@@ -958,6 +958,7 @@ class FiberPathLoss(NetBoxModel):
 
     class Meta:
         ordering = ("cable", "wavelength_nm")
+        unique_together = (("cable", "wavelength_nm"),)
         verbose_name = _("fiber path loss")
         verbose_name_plural = _("fiber path losses")
 
