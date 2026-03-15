@@ -204,7 +204,10 @@ def apply_diff(plan):
 
         # Process additions
         for port_a_id, port_b_id in all_adds:
-            cable = Cable(length=0, length_unit="m")
+            cable = Cable(
+                status="connected",
+                label=f"splice-{port_a_id}-{port_b_id}",
+            )
             cable.save()
             CableTermination.objects.create(
                 cable=cable,
