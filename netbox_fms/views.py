@@ -1,7 +1,8 @@
 from dcim.models import Cable, Device, Module
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db import models, transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, models, transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -348,7 +349,7 @@ class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
                 request,
                 _('Imported {count} connections into "{plan}".').format(count=count, plan=plan),
             )
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())
 
@@ -380,7 +381,7 @@ class SplicePlanApplyView(LoginRequiredMixin, View):
                     added=result["added"], removed=result["removed"], plan=plan
                 ),
             )
-        except Exception as e:
+        except (ValueError, ValidationError, IntegrityError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())
 

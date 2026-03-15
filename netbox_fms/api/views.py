@@ -1,5 +1,6 @@
 from collections import OrderedDict
 
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
@@ -130,7 +131,7 @@ class SpliceProjectViewSet(NetBoxModelViewSet):
 
 
 class ClosureCableEntryViewSet(NetBoxModelViewSet):
-    queryset = ClosureCableEntry.objects.prefetch_related("closure", "fiber_cable", "entrance_port", "tags")
+    queryset = ClosureCableEntry.objects.prefetch_related("closure", "fiber_cable", "tags")
     serializer_class = ClosureCableEntrySerializer
     filterset_class = ClosureCableEntryFilterSet
 
@@ -148,7 +149,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         try:
             count = import_live_state(plan)
             return Response({"imported": count})
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["post"], url_path="apply")
@@ -159,7 +160,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         try:
             result = apply_diff(plan)
             return Response(result)
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["get"], url_path="diff")
