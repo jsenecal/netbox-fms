@@ -225,6 +225,18 @@ class BufferTubeTemplate(NetBoxModel):
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:buffertubetemplate", args=[self.pk])
 
+    def clean(self):
+        super().clean()
+        if self.pk and self.fiber_count and self.ribbon_templates.exists():
+            raise ValidationError(
+                {
+                    "fiber_count": _(
+                        "A tube cannot have both fiber_count and ribbon templates. "
+                        "Set fiber_count to blank if this tube uses ribbons."
+                    )
+                }
+            )
+
     def get_total_fiber_count(self):
         """Total fibers: either fiber_count (loose) or sum of ribbon fiber counts."""
         if self.fiber_count:

@@ -125,3 +125,55 @@ class TestFiberCableTypeValidation:
         fct.save()
 
         fct.clean()
+
+
+@pytest.mark.django_db
+class TestBufferTubeTemplateValidation:
+    """BufferTubeTemplate must have fiber_count XOR ribbon children."""
+
+    def _make_type(self):
+        from dcim.models import Manufacturer
+
+        mfr = Manufacturer.objects.create(name="TestMfr-btt", slug="testmfr-btt")
+        return FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="BTT-Test",
+            strand_count=12,
+            fiber_type="sm",
+            construction="loose",
+            deployment="underground",
+        )
+
+    def test_fiber_count_and_ribbons_raises(self):
+        from django.core.exceptions import ValidationError
+        from netbox_fms.models import RibbonTemplate
+
+        fct = self._make_type()
+        btt = BufferTubeTemplate.objects.create(
+            fiber_cable_type=fct,
+            name="T1",
+            position=1,
+            color="0000ff",
+            fiber_count=12,
+        )
+        RibbonTemplate.objects.create(
+            fiber_cable_type=fct,
+            buffer_tube_template=btt,
+            name="R1",
+            position=1,
+            fiber_count=12,
+        )
+
+        with pytest.raises(ValidationError, match="fiber_count"):
+            btt.clean()
+
+    def test_fiber_count_only_passes(self):
+        fct = self._make_type()
+        btt = BufferTubeTemplate.objects.create(
+            fiber_cable_type=fct,
+            name="T1",
+            position=1,
+            color="0000ff",
+            fiber_count=12,
+        )
+        btt.clean()
