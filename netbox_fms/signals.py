@@ -13,30 +13,21 @@ def _invalidate_plans_for_cable(cable):
 
     fp_ct = ContentType.objects.get_for_model(FrontPort)
 
-    fp_ids = list(
-        CableTermination.objects.filter(
-            cable=cable,
-            termination_type=fp_ct,
-        ).values_list("termination_id", flat=True)
-    )
-
-    if not fp_ids:
-        return
-
     device_ids = set(
         FrontPort.objects.filter(
-            pk__in=fp_ids,
+            pk__in=CableTermination.objects.filter(
+                cable=cable,
+                termination_type=fp_ct,
+            ).values("termination_id"),
             module__isnull=False,
         ).values_list("device_id", flat=True)
     )
 
-    if not device_ids:
-        return
-
-    SplicePlan.objects.filter(
-        closure_id__in=device_ids,
-        diff_stale=False,
-    ).update(diff_stale=True)
+    if device_ids:
+        SplicePlan.objects.filter(
+            closure_id__in=device_ids,
+            diff_stale=False,
+        ).update(diff_stale=True)
 
 
 def connect_signals():
