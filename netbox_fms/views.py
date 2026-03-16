@@ -1,7 +1,8 @@
 from dcim.models import Cable, Device, Module
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db import models, transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, models, transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -316,7 +317,7 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
     table = SplicePlanTable
 
 
-class SplicePlanQuickAddFormView(View):
+class SplicePlanQuickAddFormView(LoginRequiredMixin, View):
     """Return rendered SplicePlanForm HTML for the quick-add modal."""
 
     def get(self, request):
@@ -335,7 +336,7 @@ class SplicePlanQuickAddFormView(View):
         return HttpResponse(html)
 
 
-class SplicePlanImportFromDeviceView(View):
+class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
     """Import current live connections into a splice plan."""
 
     def post(self, request, pk):
@@ -348,12 +349,12 @@ class SplicePlanImportFromDeviceView(View):
                 request,
                 _('Imported {count} connections into "{plan}".').format(count=count, plan=plan),
             )
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())
 
 
-class SplicePlanApplyView(View):
+class SplicePlanApplyView(LoginRequiredMixin, View):
     """Preview and apply a splice plan's diff to NetBox."""
 
     def get(self, request, pk):
@@ -380,12 +381,12 @@ class SplicePlanApplyView(View):
                     added=result["added"], removed=result["removed"], plan=plan
                 ),
             )
-        except Exception as e:
+        except (ValueError, ValidationError, IntegrityError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())
 
 
-class SplicePlanExportDrawioView(View):
+class SplicePlanExportDrawioView(LoginRequiredMixin, View):
     """Export splice plan as draw.io XML."""
 
     def get(self, request, pk):
@@ -578,7 +579,7 @@ def provision_strands(fiber_cable, device, port_type, module=None):
         strand.save(update_fields=["front_port"])
 
 
-class ProvisionPortsView(View):
+class ProvisionPortsView(LoginRequiredMixin, View):
     """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device."""
 
     def get(self, request):
@@ -621,7 +622,7 @@ class ProvisionPortsView(View):
 # ---------------------------------------------------------------------------
 
 
-class SpliceEditorView(View):
+class SpliceEditorView(LoginRequiredMixin, View):
     """Visual splice editor for a SplicePlan."""
 
     def get(self, request, pk):
@@ -656,41 +657,86 @@ def _device_has_modules_or_fiber_cables(device):
     return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
 
 
-def _build_cable_row(device, rearport):
-    """Build context dict for a single cable row in the Fiber Overview table."""
+def _build_cable_rows(device, rearports):
+    """Build context dicts for all cable rows in one batch — avoids N+1 queries."""
     from dcim.models import CableTermination, RearPort
     from django.contrib.contenttypes.models import ContentType
 
+    if not rearports:
+        return []
+
     rp_ct = ContentType.objects.get_for_model(RearPort)
-    term = (
-        CableTermination.objects.filter(
-            termination_type=rp_ct,
-            termination_id=rearport.pk,
+    rp_ids = [rp.pk for rp in rearports]
+
+    terms = CableTermination.objects.filter(
+        termination_type=rp_ct,
+        termination_id__in=rp_ids,
+    ).select_related("cable")
+    term_by_rp = {t.termination_id: t for t in terms}
+
+    cable_ids = [t.cable_id for t in terms if t.cable_id]
+    fc_by_cable = {}
+    if cable_ids:
+        for fc in FiberCable.objects.filter(cable_id__in=cable_ids).select_related("cable", "fiber_cable_type"):
+            fc_by_cable[fc.cable_id] = fc
+
+    fiber_cable_ids = [fc.pk for fc in fc_by_cable.values()]
+    strand_totals = {}
+    strand_provisioned = {}
+    if fiber_cable_ids:
+        from django.db.models import Count, Q
+
+        from .models import FiberStrand
+
+        totals = (
+            FiberStrand.objects.filter(fiber_cable_id__in=fiber_cable_ids)
+            .values("fiber_cable_id")
+            .annotate(
+                total=Count("pk"),
+                provisioned=Count("pk", filter=Q(front_port__device=device)),
+            )
         )
-        .select_related("cable")
-        .first()
-    )
+        for row in totals:
+            strand_totals[row["fiber_cable_id"]] = row["total"]
+            strand_provisioned[row["fiber_cable_id"]] = row["provisioned"]
 
-    cable = term.cable if term else None
-    fiber_cable = None
-    strand_info = None
-    gland_entry = None
+    gland_by_fc = {}
+    if fiber_cable_ids:
+        for entry in ClosureCableEntry.objects.filter(closure=device, fiber_cable_id__in=fiber_cable_ids):
+            gland_by_fc[entry.fiber_cable_id] = entry
 
-    if cable:
-        fiber_cable = FiberCable.objects.filter(cable=cable).first()
+    rows = []
+    for rp in rearports:
+        term = term_by_rp.get(rp.pk)
+        cable = term.cable if term else None
+        fiber_cable = fc_by_cable.get(cable.pk) if cable else None
+
+        strand_info = None
+        gland_entry = None
         if fiber_cable:
-            total = fiber_cable.fiber_strands.count()
-            provisioned = fiber_cable.fiber_strands.filter(front_port__device=device).count()
-            strand_info = {"provisioned": provisioned, "total": total}
-            gland_entry = ClosureCableEntry.objects.filter(closure=device, fiber_cable=fiber_cable).first()
+            strand_info = {
+                "provisioned": strand_provisioned.get(fiber_cable.pk, 0),
+                "total": strand_totals.get(fiber_cable.pk, 0),
+            }
+            gland_entry = gland_by_fc.get(fiber_cable.pk)
 
-    return {
-        "rearport": rearport,
-        "cable": cable,
-        "fiber_cable": fiber_cable,
-        "strand_info": strand_info,
-        "gland_entry": gland_entry,
-    }
+        rows.append(
+            {
+                "rearport": rp,
+                "cable": cable,
+                "fiber_cable": fiber_cable,
+                "strand_info": strand_info,
+                "gland_entry": gland_entry,
+            }
+        )
+
+    return rows
+
+
+def _build_cable_row(device, rearport):
+    """Build context dict for a single cable row (used by HTMX row-swap endpoints)."""
+    rows = _build_cable_rows(device, [rearport])
+    return rows[0] if rows else {}
 
 
 def _device_has_splice_plan_or_fiber_cables(device):
@@ -723,9 +769,9 @@ class DeviceFiberOverviewView(View):
 
         from dcim.models import RearPort
 
-        module_rearports = RearPort.objects.filter(device=device, module__isnull=False).select_related("module")
+        module_rearports = list(RearPort.objects.filter(device=device, module__isnull=False).select_related("module"))
 
-        cable_rows = [_build_cable_row(device, rp) for rp in module_rearports]
+        cable_rows = _build_cable_rows(device, module_rearports)
 
         plan = SplicePlan.objects.filter(closure=device).first()
 
@@ -836,6 +882,12 @@ class CreateFiberCableFromCableView(LoginRequiredMixin, View):
             )
 
         cable = get_object_or_404(Cable, pk=form.cleaned_data["cable_id"])
+
+        from dcim.models import CableTermination
+
+        if not CableTermination.objects.filter(cable=cable, _device_id=device.pk).exists():
+            return HttpResponse("Cable does not terminate on this device", status=400)
+
         FiberCable.objects.create(
             cable=cable,
             fiber_cable_type=form.cleaned_data["fiber_cable_type"],
@@ -893,6 +945,14 @@ class ProvisionStrandsFromOverviewView(LoginRequiredMixin, View):
 
         fiber_cable_id = request.POST.get("fiber_cable_id")
         fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+
+        from dcim.models import CableTermination
+
+        if (
+            fiber_cable.cable
+            and not CableTermination.objects.filter(cable=fiber_cable.cable, _device_id=device.pk).exists()
+        ):
+            return HttpResponse("Fiber cable does not terminate on this device", status=400)
 
         if not form.is_valid():
             return render(

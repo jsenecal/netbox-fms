@@ -1,5 +1,6 @@
 from collections import OrderedDict
 
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
@@ -143,28 +144,43 @@ class SplicePlanViewSet(NetBoxModelViewSet):
     @action(detail=True, methods=["post"], url_path="import-from-device")
     def import_from_device(self, request, pk=None):
         plan = self.get_object()
+        if not request.user.has_perm("netbox_fms.change_spliceplan"):
+            return Response(
+                {"detail": "You do not have permission to perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         from ..services import import_live_state
 
         try:
             count = import_live_state(plan)
             return Response({"imported": count})
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["post"], url_path="apply")
     def apply_plan(self, request, pk=None):
         plan = self.get_object()
+        if not request.user.has_perm("netbox_fms.change_spliceplan"):
+            return Response(
+                {"detail": "You do not have permission to perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         from ..services import apply_diff
 
         try:
             result = apply_diff(plan)
             return Response(result)
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["get"], url_path="diff")
     def get_diff(self, request, pk=None):
         plan = self.get_object()
+        if not request.user.has_perm("netbox_fms.view_spliceplan"):
+            return Response(
+                {"detail": "You do not have permission to perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         from ..services import get_or_recompute_diff
 
         diff = get_or_recompute_diff(plan)
@@ -173,6 +189,11 @@ class SplicePlanViewSet(NetBoxModelViewSet):
     @action(detail=True, methods=["post"], url_path="bulk-update")
     def bulk_update_entries(self, request, pk=None):
         plan = self.get_object()
+        if not request.user.has_perm("netbox_fms.change_spliceplan"):
+            return Response(
+                {"detail": "You do not have permission to perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         adds = request.data.get("add", [])
         removes = request.data.get("remove", [])
 
@@ -220,6 +241,11 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="quick-add")
     def quick_add(self, request):
+        if not request.user.has_perm("netbox_fms.add_spliceplan"):
+            return Response(
+                {"detail": "You do not have permission to perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = SplicePlanSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
