@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import NetBoxModel
@@ -155,6 +155,18 @@ class FiberCableType(NetBoxModel):
         if not self.is_armored and self.armor_type:
             raise ValidationError({"armor_type": _("Armor type should be blank when cable is not armored.")})
 
+        # Validate strand_count matches templates (only if templates exist)
+        if self.pk:
+            template_count = self.get_strand_count_from_templates()
+            if template_count > 0 and template_count != self.strand_count:
+                raise ValidationError(
+                    {
+                        "strand_count": _(
+                            "strand_count ({declared}) does not match the total fibers from templates ({computed})."
+                        ).format(declared=self.strand_count, computed=template_count)
+                    }
+                )
+
     def get_strand_count_from_templates(self):
         """Compute total fiber count from buffer tube templates."""
         total = self.buffer_tube_templates.aggregate(total=models.Sum("fiber_count"))["total"]
@@ -212,6 +224,18 @@ class BufferTubeTemplate(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:buffertubetemplate", args=[self.pk])
+
+    def clean(self):
+        super().clean()
+        if self.pk and self.fiber_count and self.ribbon_templates.exists():
+            raise ValidationError(
+                {
+                    "fiber_count": _(
+                        "A tube cannot have both fiber_count and ribbon templates. "
+                        "Set fiber_count to blank if this tube uses ribbons."
+                    )
+                }
+            )
 
     def get_total_fiber_count(self):
         """Total fibers: either fiber_count (loose) or sum of ribbon fiber counts."""
@@ -279,7 +303,18 @@ class RibbonTemplate(NetBoxModel):
 
     class Meta:
         ordering = ("fiber_cable_type", "buffer_tube_template", "position")
-        unique_together = ("fiber_cable_type", "buffer_tube_template", "name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["fiber_cable_type", "buffer_tube_template", "name"],
+                name="unique_ribbon_template_with_tube",
+                condition=models.Q(buffer_tube_template__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["fiber_cable_type", "name"],
+                name="unique_ribbon_template_without_tube",
+                condition=models.Q(buffer_tube_template__isnull=True),
+            ),
+        ]
         verbose_name = _("ribbon template")
         verbose_name_plural = _("ribbon templates")
 
@@ -400,10 +435,12 @@ class FiberCable(NetBoxModel):
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
-        super().save(*args, **kwargs)
-
         if is_new:
-            self._instantiate_components()
+            with transaction.atomic():
+                super().save(*args, **kwargs)
+                self._instantiate_components()
+        else:
+            super().save(*args, **kwargs)
 
     def _instantiate_components(self):
         """
@@ -932,6 +969,7 @@ class FiberPathLoss(NetBoxModel):
 
     class Meta:
         ordering = ("cable", "wavelength_nm")
+        unique_together = (("cable", "wavelength_nm"),)
         verbose_name = _("fiber path loss")
         verbose_name_plural = _("fiber path losses")
 
