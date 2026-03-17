@@ -133,9 +133,16 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
-    # FiberCircuit (stub — full CRUD views coming in a later task)
+    # FiberCircuit
+    path("fiber-circuits/", views.FiberCircuitListView.as_view(), name="fibercircuit_list"),
+    path("fiber-circuits/add/", views.FiberCircuitEditView.as_view(), name="fibercircuit_add"),
+    path("fiber-circuits/import/", views.FiberCircuitBulkImportView.as_view(), name="fibercircuit_import"),
+    path("fiber-circuits/edit/", views.FiberCircuitBulkEditView.as_view(), name="fibercircuit_bulk_edit"),
+    path("fiber-circuits/delete/", views.FiberCircuitBulkDeleteView.as_view(), name="fibercircuit_bulk_delete"),
     path("fiber-circuits/<int:pk>/", include(get_model_urls("netbox_fms", "fibercircuit"))),
-    path("fiber-circuits/<int:pk>/", views.FiberCableView.as_view(), name="fibercircuit"),
+    path("fiber-circuits/<int:pk>/", views.FiberCircuitView.as_view(), name="fibercircuit"),
+    path("fiber-circuits/<int:pk>/edit/", views.FiberCircuitEditView.as_view(), name="fibercircuit_edit"),
+    path("fiber-circuits/<int:pk>/delete/", views.FiberCircuitDeleteView.as_view(), name="fibercircuit_delete"),
     # Provision Ports
     path("provision-ports/", views.ProvisionPortsView.as_view(), name="provision_ports"),
     # Fiber Overview HTMX actions

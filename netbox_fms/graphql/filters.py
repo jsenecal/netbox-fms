@@ -6,6 +6,8 @@ from ..models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
+    FiberCircuitPath,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
@@ -22,6 +24,8 @@ __all__ = (
     "SplicePlanEntryFilter",
     "SpliceProjectFilter",
     "ClosureCableEntryFilter",
+    "FiberCircuitFilter",
+    "FiberCircuitPathFilter",
 )
 
 
@@ -91,3 +95,19 @@ class ClosureCableEntryFilter:
     id: int | None
     closure_id: int | None
     fiber_cable_id: int | None
+
+
+@strawberry_django.filters.filter(FiberCircuit)
+class FiberCircuitFilter:
+    id: int | None
+    name: str | None
+    cid: str | None
+    status: str | None
+    strand_count: int | None
+
+
+@strawberry_django.filters.filter(FiberCircuitPath)
+class FiberCircuitPathFilter:
+    id: int | None
+    circuit_id: int | None
+    is_complete: bool | None

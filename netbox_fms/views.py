@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -18,6 +18,7 @@ from .filters import (
     ClosureCableEntryFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
+    FiberCircuitFilterSet,
     RibbonTemplateFilterSet,
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
@@ -36,6 +37,10 @@ from .forms import (
     FiberCableTypeFilterForm,
     FiberCableTypeForm,
     FiberCableTypeImportForm,
+    FiberCircuitBulkEditForm,
+    FiberCircuitFilterForm,
+    FiberCircuitForm,
+    FiberCircuitImportForm,
     LinkTopologyForm,
     ProvisionPortsForm,
     RibbonTemplateForm,
@@ -54,6 +59,7 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
@@ -68,6 +74,7 @@ from .tables import (
     ClosureCableEntryTable,
     FiberCableTable,
     FiberCableTypeTable,
+    FiberCircuitTable,
     FiberStrandTable,
     RibbonTable,
     RibbonTemplateTable,
@@ -493,6 +500,52 @@ class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
     queryset = SpliceProject.objects.all()
     filterset = SpliceProjectFilterSet
     table = SpliceProjectTable
+
+
+# ---------------------------------------------------------------------------
+# FiberCircuit
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuitListView(generic.ObjectListView):
+    queryset = FiberCircuit.objects.annotate(path_count=Count("paths"))
+    table = FiberCircuitTable
+    filterset = FiberCircuitFilterSet
+    filterset_form = FiberCircuitFilterForm
+
+
+class FiberCircuitView(generic.ObjectView):
+    queryset = FiberCircuit.objects.all()
+
+    def get_extra_context(self, request, instance):
+        return {"paths": instance.paths.all()}
+
+
+class FiberCircuitEditView(generic.ObjectEditView):
+    queryset = FiberCircuit.objects.all()
+    form = FiberCircuitForm
+
+
+class FiberCircuitDeleteView(generic.ObjectDeleteView):
+    queryset = FiberCircuit.objects.all()
+
+
+class FiberCircuitBulkImportView(generic.BulkImportView):
+    queryset = FiberCircuit.objects.all()
+    model_form = FiberCircuitImportForm
+
+
+class FiberCircuitBulkEditView(generic.BulkEditView):
+    queryset = FiberCircuit.objects.all()
+    filterset = FiberCircuitFilterSet
+    table = FiberCircuitTable
+    form = FiberCircuitBulkEditForm
+
+
+class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
+    queryset = FiberCircuit.objects.all()
+    filterset = FiberCircuitFilterSet
+    table = FiberCircuitTable
 
 
 # ---------------------------------------------------------------------------

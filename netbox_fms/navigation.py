@@ -52,6 +52,30 @@ menu = PluginMenu(
             ),
         ),
         (
+            "Circuits",
+            (
+                PluginMenuItem(
+                    link="plugins:netbox_fms:fibercircuit_list",
+                    link_text="Fiber Circuits",
+                    permissions=["netbox_fms.view_fibercircuit"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:fibercircuit_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_fibercircuit"],
+                        ),
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:fibercircuit_import",
+                            title="Import",
+                            icon_class="mdi mdi-upload",
+                            permissions=["netbox_fms.add_fibercircuit"],
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        (
             "Splice Planning",
             (
                 PluginMenuItem(

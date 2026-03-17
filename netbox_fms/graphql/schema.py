@@ -9,6 +9,8 @@ from .types import (
     ClosureCableEntryType,
     FiberCableInstanceType,
     FiberCableTypeType,
+    FiberCircuitPathType,
+    FiberCircuitType,
     FiberStrandType,
     RibbonTemplateType,
     RibbonType,
@@ -58,6 +60,12 @@ class NetBoxFMSQuery:
 
     closure_cable_entry: ClosureCableEntryType = strawberry_django.field()
     closure_cable_entry_list: list[ClosureCableEntryType] = strawberry_django.field()
+
+    fiber_circuit: FiberCircuitType = strawberry_django.field()
+    fiber_circuit_list: list[FiberCircuitType] = strawberry_django.field()
+
+    fiber_circuit_path: FiberCircuitPathType = strawberry_django.field()
+    fiber_circuit_path_list: list[FiberCircuitPathType] = strawberry_django.field()
 
 
 schema = [NetBoxFMSQuery]

@@ -17,8 +17,19 @@ router.register("splice-projects", views.SpliceProjectViewSet)
 router.register("splice-plans", views.SplicePlanViewSet)
 router.register("splice-plan-entries", views.SplicePlanEntryViewSet)
 router.register("closure-cable-entries", views.ClosureCableEntryViewSet)
+router.register("fiber-circuits", views.FiberCircuitViewSet)
+router.register("fiber-circuit-paths", views.FiberCircuitPathViewSet)
+router.register("fiber-circuit-nodes", views.FiberCircuitNodeViewSet)
 
-urlpatterns = router.urls + [
-    path("closure-strands/<int:device_id>/", views.ClosureStrandsAPIView.as_view(), name="closure_strands"),
-    path("provision-ports/", views.ProvisionPortsAPIView.as_view(), name="provision_ports_api"),
-]
+urlpatterns = (
+    [
+        path(
+            "fiber-circuits/protecting/", views.FiberCircuitProtectingAPIView.as_view(), name="fibercircuit-protecting"
+        ),
+    ]
+    + router.urls
+    + [
+        path("closure-strands/<int:device_id>/", views.ClosureStrandsAPIView.as_view(), name="closure_strands"),
+        path("provision-ports/", views.ProvisionPortsAPIView.as_view(), name="provision_ports_api"),
+    ]
+)

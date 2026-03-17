@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
 
 from ..filters import (
     BufferTubeFilterSet,
@@ -19,6 +20,7 @@ from ..filters import (
     ClosureCableEntryFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
+    FiberCircuitFilterSet,
     FiberStrandFilterSet,
     RibbonFilterSet,
     RibbonTemplateFilterSet,
@@ -34,6 +36,9 @@ from ..models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
+    FiberCircuitNode,
+    FiberCircuitPath,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -49,6 +54,9 @@ from .serializers import (
     ClosureCableEntrySerializer,
     FiberCableSerializer,
     FiberCableTypeSerializer,
+    FiberCircuitNodeSerializer,
+    FiberCircuitPathSerializer,
+    FiberCircuitSerializer,
     FiberStrandSerializer,
     ProvisionPortsInputSerializer,
     RibbonSerializer,
@@ -247,6 +255,61 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Fiber Circuit API views
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuitViewSet(NetBoxModelViewSet):
+    queryset = FiberCircuit.objects.prefetch_related("paths", "tags")
+    serializer_class = FiberCircuitSerializer
+    filterset_class = FiberCircuitFilterSet
+
+    @action(detail=True, methods=["post"])
+    def retrace(self, request, pk=None):
+        circuit = self.get_object()
+        for path in circuit.paths.all():
+            path.retrace()
+        serializer = self.get_serializer(circuit)
+        return Response(serializer.data)
+
+
+class FiberCircuitPathViewSet(NetBoxModelViewSet):
+    queryset = FiberCircuitPath.objects.prefetch_related("tags")
+    serializer_class = FiberCircuitPathSerializer
+
+
+class FiberCircuitNodeViewSet(ModelViewSet):
+    queryset = FiberCircuitNode.objects.all()
+    serializer_class = FiberCircuitNodeSerializer
+    http_method_names = ["get", "head", "options"]
+
+
+class FiberCircuitProtectingAPIView(APIView):
+    """Return circuits protecting the given objects."""
+
+    queryset = FiberCircuit.objects.all()
+
+    def get(self, request):
+        filters = models.Q()
+        for param, field in [
+            ("cable", "paths__nodes__cable_id"),
+            ("front_port", "paths__nodes__front_port_id"),
+            ("rear_port", "paths__nodes__rear_port_id"),
+            ("fiber_strand", "paths__nodes__fiber_strand_id"),
+            ("splice_entry", "paths__nodes__splice_entry_id"),
+        ]:
+            values = request.query_params.get(param)
+            if values:
+                ids = [int(v) for v in values.split(",")]
+                filters |= models.Q(**{f"{field}__in": ids})
+        if not filters:
+            return Response([])
+        circuits = FiberCircuit.objects.filter(filters).distinct()
+        serializer = FiberCircuitSerializer(circuits, many=True, context={"request": request})
+        return Response(serializer.data)
 
 
 # ---------------------------------------------------------------------------

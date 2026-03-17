@@ -10,6 +10,7 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -347,3 +348,24 @@ class ClosureCableEntryTable(NetBoxTable):
         model = ClosureCableEntry
         fields = ("pk", "id", "closure", "fiber_cable", "entrance_label", "notes", "actions")
         default_columns = ("pk", "closure", "fiber_cable", "entrance_label", "actions")
+
+
+# ---------------------------------------------------------------------------
+# Fiber Circuits
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuitTable(NetBoxTable):
+    pk = columns.ToggleColumn()
+    name = tables.Column(linkify=True, verbose_name=_("Name"))
+    cid = tables.Column(verbose_name=_("Circuit ID"))
+    status = tables.Column(verbose_name=_("Status"))
+    strand_count = tables.Column(verbose_name=_("Strands"))
+    tenant = tables.Column(linkify=True, verbose_name=_("Tenant"))
+    path_count = tables.Column(verbose_name=_("Paths"), orderable=True)
+    actions = columns.ActionsColumn()
+
+    class Meta(NetBoxTable.Meta):
+        model = FiberCircuit
+        fields = ("pk", "name", "cid", "status", "strand_count", "tenant", "path_count", "actions")
+        default_columns = ("pk", "name", "cid", "status", "strand_count", "tenant", "actions")

@@ -7,6 +7,7 @@ from netbox.forms import (
     NetBoxModelForm,
     NetBoxModelImportForm,
 )
+from tenancy.models import Tenant
 from utilities.forms.fields import (
     ColorField,
     CommentField,
@@ -18,6 +19,7 @@ from utilities.forms.rendering import FieldSet
 from .choices import (
     ConstructionChoices,
     DeploymentChoices,
+    FiberCircuitStatusChoices,
     FiberTypeChoices,
     FireRatingChoices,
     SheathMaterialChoices,
@@ -29,6 +31,7 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
@@ -520,6 +523,64 @@ class ProvisionPortsForm(forms.Form):
     )
 
     fieldsets = (FieldSet("fiber_cable", "device", "port_type", name=_("Provision Ports")),)
+
+
+# ---------------------------------------------------------------------------
+# FiberCircuit
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuitForm(NetBoxModelForm):
+    tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
+    comments = CommentField()
+
+    fieldsets = (
+        FieldSet("name", "cid", "status", "strand_count", "tenant", name=_("Circuit")),
+        FieldSet("description", "comments", "tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = FiberCircuit
+        fields = ("name", "cid", "status", "strand_count", "tenant", "description", "comments", "tags")
+
+
+class FiberCircuitImportForm(NetBoxModelImportForm):
+    class Meta:
+        model = FiberCircuit
+        fields = ("name", "cid", "status", "strand_count", "description", "comments")
+
+
+class FiberCircuitBulkEditForm(NetBoxModelBulkEditForm):
+    model = FiberCircuit
+
+    status = forms.ChoiceField(choices=FiberCircuitStatusChoices, required=False)
+    strand_count = forms.IntegerField(required=False)
+    tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
+    description = forms.CharField(required=False)
+
+    fieldsets = (
+        FieldSet("status", "strand_count", "tenant", name=_("Circuit")),
+        FieldSet("description", name=_("Additional")),
+    )
+    nullable_fields = ("tenant", "description")
+
+
+class FiberCircuitFilterForm(NetBoxModelFilterSetForm):
+    model = FiberCircuit
+
+    status = forms.MultipleChoiceField(choices=FiberCircuitStatusChoices, required=False)
+    tenant_id = DynamicModelMultipleChoiceField(
+        queryset=Tenant.objects.all(),
+        required=False,
+        label=_("Tenant"),
+    )
+
+    fieldsets = (FieldSet("q", "status", "tenant_id"),)
+
+
+# ---------------------------------------------------------------------------
+# Provision Ports / Link Topology
+# ---------------------------------------------------------------------------
 
 
 class LinkTopologyForm(forms.Form):

@@ -3,11 +3,13 @@ from dcim.models import Cable, Device, Manufacturer, Module
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from netbox.filtersets import NetBoxModelFilterSet
+from tenancy.models import Tenant
 
 from .choices import (
     ArmorTypeChoices,
     ConstructionChoices,
     DeploymentChoices,
+    FiberCircuitStatusChoices,
     FiberTypeChoices,
     FireRatingChoices,
     SheathMaterialChoices,
@@ -21,6 +23,7 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -328,3 +331,23 @@ class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
         if not value.strip():
             return queryset
         return queryset.filter(models.Q(entrance_label__icontains=value) | models.Q(notes__icontains=value))
+
+
+class FiberCircuitFilterSet(NetBoxModelFilterSet):
+    status = django_filters.MultipleChoiceFilter(choices=FiberCircuitStatusChoices)
+    tenant_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Tenant.objects.all(),
+        field_name="tenant",
+        label=_("Tenant (ID)"),
+    )
+
+    class Meta:
+        model = FiberCircuit
+        fields = ("id", "name", "cid", "status", "strand_count", "tenant")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(
+            models.Q(name__icontains=value) | models.Q(cid__icontains=value) | models.Q(description__icontains=value)
+        )

@@ -1,6 +1,6 @@
 from netbox.search import SearchIndex, register_search
 
-from .models import FiberCable, FiberCableType, SplicePlan, SpliceProject
+from .models import FiberCable, FiberCableType, FiberCircuit, SplicePlan, SpliceProject
 
 
 @register_search
@@ -42,3 +42,14 @@ class SpliceProjectIndex(SearchIndex):
         ("description", 500),
     )
     display_attrs = ("description",)
+
+
+@register_search
+class FiberCircuitIndex(SearchIndex):
+    model = FiberCircuit
+    fields = (
+        ("name", 100),
+        ("cid", 80),
+        ("description", 500),
+    )
+    display_attrs = ("status", "strand_count", "cid")

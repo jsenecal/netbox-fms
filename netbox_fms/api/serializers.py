@@ -16,6 +16,9 @@ from ..models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
+    FiberCircuitNode,
+    FiberCircuitPath,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -325,6 +328,64 @@ class SplicePlanEntrySerializer(NetBoxModelSerializer):
             "last_updated",
         )
         brief_fields = ("id", "url", "display", "fiber_a", "fiber_b")
+
+
+# ---------------------------------------------------------------------------
+# Fiber Circuit serializers
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuitSerializer(NetBoxModelSerializer):
+    class Meta:
+        model = FiberCircuit
+        fields = (
+            "id",
+            "url",
+            "display",
+            "name",
+            "cid",
+            "status",
+            "description",
+            "strand_count",
+            "tenant",
+            "comments",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "name", "cid", "status")
+
+
+class FiberCircuitPathSerializer(NetBoxModelSerializer):
+    class Meta:
+        model = FiberCircuitPath
+        fields = (
+            "id",
+            "url",
+            "display",
+            "circuit",
+            "position",
+            "origin",
+            "destination",
+            "path",
+            "is_complete",
+            "calculated_loss_db",
+            "actual_loss_db",
+            "wavelength_nm",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "position", "is_complete")
+
+
+class FiberCircuitNodeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FiberCircuitNode
+        fields = ("id", "path", "position", "cable", "front_port", "rear_port", "fiber_strand", "splice_entry")
+        read_only_fields = fields
 
 
 # ---------------------------------------------------------------------------
