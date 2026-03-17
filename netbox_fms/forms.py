@@ -576,6 +576,19 @@ class CreateFiberCableFromCableForm(forms.Form):
     )
 
 
+class LinkTopologyForm(forms.Form):
+    fiber_cable_type = DynamicModelChoiceField(
+        queryset=FiberCableType.objects.all(),
+        label=_("Fiber Cable Type"),
+    )
+    port_type = forms.ChoiceField(
+        choices=PORT_TYPE_CHOICES,
+        initial="splice",
+        label=_("Port Type"),
+        required=False,
+    )
+
+
 class ProvisionStrandsFromOverviewForm(forms.Form):
     fiber_cable_id = forms.IntegerField(widget=forms.HiddenInput)
     target_module = DynamicModelChoiceField(
