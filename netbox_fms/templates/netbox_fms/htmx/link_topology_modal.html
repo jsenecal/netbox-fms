@@ -1,0 +1,45 @@
+{% load i18n %}
+<div class="modal-header">
+    <h5 class="modal-title">{% trans "Link Cable Topology" %}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form hx-post="{{ post_url }}" hx-target="#htmx-modal-content" hx-swap="innerHTML">
+    {% csrf_token %}
+    <div class="modal-body">
+        <input type="hidden" name="cable_id" value="{{ cable.pk }}">
+        {% if profile_warning %}
+        <div class="alert alert-danger">
+            <strong>{% trans "Warning:" %}</strong> {{ profile_warning }}
+        </div>
+        {% endif %}
+        {% if form.errors %}
+        <div class="alert alert-danger">
+            {% for field, errors in form.errors.items %}
+                {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="mb-3">
+            <label class="form-label">{% trans "Cable" %}</label>
+            <input type="text" class="form-control" value="{{ cable }}" disabled>
+        </div>
+        <div class="mb-3">
+            <label for="id_fiber_cable_type" class="form-label">{% trans "Fiber Cable Type" %} *</label>
+            {{ form.fiber_cable_type }}
+        </div>
+        {% if show_port_type %}
+        <div class="mb-3">
+            <label for="id_port_type" class="form-label">{% trans "Port Type" %}</label>
+            {{ form.port_type }}
+        </div>
+        {% endif %}
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+        {% if profile_warning %}
+        <button type="submit" class="btn btn-warning">{% trans "Proceed Without Profile" %}</button>
+        {% else %}
+        <button type="submit" class="btn btn-primary">{% trans "Link" %}</button>
+        {% endif %}
+    </div>
+</form>

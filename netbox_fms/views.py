@@ -40,6 +40,7 @@ from .forms import (
     FiberCableTypeImportForm,
     FiberPathLossFilterForm,
     FiberPathLossForm,
+    LinkTopologyForm,
     ProvisionPortsForm,
     ProvisionStrandsFromOverviewForm,
     RibbonTemplateForm,
@@ -64,6 +65,7 @@ from .models import (
     SplicePlanEntry,
     SpliceProject,
 )
+from .services import NeedsMappingConfirmation, link_cable_topology
 from .tables import (
     BufferTubeTable,
     BufferTubeTemplateTable,
@@ -1066,4 +1068,111 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
             },
         )
         response["HX-Trigger"] = "modalClose"
+        return response
+
+
+class LinkTopologyView(LoginRequiredMixin, View):
+    """Link a dcim.Cable to a FiberCableType — creates FiberCable and links strands."""
+
+    def get(self, request, pk):
+        if not request.user.has_perm("netbox_fms.add_fibercable"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        cable_id = request.GET.get("cable_id")
+        cable = get_object_or_404(Cable, pk=cable_id)
+
+        from dcim.models import CableTermination, RearPort
+        from django.contrib.contenttypes.models import ContentType
+
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        has_existing = CableTermination.objects.filter(
+            cable=cable,
+            termination_type=rp_ct,
+            termination_id__in=RearPort.objects.filter(device=device).values("pk"),
+        ).exists()
+
+        form = LinkTopologyForm()
+        return render(
+            request,
+            "netbox_fms/htmx/link_topology_modal.html",
+            {
+                "device": device,
+                "cable": cable,
+                "form": form,
+                "show_port_type": not has_existing,
+                "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
+            },
+        )
+
+    def post(self, request, pk):
+        if not request.user.has_perm("netbox_fms.add_fibercable"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+
+        if request.POST.get("confirm_mapping"):
+            cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
+            fct = get_object_or_404(FiberCableType, pk=request.POST.get("fiber_cable_type_id"))
+            port_mapping = {}
+            for key, value in request.POST.items():
+                if key.startswith("mapping_"):
+                    port_mapping[int(key.split("_")[1])] = int(value)
+            fc, warnings = link_cable_topology(cable, fct, device, port_mapping=port_mapping)
+            redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+            response = HttpResponse(status=200)
+            response["HX-Redirect"] = redirect_url
+            return response
+
+        form = LinkTopologyForm(request.POST)
+        if not form.is_valid():
+            cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
+            return render(
+                request,
+                "netbox_fms/htmx/link_topology_modal.html",
+                {
+                    "device": device,
+                    "cable": cable,
+                    "form": form,
+                    "show_port_type": True,
+                    "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
+                },
+            )
+
+        cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
+        fct = form.cleaned_data["fiber_cable_type"]
+        port_type = form.cleaned_data.get("port_type") or "splice"
+
+        try:
+            fc, warnings = link_cable_topology(cable, fct, device, port_type=port_type)
+        except NeedsMappingConfirmation as exc:
+            from dcim.models import FrontPort
+
+            mapping_entries = []
+            for pos in range(1, fct.strand_count + 1):
+                fp_id = exc.proposed_mapping.get(pos)
+                fp_name = None
+                if fp_id:
+                    fp = FrontPort.objects.filter(pk=fp_id).first()
+                    fp_name = fp.name if fp else None
+                mapping_entries.append(
+                    {
+                        "position": pos,
+                        "frontport_id": fp_id,
+                        "frontport_name": fp_name,
+                    }
+                )
+            return render(
+                request,
+                "netbox_fms/htmx/link_topology_confirm.html",
+                {
+                    "cable_id": cable.pk,
+                    "fiber_cable_type_id": fct.pk,
+                    "mapping_entries": mapping_entries,
+                    "warnings": exc.warnings,
+                    "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
+                },
+            )
+
+        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = redirect_url
         return response

@@ -159,4 +159,9 @@ urlpatterns = [
         views.UpdateGlandLabelView.as_view(),
         name="fiber_overview_update_gland",
     ),
+    path(
+        "fiber-overview/<int:pk>/link-topology/",
+        views.LinkTopologyView.as_view(),
+        name="fiber_overview_link_topology",
+    ),
 ]

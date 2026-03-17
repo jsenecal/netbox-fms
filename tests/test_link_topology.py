@@ -351,3 +351,23 @@ class TestLinkCableTopologyAdopt:
             link_cable_topology(cable, fct, device)
         assert len(exc_info.value.proposed_mapping) == 6
         assert len(exc_info.value.warnings) > 0
+
+
+@pytest.mark.django_db
+class TestLinkTopologyView:
+    def test_get_returns_modal(self, client):
+        from django.contrib.auth import get_user_model
+
+        site = Site.objects.create(name="LTV-Site", slug="ltv-site")
+        mfr = Manufacturer.objects.create(name="LTV-Mfr", slug="ltv-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="LTV-Closure", slug="ltv-closure")
+        role = DeviceRole.objects.create(name="LTV-Role", slug="ltv-role")
+        device = Device.objects.create(name="LTV-Device", site=site, device_type=dt, role=role)
+        cable = Cable.objects.create()
+        User = get_user_model()
+        user = User.objects.create_superuser("ltv-admin", "ltv@test.com", "password")
+        client.force_login(user)
+        url = f"/plugins/fms/fiber-overview/{device.pk}/link-topology/?cable_id={cable.pk}"
+        response = client.get(url)
+        assert response.status_code == 200
+        assert b"Link Cable Topology" in response.content

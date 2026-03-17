@@ -1,0 +1,47 @@
+{% load i18n %}
+<div class="modal-header">
+    <h5 class="modal-title">{% trans "Confirm Port Mapping" %}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form hx-post="{{ post_url }}" hx-target="#htmx-modal-content" hx-swap="innerHTML">
+    {% csrf_token %}
+    <div class="modal-body">
+        <input type="hidden" name="cable_id" value="{{ cable_id }}">
+        <input type="hidden" name="fiber_cable_type_id" value="{{ fiber_cable_type_id }}">
+        <input type="hidden" name="confirm_mapping" value="1">
+        {% if warnings %}
+        <div class="alert alert-warning">
+            {% for w in warnings %}<p>{{ w }}</p>{% endfor %}
+        </div>
+        {% endif %}
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>{% trans "Strand" %}</th>
+                    <th></th>
+                    <th>{% trans "FrontPort" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in mapping_entries %}
+                <tr>
+                    <td>F{{ entry.position }}</td>
+                    <td>&rarr;</td>
+                    <td>
+                        {% if entry.frontport_id %}
+                        <input type="hidden" name="mapping_{{ entry.position }}" value="{{ entry.frontport_id }}">
+                        {{ entry.frontport_name }}
+                        {% else %}
+                        <span class="text-muted">{% trans "Unlinked" %}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+        <button type="submit" class="btn btn-primary">{% trans "Confirm & Link" %}</button>
+    </div>
+</form>
