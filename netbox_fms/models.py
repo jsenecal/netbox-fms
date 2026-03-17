@@ -33,6 +33,8 @@ __all__ = (
     "SplicePlanEntry",
     "ClosureCableEntry",
     "FiberCircuit",
+    "FiberCircuitPath",
+    "FiberCircuitNode",
 )
 
 
@@ -987,3 +989,182 @@ class FiberCircuit(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:fibercircuit", args=[self.pk])
+
+
+class FiberCircuitPath(NetBoxModel):
+    """One strand's end-to-end journey through cables and splices."""
+
+    circuit = models.ForeignKey(
+        to="netbox_fms.FiberCircuit",
+        on_delete=models.CASCADE,
+        related_name="paths",
+        verbose_name=_("circuit"),
+    )
+    position = models.PositiveIntegerField(verbose_name=_("position"))
+    origin = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.PROTECT,
+        related_name="fiber_circuit_path_origins",
+        verbose_name=_("origin"),
+    )
+    destination = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.SET_NULL,
+        related_name="fiber_circuit_path_destinations",
+        blank=True,
+        null=True,
+        verbose_name=_("destination"),
+    )
+    path = models.JSONField(default=list, verbose_name=_("path"))
+    is_complete = models.BooleanField(default=False, verbose_name=_("complete"))
+    calculated_loss_db = models.DecimalField(
+        verbose_name=_("calculated loss (dB)"),
+        max_digits=6,
+        decimal_places=3,
+        blank=True,
+        null=True,
+    )
+    actual_loss_db = models.DecimalField(
+        verbose_name=_("actual loss (dB)"),
+        max_digits=6,
+        decimal_places=3,
+        blank=True,
+        null=True,
+    )
+    wavelength_nm = models.PositiveIntegerField(
+        verbose_name=_("wavelength (nm)"),
+        blank=True,
+        null=True,
+    )
+
+    class Meta:
+        ordering = ("circuit", "position")
+        unique_together = (("circuit", "position"),)
+        verbose_name = _("fiber circuit path")
+        verbose_name_plural = _("fiber circuit paths")
+
+    def __str__(self):
+        dest = self.destination or "incomplete"
+        return f"{self.circuit} path {self.position}: {self.origin} → {dest}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:fibercircuitpath", args=[self.pk])
+
+    def clean(self):
+        super().clean()
+        if (self.calculated_loss_db is not None or self.actual_loss_db is not None) and self.wavelength_nm is None:
+            raise ValidationError({"wavelength_nm": _("Wavelength is required when loss values are set.")})
+        if self.circuit_id:
+            existing = self.circuit.paths.exclude(pk=self.pk).count()
+            if existing >= self.circuit.strand_count:
+                raise ValidationError(
+                    _("Cannot add more paths than the circuit's strand count (%(count)s)."),
+                    params={"count": self.circuit.strand_count},
+                )
+
+
+class FiberCircuitNode(models.Model):
+    """Relational index of objects in a fiber circuit path for PROTECT-based deletion prevention."""
+
+    path = models.ForeignKey(
+        to="netbox_fms.FiberCircuitPath",
+        on_delete=models.CASCADE,
+        related_name="nodes",
+        verbose_name=_("path"),
+    )
+    position = models.PositiveIntegerField(verbose_name=_("position"))
+    cable = models.ForeignKey(
+        to="dcim.Cable",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="fiber_circuit_nodes",
+        verbose_name=_("cable"),
+    )
+    front_port = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="fiber_circuit_nodes",
+        verbose_name=_("front port"),
+    )
+    rear_port = models.ForeignKey(
+        to="dcim.RearPort",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="fiber_circuit_nodes",
+        verbose_name=_("rear port"),
+    )
+    fiber_strand = models.ForeignKey(
+        to="netbox_fms.FiberStrand",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="fiber_circuit_nodes",
+        verbose_name=_("fiber strand"),
+    )
+    splice_entry = models.ForeignKey(
+        to="netbox_fms.SplicePlanEntry",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="fiber_circuit_nodes",
+        verbose_name=_("splice entry"),
+    )
+
+    class Meta:
+        ordering = ("path", "position")
+        unique_together = (("path", "position"),)
+        verbose_name = _("fiber circuit node")
+        verbose_name_plural = _("fiber circuit nodes")
+        constraints = [
+            models.CheckConstraint(
+                name="fibercircuitnode_exactly_one_ref",
+                condition=(
+                    models.Q(
+                        cable__isnull=False,
+                        front_port__isnull=True,
+                        rear_port__isnull=True,
+                        fiber_strand__isnull=True,
+                        splice_entry__isnull=True,
+                    )
+                    | models.Q(
+                        cable__isnull=True,
+                        front_port__isnull=False,
+                        rear_port__isnull=True,
+                        fiber_strand__isnull=True,
+                        splice_entry__isnull=True,
+                    )
+                    | models.Q(
+                        cable__isnull=True,
+                        front_port__isnull=True,
+                        rear_port__isnull=False,
+                        fiber_strand__isnull=True,
+                        splice_entry__isnull=True,
+                    )
+                    | models.Q(
+                        cable__isnull=True,
+                        front_port__isnull=True,
+                        rear_port__isnull=True,
+                        fiber_strand__isnull=False,
+                        splice_entry__isnull=True,
+                    )
+                    | models.Q(
+                        cable__isnull=True,
+                        front_port__isnull=True,
+                        rear_port__isnull=True,
+                        fiber_strand__isnull=True,
+                        splice_entry__isnull=False,
+                    )
+                ),
+            ),
+        ]
+
+    def __str__(self):
+        for field in ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry"):
+            obj = getattr(self, field)
+            if obj is not None:
+                return f"{field}: {obj}"
+        return f"node #{self.position}"
