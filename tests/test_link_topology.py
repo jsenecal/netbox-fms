@@ -158,3 +158,21 @@ class TestGetCableProfile:
                 fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=12,
             )
         assert fct.get_cable_profile() is None  # trunk-3c12p not in registry
+
+
+from netbox_fms.services import NeedsMappingConfirmation, propose_port_mapping
+
+
+class TestNeedsMappingConfirmation:
+    def test_has_proposed_mapping(self):
+        exc = NeedsMappingConfirmation({1: 100, 2: 200}, warnings=["mismatch"])
+        assert exc.proposed_mapping == {1: 100, 2: 200}
+        assert exc.warnings == ["mismatch"]
+
+    def test_propose_port_mapping(self):
+        from unittest.mock import MagicMock
+
+        fp1 = MagicMock(pk=10)
+        fp2 = MagicMock(pk=20)
+        result = propose_port_mapping(3, {1: fp1, 2: fp2})
+        assert result == {1: 10, 2: 20}  # position 3 has no match

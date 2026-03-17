@@ -1,7 +1,34 @@
-"""Diff computation engine for splice plans."""
+"""Diff computation engine for splice plans and link topology services."""
 
-from dcim.models import Cable, CableTermination, FrontPort  # noqa: F401
+from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
+
+
+class NeedsMappingConfirmation(Exception):
+    """Raised when existing ports are found and need user confirmation."""
+
+    def __init__(self, proposed_mapping, warnings=None):
+        self.proposed_mapping = proposed_mapping
+        self.warnings = warnings or []
+        super().__init__("Port mapping confirmation required")
+
+
+def propose_port_mapping(strand_count, frontports_by_position):
+    """Build a position-based mapping from strand positions to FrontPorts.
+
+    Args:
+        strand_count: int — number of strands in the FiberCableType
+        frontports_by_position: dict {rear_port_position: FrontPort}
+
+    Returns: dict {strand_position: frontport_id}
+    """
+    mapping = {}
+    for pos in range(1, strand_count + 1):
+        fp = frontports_by_position.get(pos)
+        if fp:
+            mapping[pos] = fp.pk
+    return mapping
 
 
 def get_live_state(closure):
