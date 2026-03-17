@@ -1,6 +1,6 @@
 from netbox.search import SearchIndex, register_search
 
-from .models import FiberCable, FiberCableType, FiberPathLoss, SplicePlan, SpliceProject
+from .models import FiberCable, FiberCableType, SplicePlan, SpliceProject
 
 
 @register_search
@@ -32,13 +32,6 @@ class SplicePlanIndex(SearchIndex):
         ("description", 500),
     )
     display_attrs = ("closure", "status")
-
-
-@register_search
-class FiberPathLossIndex(SearchIndex):
-    model = FiberPathLoss
-    fields = (("notes", 5000),)
-    display_attrs = ("cable", "wavelength_nm", "measured_loss_db")
 
 
 @register_search

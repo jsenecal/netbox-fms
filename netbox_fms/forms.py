@@ -29,7 +29,6 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    FiberPathLoss,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
@@ -464,51 +463,6 @@ class ClosureCableEntryFilterForm(NetBoxModelFilterSetForm):
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
         FieldSet("closure_id", name=_("Attributes")),
-    )
-
-
-# ---------------------------------------------------------------------------
-# FiberPathLoss
-# ---------------------------------------------------------------------------
-
-
-class FiberPathLossForm(NetBoxModelForm):
-    cable = DynamicModelChoiceField(queryset=Cable.objects.all(), label=_("Cable"))
-    comments = CommentField()
-
-    fieldsets = (
-        FieldSet("cable", "wavelength_nm", name=_("Fiber Path Loss")),
-        FieldSet("measured_loss_db", "calculated_loss_db", name=_("Loss Values")),
-        FieldSet("test_date", "otdr_file", name=_("Test Data")),
-        FieldSet("notes", "tags", name=_("Additional")),
-    )
-
-    class Meta:
-        model = FiberPathLoss
-        fields = (
-            "cable",
-            "measured_loss_db",
-            "calculated_loss_db",
-            "wavelength_nm",
-            "test_date",
-            "otdr_file",
-            "notes",
-            "tags",
-        )
-
-
-class FiberPathLossFilterForm(NetBoxModelFilterSetForm):
-    model = FiberPathLoss
-
-    cable_id = DynamicModelMultipleChoiceField(
-        queryset=Cable.objects.all(),
-        required=False,
-        label=_("Cable"),
-    )
-
-    fieldsets = (
-        FieldSet("q", "filter_id", "tag"),
-        FieldSet("cable_id", name=_("Attributes")),
     )
 
 

@@ -21,7 +21,6 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    FiberPathLoss,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -329,22 +328,3 @@ class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
         if not value.strip():
             return queryset
         return queryset.filter(models.Q(entrance_label__icontains=value) | models.Q(notes__icontains=value))
-
-
-class FiberPathLossFilterSet(NetBoxModelFilterSet):
-    cable_id = django_filters.ModelMultipleChoiceFilter(
-        queryset=Cable.objects.all(),
-        field_name="cable",
-        label=_("Cable (ID)"),
-    )
-    wavelength_nm = django_filters.NumberFilter()
-    test_date = django_filters.DateFilter()
-
-    class Meta:
-        model = FiberPathLoss
-        fields = ("id", "cable_id", "wavelength_nm", "test_date")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(notes__icontains=value))

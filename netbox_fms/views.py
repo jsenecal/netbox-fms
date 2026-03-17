@@ -18,7 +18,6 @@ from .filters import (
     ClosureCableEntryFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
-    FiberPathLossFilterSet,
     RibbonTemplateFilterSet,
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
@@ -37,8 +36,6 @@ from .forms import (
     FiberCableTypeFilterForm,
     FiberCableTypeForm,
     FiberCableTypeImportForm,
-    FiberPathLossFilterForm,
-    FiberPathLossForm,
     LinkTopologyForm,
     ProvisionPortsForm,
     RibbonTemplateForm,
@@ -57,7 +54,6 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    FiberPathLoss,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
@@ -72,7 +68,6 @@ from .tables import (
     ClosureCableEntryTable,
     FiberCableTable,
     FiberCableTypeTable,
-    FiberPathLossTable,
     FiberStrandTable,
     RibbonTable,
     RibbonTemplateTable,
@@ -462,31 +457,6 @@ class SplicePlanEntryBulkDeleteView(generic.BulkDeleteView):
     queryset = SplicePlanEntry.objects.all()
     filterset = SplicePlanEntryFilterSet
     table = SplicePlanEntryTable
-
-
-# ---------------------------------------------------------------------------
-# FiberPathLoss
-# ---------------------------------------------------------------------------
-
-
-class FiberPathLossListView(generic.ObjectListView):
-    queryset = FiberPathLoss.objects.all()
-    table = FiberPathLossTable
-    filterset = FiberPathLossFilterSet
-    filterset_form = FiberPathLossFilterForm
-
-
-class FiberPathLossView(generic.ObjectView):
-    queryset = FiberPathLoss.objects.all()
-
-
-class FiberPathLossEditView(generic.ObjectEditView):
-    queryset = FiberPathLoss.objects.all()
-    form = FiberPathLossForm
-
-
-class FiberPathLossDeleteView(generic.ObjectDeleteView):
-    queryset = FiberPathLoss.objects.all()
 
 
 # ---------------------------------------------------------------------------

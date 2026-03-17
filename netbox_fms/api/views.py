@@ -19,7 +19,6 @@ from ..filters import (
     ClosureCableEntryFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
-    FiberPathLossFilterSet,
     FiberStrandFilterSet,
     RibbonFilterSet,
     RibbonTemplateFilterSet,
@@ -35,7 +34,6 @@ from ..models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    FiberPathLoss,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -51,7 +49,6 @@ from .serializers import (
     ClosureCableEntrySerializer,
     FiberCableSerializer,
     FiberCableTypeSerializer,
-    FiberPathLossSerializer,
     FiberStrandSerializer,
     ProvisionPortsInputSerializer,
     RibbonSerializer,
@@ -250,12 +247,6 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-class FiberPathLossViewSet(NetBoxModelViewSet):
-    queryset = FiberPathLoss.objects.prefetch_related("cable", "tags")
-    serializer_class = FiberPathLossSerializer
-    filterset_class = FiberPathLossFilterSet
 
 
 # ---------------------------------------------------------------------------

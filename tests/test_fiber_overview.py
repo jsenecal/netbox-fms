@@ -143,4 +143,3 @@ class TestNavigationCleanup(TestCase):
         assert "Fiber Cables" in link_texts
         assert "Splice Projects" in link_texts
         assert "Splice Plans" in link_texts
-        assert "Fiber Path Losses" in link_texts

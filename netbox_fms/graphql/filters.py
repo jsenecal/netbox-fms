@@ -6,7 +6,6 @@ from ..models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    FiberPathLoss,
     RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
@@ -23,7 +22,6 @@ __all__ = (
     "SplicePlanEntryFilter",
     "SpliceProjectFilter",
     "ClosureCableEntryFilter",
-    "FiberPathLossFilter",
 )
 
 
@@ -93,10 +91,3 @@ class ClosureCableEntryFilter:
     id: int | None
     closure_id: int | None
     fiber_cable_id: int | None
-
-
-@strawberry_django.filters.filter(FiberPathLoss)
-class FiberPathLossFilter:
-    id: int | None
-    cable_id: int | None
-    wavelength_nm: int | None

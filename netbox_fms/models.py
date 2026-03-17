@@ -31,7 +31,6 @@ __all__ = (
     "SplicePlan",
     "SplicePlanEntry",
     "ClosureCableEntry",
-    "FiberPathLoss",
 )
 
 
@@ -941,64 +940,3 @@ class ClosureCableEntry(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])
-
-
-# ---------------------------------------------------------------------------
-# Loss budget (stub)
-# ---------------------------------------------------------------------------
-
-
-class FiberPathLoss(NetBoxModel):
-    """
-    Loss measurement/calculation for a fiber cable segment.
-    """
-
-    cable = models.ForeignKey(
-        to="dcim.Cable",
-        on_delete=models.CASCADE,
-        related_name="fiber_path_losses",
-    )
-    measured_loss_db = models.DecimalField(
-        verbose_name=_("measured loss (dB)"),
-        max_digits=6,
-        decimal_places=3,
-        blank=True,
-        null=True,
-    )
-    calculated_loss_db = models.DecimalField(
-        verbose_name=_("calculated loss (dB)"),
-        max_digits=6,
-        decimal_places=3,
-        blank=True,
-        null=True,
-    )
-    wavelength_nm = models.PositiveIntegerField(
-        verbose_name=_("wavelength (nm)"),
-    )
-    test_date = models.DateField(
-        verbose_name=_("test date"),
-        blank=True,
-        null=True,
-    )
-    otdr_file = models.FileField(
-        verbose_name=_("OTDR file"),
-        upload_to="otdr/",
-        blank=True,
-        null=True,
-    )
-    notes = models.TextField(
-        verbose_name=_("notes"),
-        blank=True,
-    )
-
-    class Meta:
-        ordering = ("cable", "wavelength_nm")
-        unique_together = (("cable", "wavelength_nm"),)
-        verbose_name = _("fiber path loss")
-        verbose_name_plural = _("fiber path losses")
-
-    def __str__(self):
-        return f"{self.cable} @ {self.wavelength_nm}nm"
-
-    def get_absolute_url(self):
-        return reverse("plugins:netbox_fms:fiberpathloss", args=[self.pk])

@@ -133,16 +133,8 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
-    # FiberPathLoss
     # Provision Ports
     path("provision-ports/", views.ProvisionPortsView.as_view(), name="provision_ports"),
-    # FiberPathLoss
-    path("fiber-path-losses/", views.FiberPathLossListView.as_view(), name="fiberpathloss_list"),
-    path("fiber-path-losses/add/", views.FiberPathLossEditView.as_view(), name="fiberpathloss_add"),
-    path("fiber-path-losses/<int:pk>/", include(get_model_urls("netbox_fms", "fiberpathloss"))),
-    path("fiber-path-losses/<int:pk>/", views.FiberPathLossView.as_view(), name="fiberpathloss"),
-    path("fiber-path-losses/<int:pk>/edit/", views.FiberPathLossEditView.as_view(), name="fiberpathloss_edit"),
-    path("fiber-path-losses/<int:pk>/delete/", views.FiberPathLossDeleteView.as_view(), name="fiberpathloss_delete"),
     # Fiber Overview HTMX actions
     path(
         "fiber-overview/<int:pk>/update-gland/",

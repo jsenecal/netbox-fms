@@ -17,7 +17,6 @@ router.register("splice-projects", views.SpliceProjectViewSet)
 router.register("splice-plans", views.SplicePlanViewSet)
 router.register("splice-plan-entries", views.SplicePlanEntryViewSet)
 router.register("closure-cable-entries", views.ClosureCableEntryViewSet)
-router.register("fiber-path-losses", views.FiberPathLossViewSet)
 
 urlpatterns = router.urls + [
     path("closure-strands/<int:device_id>/", views.ClosureStrandsAPIView.as_view(), name="closure_strands"),

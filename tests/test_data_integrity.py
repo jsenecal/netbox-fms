@@ -180,30 +180,6 @@ class TestBufferTubeTemplateValidation:
 
 
 @pytest.mark.django_db
-class TestFiberPathLossUniqueness:
-    """FiberPathLoss should enforce unique (cable, wavelength_nm)."""
-
-    def test_duplicate_cable_wavelength_rejected(self):
-        from dcim.models import Cable
-        from netbox_fms.models import FiberPathLoss
-
-        cable = Cable.objects.create()
-
-        FiberPathLoss.objects.create(
-            cable=cable,
-            wavelength_nm=1310,
-            measured_loss_db=0.5,
-        )
-
-        with pytest.raises(IntegrityError):
-            FiberPathLoss.objects.create(
-                cable=cable,
-                wavelength_nm=1310,
-                measured_loss_db=0.8,
-            )
-
-
-@pytest.mark.django_db
 class TestImportLiveStateValidation:
     """import_live_state should validate entries before bulk_create."""
 

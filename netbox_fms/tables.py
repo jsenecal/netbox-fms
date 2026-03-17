@@ -10,7 +10,6 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    FiberPathLoss,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -348,40 +347,3 @@ class ClosureCableEntryTable(NetBoxTable):
         model = ClosureCableEntry
         fields = ("pk", "id", "closure", "fiber_cable", "entrance_label", "notes", "actions")
         default_columns = ("pk", "closure", "fiber_cable", "entrance_label", "actions")
-
-
-# ---------------------------------------------------------------------------
-# Loss budget
-# ---------------------------------------------------------------------------
-
-
-class FiberPathLossTable(NetBoxTable):
-    pk = columns.ToggleColumn()
-    cable = tables.Column(linkify=True, verbose_name=_("Cable"))
-    wavelength_nm = tables.Column(verbose_name=_("Wavelength (nm)"))
-    measured_loss_db = tables.Column(verbose_name=_("Measured Loss (dB)"))
-    calculated_loss_db = tables.Column(verbose_name=_("Calculated Loss (dB)"))
-    test_date = tables.DateColumn(verbose_name=_("Test Date"))
-    actions = columns.ActionsColumn()
-
-    class Meta(NetBoxTable.Meta):
-        model = FiberPathLoss
-        fields = (
-            "pk",
-            "id",
-            "cable",
-            "wavelength_nm",
-            "measured_loss_db",
-            "calculated_loss_db",
-            "test_date",
-            "actions",
-        )
-        default_columns = (
-            "pk",
-            "cable",
-            "wavelength_nm",
-            "measured_loss_db",
-            "calculated_loss_db",
-            "test_date",
-            "actions",
-        )

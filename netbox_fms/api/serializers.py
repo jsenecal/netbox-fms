@@ -16,7 +16,6 @@ from ..models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    FiberPathLoss,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -326,30 +325,6 @@ class SplicePlanEntrySerializer(NetBoxModelSerializer):
             "last_updated",
         )
         brief_fields = ("id", "url", "display", "fiber_a", "fiber_b")
-
-
-class FiberPathLossSerializer(NetBoxModelSerializer):
-    cable = CableSerializer(nested=True)
-
-    class Meta:
-        model = FiberPathLoss
-        fields = (
-            "id",
-            "url",
-            "display",
-            "cable",
-            "measured_loss_db",
-            "calculated_loss_db",
-            "wavelength_nm",
-            "test_date",
-            "otdr_file",
-            "notes",
-            "tags",
-            "custom_fields",
-            "created",
-            "last_updated",
-        )
-        brief_fields = ("id", "url", "display", "cable", "wavelength_nm")
 
 
 # ---------------------------------------------------------------------------
