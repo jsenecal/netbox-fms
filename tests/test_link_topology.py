@@ -293,3 +293,61 @@ class TestLinkCableTopologyGreenfield:
         fc, warnings = link_cable_topology(cable, fct, device)
         assert len(warnings) > 0
         assert "profile" in warnings[0].lower()
+
+
+@pytest.mark.django_db
+class TestLinkCableTopologyAdopt:
+    def _make_closure_with_existing_ports(self):
+        site = Site.objects.create(name="AD-Site", slug="ad-site")
+        mfr = Manufacturer.objects.create(name="AD-Mfr", slug="ad-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="AD-Closure", slug="ad-closure")
+        role = DeviceRole.objects.create(name="AD-Role", slug="ad-role")
+        device = Device.objects.create(name="AD-Closure", site=site, device_type=dt, role=role)
+        cable = Cable.objects.create()
+
+        from dcim.models import CableTermination, FrontPort, PortMapping, RearPort
+        from django.contrib.contenttypes.models import ContentType
+
+        rp = RearPort.objects.create(device=device, name="Existing-RP", type="splice", positions=12)
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp.pk)
+        fps = []
+        for i in range(1, 13):
+            fp = FrontPort.objects.create(device=device, name=f"EF{i}", type="splice")
+            PortMapping.objects.create(
+                device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
+            )
+            fps.append(fp)
+
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="AD-12F",
+            strand_count=12,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
+        )
+        return device, cable, fct, fps
+
+    def test_raises_needs_mapping_without_port_mapping(self):
+        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        with pytest.raises(NeedsMappingConfirmation) as exc_info:
+            link_cable_topology(cable, fct, device)
+        assert len(exc_info.value.proposed_mapping) == 12
+
+    def test_adopts_existing_ports_with_mapping(self):
+        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
+        from dcim.models import RearPort
+
+        assert RearPort.objects.filter(device=device).count() == 1  # no new RearPorts
+
+    def test_count_mismatch_has_warning(self):
+        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        fct.strand_count = 6
+        fct.save()
+        with pytest.raises(NeedsMappingConfirmation) as exc_info:
+            link_cable_topology(cable, fct, device)
+        assert len(exc_info.value.proposed_mapping) == 6
+        assert len(exc_info.value.warnings) > 0

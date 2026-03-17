@@ -90,7 +90,7 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
         if port_mapping is None:
             proposed = propose_port_mapping(fiber_cable_type.strand_count, fps_by_position)
             confirm_warnings = []
-            if len(proposed) != fiber_cable_type.strand_count:
+            if len(fps_by_position) != fiber_cable_type.strand_count:
                 confirm_warnings.append(
                     f"Count mismatch: {fiber_cable_type.strand_count} strands "
                     f"but {len(fps_by_position)} existing ports."
