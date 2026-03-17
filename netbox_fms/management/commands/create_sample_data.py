@@ -35,7 +35,6 @@ from django.db import transaction
 from netbox_fms.models import (
     BufferTubeTemplate,
     CableElementTemplate,
-    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     SplicePlan,
@@ -133,21 +132,15 @@ class Command(BaseCommand):
         return {"co": co_role, "hub": hub_role, "closure": closure_role}
 
     def _get_or_create_device_types(self, mfr):
-        co_dt, _ = DeviceType.objects.get_or_create(
-            manufacturer=mfr, model="ODF-96", defaults={"slug": "odf-96"}
-        )
-        hub_dt, _ = DeviceType.objects.get_or_create(
-            manufacturer=mfr, model="ODF-48", defaults={"slug": "odf-48"}
-        )
+        co_dt, _ = DeviceType.objects.get_or_create(manufacturer=mfr, model="ODF-96", defaults={"slug": "odf-96"})
+        hub_dt, _ = DeviceType.objects.get_or_create(manufacturer=mfr, model="ODF-48", defaults={"slug": "odf-48"})
         closure_dt, _ = DeviceType.objects.get_or_create(
             manufacturer=mfr, model="FOSC-450D", defaults={"slug": "fosc-450d"}
         )
         return {"co": co_dt, "hub": hub_dt, "closure": closure_dt}
 
     def _get_or_create_tray_module_type(self, mfr):
-        mt, _ = ModuleType.objects.get_or_create(
-            manufacturer=mfr, model="24F Splice Tray", defaults={}
-        )
+        mt, _ = ModuleType.objects.get_or_create(manufacturer=mfr, model="24F Splice Tray", defaults={})
         return mt
 
     def _create_sites(self):
@@ -175,7 +168,12 @@ class Command(BaseCommand):
         )
 
         # Distribution Hubs
-        for direction, slug in [("North", "hub-north"), ("East", "hub-east"), ("South", "hub-south"), ("West", "hub-west")]:
+        for direction, slug in [
+            ("North", "hub-north"),
+            ("East", "hub-east"),
+            ("South", "hub-south"),
+            ("West", "hub-west"),
+        ]:
             devices[f"Hub-{direction}"], _ = Device.objects.get_or_create(
                 name=f"Hub-{direction}",
                 defaults={"site": sites[slug], "role": roles["hub"], "device_type": device_types["hub"]},
@@ -317,8 +315,10 @@ class Command(BaseCommand):
                             positions=len(tube_strands),
                         )
                         CableTermination.objects.create(
-                            cable=cable, cable_end=cable_end,
-                            termination_type=rp_ct, termination_id=rp.pk,
+                            cable=cable,
+                            cable_end=cable_end,
+                            termination_type=rp_ct,
+                            termination_id=rp.pk,
                         )
 
                         for pos_in_tube, strand in enumerate(tube_strands, 1):
@@ -330,8 +330,11 @@ class Command(BaseCommand):
                                 color=EIA_COLORS.get(pos_in_tube, "cccccc"),
                             )
                             PortMapping.objects.create(
-                                device=device, front_port=fp, rear_port=rp,
-                                front_port_position=1, rear_port_position=pos_in_tube,
+                                device=device,
+                                front_port=fp,
+                                rear_port=rp,
+                                front_port_position=1,
+                                rear_port_position=pos_in_tube,
                             )
                             setattr(strand, fk_field, fp)
                             strand.save(update_fields=[fk_field])
@@ -346,8 +349,10 @@ class Command(BaseCommand):
                         positions=len(strands),
                     )
                     CableTermination.objects.create(
-                        cable=cable, cable_end=cable_end,
-                        termination_type=rp_ct, termination_id=rp.pk,
+                        cable=cable,
+                        cable_end=cable_end,
+                        termination_type=rp_ct,
+                        termination_id=rp.pk,
                     )
                     for strand in strands:
                         fp = FrontPort.objects.create(
@@ -358,8 +363,11 @@ class Command(BaseCommand):
                             color=EIA_COLORS.get(strand.position, "cccccc"),
                         )
                         PortMapping.objects.create(
-                            device=device, front_port=fp, rear_port=rp,
-                            front_port_position=1, rear_port_position=strand.position,
+                            device=device,
+                            front_port=fp,
+                            rear_port=rp,
+                            front_port_position=1,
+                            rear_port_position=strand.position,
                         )
                         setattr(strand, fk_field, fp)
                         strand.save(update_fields=[fk_field])
@@ -409,9 +417,7 @@ class Command(BaseCommand):
             for fp_a, fp_b in zip(cable_a_fps, cable_b_fps):
                 tray = fp_a.module
                 if tray:
-                    SplicePlanEntry.objects.create(
-                        plan=plan, tray=tray, fiber_a=fp_a, fiber_b=fp_b
-                    )
+                    SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fp_a, fiber_b=fp_b)
                     entries_created += 1
 
             # If there's a third cable, splice some of its strands to the second cable
@@ -421,9 +427,7 @@ class Command(BaseCommand):
                 for fp_c, fp_b in zip(cable_c_fps, cable_b_remaining):
                     tray = fp_c.module
                     if tray:
-                        SplicePlanEntry.objects.create(
-                            plan=plan, tray=tray, fiber_a=fp_c, fiber_b=fp_b
-                        )
+                        SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fp_c, fiber_b=fp_b)
                         entries_created += 1
 
             self.stdout.write(f"  {name}: {entries_created} splice entries")

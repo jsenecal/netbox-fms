@@ -8,58 +8,175 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('dcim', '0226_modulebay_rebuild_tree'),
-        ('extras', '0134_owner'),
-        ('netbox_fms', '0017_fibercircuit'),
+        ("dcim", "0226_modulebay_rebuild_tree"),
+        ("extras", "0134_owner"),
+        ("netbox_fms", "0017_fibercircuit"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='FiberCircuitPath',
+            name="FiberCircuitPath",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
-                ('created', models.DateTimeField(auto_now_add=True, null=True)),
-                ('last_updated', models.DateTimeField(auto_now=True, null=True)),
-                ('custom_field_data', models.JSONField(blank=True, default=dict, encoder=utilities.json.CustomFieldJSONEncoder)),
-                ('position', models.PositiveIntegerField()),
-                ('path', models.JSONField(default=list)),
-                ('is_complete', models.BooleanField(default=False)),
-                ('calculated_loss_db', models.DecimalField(blank=True, decimal_places=3, max_digits=6, null=True)),
-                ('actual_loss_db', models.DecimalField(blank=True, decimal_places=3, max_digits=6, null=True)),
-                ('wavelength_nm', models.PositiveIntegerField(blank=True, null=True)),
-                ('circuit', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='paths', to='netbox_fms.fibercircuit')),
-                ('destination', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='fiber_circuit_path_destinations', to='dcim.frontport')),
-                ('origin', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='fiber_circuit_path_origins', to='dcim.frontport')),
-                ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
+                ("created", models.DateTimeField(auto_now_add=True, null=True)),
+                ("last_updated", models.DateTimeField(auto_now=True, null=True)),
+                (
+                    "custom_field_data",
+                    models.JSONField(blank=True, default=dict, encoder=utilities.json.CustomFieldJSONEncoder),
+                ),
+                ("position", models.PositiveIntegerField()),
+                ("path", models.JSONField(default=list)),
+                ("is_complete", models.BooleanField(default=False)),
+                ("calculated_loss_db", models.DecimalField(blank=True, decimal_places=3, max_digits=6, null=True)),
+                ("actual_loss_db", models.DecimalField(blank=True, decimal_places=3, max_digits=6, null=True)),
+                ("wavelength_nm", models.PositiveIntegerField(blank=True, null=True)),
+                (
+                    "circuit",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, related_name="paths", to="netbox_fms.fibercircuit"
+                    ),
+                ),
+                (
+                    "destination",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="fiber_circuit_path_destinations",
+                        to="dcim.frontport",
+                    ),
+                ),
+                (
+                    "origin",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="fiber_circuit_path_origins",
+                        to="dcim.frontport",
+                    ),
+                ),
+                ("tags", taggit.managers.TaggableManager(through="extras.TaggedItem", to="extras.Tag")),
             ],
             options={
-                'verbose_name': 'fiber circuit path',
-                'verbose_name_plural': 'fiber circuit paths',
-                'ordering': ('circuit', 'position'),
-                'unique_together': {('circuit', 'position')},
+                "verbose_name": "fiber circuit path",
+                "verbose_name_plural": "fiber circuit paths",
+                "ordering": ("circuit", "position"),
+                "unique_together": {("circuit", "position")},
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
         migrations.CreateModel(
-            name='FiberCircuitNode',
+            name="FiberCircuitNode",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
-                ('position', models.PositiveIntegerField()),
-                ('cable', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='fiber_circuit_nodes', to='dcim.cable')),
-                ('fiber_strand', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='fiber_circuit_nodes', to='netbox_fms.fiberstrand')),
-                ('front_port', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='fiber_circuit_nodes', to='dcim.frontport')),
-                ('rear_port', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='fiber_circuit_nodes', to='dcim.rearport')),
-                ('splice_entry', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='fiber_circuit_nodes', to='netbox_fms.spliceplanentry')),
-                ('path', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='nodes', to='netbox_fms.fibercircuitpath')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
+                ("position", models.PositiveIntegerField()),
+                (
+                    "cable",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="fiber_circuit_nodes",
+                        to="dcim.cable",
+                    ),
+                ),
+                (
+                    "fiber_strand",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="fiber_circuit_nodes",
+                        to="netbox_fms.fiberstrand",
+                    ),
+                ),
+                (
+                    "front_port",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="fiber_circuit_nodes",
+                        to="dcim.frontport",
+                    ),
+                ),
+                (
+                    "rear_port",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="fiber_circuit_nodes",
+                        to="dcim.rearport",
+                    ),
+                ),
+                (
+                    "splice_entry",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="fiber_circuit_nodes",
+                        to="netbox_fms.spliceplanentry",
+                    ),
+                ),
+                (
+                    "path",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="nodes",
+                        to="netbox_fms.fibercircuitpath",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'fiber circuit node',
-                'verbose_name_plural': 'fiber circuit nodes',
-                'ordering': ('path', 'position'),
-                'constraints': [models.CheckConstraint(condition=models.Q(models.Q(('cable__isnull', False), ('fiber_strand__isnull', True), ('front_port__isnull', True), ('rear_port__isnull', True), ('splice_entry__isnull', True)), models.Q(('cable__isnull', True), ('fiber_strand__isnull', True), ('front_port__isnull', False), ('rear_port__isnull', True), ('splice_entry__isnull', True)), models.Q(('cable__isnull', True), ('fiber_strand__isnull', True), ('front_port__isnull', True), ('rear_port__isnull', False), ('splice_entry__isnull', True)), models.Q(('cable__isnull', True), ('fiber_strand__isnull', False), ('front_port__isnull', True), ('rear_port__isnull', True), ('splice_entry__isnull', True)), models.Q(('cable__isnull', True), ('fiber_strand__isnull', True), ('front_port__isnull', True), ('rear_port__isnull', True), ('splice_entry__isnull', False)), _connector='OR'), name='fibercircuitnode_exactly_one_ref')],
-                'unique_together': {('path', 'position')},
+                "verbose_name": "fiber circuit node",
+                "verbose_name_plural": "fiber circuit nodes",
+                "ordering": ("path", "position"),
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            models.Q(
+                                ("cable__isnull", False),
+                                ("fiber_strand__isnull", True),
+                                ("front_port__isnull", True),
+                                ("rear_port__isnull", True),
+                                ("splice_entry__isnull", True),
+                            ),
+                            models.Q(
+                                ("cable__isnull", True),
+                                ("fiber_strand__isnull", True),
+                                ("front_port__isnull", False),
+                                ("rear_port__isnull", True),
+                                ("splice_entry__isnull", True),
+                            ),
+                            models.Q(
+                                ("cable__isnull", True),
+                                ("fiber_strand__isnull", True),
+                                ("front_port__isnull", True),
+                                ("rear_port__isnull", False),
+                                ("splice_entry__isnull", True),
+                            ),
+                            models.Q(
+                                ("cable__isnull", True),
+                                ("fiber_strand__isnull", False),
+                                ("front_port__isnull", True),
+                                ("rear_port__isnull", True),
+                                ("splice_entry__isnull", True),
+                            ),
+                            models.Q(
+                                ("cable__isnull", True),
+                                ("fiber_strand__isnull", True),
+                                ("front_port__isnull", True),
+                                ("rear_port__isnull", True),
+                                ("splice_entry__isnull", False),
+                            ),
+                            _connector="OR",
+                        ),
+                        name="fibercircuitnode_exactly_one_ref",
+                    )
+                ],
+                "unique_together": {("path", "position")},
             },
         ),
     ]

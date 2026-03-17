@@ -4,13 +4,12 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('netbox_fms', '0015_drop_front_port_add_front_port_b'),
+        ("netbox_fms", "0015_drop_front_port_add_front_port_b"),
     ]
 
     operations = [
         migrations.DeleteModel(
-            name='FiberPathLoss',
+            name="FiberPathLoss",
         ),
     ]

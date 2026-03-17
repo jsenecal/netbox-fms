@@ -4,23 +4,22 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('dcim', '0226_modulebay_rebuild_tree'),
-        ('netbox_fms', '0009_populate_entrance_label'),
+        ("dcim", "0226_modulebay_rebuild_tree"),
+        ("netbox_fms", "0009_populate_entrance_label"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='closurecableentry',
-            options={'ordering': ('closure', 'entrance_label')},
+            name="closurecableentry",
+            options={"ordering": ("closure", "entrance_label")},
         ),
         migrations.AlterUniqueTogether(
-            name='closurecableentry',
-            unique_together={('closure', 'fiber_cable')},
+            name="closurecableentry",
+            unique_together={("closure", "fiber_cable")},
         ),
         migrations.RemoveField(
-            model_name='closurecableentry',
-            name='entrance_port',
+            model_name="closurecableentry",
+            name="entrance_port",
         ),
     ]

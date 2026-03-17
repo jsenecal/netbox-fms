@@ -39,9 +39,13 @@ def trace_fiber_path(origin_front_port):
         path.append({"type": "front_port", "id": current_fp.pk})
 
         # Follow PortMapping: FrontPort -> RearPort
-        mapping = PortMapping.objects.filter(
-            front_port=current_fp,
-        ).select_related("rear_port").first()
+        mapping = (
+            PortMapping.objects.filter(
+                front_port=current_fp,
+            )
+            .select_related("rear_port")
+            .first()
+        )
 
         if mapping is None:
             return {"origin": origin_front_port, "destination": None, "path": path, "is_complete": False}
@@ -51,10 +55,14 @@ def trace_fiber_path(origin_front_port):
         path.append({"type": "rear_port", "id": rear_port.pk})
 
         # Step 2: CABLE CROSSING
-        term = CableTermination.objects.filter(
-            termination_type=rp_ct,
-            termination_id=rear_port.pk,
-        ).select_related("cable").first()
+        term = (
+            CableTermination.objects.filter(
+                termination_type=rp_ct,
+                termination_id=rear_port.pk,
+            )
+            .select_related("cable")
+            .first()
+        )
 
         if term is None:
             return {"origin": origin_front_port, "destination": None, "path": path, "is_complete": False}
@@ -77,15 +85,23 @@ def trace_fiber_path(origin_front_port):
         path.append({"type": "rear_port", "id": far_rp.pk})
 
         # Step 3: EGRESS -- follow PortMapping: RearPort -> FrontPort
-        egress_mapping = PortMapping.objects.filter(
-            rear_port=far_rp,
-            rear_port_position=ingress_rp_position,
-        ).select_related("front_port").first()
+        egress_mapping = (
+            PortMapping.objects.filter(
+                rear_port=far_rp,
+                rear_port_position=ingress_rp_position,
+            )
+            .select_related("front_port")
+            .first()
+        )
 
         if egress_mapping is None:
-            egress_mapping = PortMapping.objects.filter(
-                rear_port=far_rp,
-            ).select_related("front_port").first()
+            egress_mapping = (
+                PortMapping.objects.filter(
+                    rear_port=far_rp,
+                )
+                .select_related("front_port")
+                .first()
+            )
 
         if egress_mapping is None:
             return {"origin": origin_front_port, "destination": None, "path": path, "is_complete": False}
@@ -94,10 +110,14 @@ def trace_fiber_path(origin_front_port):
         path.append({"type": "front_port", "id": egress_fp.pk})
 
         # Step 4: SPLICE CHECK
-        splice_term = CableTermination.objects.filter(
-            termination_type=fp_ct,
-            termination_id=egress_fp.pk,
-        ).select_related("cable").first()
+        splice_term = (
+            CableTermination.objects.filter(
+                termination_type=fp_ct,
+                termination_id=egress_fp.pk,
+            )
+            .select_related("cable")
+            .first()
+        )
 
         if splice_term is None:
             return {"origin": origin_front_port, "destination": egress_fp, "path": path, "is_complete": True}

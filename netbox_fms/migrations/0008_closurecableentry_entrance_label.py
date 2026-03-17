@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('netbox_fms', '0007_closurecableentry'),
+        ("netbox_fms", "0007_closurecableentry"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='closurecableentry',
-            name='entrance_label',
+            model_name="closurecableentry",
+            name="entrance_label",
             field=models.CharField(blank=True, max_length=100),
         ),
     ]

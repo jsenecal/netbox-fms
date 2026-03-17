@@ -4,23 +4,30 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('extras', '0134_owner'),
-        ('netbox_fms', '0011_fiberpathloss_unique_cable_wavelength'),
+        ("extras", "0134_owner"),
+        ("netbox_fms", "0011_fiberpathloss_unique_cable_wavelength"),
     ]
 
     operations = [
         migrations.AlterUniqueTogether(
-            name='ribbontemplate',
+            name="ribbontemplate",
             unique_together=set(),
         ),
         migrations.AddConstraint(
-            model_name='ribbontemplate',
-            constraint=models.UniqueConstraint(condition=models.Q(('buffer_tube_template__isnull', False)), fields=('fiber_cable_type', 'buffer_tube_template', 'name'), name='unique_ribbon_template_with_tube'),
+            model_name="ribbontemplate",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("buffer_tube_template__isnull", False)),
+                fields=("fiber_cable_type", "buffer_tube_template", "name"),
+                name="unique_ribbon_template_with_tube",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='ribbontemplate',
-            constraint=models.UniqueConstraint(condition=models.Q(('buffer_tube_template__isnull', True)), fields=('fiber_cable_type', 'name'), name='unique_ribbon_template_without_tube'),
+            model_name="ribbontemplate",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("buffer_tube_template__isnull", True)),
+                fields=("fiber_cable_type", "name"),
+                name="unique_ribbon_template_without_tube",
+            ),
         ),
     ]

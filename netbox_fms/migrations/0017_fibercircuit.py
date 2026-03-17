@@ -8,34 +8,45 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('extras', '0134_owner'),
-        ('netbox_fms', '0016_delete_fiberpathloss'),
-        ('tenancy', '0023_add_mptt_tree_indexes'),
+        ("extras", "0134_owner"),
+        ("netbox_fms", "0016_delete_fiberpathloss"),
+        ("tenancy", "0023_add_mptt_tree_indexes"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='FiberCircuit',
+            name="FiberCircuit",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
-                ('created', models.DateTimeField(auto_now_add=True, null=True)),
-                ('last_updated', models.DateTimeField(auto_now=True, null=True)),
-                ('custom_field_data', models.JSONField(blank=True, default=dict, encoder=utilities.json.CustomFieldJSONEncoder)),
-                ('name', models.CharField(max_length=200)),
-                ('cid', models.CharField(blank=True, max_length=200)),
-                ('status', models.CharField(default='planned', max_length=50)),
-                ('description', models.TextField(blank=True)),
-                ('strand_count', models.PositiveIntegerField()),
-                ('comments', models.TextField(blank=True)),
-                ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
-                ('tenant', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='fiber_circuits', to='tenancy.tenant')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
+                ("created", models.DateTimeField(auto_now_add=True, null=True)),
+                ("last_updated", models.DateTimeField(auto_now=True, null=True)),
+                (
+                    "custom_field_data",
+                    models.JSONField(blank=True, default=dict, encoder=utilities.json.CustomFieldJSONEncoder),
+                ),
+                ("name", models.CharField(max_length=200)),
+                ("cid", models.CharField(blank=True, max_length=200)),
+                ("status", models.CharField(default="planned", max_length=50)),
+                ("description", models.TextField(blank=True)),
+                ("strand_count", models.PositiveIntegerField()),
+                ("comments", models.TextField(blank=True)),
+                ("tags", taggit.managers.TaggableManager(through="extras.TaggedItem", to="extras.Tag")),
+                (
+                    "tenant",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="fiber_circuits",
+                        to="tenancy.tenant",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'fiber circuit',
-                'verbose_name_plural': 'fiber circuits',
-                'ordering': ('name',),
+                "verbose_name": "fiber circuit",
+                "verbose_name_plural": "fiber circuits",
+                "ordering": ("name",),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),

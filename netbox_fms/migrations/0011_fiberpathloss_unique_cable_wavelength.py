@@ -4,15 +4,14 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('dcim', '0226_modulebay_rebuild_tree'),
-        ('netbox_fms', '0010_drop_entrance_port'),
+        ("dcim", "0226_modulebay_rebuild_tree"),
+        ("netbox_fms", "0010_drop_entrance_port"),
     ]
 
     operations = [
         migrations.AlterUniqueTogether(
-            name='fiberpathloss',
-            unique_together={('cable', 'wavelength_nm')},
+            name="fiberpathloss",
+            unique_together={("cable", "wavelength_nm")},
         ),
     ]
