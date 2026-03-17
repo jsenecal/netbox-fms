@@ -1,4 +1,4 @@
-from dcim.models import Cable, Device, Module
+from dcim.models import Cable, Device
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
@@ -29,7 +29,6 @@ from .forms import (
     CableElementTemplateForm,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
-    CreateFiberCableFromCableForm,
     FiberCableBulkEditForm,
     FiberCableFilterForm,
     FiberCableForm,
@@ -42,7 +41,6 @@ from .forms import (
     FiberPathLossForm,
     LinkTopologyForm,
     ProvisionPortsForm,
-    ProvisionStrandsFromOverviewForm,
     RibbonTemplateForm,
     SplicePlanBulkEditForm,
     SplicePlanEntryFilterForm,
@@ -662,48 +660,40 @@ def _device_has_modules_or_fiber_cables(device):
     return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
 
 
-def _build_cable_rows(device, rearports):
-    """Build context dicts for all cable rows in one batch — avoids N+1 queries."""
-    from dcim.models import CableTermination, RearPort
-    from django.contrib.contenttypes.models import ContentType
+def _build_cable_rows(device):
+    """Build context dicts for Fiber Overview, grouped by cable."""
+    from dcim.models import CableTermination
+    from django.db.models import Count, Q
 
-    if not rearports:
-        return []
+    from .models import FiberStrand
 
-    rp_ct = ContentType.objects.get_for_model(RearPort)
-    rp_ids = [rp.pk for rp in rearports]
+    cable_ids = (
+        CableTermination.objects.filter(_device_id=device.pk)
+        .exclude(cable__isnull=True)
+        .values_list("cable_id", flat=True)
+        .distinct()
+    )
 
-    terms = CableTermination.objects.filter(
-        termination_type=rp_ct,
-        termination_id__in=rp_ids,
-    ).select_related("cable")
-    term_by_rp = {t.termination_id: t for t in terms}
-
-    cable_ids = [t.cable_id for t in terms if t.cable_id]
-    fc_by_cable = {}
-    if cable_ids:
-        for fc in FiberCable.objects.filter(cable_id__in=cable_ids).select_related("cable", "fiber_cable_type"):
-            fc_by_cable[fc.cable_id] = fc
+    cables = Cable.objects.filter(pk__in=cable_ids).order_by("pk")
+    fc_by_cable = {
+        fc.cable_id: fc for fc in FiberCable.objects.filter(cable_id__in=cable_ids).select_related("fiber_cable_type")
+    }
 
     fiber_cable_ids = [fc.pk for fc in fc_by_cable.values()]
     strand_totals = {}
-    strand_provisioned = {}
+    strand_linked = {}
     if fiber_cable_ids:
-        from django.db.models import Count, Q
-
-        from .models import FiberStrand
-
         totals = (
             FiberStrand.objects.filter(fiber_cable_id__in=fiber_cable_ids)
             .values("fiber_cable_id")
             .annotate(
                 total=Count("pk"),
-                provisioned=Count("pk", filter=Q(front_port_a__device=device) | Q(front_port_b__device=device)),
+                linked=Count("pk", filter=Q(front_port_a__device=device) | Q(front_port_b__device=device)),
             )
         )
         for row in totals:
             strand_totals[row["fiber_cable_id"]] = row["total"]
-            strand_provisioned[row["fiber_cable_id"]] = row["provisioned"]
+            strand_linked[row["fiber_cable_id"]] = row["linked"]
 
     gland_by_fc = {}
     if fiber_cable_ids:
@@ -711,37 +701,25 @@ def _build_cable_rows(device, rearports):
             gland_by_fc[entry.fiber_cable_id] = entry
 
     rows = []
-    for rp in rearports:
-        term = term_by_rp.get(rp.pk)
-        cable = term.cable if term else None
-        fiber_cable = fc_by_cable.get(cable.pk) if cable else None
-
+    for cable in cables:
+        fc = fc_by_cable.get(cable.pk)
         strand_info = None
         gland_entry = None
-        if fiber_cable:
+        if fc:
             strand_info = {
-                "provisioned": strand_provisioned.get(fiber_cable.pk, 0),
-                "total": strand_totals.get(fiber_cable.pk, 0),
+                "linked": strand_linked.get(fc.pk, 0),
+                "total": strand_totals.get(fc.pk, 0),
             }
-            gland_entry = gland_by_fc.get(fiber_cable.pk)
-
+            gland_entry = gland_by_fc.get(fc.pk)
         rows.append(
             {
-                "rearport": rp,
                 "cable": cable,
-                "fiber_cable": fiber_cable,
+                "fiber_cable": fc,
                 "strand_info": strand_info,
                 "gland_entry": gland_entry,
             }
         )
-
     return rows
-
-
-def _build_cable_row(device, rearport):
-    """Build context dict for a single cable row (used by HTMX row-swap endpoints)."""
-    rows = _build_cable_rows(device, [rearport])
-    return rows[0] if rows else {}
 
 
 def _device_has_splice_plan_or_fiber_cables(device):
@@ -771,23 +749,15 @@ class DeviceFiberOverviewView(View):
 
     def get(self, request, pk):
         device = get_object_or_404(Device, pk=pk)
-
-        from dcim.models import RearPort
-
-        module_rearports = list(RearPort.objects.filter(device=device, module__isnull=False).select_related("module"))
-
-        cable_rows = _build_cable_rows(device, module_rearports)
-
+        cable_rows = _build_cable_rows(device)
         plan = SplicePlan.objects.filter(closure=device).first()
-
         stats = {
             "tray_count": device.modules.count(),
-            "cable_count": sum(1 for r in cable_rows if r["cable"]),
+            "cable_count": len(cable_rows),
             "fiber_cable_count": sum(1 for r in cable_rows if r["fiber_cable"]),
-            "strand_provisioned": sum(r["strand_info"]["provisioned"] for r in cable_rows if r["strand_info"]),
+            "strand_linked": sum(r["strand_info"]["linked"] for r in cable_rows if r["strand_info"]),
             "strand_total": sum(r["strand_info"]["total"] for r in cable_rows if r["strand_info"]),
         }
-
         return render(
             request,
             "netbox_fms/device_fiber_overview.html",
@@ -840,177 +810,6 @@ class DeviceSpliceEditorView(View):
 # ---------------------------------------------------------------------------
 
 
-class CreateFiberCableFromCableView(LoginRequiredMixin, View):
-    def get(self, request, pk):
-        if not request.user.has_perm("netbox_fms.add_fibercable"):
-            return HttpResponse("Permission denied", status=403)
-        device = get_object_or_404(Device, pk=pk)
-        cable_id = request.GET.get("cable_id")
-        cable = get_object_or_404(Cable, pk=cable_id)
-
-        already_exists = FiberCable.objects.filter(cable=cable).exists()
-
-        form = None
-        if not already_exists:
-            form = CreateFiberCableFromCableForm()
-
-        return render(
-            request,
-            "netbox_fms/htmx/create_fiber_cable_modal.html",
-            {
-                "device": device,
-                "cable": cable,
-                "already_exists": already_exists,
-                "form": form,
-                "post_url": reverse("plugins:netbox_fms:fiber_overview_create_fibercable", kwargs={"pk": pk}),
-            },
-        )
-
-    @transaction.atomic
-    def post(self, request, pk):
-        if not request.user.has_perm("netbox_fms.add_fibercable"):
-            return HttpResponse("Permission denied", status=403)
-        device = get_object_or_404(Device, pk=pk)
-        form = CreateFiberCableFromCableForm(request.POST)
-        if not form.is_valid():
-            cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
-            return render(
-                request,
-                "netbox_fms/htmx/create_fiber_cable_modal.html",
-                {
-                    "device": device,
-                    "cable": cable,
-                    "already_exists": False,
-                    "form": form,
-                    "post_url": reverse("plugins:netbox_fms:fiber_overview_create_fibercable", kwargs={"pk": pk}),
-                },
-            )
-
-        cable = get_object_or_404(Cable, pk=form.cleaned_data["cable_id"])
-
-        from dcim.models import CableTermination
-
-        if not CableTermination.objects.filter(cable=cable, _device_id=device.pk).exists():
-            return HttpResponse("Cable does not terminate on this device", status=400)
-
-        FiberCable.objects.create(
-            cable=cable,
-            fiber_cable_type=form.cleaned_data["fiber_cable_type"],
-        )
-
-        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-        response = HttpResponse(status=200)
-        response["HX-Redirect"] = redirect_url
-        return response
-
-
-class ProvisionStrandsFromOverviewView(LoginRequiredMixin, View):
-    def get(self, request, pk):
-        if not request.user.has_perm("dcim.add_frontport"):
-            return HttpResponse("Permission denied", status=403)
-        device = get_object_or_404(Device, pk=pk)
-        fiber_cable_id = request.GET.get("fiber_cable_id")
-        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
-
-        initial = {"fiber_cable_id": fiber_cable.pk}
-        if fiber_cable.cable:
-            from dcim.models import CableTermination, RearPort
-            from django.contrib.contenttypes.models import ContentType
-
-            rp_ct = ContentType.objects.get_for_model(RearPort)
-            term = CableTermination.objects.filter(
-                cable=fiber_cable.cable,
-                termination_type=rp_ct,
-            ).first()
-            if term:
-                rp = RearPort.objects.filter(pk=term.termination_id).select_related("module").first()
-                if rp and rp.module:
-                    initial["target_module"] = rp.module.pk
-
-        form = ProvisionStrandsFromOverviewForm(initial=initial)
-        form.fields["target_module"].queryset = Module.objects.filter(device=device)
-
-        return render(
-            request,
-            "netbox_fms/htmx/provision_strands_modal.html",
-            {
-                "device": device,
-                "fiber_cable": fiber_cable,
-                "form": form,
-                "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
-            },
-        )
-
-    def post(self, request, pk):
-        if not request.user.has_perm("dcim.add_frontport"):
-            return HttpResponse("Permission denied", status=403)
-        device = get_object_or_404(Device, pk=pk)
-        form = ProvisionStrandsFromOverviewForm(request.POST)
-        form.fields["target_module"].queryset = Module.objects.filter(device=device)
-
-        fiber_cable_id = request.POST.get("fiber_cable_id")
-        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
-
-        from dcim.models import CableTermination
-
-        if (
-            fiber_cable.cable
-            and not CableTermination.objects.filter(cable=fiber_cable.cable, _device_id=device.pk).exists()
-        ):
-            return HttpResponse("Fiber cable does not terminate on this device", status=400)
-
-        if not form.is_valid():
-            return render(
-                request,
-                "netbox_fms/htmx/provision_strands_modal.html",
-                {
-                    "device": device,
-                    "fiber_cable": fiber_cable,
-                    "form": form,
-                    "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
-                },
-            )
-
-        module = form.cleaned_data["target_module"]
-        port_type = form.cleaned_data["port_type"]
-
-        already = fiber_cable.fiber_strands.filter(
-            Q(front_port_a__device=device) | Q(front_port_b__device=device)
-        ).exists()
-        if already:
-            return render(
-                request,
-                "netbox_fms/htmx/provision_strands_modal.html",
-                {
-                    "device": device,
-                    "fiber_cable": fiber_cable,
-                    "form": form,
-                    "error_message": _("Strands are already provisioned on this device."),
-                    "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
-                },
-            )
-
-        try:
-            provision_strands(fiber_cable, device, port_type, module=module)
-        except ValueError as e:
-            return render(
-                request,
-                "netbox_fms/htmx/provision_strands_modal.html",
-                {
-                    "device": device,
-                    "fiber_cable": fiber_cable,
-                    "form": form,
-                    "error_message": str(e),
-                    "post_url": reverse("plugins:netbox_fms:fiber_overview_provision_strands", kwargs={"pk": pk}),
-                },
-            )
-
-        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-        response = HttpResponse(status=200)
-        response["HX-Redirect"] = redirect_url
-        return response
-
-
 class UpdateGlandLabelView(LoginRequiredMixin, View):
     def get(self, request, pk):
         if not request.user.has_perm("netbox_fms.change_closurecableentry") and not request.user.has_perm(
@@ -1020,7 +819,6 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
         device = get_object_or_404(Device, pk=pk)
         fiber_cable_id = request.GET.get("fiber_cable_id")
         fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
-        rearport_id = request.GET.get("rearport_id")
 
         entry = ClosureCableEntry.objects.filter(closure=device, fiber_cable=fiber_cable).first()
         current_label = entry.entrance_label if entry else ""
@@ -1031,7 +829,6 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
             {
                 "device": device,
                 "fiber_cable": fiber_cable,
-                "rearport_id": rearport_id,
                 "current_label": current_label,
                 "post_url": reverse("plugins:netbox_fms:fiber_overview_update_gland", kwargs={"pk": pk}),
             },
@@ -1045,29 +842,17 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
         device = get_object_or_404(Device, pk=pk)
         fiber_cable_id = request.POST.get("fiber_cable_id")
         fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
-        rearport_id = request.POST.get("rearport_id")
         entrance_label = request.POST.get("entrance_label", "").strip()
 
-        entry, _created = ClosureCableEntry.objects.update_or_create(
+        ClosureCableEntry.objects.update_or_create(
             closure=device,
             fiber_cable=fiber_cable,
             defaults={"entrance_label": entrance_label},
         )
 
-        from dcim.models import RearPort
-
-        rearport = get_object_or_404(RearPort, pk=rearport_id)
-        row = _build_cable_row(device, rearport)
-
-        response = render(
-            request,
-            "netbox_fms/htmx/fiber_overview_row.html",
-            {
-                "device": device,
-                "row": row,
-            },
-        )
-        response["HX-Trigger"] = "modalClose"
+        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = redirect_url
         return response
 
 
