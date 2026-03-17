@@ -990,6 +990,19 @@ class FiberCircuit(NetBoxModel):
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:fibercircuit", args=[self.pk])
 
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        old_status = None
+        if not is_new:
+            old_status = FiberCircuit.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+        super().save(*args, **kwargs)
+        if not is_new and old_status != self.status:
+            if self.status == FiberCircuitStatusChoices.DECOMMISSIONED:
+                FiberCircuitNode.objects.filter(path__circuit=self).delete()
+            elif old_status == FiberCircuitStatusChoices.DECOMMISSIONED:
+                for path in self.paths.all():
+                    path.rebuild_nodes()
+
 
 class FiberCircuitPath(NetBoxModel):
     """One strand's end-to-end journey through cables and splices."""
@@ -1061,6 +1074,64 @@ class FiberCircuitPath(NetBoxModel):
                     _("Cannot add more paths than the circuit's strand count (%(count)s)."),
                     params={"count": self.circuit.strand_count},
                 )
+
+    @classmethod
+    def from_origin(cls, front_port):
+        """Trace a fiber path from a FrontPort and return an unsaved FiberCircuitPath."""
+        from .trace import trace_fiber_path
+
+        result = trace_fiber_path(front_port)
+        return cls(
+            origin=result["origin"],
+            destination=result["destination"],
+            path=result["path"],
+            is_complete=result["is_complete"],
+        )
+
+    def retrace(self):
+        """Re-trace from origin, update path JSON, and atomically rebuild nodes."""
+        from .trace import trace_fiber_path
+
+        result = trace_fiber_path(self.origin)
+        self.destination = result["destination"]
+        self.path = result["path"]
+        self.is_complete = result["is_complete"]
+        self.save()
+        if self.circuit.status != FiberCircuitStatusChoices.DECOMMISSIONED:
+            self.rebuild_nodes()
+        else:
+            self.nodes.all().delete()
+
+    def rebuild_nodes(self):
+        """Walk self.path JSON and create FiberCircuitNode rows."""
+        self.nodes.all().delete()
+        position = 1
+        for entry in self.path:
+            node_type = entry["type"]
+            obj_id = entry["id"]
+            kwargs = {"path": self, "position": position}
+            if node_type == "cable":
+                kwargs["cable_id"] = obj_id
+            elif node_type == "front_port":
+                kwargs["front_port_id"] = obj_id
+            elif node_type == "rear_port":
+                kwargs["rear_port_id"] = obj_id
+            elif node_type == "splice_entry":
+                kwargs["splice_entry_id"] = obj_id
+            FiberCircuitNode.objects.create(**kwargs)
+            position += 1
+        self._create_strand_nodes(position)
+
+    def _create_strand_nodes(self, start_position):
+        """Create FiberCircuitNode entries for FiberStrands derived from path FrontPorts."""
+        fp_ids = [e["id"] for e in self.path if e["type"] == "front_port"]
+        strands = FiberStrand.objects.filter(
+            models.Q(front_port_a_id__in=fp_ids) | models.Q(front_port_b_id__in=fp_ids)
+        ).distinct()
+        pos = start_position
+        for strand in strands:
+            FiberCircuitNode.objects.create(path=self, position=pos, fiber_strand=strand)
+            pos += 1
 
 
 class FiberCircuitNode(models.Model):

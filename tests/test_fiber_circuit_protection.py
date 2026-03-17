@@ -92,3 +92,58 @@ class TestFiberCircuitNode(TestCase):
         assert FiberCircuitNode.objects.filter(path_id=path_pk).count() == 1
         path.delete()
         assert FiberCircuitNode.objects.filter(path_id=path_pk).count() == 0
+
+
+class TestFiberCircuitLifecycle(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="LC Site", slug="lc-site")
+        mfr = Manufacturer.objects.create(name="LC Mfr", slug="lc-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="LCDev", slug="lcdev")
+        role = DeviceRole.objects.create(name="LC Role", slug="lc-role")
+        device = Device.objects.create(name="LCDev-1", site=site, device_type=dt, role=role)
+        cls.fp = FrontPort.objects.create(device=device, name="LF1", type="lc")
+        cls.cable = Cable.objects.create()
+
+    def test_decommission_deletes_nodes(self):
+        circuit = FiberCircuit.objects.create(
+            name="Decomm-Test",
+            status=FiberCircuitStatusChoices.ACTIVE,
+            strand_count=1,
+        )
+        path = FiberCircuitPath.objects.create(
+            circuit=circuit,
+            position=1,
+            origin=self.fp,
+            path=[{"type": "cable", "id": self.cable.pk}],
+            is_complete=False,
+        )
+        FiberCircuitNode.objects.create(path=path, position=1, cable=self.cable)
+        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 1
+
+        circuit.status = FiberCircuitStatusChoices.DECOMMISSIONED
+        circuit.save()
+
+        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 0
+
+    def test_reactivate_rebuilds_nodes(self):
+        circuit = FiberCircuit.objects.create(
+            name="Reactivate-Test",
+            status=FiberCircuitStatusChoices.DECOMMISSIONED,
+            strand_count=1,
+        )
+        path = FiberCircuitPath.objects.create(
+            circuit=circuit,
+            position=1,
+            origin=self.fp,
+            path=[{"type": "cable", "id": self.cable.pk}],
+            is_complete=False,
+        )
+        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 0
+
+        circuit.status = FiberCircuitStatusChoices.ACTIVE
+        circuit.save()
+
+        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 1
+        node = FiberCircuitNode.objects.get(path=path)
+        assert node.cable_id == self.cable.pk
