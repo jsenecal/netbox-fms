@@ -1003,6 +1003,33 @@ class FiberCircuit(NetBoxModel):
                 for path in self.paths.all():
                     path.rebuild_nodes()
 
+    @classmethod
+    def find_paths(cls, origin_device, destination_device, strand_count=1,
+                   priorities=None, max_results=20):
+        """Find available fiber paths between two devices.
+
+        Delegates to the provisioning engine. See
+        ``netbox_fms.provisioning.find_fiber_paths`` for full documentation.
+        """
+        from .provisioning import find_fiber_paths
+
+        return find_fiber_paths(
+            origin_device, destination_device,
+            strand_count=strand_count, priorities=priorities,
+            max_results=max_results,
+        )
+
+    @classmethod
+    def create_from_proposal(cls, proposal, name_template="Circuit-{n}"):
+        """Create a FiberCircuit from a selected proposal.
+
+        Delegates to the provisioning engine. See
+        ``netbox_fms.provisioning.create_circuit_from_proposal`` for full documentation.
+        """
+        from .provisioning import create_circuit_from_proposal
+
+        return create_circuit_from_proposal(proposal, name_template=name_template)
+
 
 class FiberCircuitPath(NetBoxModel):
     """One strand's end-to-end journey through cables and splices."""
