@@ -1,14 +1,25 @@
-"""Create sample data for the netbox-fms plugin."""
+"""Create realistic sample data for the netbox-fms plugin.
 
-from dcim.choices import CableProfileChoices, CableTypeChoices
+Topology: Metro fiber ring with a central office (CO), 4 distribution hubs,
+and 8 splice closures connecting them with 48F loose-tube cables (4 tubes x 12F).
+
+  CO ── SC-1 ── Hub-North ── SC-2 ── SC-3 ── Hub-East
+  │                                              │
+  SC-8                                         SC-4
+  │                                              │
+  Hub-West ── SC-7 ── SC-6 ── Hub-South ── SC-5
+
+Each closure has 2-3 incoming cables and splice trays.
+"""
+
+from dcim.choices import CableTypeChoices
 from dcim.models import (
     Cable,
-    CablePath,
+    CableTermination,
     Device,
     DeviceRole,
     DeviceType,
     FrontPort,
-    Interface,
     Manufacturer,
     Module,
     ModuleBay,
@@ -17,113 +28,78 @@ from dcim.models import (
     RearPort,
     Site,
 )
+from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from netbox_fms.models import (
     BufferTubeTemplate,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
-    RibbonTemplate,
     SplicePlan,
     SplicePlanEntry,
 )
 
 # EIA/TIA-598 fiber strand color code (12 standard colors)
-EIA_STRAND_COLORS = {
-    1: ("0000ff", "Blue"),
-    2: ("ff8000", "Orange"),
-    3: ("00ff00", "Green"),
-    4: ("8b4513", "Brown"),
-    5: ("708090", "Slate"),
-    6: ("ffffff", "White"),
-    7: ("ff0000", "Red"),
-    8: ("000000", "Black"),
-    9: ("ffff00", "Yellow"),
-    10: ("ee82ee", "Violet"),
-    11: ("ff69b4", "Rose"),
-    12: ("00ffff", "Aqua"),
+EIA_COLORS = {
+    1: "0000ff",
+    2: "ff8000",
+    3: "00ff00",
+    4: "8b4513",
+    5: "708090",
+    6: "ffffff",
+    7: "ff0000",
+    8: "000000",
+    9: "ffff00",
+    10: "ee82ee",
+    11: "ff69b4",
+    12: "00ffff",
 }
 
-STRAND_COUNT = 12
+# Tube colors (same EIA palette)
+TUBE_COLORS = {1: "0000ff", 2: "ff8000", 3: "00ff00", 4: "8b4513"}
 
 
 class Command(BaseCommand):
-    help = "Create sample data for the Fiber Management System plugin"
-
-    def add_arguments(self, parser):
-        parser.add_argument(
-            "--flush",
-            action="store_true",
-            help="Delete all existing FMS data before creating sample data",
-        )
+    help = "Create realistic sample data: metro fiber ring with 8 splice closures"
 
     @transaction.atomic
     def handle(self, *args, **options):
-        if options["flush"]:
-            self._flush()
+        self._ensure_admin_user()
+        mfr = self._get_or_create_manufacturer()
+        fct = self._get_or_create_cable_type(mfr)
+        roles = self._get_or_create_roles()
+        device_types = self._get_or_create_device_types(mfr)
+        tray_module_type = self._get_or_create_tray_module_type(mfr)
 
-        manufacturers = self._create_manufacturers()
-        cable_types = self._create_cable_types(manufacturers)
-        self._create_templates(cable_types)
-        topology = self._create_network_topology(manufacturers)
-        self._create_fiber_cables(cable_types, topology)
-        self._create_splice_plans(manufacturers, topology)
-        self._rebuild_cable_paths()
+        sites = self._create_sites()
+        devices = self._create_devices(sites, roles, device_types)
+        self._create_tray_modules(devices, tray_module_type)
+
+        cables = self._create_cables_and_fiber_cables(devices, fct)
+        self._create_closure_ports_and_link_strands(devices, cables, tray_module_type)
+        self._create_splice_plans(devices, cables)
 
         self.stdout.write(self.style.SUCCESS("Sample data created successfully."))
 
-    def _flush(self):
-        self.stdout.write("Flushing existing FMS data...")
-        SplicePlan.objects.all().delete()
-        FiberCable.objects.all().delete()
-        FiberCableType.objects.all().delete()
-        Cable.objects.filter(label__startswith="Splice:").delete()
-        Cable.objects.filter(label__startswith="Trunk ").delete()
-        Cable.objects.filter(label__contains="\u2192").delete()
-        CablePath.objects.all().delete()
-        PortMapping.objects.all().delete()
-        FrontPort.objects.all().delete()
-        RearPort.objects.all().delete()
-        Interface.objects.filter(device__name__startswith="SW-").delete()
-        Device.objects.filter(name__startswith="SC-").delete()
-        Device.objects.filter(name__startswith="PP-").delete()
-        Device.objects.filter(name__startswith="SW-").delete()
-        Site.objects.filter(slug__startswith="site-").delete()
+    def _ensure_admin_user(self):
+        from django.contrib.auth import get_user_model
 
-    def _create_manufacturers(self):
-        self.stdout.write("Creating manufacturers...")
-        names = ["Corning", "CommScope", "Prysmian", "AFL", "OFS Fitel"]
-        mfrs = {}
-        for name in names:
-            slug = name.lower().replace(" ", "-")
-            mfrs[name], _ = Manufacturer.objects.get_or_create(name=name, defaults={"slug": slug})
-        return mfrs
+        User = get_user_model()
+        if not User.objects.filter(username="admin").exists():
+            User.objects.create_superuser("admin", "admin@example.com", "admin")
+            self.stdout.write("  Created admin user (admin/admin)")
 
-    def _create_cable_types(self, mfrs):
-        self.stdout.write("Creating fiber cable types...")
-        types = {}
+    def _get_or_create_manufacturer(self):
+        mfr, _ = Manufacturer.objects.get_or_create(name="Corning", defaults={"slug": "corning"})
+        return mfr
 
-        types["tight12"], _ = FiberCableType.objects.get_or_create(
-            manufacturer=mfrs["CommScope"],
-            model="TeraSPEED 012",
-            defaults={
-                "part_number": "760004812",
-                "construction": "tight_buffer",
-                "fiber_type": "smf_os2",
-                "strand_count": 12,
-                "sheath_material": "lszh",
-                "jacket_color": "ffff00",
-                "is_armored": False,
-                "deployment": "indoor",
-                "fire_rating": "ofnp",
-            },
-        )
-
-        types["loose48"], _ = FiberCableType.objects.get_or_create(
-            manufacturer=mfrs["Corning"],
-            model="ALTOS 048TCF",
+    def _get_or_create_cable_type(self, mfr):
+        fct, created = FiberCableType.objects.get_or_create(
+            manufacturer=mfr,
+            model="ALTOS 048TCF-14180D20",
             defaults={
                 "part_number": "048TCF-14180D20",
                 "construction": "loose_tube",
@@ -131,422 +107,325 @@ class Command(BaseCommand):
                 "strand_count": 48,
                 "sheath_material": "pe",
                 "jacket_color": "000000",
-                "is_armored": False,
                 "deployment": "duct",
-                "fire_rating": "",
             },
         )
-
-        types["ribbon144"], _ = FiberCableType.objects.get_or_create(
-            manufacturer=mfrs["Prysmian"],
-            model="FlexRibbon 144",
-            defaults={
-                "part_number": "FR-144-OS2",
-                "construction": "ribbon",
-                "fiber_type": "smf_os2",
-                "strand_count": 144,
-                "sheath_material": "hdpe",
-                "jacket_color": "000000",
-                "is_armored": True,
-                "armor_type": "corrugated_steel",
-                "deployment": "direct_buried",
-                "fire_rating": "",
-            },
-        )
-
-        return types
-
-    def _create_templates(self, types):
-        self.stdout.write("Creating component templates...")
-
-        # --- Tight buffer 12F: 12 individual fibers ---
-        ct = types["tight12"]
-        if not ct.cable_element_templates.exists():
-            CableElementTemplate.objects.create(
-                fiber_cable_type=ct,
-                name="Central Strength Member",
-                element_type="central_member",
-            )
-
-        # --- Loose tube 48F: 4 tubes x 12 fibers ---
-        ct = types["loose48"]
-        if not ct.buffer_tube_templates.exists():
-            tube_colors = [
-                ("0000ff", "Blue"),
-                ("ff8000", "Orange"),
-                ("00ff00", "Green"),
-                ("8b4513", "Brown"),
-            ]
-            for i, (color, name) in enumerate(tube_colors, 1):
+        if created:
+            self.stdout.write("  Created FiberCableType: 48F loose tube (4x12)")
+            # 4 buffer tube templates
+            for t in range(1, 5):
                 BufferTubeTemplate.objects.create(
-                    fiber_cable_type=ct,
-                    name=f"Tube {name}",
-                    position=i,
-                    color=color,
+                    fiber_cable_type=fct,
+                    name=f"T{t}",
+                    position=t,
+                    color=TUBE_COLORS[t],
                     fiber_count=12,
                 )
             CableElementTemplate.objects.create(
-                fiber_cable_type=ct,
-                name="Central Strength Member",
-                element_type="central_member",
+                fiber_cable_type=fct, name="Central Strength Member", element_type="central_member"
             )
-            CableElementTemplate.objects.create(
-                fiber_cable_type=ct,
-                name="Ripcord",
-                element_type="ripcord",
-            )
+        return fct
 
-        # --- Ribbon 144F: 12 ribbons x 12 fibers ---
-        ct = types["ribbon144"]
-        if not ct.ribbon_templates.exists():
-            for i in range(1, 13):
-                RibbonTemplate.objects.create(
-                    fiber_cable_type=ct,
-                    buffer_tube_template=None,
-                    name=f"Ribbon {i}",
-                    position=i,
-                    fiber_count=12,
-                )
-            CableElementTemplate.objects.create(
-                fiber_cable_type=ct,
-                name="Central Strength Member",
-                element_type="central_member",
-            )
+    def _get_or_create_roles(self):
+        co_role, _ = DeviceRole.objects.get_or_create(name="Central Office", defaults={"slug": "central-office"})
+        hub_role, _ = DeviceRole.objects.get_or_create(name="Distribution Hub", defaults={"slug": "distribution-hub"})
+        closure_role, _ = DeviceRole.objects.get_or_create(name="Splice Closure", defaults={"slug": "splice-closure"})
+        return {"co": co_role, "hub": hub_role, "closure": closure_role}
 
-    def _create_network_topology(self, mfrs):
-        """Create 3-site fiber topology with individual strand FrontPorts.
-
-        Topology (star via SC-001, 12F per trunk, profile=single-1c12p):
-
-            SW-Alpha-1/2 -> PP-Alpha === Trunk-A ===|
-                                                     |
-            SW-Bravo-1/2 -> PP-Bravo === Trunk-B ===+=== SC-001
-                                                     |
-          SW-Charlie-1/2 -> PP-Charlie = Trunk-C ===|
-
-        Each panel: 1 RearPort(positions=12) + 12 FrontPorts (F1-F12, one per strand)
-        Closure:    3 RearPorts(positions=12) + 36 FrontPorts (one per strand per cable)
-
-        Splice plan at SC-001:
-          Cable-A strands 1-4  <-> Cable-B strands 1-4   (Alpha<->Bravo)
-          Cable-A strands 5-8  <-> Cable-C strands 1-4   (Alpha<->Charlie)
-          Cable-B strands 5-8  <-> Cable-C strands 5-8   (Bravo<->Charlie)
-          Strands 9-12 on each cable: dark (spare capacity)
-
-        Patch cables (duplex, multi-termination, no profile):
-          [Interface] --cable-- [FP strand N, FP strand N+1]
-          1 interface on side A, 2 FrontPorts on side B.
-
-        Trace path (e.g. Alpha->Bravo strand 1):
-          Interface -> Panel FP F1 ->
-          PortMapping(rp_pos=1) -> Panel RP(pos=12) -> [trunk, 1C12P] ->
-          Closure RP-A(pos=12) -> PortMapping(rp_pos=1) -> Closure FP(splice) ->
-          [splice cable, simplex] -> Closure FP(splice) ->
-          PortMapping(rp_pos=1) -> Closure RP-B(pos=12) -> [trunk, 1C12P] ->
-          Panel RP(pos=12) -> PortMapping(rp_pos=1) -> Panel FP F1 ->
-          Interface
-        """
-        self.stdout.write("Creating 3-site network topology...")
-
-        # --- Device types ---
-        panel_dt, _ = DeviceType.objects.get_or_create(
-            manufacturer=mfrs["Corning"],
-            model="CCH Panel 12P",
-            defaults={"slug": "cch-panel-12p"},
+    def _get_or_create_device_types(self, mfr):
+        co_dt, _ = DeviceType.objects.get_or_create(
+            manufacturer=mfr, model="ODF-96", defaults={"slug": "odf-96"}
         )
-        switch_dt, _ = DeviceType.objects.get_or_create(
-            manufacturer=mfrs["CommScope"],
-            model="Generic Switch",
-            defaults={"slug": "generic-switch"},
+        hub_dt, _ = DeviceType.objects.get_or_create(
+            manufacturer=mfr, model="ODF-48", defaults={"slug": "odf-48"}
         )
         closure_dt, _ = DeviceType.objects.get_or_create(
-            manufacturer=mfrs["Corning"],
-            model="Coyote Closure",
-            defaults={"slug": "coyote-closure"},
+            manufacturer=mfr, model="FOSC-450D", defaults={"slug": "fosc-450d"}
         )
+        return {"co": co_dt, "hub": hub_dt, "closure": closure_dt}
 
-        # --- Roles ---
-        panel_role, _ = DeviceRole.objects.update_or_create(
-            name="Patch Panel",
-            defaults={"slug": "patch-panel", "color": "4caf50"},
+    def _get_or_create_tray_module_type(self, mfr):
+        mt, _ = ModuleType.objects.get_or_create(
+            manufacturer=mfr, model="24F Splice Tray", defaults={}
         )
-        switch_role, _ = DeviceRole.objects.update_or_create(
-            name="Switch",
-            defaults={"slug": "switch", "color": "2196f3"},
-        )
-        closure_role, _ = DeviceRole.objects.update_or_create(
-            name="Splice Closure",
-            defaults={"slug": "splice-closure", "color": "ff9800"},
-        )
+        return mt
 
-        # --- 3 Sites ---
+    def _create_sites(self):
+        self.stdout.write("Creating sites...")
+        site_defs = [
+            ("Metro CO", "metro-co"),
+            ("Hub North", "hub-north"),
+            ("Hub East", "hub-east"),
+            ("Hub South", "hub-south"),
+            ("Hub West", "hub-west"),
+        ]
         sites = {}
-        for name in ("Alpha", "Bravo", "Charlie"):
-            sites[name], _ = Site.objects.get_or_create(
-                name=f"Site {name}",
-                defaults={"slug": f"site-{name.lower()}"},
-            )
+        for name, slug in site_defs:
+            sites[slug], _ = Site.objects.get_or_create(name=name, defaults={"slug": slug})
+        return sites
 
-        # --- Splice closure SC-001 (at Site Alpha) ---
-        closure, _ = Device.objects.get_or_create(
-            name="SC-001",
-            defaults={"site": sites["Alpha"], "role": closure_role, "device_type": closure_dt},
+    def _create_devices(self, sites, roles, device_types):
+        self.stdout.write("Creating devices...")
+        devices = {}
+
+        # Central Office
+        devices["CO"], _ = Device.objects.get_or_create(
+            name="CO-Main",
+            defaults={"site": sites["metro-co"], "role": roles["co"], "device_type": device_types["co"]},
         )
 
-        # Splice tray modules
-        tray_mt, _ = ModuleType.objects.get_or_create(
-            manufacturer=mfrs["Corning"],
-            model="12F Splice Tray",
-            defaults={},
-        )
-        for tray_num in range(1, 4):
-            bay, _ = ModuleBay.objects.get_or_create(
-                device=closure,
-                name=f"Tray Slot {tray_num}",
-                defaults={"position": str(tray_num)},
-            )
-            Module.objects.get_or_create(
-                device=closure,
-                module_bay=bay,
-                defaults={"module_type": tray_mt, "status": "active"},
+        # Distribution Hubs
+        for direction, slug in [("North", "hub-north"), ("East", "hub-east"), ("South", "hub-south"), ("West", "hub-west")]:
+            devices[f"Hub-{direction}"], _ = Device.objects.get_or_create(
+                name=f"Hub-{direction}",
+                defaults={"site": sites[slug], "role": roles["hub"], "device_type": device_types["hub"]},
             )
 
-        # --- Closure ports: 3 cable entries x 12 strands ---
-        side_map = {"A": "Alpha", "B": "Bravo", "C": "Charlie"}
-        if not RearPort.objects.filter(device=closure).exists():
-            for side, site_label in side_map.items():
-                rp, _ = RearPort.objects.get_or_create(
-                    device=closure,
-                    name=f"Cable-{side} ({site_label})",
-                    defaults={"type": "splice", "positions": STRAND_COUNT},
-                )
-                for strand in range(1, STRAND_COUNT + 1):
-                    strand_color = EIA_STRAND_COLORS[strand][0]
-                    fp, _ = FrontPort.objects.get_or_create(
-                        device=closure,
-                        name=f"Cable-{side} F{strand}",
-                        defaults={"type": "splice", "color": strand_color},
-                    )
-                    PortMapping.objects.get_or_create(
-                        device=closure,
-                        front_port=fp,
-                        rear_port=rp,
-                        defaults={"front_port_position": 1, "rear_port_position": strand},
-                    )
-
-        # --- Patch panels, switches, trunk cables per site ---
-        panels = {}
-        switches = {}
-        trunk_cables = {}
-        side_for_site = {"Alpha": "A", "Bravo": "B", "Charlie": "C"}
-
-        for name, site in sites.items():
-            # Patch panel
-            panel, _ = Device.objects.get_or_create(
-                name=f"PP-{name}",
-                defaults={"site": site, "role": panel_role, "device_type": panel_dt},
-            )
-            panels[name] = panel
-
-            # Panel ports: 1 RearPort(positions=12) + 12 FrontPorts (F1-F12)
-            # Each FrontPort is a single LC adapter for one strand.
-            # FP "F1" → PortMapping → trunk RP position 1
-            if not RearPort.objects.filter(device=panel).exists():
-                rp, _ = RearPort.objects.get_or_create(
-                    device=panel,
-                    name="Trunk",
-                    defaults={"type": "lc-upc", "positions": STRAND_COUNT},
-                )
-                for strand in range(1, STRAND_COUNT + 1):
-                    strand_color = EIA_STRAND_COLORS[strand][0]
-                    fp, _ = FrontPort.objects.get_or_create(
-                        device=panel,
-                        name=f"F{strand}",
-                        defaults={"type": "lc-upc", "color": strand_color},
-                    )
-                    PortMapping.objects.get_or_create(
-                        device=panel,
-                        front_port=fp,
-                        rear_port=rp,
-                        defaults={"front_port_position": 1, "rear_port_position": strand},
-                    )
-
-            # 2 switches per site
-            site_switches = []
-            for sw_num in (1, 2):
-                sw, _ = Device.objects.get_or_create(
-                    name=f"SW-{name}-{sw_num}",
-                    defaults={"site": site, "role": switch_role, "device_type": switch_dt},
-                )
-                site_switches.append(sw)
-            switches[name] = site_switches
-
-            # Trunk cable: Panel RP <-> Closure RP (single-1c12p)
-            side = side_for_site[name]
-            panel_rp = RearPort.objects.get(device=panel, name="Trunk")
-            closure_rp = RearPort.objects.get(device=closure, name=f"Cable-{side} ({name})")
-
-            if not panel_rp.cable:
-                cable = Cable(
-                    a_terminations=[panel_rp],
-                    b_terminations=[closure_rp],
-                    profile=CableProfileChoices.SINGLE_1C12P,
-                    type=CableTypeChoices.TYPE_SMF_OS2,
-                    color="ffeb3b",
-                    label=f"Trunk {name}",
-                    length=500,
-                    length_unit="m",
-                )
-                cable.clean()
-                cable.save()
-                trunk_cables[name] = cable
-
-        # --- Splice cables (per-strand, simplex, no profile) ---
-        # A(1-4)<->B(1-4): Alpha<->Bravo     (4 strands = 2 duplex pairs)
-        # A(5-8)<->C(1-4): Alpha<->Charlie    (4 strands = 2 duplex pairs)
-        # B(5-8)<->C(5-8): Bravo<->Charlie    (4 strands = 2 duplex pairs)
-        # Strands 9-12 on each cable are dark (spare capacity)
-        splice_configs = [
-            ("A", 1, "B", 1, 4),
-            ("A", 5, "C", 1, 4),
-            ("B", 5, "C", 5, 4),
-        ]
-        splice_cables_created = 0
-        for side_a, start_a, side_b, start_b, count in splice_configs:
-            for i in range(count):
-                fp_a = FrontPort.objects.get(device=closure, name=f"Cable-{side_a} F{start_a + i}")
-                fp_b = FrontPort.objects.get(device=closure, name=f"Cable-{side_b} F{start_b + i}")
-                if fp_a.cable or fp_b.cable:
-                    continue
-                cable = Cable(
-                    a_terminations=[fp_a],
-                    b_terminations=[fp_b],
-                    type=CableTypeChoices.TYPE_SMF_OS2,
-                    label=f"Splice: {fp_a.name} \u2194 {fp_b.name}",
-                )
-                cable.clean()
-                cable.save()
-                splice_cables_created += 1
-
-        # --- Duplex patch cables: Interface -> [FP-N, FP-N+1] (multi-termination, no profile) ---
-        # SW-{site}-1: xe-0/0/1 -> F1, F2  (strands 1,2 — routed to first splice group)
-        # SW-{site}-2: xe-0/0/1 -> F5, F6  (strands 5,6 — routed to second splice group)
-        patch_configs = {
-            "Alpha": [(0, 1, 2), (1, 5, 6)],
-            "Bravo": [(0, 1, 2), (1, 5, 6)],
-            "Charlie": [(0, 1, 2), (1, 5, 6)],
+        # 8 Splice Closures
+        closure_sites = {
+            "SC-1": "metro-co",
+            "SC-2": "hub-north",
+            "SC-3": "hub-east",
+            "SC-4": "hub-east",
+            "SC-5": "hub-south",
+            "SC-6": "hub-south",
+            "SC-7": "hub-west",
+            "SC-8": "hub-west",
         }
-        patch_created = 0
-        for site_name, sw_configs in patch_configs.items():
-            panel = panels[site_name]
-            for sw_idx, strand_tx, strand_rx in sw_configs:
-                sw = switches[site_name][sw_idx]
-                intf, _ = Interface.objects.get_or_create(
-                    device=sw,
-                    name="xe-0/0/1",
-                    defaults={"type": "10gbase-x-sfpp"},
-                )
-                fp_tx = FrontPort.objects.get(device=panel, name=f"F{strand_tx}")
-                fp_rx = FrontPort.objects.get(device=panel, name=f"F{strand_rx}")
-                if intf.cable or fp_tx.cable or fp_rx.cable:
-                    continue
-                cable = Cable(
-                    a_terminations=[intf],
-                    b_terminations=[fp_tx, fp_rx],
-                    type=CableTypeChoices.TYPE_SMF_OS2,
-                    color="ffeb3b",
-                    label=f"{sw.name} xe-0/0/1 \u2192 {panel.name} F{strand_tx}/F{strand_rx}",
-                    length=3,
-                    length_unit="m",
-                )
-                cable.clean()
-                cable.save()
-                patch_created += 1
+        for name, site_slug in closure_sites.items():
+            devices[name], _ = Device.objects.get_or_create(
+                name=name,
+                defaults={"site": sites[site_slug], "role": roles["closure"], "device_type": device_types["closure"]},
+            )
 
-        self.stdout.write(
-            f"  Created 3 sites, 3 panels, 6 switches, 1 closure, "
-            f"{len(trunk_cables)} trunk cables, {splice_cables_created} splice cables, "
-            f"{patch_created} patch cables."
-        )
+        self.stdout.write(f"  Created {len(devices)} devices")
+        return devices
 
-        return {
-            "sites": sites,
-            "panels": panels,
-            "switches": switches,
-            "closure": closure,
-            "trunk_cables": trunk_cables,
-        }
-
-    def _create_fiber_cables(self, cable_types, topology):
-        """Create FiberCable metadata records for the trunk cables."""
-        self.stdout.write("Creating fiber cable instances...")
-        trunk_cables = topology["trunk_cables"]
-        ct = cable_types["tight12"]
-
-        created = 0
-        for name, cable in trunk_cables.items():
-            if FiberCable.objects.filter(cable=cable).exists():
+    def _create_tray_modules(self, devices, tray_mt):
+        """Create splice tray modules on each closure. 4 trays per closure (one per tube)."""
+        self.stdout.write("Creating splice tray modules...")
+        closures = [d for name, d in devices.items() if name.startswith("SC-")]
+        for closure in closures:
+            if closure.modules.exists():
                 continue
-            FiberCable.objects.create(
+            for i in range(1, 5):
+                bay, _ = ModuleBay.objects.get_or_create(
+                    device=closure, name=f"Tray Slot {i}", defaults={"position": str(i)}
+                )
+                Module.objects.get_or_create(
+                    device=closure, module_bay=bay, defaults={"module_type": tray_mt, "status": "active"}
+                )
+
+    def _create_cables_and_fiber_cables(self, devices, fct):
+        """Create the fiber ring cables and their FiberCable metadata.
+
+        Ring topology:
+        CO -> SC-1 -> Hub-North -> SC-2 -> SC-3 -> Hub-East -> SC-4 -> SC-5 -> Hub-South -> SC-6 -> SC-7 -> Hub-West -> SC-8 -> CO
+        """
+        self.stdout.write("Creating cables and fiber cables...")
+        # Define cable segments: (label, A-side device, B-side device)
+        segments = [
+            ("CO → SC-1", "CO", "SC-1"),
+            ("SC-1 → Hub-North", "SC-1", "Hub-North"),
+            ("Hub-North → SC-2", "Hub-North", "SC-2"),
+            ("SC-2 → SC-3", "SC-2", "SC-3"),
+            ("SC-3 → Hub-East", "SC-3", "Hub-East"),
+            ("Hub-East → SC-4", "Hub-East", "SC-4"),
+            ("SC-4 → SC-5", "SC-4", "SC-5"),
+            ("SC-5 → Hub-South", "Hub-South", "SC-5"),
+            ("Hub-South → SC-6", "Hub-South", "SC-6"),
+            ("SC-6 → SC-7", "SC-6", "SC-7"),
+            ("SC-7 → Hub-West", "SC-7", "Hub-West"),
+            ("Hub-West → SC-8", "Hub-West", "SC-8"),
+            ("SC-8 → CO", "SC-8", "CO"),
+        ]
+
+        cables = {}
+        for label, a_name, b_name in segments:
+            existing = Cable.objects.filter(label=label).first()
+            if existing:
+                cables[label] = {
+                    "cable": existing,
+                    "fiber_cable": FiberCable.objects.filter(cable=existing).first(),
+                    "a_device": devices[a_name],
+                    "b_device": devices[b_name],
+                }
+                continue
+
+            cable = Cable(
+                type=CableTypeChoices.TYPE_SMF_OS2,
+                label=label,
+                length=500 + hash(label) % 2000,
+                length_unit="m",
+                color="ffeb3b",
+            )
+            cable.save()
+
+            fc = FiberCable.objects.create(
                 cable=cable,
-                fiber_cable_type=ct,
-                serial_number=f"SN-TRUNK-{name.upper()}",
+                fiber_cable_type=fct,
+                serial_number=f"SN-{label.replace(' ', '-').replace('→', 'to')}",
             )
-            created += 1
 
-        self.stdout.write(f"  Created {created} fiber cable records.")
+            cables[label] = {
+                "cable": cable,
+                "fiber_cable": fc,
+                "a_device": devices[a_name],
+                "b_device": devices[b_name],
+            }
 
-    def _create_splice_plans(self, mfrs, topology):
-        """Create SplicePlan and SplicePlanEntry records for the closure splices."""
-        self.stdout.write("Creating splice plans...")
-        closure = topology["closure"]
+        self.stdout.write(f"  Created {len(cables)} cable segments with FiberCable records")
+        return cables
 
-        # OneToOne: only one plan per closure. Create or update a single plan.
-        plan, created = SplicePlan.objects.get_or_create(
-            closure=closure,
-            defaults={
-                "name": "Main Splices",
-                "description": "All per-strand splices for this closure",
-                "status": "applied",
-            },
-        )
+    def _create_closure_ports_and_link_strands(self, devices, cables, tray_mt):
+        """For each device, create RearPorts (one per tube per cable) and FrontPorts on trays.
+        Link FiberStrands to their FrontPorts on each side."""
+        self.stdout.write("Creating ports and linking strands...")
+        rp_ct = ContentType.objects.get_for_model(RearPort)
 
-        entry_configs = [
-            ("A", 1, "B", 1, 4),
-            ("A", 5, "C", 1, 4),
-            ("B", 5, "C", 5, 4),
-        ]
-
-        if created:
-            for side_a, start_a, side_b, start_b, count in entry_configs:
-                for i in range(count):
-                    fiber_a = FrontPort.objects.get(
-                        device=closure,
-                        name=f"Cable-{side_a} F{start_a + i}",
-                    )
-                    fiber_b = FrontPort.objects.get(
-                        device=closure,
-                        name=f"Cable-{side_b} F{start_b + i}",
-                    )
-                    tray = fiber_a.module
-                    SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fiber_a, fiber_b=fiber_b)
-
-        self.stdout.write(
-            f"  Created splice plan with {SplicePlanEntry.objects.filter(plan__closure=closure).count()} entries."
-        )
-
-    def _rebuild_cable_paths(self):
-        """Rebuild all CablePaths from switch Interfaces."""
-        self.stdout.write("Rebuilding cable paths...")
-        CablePath.objects.all().delete()
-
-        created = 0
-        for intf in Interface.objects.filter(device__name__startswith="SW-"):
-            if intf._path is not None:
+        for label, info in cables.items():
+            cable = info["cable"]
+            fc = info["fiber_cable"]
+            if not fc:
                 continue
-            cp = CablePath.from_origin([intf])
-            if cp:
-                cp.save()
-                created += 1
 
-        self.stdout.write(f"  Rebuilt {created} cable paths.")
+            for side, device, cable_end in [("A", info["a_device"], "A"), ("B", info["b_device"], "B")]:
+                # Check if ports already exist for this cable on this device
+                existing_terms = CableTermination.objects.filter(
+                    cable=cable, cable_end=cable_end, termination_type=rp_ct
+                )
+                if existing_terms.exists():
+                    continue
+
+                tubes = list(fc.buffer_tubes.all().order_by("position"))
+                strands = list(fc.fiber_strands.all().order_by("position"))
+                trays = list(Module.objects.filter(device=device).order_by("module_bay__position"))
+                fk_field = "front_port_a" if cable_end == "A" else "front_port_b"
+
+                if tubes:
+                    # One RearPort per tube
+                    strand_idx = 0
+                    for tube_idx, tube in enumerate(tubes):
+                        tray = trays[tube_idx % len(trays)] if trays else None
+                        tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
+
+                        rp = RearPort.objects.create(
+                            device=device,
+                            module=tray,
+                            name=f"#{cable.pk}:T{tube.position}",
+                            type="splice",
+                            positions=len(tube_strands),
+                        )
+                        CableTermination.objects.create(
+                            cable=cable, cable_end=cable_end,
+                            termination_type=rp_ct, termination_id=rp.pk,
+                        )
+
+                        for pos_in_tube, strand in enumerate(tube_strands, 1):
+                            fp = FrontPort.objects.create(
+                                device=device,
+                                module=tray,
+                                name=f"#{cable.pk}:T{tube.position}:F{strand.position}",
+                                type="splice",
+                                color=EIA_COLORS.get(pos_in_tube, "cccccc"),
+                            )
+                            PortMapping.objects.create(
+                                device=device, front_port=fp, rear_port=rp,
+                                front_port_position=1, rear_port_position=pos_in_tube,
+                            )
+                            setattr(strand, fk_field, fp)
+                            strand.save(update_fields=[fk_field])
+                else:
+                    # Single RearPort
+                    tray = trays[0] if trays else None
+                    rp = RearPort.objects.create(
+                        device=device,
+                        module=tray,
+                        name=f"#{cable.pk}",
+                        type="splice",
+                        positions=len(strands),
+                    )
+                    CableTermination.objects.create(
+                        cable=cable, cable_end=cable_end,
+                        termination_type=rp_ct, termination_id=rp.pk,
+                    )
+                    for strand in strands:
+                        fp = FrontPort.objects.create(
+                            device=device,
+                            module=tray,
+                            name=f"#{cable.pk}:F{strand.position}",
+                            type="splice",
+                            color=EIA_COLORS.get(strand.position, "cccccc"),
+                        )
+                        PortMapping.objects.create(
+                            device=device, front_port=fp, rear_port=rp,
+                            front_port_position=1, rear_port_position=strand.position,
+                        )
+                        setattr(strand, fk_field, fp)
+                        strand.save(update_fields=[fk_field])
+
+        self.stdout.write("  Ports created and strands linked")
+
+    def _create_splice_plans(self, devices, cables):
+        """Create splice plans on each closure with some sample splices.
+        Each closure splices through-traffic: tube-for-tube from cable A to cable B."""
+        self.stdout.write("Creating splice plans...")
+
+        # Find which cables terminate on each closure
+        closures = {name: dev for name, dev in devices.items() if name.startswith("SC-")}
+
+        for name, closure in closures.items():
+            if SplicePlan.objects.filter(closure=closure).exists():
+                continue
+
+            plan = SplicePlan.objects.create(
+                closure=closure,
+                name=f"{name} Splice Plan",
+                description=f"Through-splices at {name}",
+                status="draft",
+            )
+
+            # Find all FrontPorts on this closure's tray modules, grouped by cable
+            fps_by_cable = {}
+            for fp in FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"):
+                # Extract cable PK from name like "#42:T1:F1"
+                if fp.name.startswith("#"):
+                    try:
+                        cable_pk = int(fp.name.split(":")[0][1:])
+                        fps_by_cable.setdefault(cable_pk, []).append(fp)
+                    except (ValueError, IndexError):
+                        pass
+
+            # Get list of cable PKs on this closure
+            cable_pks = sorted(fps_by_cable.keys())
+            if len(cable_pks) < 2:
+                continue
+
+            # Splice first 12 strands of cable A to first 12 strands of cable B
+            cable_a_fps = fps_by_cable[cable_pks[0]][:12]
+            cable_b_fps = fps_by_cable[cable_pks[1]][:12]
+
+            entries_created = 0
+            for fp_a, fp_b in zip(cable_a_fps, cable_b_fps):
+                tray = fp_a.module
+                if tray:
+                    SplicePlanEntry.objects.create(
+                        plan=plan, tray=tray, fiber_a=fp_a, fiber_b=fp_b
+                    )
+                    entries_created += 1
+
+            # If there's a third cable, splice some of its strands to the second cable
+            if len(cable_pks) >= 3:
+                cable_c_fps = fps_by_cable[cable_pks[2]][:12]
+                cable_b_remaining = fps_by_cable[cable_pks[1]][12:24]
+                for fp_c, fp_b in zip(cable_c_fps, cable_b_remaining):
+                    tray = fp_c.module
+                    if tray:
+                        SplicePlanEntry.objects.create(
+                            plan=plan, tray=tray, fiber_a=fp_c, fiber_b=fp_b
+                        )
+                        entries_created += 1
+
+            self.stdout.write(f"  {name}: {entries_created} splice entries")
+
+        self.stdout.write(f"  Created splice plans for {len(closures)} closures")

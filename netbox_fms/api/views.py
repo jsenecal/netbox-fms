@@ -284,6 +284,23 @@ class ClosureStrandsAPIView(APIView):
 
         fiber_cables = FiberCable.objects.filter(cable_id__in=cable_ids).select_related("cable", "fiber_cable_type")
 
+        # Build far-end device lookup: cable_id -> (device_name, device_url)
+        far_end_lookup = {}
+        all_terms = CableTermination.objects.filter(cable_id__in=cable_ids).select_related("cable")
+        for term in all_terms:
+            if term._device_id and term._device_id != device_id:
+                from dcim.models import Device as DcimDevice
+
+                try:
+                    far_dev = DcimDevice.objects.get(pk=term._device_id)
+                    far_end_lookup[term.cable_id] = {
+                        "id": far_dev.pk,
+                        "name": str(far_dev),
+                        "url": far_dev.get_absolute_url(),
+                    }
+                except DcimDevice.DoesNotExist:
+                    pass
+
         # --- A) Build LIVE splice lookup (front_port_id → front_port_id) ---
         fp_ct = ContentType.objects.get_for_model(FrontPort)
         tray_front_port_ids = set(
@@ -338,9 +355,11 @@ class ClosureStrandsAPIView(APIView):
             tubes_dict = OrderedDict()
             loose = []
             for s in strands:
-                live_fp = live_lookup.get(s.front_port_a_id)
+                # Use whichever front_port FK is set for this closure
+                local_fp_id = s.front_port_a_id or s.front_port_b_id
+                live_fp = live_lookup.get(local_fp_id)
                 live_strand = fp_to_strand.get(live_fp) if live_fp else None
-                plan_info = plan_lookup.get(s.front_port_a_id, (None, None))
+                plan_info = plan_lookup.get(local_fp_id, (None, None))
                 plan_strand = fp_to_strand.get(plan_info[1]) if plan_info[1] else None
                 strand_data = {
                     "id": s.pk,
@@ -351,7 +370,7 @@ class ClosureStrandsAPIView(APIView):
                     "tube_name": s.buffer_tube.name if s.buffer_tube else None,
                     "ribbon_name": s.ribbon.name if s.ribbon else None,
                     "ribbon_color": s.ribbon.color if s.ribbon else None,
-                    "front_port_a_id": s.front_port_a_id,
+                    "front_port_a_id": local_fp_id,
                     "live_spliced_to": live_strand,
                     "plan_entry_id": plan_info[0],
                     "plan_spliced_to": plan_strand,
@@ -372,12 +391,15 @@ class ClosureStrandsAPIView(APIView):
                 else:
                     loose.append(strand_data)
 
+            far_end = far_end_lookup.get(fc.cable_id)
             cable_groups.append(
                 {
                     "fiber_cable_id": fc.pk,
                     "cable_label": str(fc.cable) if fc.cable else f"FiberCable-{fc.pk}",
                     "fiber_type": fc.fiber_cable_type.get_fiber_type_display(),
                     "strand_count": fc.fiber_cable_type.strand_count,
+                    "far_device_name": far_end["name"] if far_end else None,
+                    "far_device_url": far_end["url"] if far_end else None,
                     "tubes": list(tubes_dict.values()),
                     "loose_strands": loose,
                 }
