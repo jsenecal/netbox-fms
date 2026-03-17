@@ -119,7 +119,7 @@ export class EditorState {
     this.pendingChanges = [];
   }
 
-  /** Get pending changes as bulk update payload (uses front_port_ids). */
+  /** Get pending changes as bulk update payload (uses front_port_a_ids). */
   getPendingPayload(): { add: Array<{ fiber_a: number; fiber_b: number }>; remove: Array<{ fiber_a: number; fiber_b: number }> } {
     const add: Array<{ fiber_a: number; fiber_b: number }> = [];
     const remove: Array<{ fiber_a: number; fiber_b: number }> = [];
@@ -229,7 +229,7 @@ export class EditorState {
             ribbonColor: s.ribbon_color,
             y,
             hidden: false,
-            frontPortId: s.front_port_id,
+            frontPortId: s.front_port_a_id,
             liveSplicedTo: s.live_spliced_to,
             planEntryId: s.plan_entry_id,
             planSplicedTo: s.plan_spliced_to,
@@ -253,7 +253,7 @@ export class EditorState {
           ribbonColor: s.ribbon_color,
           y,
           hidden: false,
-          frontPortId: s.front_port_id,
+          frontPortId: s.front_port_a_id,
           liveSplicedTo: s.live_spliced_to,
           planEntryId: s.plan_entry_id,
           planSplicedTo: s.plan_spliced_to,

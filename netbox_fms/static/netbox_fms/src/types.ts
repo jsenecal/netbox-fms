@@ -27,7 +27,7 @@ export interface StrandData {
   tube_name: string | null;
   ribbon_name: string | null;
   ribbon_color: string | null;
-  front_port_id: number | null;
+  front_port_a_id: number | null;
   live_spliced_to: number | null;
   plan_entry_id: number | null;
   plan_spliced_to: number | null;
@@ -90,10 +90,10 @@ export interface LayoutNode {
 /** A pending splice change (add or remove). */
 export interface PendingChange {
   action: 'add' | 'remove';
-  fiberA: number;    // strand ID (not front_port_id)
+  fiberA: number;    // strand ID (not front_port_a_id)
   fiberB: number;    // strand ID
-  portA: number;     // front_port_id
-  portB: number;     // front_port_id
+  portA: number;     // front_port_a_id
+  portB: number;     // front_port_a_id
 }
 
 /** An existing splice connection (live or plan). */

@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -575,8 +576,8 @@ def provision_strands(fiber_cable, device, port_type, module=None):
             rear_port_position=strand.position,
         )
 
-        strand.front_port = fp
-        strand.save(update_fields=["front_port"])
+        strand.front_port_a = fp
+        strand.save(update_fields=["front_port_a"])
 
 
 class ProvisionPortsView(LoginRequiredMixin, View):
@@ -596,7 +597,9 @@ class ProvisionPortsView(LoginRequiredMixin, View):
         port_type = form.cleaned_data["port_type"]
 
         # Check for already provisioned strands on this device
-        already = fiber_cable.fiber_strands.filter(front_port__device=device).exists()
+        already = fiber_cable.fiber_strands.filter(
+            Q(front_port_a__device=device) | Q(front_port_b__device=device)
+        ).exists()
         if already:
             messages.error(request, _("Some strands are already provisioned on this device."))
             return render(request, "netbox_fms/provision_ports.html", {"form": form})
@@ -693,7 +696,7 @@ def _build_cable_rows(device, rearports):
             .values("fiber_cable_id")
             .annotate(
                 total=Count("pk"),
-                provisioned=Count("pk", filter=Q(front_port__device=device)),
+                provisioned=Count("pk", filter=Q(front_port_a__device=device) | Q(front_port_b__device=device)),
             )
         )
         for row in totals:
@@ -969,7 +972,9 @@ class ProvisionStrandsFromOverviewView(LoginRequiredMixin, View):
         module = form.cleaned_data["target_module"]
         port_type = form.cleaned_data["port_type"]
 
-        already = fiber_cable.fiber_strands.filter(front_port__device=device).exists()
+        already = fiber_cable.fiber_strands.filter(
+            Q(front_port_a__device=device) | Q(front_port_b__device=device)
+        ).exists()
         if already:
             return render(
                 request,

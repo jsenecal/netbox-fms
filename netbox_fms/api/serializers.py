@@ -197,7 +197,8 @@ class RibbonSerializer(NetBoxModelSerializer):
 
 
 class FiberStrandSerializer(NetBoxModelSerializer):
-    front_port = FrontPortSerializer(nested=True, required=False, allow_null=True)
+    front_port_a = FrontPortSerializer(nested=True, required=False, allow_null=True)
+    front_port_b = FrontPortSerializer(nested=True, required=False, allow_null=True)
 
     class Meta:
         model = FiberStrand
@@ -211,7 +212,8 @@ class FiberStrandSerializer(NetBoxModelSerializer):
             "name",
             "position",
             "color",
-            "front_port",
+            "front_port_a",
+            "front_port_b",
             "tags",
             "custom_fields",
             "created",
@@ -362,7 +364,7 @@ class ClosureStrandSerializer(serializers.Serializer):
     name = serializers.CharField()
     position = serializers.IntegerField()
     color = serializers.CharField()
-    front_port_id = serializers.IntegerField(allow_null=True)
+    front_port_a_id = serializers.IntegerField(allow_null=True)
     live_spliced_to = serializers.IntegerField(allow_null=True)
     plan_entry_id = serializers.IntegerField(allow_null=True)
     plan_spliced_to = serializers.IntegerField(allow_null=True)

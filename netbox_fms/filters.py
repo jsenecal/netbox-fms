@@ -218,11 +218,17 @@ class FiberStrandFilterSet(NetBoxModelFilterSet):
         field_name="ribbon",
         label=_("Ribbon (ID)"),
     )
-    has_front_port = django_filters.BooleanFilter(
-        field_name="front_port",
+    has_front_port_a = django_filters.BooleanFilter(
+        field_name="front_port_a",
         lookup_expr="isnull",
         exclude=True,
-        label=_("Has front port"),
+        label=_("Has front port A"),
+    )
+    has_front_port_b = django_filters.BooleanFilter(
+        field_name="front_port_b",
+        lookup_expr="isnull",
+        exclude=True,
+        label=_("Has front port B"),
     )
 
     class Meta:
@@ -322,9 +328,7 @@ class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
     def search(self, queryset, name, value):
         if not value.strip():
             return queryset
-        return queryset.filter(
-            models.Q(entrance_label__icontains=value) | models.Q(notes__icontains=value)
-        )
+        return queryset.filter(models.Q(entrance_label__icontains=value) | models.Q(notes__icontains=value))
 
 
 class FiberPathLossFilterSet(NetBoxModelFilterSet):

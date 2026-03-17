@@ -229,13 +229,35 @@ class FiberStrandTable(NetBoxTable):
     color = columns.ColorColumn(verbose_name=_("Color"))
     buffer_tube = tables.Column(linkify=True, verbose_name=_("Buffer Tube"))
     ribbon = tables.Column(linkify=True, verbose_name=_("Ribbon"))
-    front_port = tables.Column(linkify=True, verbose_name=_("Front Port"))
+    front_port_a = tables.Column(linkify=True, verbose_name=_("Front Port A"))
+    front_port_b = tables.Column(linkify=True, verbose_name=_("Front Port B"))
     actions = columns.ActionsColumn()
 
     class Meta(NetBoxTable.Meta):
         model = FiberStrand
-        fields = ("pk", "id", "name", "position", "color", "buffer_tube", "ribbon", "front_port", "actions")
-        default_columns = ("pk", "name", "position", "color", "buffer_tube", "ribbon", "front_port", "actions")
+        fields = (
+            "pk",
+            "id",
+            "name",
+            "position",
+            "color",
+            "buffer_tube",
+            "ribbon",
+            "front_port_a",
+            "front_port_b",
+            "actions",
+        )
+        default_columns = (
+            "pk",
+            "name",
+            "position",
+            "color",
+            "buffer_tube",
+            "ribbon",
+            "front_port_a",
+            "front_port_b",
+            "actions",
+        )
 
 
 class CableElementTable(NetBoxTable):

@@ -57,10 +57,10 @@ def generate_drawio(plan):
         ET.SubElement(header, "mxGeometry", x="10", y="10", width="400", height="20", **{"as": "geometry"})
         cell_id += 1
 
-        # Look up fiber strand colors via FiberStrand.front_port FK
+        # Look up fiber strand colors via FiberStrand.front_port_a FK
         from netbox_fms.models import FiberStrand
 
-        strand_colors = dict(FiberStrand.objects.filter(front_port__in=ports).values_list("front_port_id", "color"))
+        strand_colors = dict(FiberStrand.objects.filter(front_port_a__in=ports).values_list("front_port_a_id", "color"))
 
         for port in ports:
             color = f"#{strand_colors[port.pk]}" if port.pk in strand_colors else "#CCCCCC"

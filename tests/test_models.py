@@ -232,7 +232,7 @@ class TestClosureCableEntry(TestCase):
 
 class TestProvisionStrandsHelper(TestCase):
     """Uses setUp (not setUpTestData) because each test provisions strands,
-    mutating FiberStrand.front_port. Tests need isolated FiberCable instances."""
+    mutating FiberStrand.front_port_a. Tests need isolated FiberCable instances."""
 
     def setUp(self):
         from dcim.models import Module, ModuleBay, ModuleType
@@ -269,8 +269,8 @@ class TestProvisionStrandsHelper(TestCase):
         assert fps.count() == 4
 
         for strand in fiber_cable.fiber_strands.all():
-            assert strand.front_port is not None
-            assert strand.front_port.module == self.module
+            assert strand.front_port_a is not None
+            assert strand.front_port_a.module == self.module
 
     def test_provision_creates_ports_without_module(self):
         from dcim.models import FrontPort, RearPort

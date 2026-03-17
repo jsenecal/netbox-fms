@@ -325,8 +325,10 @@ class ClosureStrandsAPIView(APIView):
         fp_to_strand = {}
         for fc in fiber_cables:
             for s in fc.fiber_strands.all():
-                if s.front_port_id:
-                    fp_to_strand[s.front_port_id] = s.pk
+                if s.front_port_a_id:
+                    fp_to_strand[s.front_port_a_id] = s.pk
+                if s.front_port_b_id:
+                    fp_to_strand[s.front_port_b_id] = s.pk
 
         cable_groups = []
         for fc in fiber_cables:
@@ -336,9 +338,9 @@ class ClosureStrandsAPIView(APIView):
             tubes_dict = OrderedDict()
             loose = []
             for s in strands:
-                live_fp = live_lookup.get(s.front_port_id)
+                live_fp = live_lookup.get(s.front_port_a_id)
                 live_strand = fp_to_strand.get(live_fp) if live_fp else None
-                plan_info = plan_lookup.get(s.front_port_id, (None, None))
+                plan_info = plan_lookup.get(s.front_port_a_id, (None, None))
                 plan_strand = fp_to_strand.get(plan_info[1]) if plan_info[1] else None
                 strand_data = {
                     "id": s.pk,
@@ -349,7 +351,7 @@ class ClosureStrandsAPIView(APIView):
                     "tube_name": s.buffer_tube.name if s.buffer_tube else None,
                     "ribbon_name": s.ribbon.name if s.ribbon else None,
                     "ribbon_color": s.ribbon.color if s.ribbon else None,
-                    "front_port_id": s.front_port_id,
+                    "front_port_a_id": s.front_port_a_id,
                     "live_spliced_to": live_strand,
                     "plan_entry_id": plan_info[0],
                     "plan_spliced_to": plan_strand,
@@ -434,8 +436,8 @@ class ProvisionPortsAPIView(APIView):
                 rear_port_position=strand.position,
             )
 
-            strand.front_port = fp
-            strand.save(update_fields=["front_port"])
+            strand.front_port_a = fp
+            strand.save(update_fields=["front_port_a"])
             created_ports.append(fp.pk)
 
         return Response(
