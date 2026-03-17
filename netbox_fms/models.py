@@ -171,6 +171,22 @@ class FiberCableType(NetBoxModel):
         """Compute total fiber count from buffer tube templates."""
         return sum(btt.get_total_fiber_count() for btt in self.buffer_tube_templates.all())
 
+    def get_cable_profile(self):
+        """Derive the cable profile key from template topology."""
+        from .cable_profiles import FIBER_CABLE_PROFILES
+
+        tubes = list(self.buffer_tube_templates.all())
+        if not tubes:
+            key = f"single-1c{self.strand_count}p"
+            return key if key in FIBER_CABLE_PROFILES else None
+
+        fiber_counts = [t.get_total_fiber_count() for t in tubes]
+        if len(set(fiber_counts)) != 1:
+            return None
+
+        key = f"trunk-{len(tubes)}c{fiber_counts[0]}p"
+        return key if key in FIBER_CABLE_PROFILES else None
+
 
 class BufferTubeTemplate(NetBoxModel):
     """
