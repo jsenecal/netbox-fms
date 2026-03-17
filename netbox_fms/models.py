@@ -10,6 +10,7 @@ from .choices import (
     CableElementTypeChoices,
     ConstructionChoices,
     DeploymentChoices,
+    FiberCircuitStatusChoices,
     FiberTypeChoices,
     FireRatingChoices,
     SheathMaterialChoices,
@@ -31,6 +32,7 @@ __all__ = (
     "SplicePlan",
     "SplicePlanEntry",
     "ClosureCableEntry",
+    "FiberCircuit",
 )
 
 
@@ -940,3 +942,48 @@ class ClosureCableEntry(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])
+
+
+# ---------------------------------------------------------------------------
+# Fiber Circuits
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuit(NetBoxModel):
+    """End-to-end logical fiber service with one or more parallel strand paths."""
+
+    name = models.CharField(max_length=200, verbose_name=_("name"))
+    cid = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("circuit ID"),
+        help_text=_("External circuit identifier"),
+    )
+    status = models.CharField(
+        max_length=50,
+        choices=FiberCircuitStatusChoices,
+        default=FiberCircuitStatusChoices.PLANNED,
+        verbose_name=_("status"),
+    )
+    description = models.TextField(blank=True, verbose_name=_("description"))
+    strand_count = models.PositiveIntegerField(verbose_name=_("strand count"))
+    tenant = models.ForeignKey(
+        to="tenancy.Tenant",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="fiber_circuits",
+        verbose_name=_("tenant"),
+    )
+    comments = models.TextField(blank=True, verbose_name=_("comments"))
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name = _("fiber circuit")
+        verbose_name_plural = _("fiber circuits")
+
+    def __str__(self):
+        return self.name
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:fibercircuit", args=[self.pk])

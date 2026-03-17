@@ -133,6 +133,9 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
+    # FiberCircuit (stub — full CRUD views coming in a later task)
+    path("fiber-circuits/<int:pk>/", include(get_model_urls("netbox_fms", "fibercircuit"))),
+    path("fiber-circuits/<int:pk>/", views.FiberCableView.as_view(), name="fibercircuit"),
     # Provision Ports
     path("provision-ports/", views.ProvisionPortsView.as_view(), name="provision_ports"),
     # Fiber Overview HTMX actions
