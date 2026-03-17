@@ -78,3 +78,33 @@ FIBER_CABLE_PROFILES = {
     "single-1c288p": ("1C288P", Single1C288PCableProfile),
     "single-1c432p": ("1C432P", Single1C432PCableProfile),
 }
+
+
+def _make_trunk_profile(connectors, positions):
+    """Create a trunk cable profile class dynamically."""
+    conns = dict.fromkeys(range(1, connectors + 1), positions)
+    return type(
+        f"Trunk{connectors}C{positions}PCableProfile",
+        (BaseCableProfile,),
+        {"a_connectors": conns, "b_connectors": conns},
+    )
+
+
+_TRUNK_CONFIGS = [
+    (2, 12),
+    (4, 12),
+    (6, 12),
+    (8, 12),
+    (12, 12),
+    (18, 12),
+    (24, 12),
+    (2, 24),
+    (4, 24),
+    (6, 24),
+    (12, 24),
+]
+
+for _c, _p in _TRUNK_CONFIGS:
+    _key = f"trunk-{_c}c{_p}p"
+    _label = f"{_c}C{_p}P"
+    FIBER_CABLE_PROFILES[_key] = (_label, _make_trunk_profile(_c, _p))

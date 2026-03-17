@@ -14,15 +14,27 @@ from netbox_fms.cable_profiles import FIBER_CABLE_PROFILES
 def patch_cable_profiles():
     """Register custom fiber cable profiles with NetBox's cable system."""
 
-    fiber_choices = tuple((value, label) for value, (label, _cls) in FIBER_CABLE_PROFILES.items())
+    single_choices = tuple(
+        (value, label) for value, (label, _cls) in FIBER_CABLE_PROFILES.items() if value.startswith("single-")
+    )
+    trunk_choices = tuple(
+        (value, label) for value, (label, _cls) in FIBER_CABLE_PROFILES.items() if value.startswith("trunk-")
+    )
 
     # 1. Extend CableProfileChoices (runtime class)
-    CableProfileChoices.CHOICES = (*CableProfileChoices.CHOICES, ("Fiber", fiber_choices))
+    CableProfileChoices.CHOICES = (
+        *CableProfileChoices.CHOICES,
+        ("Fiber (Single)", single_choices),
+        ("Fiber (Trunk)", trunk_choices),
+    )
     CableProfileChoices._choices = list(CableProfileChoices.CHOICES)
 
     # 2. Extend the model field's choices (used by forms and validation)
     profile_field = Cable._meta.get_field("profile")
-    profile_field.choices = list(profile_field.choices) + [("Fiber", list(fiber_choices))]
+    profile_field.choices = list(profile_field.choices) + [
+        ("Fiber (Single)", list(single_choices)),
+        ("Fiber (Trunk)", list(trunk_choices)),
+    ]
 
     # 3. Patch Cable.profile_class to include our profile classes
     _original_profile_class = Cable.profile_class.fget
