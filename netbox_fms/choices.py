@@ -202,6 +202,20 @@ class CableElementTypeChoices(ChoiceSet):
 #
 
 
+class FiberCircuitStatusChoices(ChoiceSet):
+    PLANNED = "planned"
+    STAGED = "staged"
+    ACTIVE = "active"
+    DECOMMISSIONED = "decommissioned"
+
+    CHOICES = (
+        (PLANNED, "Planned"),
+        (STAGED, "Staged"),
+        (ACTIVE, "Active"),
+        (DECOMMISSIONED, "Decommissioned"),
+    )
+
+
 class SplicePlanStatusChoices(ChoiceSet):
     DRAFT = "draft"
     PENDING_REVIEW = "pending_review"
