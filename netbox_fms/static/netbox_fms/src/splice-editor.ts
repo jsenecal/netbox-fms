@@ -32,6 +32,22 @@ async function init(config: EditorConfig): Promise<void> {
 
   const interactions = new Interactions(state, renderer, config, handleSave);
 
+  // Cable move callback with fade animation
+  renderer.setOnCableMove((cableId: number) => {
+    const svg = containerEl.querySelector('svg');
+    if (svg) {
+      d3.select(svg).transition().duration(150).style('opacity', 0.3)
+        .on('end', () => {
+          state.moveCable(cableId);
+          renderer.render();
+          d3.select(svg).transition().duration(200).style('opacity', 1);
+        });
+    } else {
+      state.moveCable(cableId);
+      renderer.render();
+    }
+  });
+
   // Load initial data
   await loadData();
 
@@ -41,6 +57,17 @@ async function init(config: EditorConfig): Promise<void> {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => renderer.handleResize(), 150);
   });
+
+  // Theme change handler — re-render when dark/light mode toggles
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.attributeName === 'data-bs-theme') {
+        renderer.render();
+        break;
+      }
+    }
+  });
+  observer.observe(document.body, { attributes: true, attributeFilter: ['data-bs-theme'] });
 
   async function loadData(): Promise<void> {
     try {

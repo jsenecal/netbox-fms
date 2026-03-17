@@ -2,7 +2,7 @@
 export type ContextMode = 'view' | 'edit' | 'plan-edit';
 
 /** Splice action mode from toolbar buttons. */
-export type ActionMode = 'single' | 'sequential' | 'delete';
+export type ActionMode = 'single' | 'sequential';
 
 /** Configuration injected from Django template via window.SPLICE_EDITOR_CONFIG. */
 export interface EditorConfig {
@@ -49,6 +49,8 @@ export interface CableGroupData {
   cable_label: string;
   fiber_type: string;
   strand_count: number;
+  far_device_name: string | null;
+  far_device_url: string | null;
   tubes: TubeData[];
   loose_strands: StrandData[];
 }
@@ -67,6 +69,8 @@ export interface LayoutNode {
   cableId?: number;
   fiberType?: string;
   strandCount?: number;
+  farDeviceName?: string | null;
+  farDeviceUrl?: string | null;
 
   // Tube fields
   tubeId?: number;

@@ -13,9 +13,9 @@ export const COLUMN_WIDTH = 280;
 export const STRAND_HEIGHT = 20;
 export const STRAND_DOT_R = 5;
 export const TUBE_ROW_H = 18;
-export const CABLE_ROW_H = 22;
+export const CABLE_ROW_H = 32;
 export const GROUP_PAD = 6;
-export const HEADER_HEIGHT = 28;
+export const HEADER_HEIGHT = 4;
 export const TOP_PAD = 10;
 export const TUBE_INDENT = 14;
 export const TUBE_DOT_R = 4;
@@ -32,6 +32,62 @@ export class EditorState {
   pendingChanges: PendingChange[] = [];
   leftOffset = 0;
   rightOffset = 0;
+  selectedStrandId: number | null = null;
+  selectedSpliceKeys: Set<string> = new Set();
+
+  /** Key for a splice entry (order-independent). */
+  spliceKey(a: number, b: number): string {
+    return Math.min(a, b) + '-' + Math.max(a, b);
+  }
+
+  toggleSpliceSelection(sourceId: number, targetId: number): void {
+    const key = this.spliceKey(sourceId, targetId);
+    if (this.selectedSpliceKeys.has(key)) {
+      this.selectedSpliceKeys.delete(key);
+    } else {
+      this.selectedSpliceKeys.add(key);
+    }
+  }
+
+  isSpliceSelected(sourceId: number, targetId: number): boolean {
+    return this.selectedSpliceKeys.has(this.spliceKey(sourceId, targetId));
+  }
+
+  clearSpliceSelection(): void {
+    this.selectedSpliceKeys.clear();
+  }
+
+  /** Delete all selected splices as pending removals. */
+  deleteSelectedSplices(): number {
+    let count = 0;
+    for (const key of this.selectedSpliceKeys) {
+      const entry = this.spliceEntries.find(
+        (e) => this.spliceKey(e.sourceId, e.targetId) === key,
+      );
+      if (entry) {
+        // Need front port IDs — find from layout nodes
+        const aNode = [...this.leftNodes, ...this.rightNodes].find(
+          (n) => n.type === 'strand' && n.id === entry.sourceId,
+        );
+        const bNode = [...this.leftNodes, ...this.rightNodes].find(
+          (n) => n.type === 'strand' && n.id === entry.targetId,
+        );
+        if (aNode?.frontPortId && bNode?.frontPortId) {
+          this.removePendingSplice(entry.sourceId, entry.targetId, aNode.frontPortId, bNode.frontPortId);
+          count++;
+        }
+      }
+    }
+    this.selectedSpliceKeys.clear();
+    return count;
+  }
+
+  /** Undo/redo stacks */
+  private undoStack: PendingChange[][] = [];
+  private redoStack: PendingChange[][] = [];
+
+  /** Track which side each cable is on: fiber_cable_id -> 'left' | 'right' */
+  private sideAssignment: Map<number, 'left' | 'right'> = new Map();
 
   /** Build a lookup map: strand ID -> StrandData. */
   private strandMap: Map<number, StrandData> = new Map();
@@ -46,6 +102,13 @@ export class EditorState {
       }
       for (const s of cg.loose_strands) this.strandMap.set(s.id, s);
     }
+    // Initialize side assignments if not already set
+    if (this.sideAssignment.size === 0) {
+      const mid = Math.ceil(groups.length / 2);
+      groups.forEach((cg, i) => {
+        this.sideAssignment.set(cg.fiber_cable_id, i < mid ? 'left' : 'right');
+      });
+    }
     this.rebuildLayout();
   }
 
@@ -56,29 +119,42 @@ export class EditorState {
 
   /** Rebuild column layouts and collect splice entries. */
   rebuildLayout(): void {
-    const mid = Math.ceil(this.cableGroups.length / 2);
-    this.leftNodes = this.layoutColumn(this.cableGroups.slice(0, mid));
-    this.rightNodes = this.layoutColumn(this.cableGroups.slice(mid));
+    const leftCables = this.cableGroups.filter((cg) => this.sideAssignment.get(cg.fiber_cable_id) === 'left');
+    const rightCables = this.cableGroups.filter((cg) => this.sideAssignment.get(cg.fiber_cable_id) !== 'left');
+    this.leftNodes = this.layoutColumn(leftCables);
+    this.rightNodes = this.layoutColumn(rightCables);
     this.collectSpliceEntries();
     this.leftOffset = 0;
     this.rightOffset = 0;
+  }
+
+  /** Move a cable to the other side and rebuild layout. */
+  moveCable(fiberCableId: number): void {
+    const current = this.sideAssignment.get(fiberCableId) ?? 'left';
+    this.sideAssignment.set(fiberCableId, current === 'left' ? 'right' : 'left');
+    this.rebuildLayout();
   }
 
   // -------------------------------------------------------------------
   // Pending changes
   // -------------------------------------------------------------------
 
+  private snapshotForUndo(): void {
+    this.undoStack.push(structuredClone(this.pendingChanges));
+    this.redoStack = [];
+  }
+
   addPendingSplice(
     strandA: number, strandB: number,
     portA: number, portB: number,
   ): void {
-    // Don't add duplicate
     const exists = this.pendingChanges.some(
       (p) => p.action === 'add' &&
         ((p.fiberA === strandA && p.fiberB === strandB) ||
          (p.fiberA === strandB && p.fiberB === strandA)),
     );
     if (!exists) {
+      this.snapshotForUndo();
       this.pendingChanges.push({
         action: 'add', fiberA: strandA, fiberB: strandB,
         portA, portB,
@@ -87,7 +163,7 @@ export class EditorState {
   }
 
   removePendingSplice(strandA: number, strandB: number, portA: number, portB: number): void {
-    // Check if we're removing a pending add (cancel it out)
+    this.snapshotForUndo();
     const addIdx = this.pendingChanges.findIndex(
       (p) => p.action === 'add' &&
         ((p.fiberA === strandA && p.fiberB === strandB) ||
@@ -97,7 +173,6 @@ export class EditorState {
       this.pendingChanges.splice(addIdx, 1);
       return;
     }
-    // Otherwise add a remove entry
     const exists = this.pendingChanges.some(
       (p) => p.action === 'remove' &&
         ((p.fiberA === strandA && p.fiberB === strandB) ||
@@ -111,23 +186,91 @@ export class EditorState {
     }
   }
 
+  undo(): void {
+    if (this.undoStack.length === 0) return;
+    this.redoStack.push(structuredClone(this.pendingChanges));
+    this.pendingChanges = this.undoStack.pop()!;
+  }
+
+  redo(): void {
+    if (this.redoStack.length === 0) return;
+    this.undoStack.push(structuredClone(this.pendingChanges));
+    this.pendingChanges = this.redoStack.pop()!;
+  }
+
+  canUndo(): boolean { return this.undoStack.length > 0; }
+  canRedo(): boolean { return this.redoStack.length > 0; }
+
+  /** Check if a strand is already involved in a pending-add. */
+  isStrandPendingAdd(strandId: number): boolean {
+    return this.pendingChanges.some(
+      (p) => p.action === 'add' && (p.fiberA === strandId || p.fiberB === strandId),
+    );
+  }
+
+  /** Remove pending-add entries involving this strand (for re-splicing). */
+  undoPendingAddForStrand(strandId: number): void {
+    this.snapshotForUndo();
+    this.pendingChanges = this.pendingChanges.filter(
+      (p) => !(p.action === 'add' && (p.fiberA === strandId || p.fiberB === strandId)),
+    );
+  }
+
   hasPendingChanges(): boolean {
     return this.pendingChanges.length > 0;
   }
 
   clearPending(): void {
     this.pendingChanges = [];
+    this.undoStack = [];
+    this.redoStack = [];
   }
 
-  /** Get pending changes as bulk update payload (uses front_port_a_ids). */
+  /** Get pending changes as bulk update payload (uses front_port_a_ids).
+   *  Automatically includes implicit removals for superseded splices. */
   getPendingPayload(): { add: Array<{ fiber_a: number; fiber_b: number }>; remove: Array<{ fiber_a: number; fiber_b: number }> } {
     const add: Array<{ fiber_a: number; fiber_b: number }> = [];
     const remove: Array<{ fiber_a: number; fiber_b: number }> = [];
+
+    // Collect strands involved in pending adds
+    const addedStrands = new Set<number>();
+    for (const p of this.pendingChanges) {
+      if (p.action === 'add') {
+        addedStrands.add(p.fiberA);
+        addedStrands.add(p.fiberB);
+      }
+    }
+
+    // Auto-remove existing splices superseded by pending adds
+    const removedKeys = new Set<string>();
+    for (const p of this.pendingChanges) {
+      if (p.action === 'remove') {
+        remove.push({ fiber_a: p.portA, fiber_b: p.portB });
+        removedKeys.add(this.spliceKey(p.fiberA, p.fiberB));
+      }
+    }
+    for (const entry of this.spliceEntries) {
+      if (addedStrands.has(entry.sourceId) || addedStrands.has(entry.targetId)) {
+        const key = this.spliceKey(entry.sourceId, entry.targetId);
+        if (!removedKeys.has(key)) {
+          // Find front port IDs for this existing splice
+          const aNode = [...this.leftNodes, ...this.rightNodes].find(
+            (n) => n.type === 'strand' && n.id === entry.sourceId,
+          );
+          const bNode = [...this.leftNodes, ...this.rightNodes].find(
+            (n) => n.type === 'strand' && n.id === entry.targetId,
+          );
+          if (aNode?.frontPortId && bNode?.frontPortId) {
+            remove.push({ fiber_a: aNode.frontPortId, fiber_b: bNode.frontPortId });
+            removedKeys.add(key);
+          }
+        }
+      }
+    }
+
     for (const p of this.pendingChanges) {
       if (p.action === 'add') {
         add.push({ fiber_a: p.portA, fiber_b: p.portB });
-      } else {
-        remove.push({ fiber_a: p.portA, fiber_b: p.portB });
       }
     }
     return { add, remove };
@@ -199,6 +342,8 @@ export class EditorState {
         cableId: cg.fiber_cable_id,
         fiberType: cg.fiber_type,
         strandCount: cg.strand_count,
+        farDeviceName: cg.far_device_name,
+        farDeviceUrl: cg.far_device_url,
       });
       y += CABLE_ROW_H;
 

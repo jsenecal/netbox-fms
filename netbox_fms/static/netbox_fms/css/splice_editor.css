@@ -1,9 +1,8 @@
-/* Main container */
+/* Main container — background set inline by JS to match theme */
 .splice-editor-container {
-    border: 1px solid var(--bs-border-color, #dee2e6);
+    border: 1px solid var(--bs-border-color);
     border-radius: 4px;
     overflow: hidden;
-    background: var(--bs-tertiary-bg, #f8f9fa);
 }
 
 .splice-editor-container svg {
@@ -15,7 +14,7 @@
 .cable-label {
     font-size: 11px;
     font-weight: 700;
-    fill: var(--bs-body-color, #212529);
+    fill: var(--bs-body-color);
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
@@ -23,24 +22,42 @@
 /* Cable group subtitle (fiber type, strand count) */
 .cable-subtitle {
     font-size: 9px;
-    fill: var(--bs-secondary-color, #6c757d);
+    fill: var(--bs-secondary-color);
+}
+
+/* Far-end device link */
+.cable-far-device {
+    font-size: 9px;
+    fill: var(--bs-primary);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.cable-far-device:hover {
+    fill: var(--bs-link-hover-color, var(--bs-primary));
+}
+
+/* Cable move button */
+.cable-move-btn {
+    font-size: 9px;
+    cursor: pointer;
 }
 
 /* Tube group labels */
 .tube-label {
     font-size: 10px;
     font-weight: 600;
-    fill: var(--bs-secondary-color, #6c757d);
+    fill: var(--bs-secondary-color);
     cursor: pointer;
 }
 
 .tube-label:hover {
-    fill: var(--bs-primary, #0d6efd);
+    fill: var(--bs-primary);
 }
 
 /* Tube color indicator */
 .tube-dot {
-    stroke: var(--bs-border-color, #dee2e6);
+    stroke: var(--bs-border-color);
     stroke-width: 1;
 }
 
@@ -50,68 +67,105 @@
 }
 
 .strand-dot {
-    stroke: var(--bs-border-color, #dee2e6);
-    stroke-width: 1.5;
     transition: stroke-width 0.1s, stroke 0.1s;
 }
 
 .strand-node:hover .strand-dot {
     stroke-width: 2.5;
-    stroke: var(--bs-primary, #0d6efd);
+    stroke: var(--bs-primary);
+    opacity: 1;
 }
 
 .strand-node.selected .strand-dot {
-    stroke-width: 3;
-    stroke: var(--bs-primary, #0d6efd);
+    stroke-width: 2;
+    stroke: var(--bs-primary);
+}
+
+/* Pulsing glow ring on selected strand */
+.strand-glow {
+    animation: strand-glow-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes strand-glow-pulse {
+    0%, 100% { stroke-opacity: 0.3; }
+    50% { stroke-opacity: 0.8; }
 }
 
 .strand-node.spliced .strand-dot {
-    stroke: var(--bs-success, #198754);
+    stroke: var(--bs-success);
     stroke-width: 2;
 }
 
 .strand-name {
     font-size: 10px;
-    fill: var(--bs-body-color, #212529);
+    fill: var(--bs-body-color);
     pointer-events: none;
 }
 
 .strand-node.spliced .strand-name {
-    fill: var(--bs-secondary-color, #6c757d);
+    fill: var(--bs-secondary-color);
 }
 
-/* Splice link curves */
+/* Strand already in a pending-add — dimmed, not clickable */
+.strand-node.pending-taken {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Dark mode: boost text readability */
+body[data-bs-theme="dark"] .cable-subtitle,
+body[data-bs-theme="dark"] .tube-label,
+body[data-bs-theme="dark"] .column-header,
+body[data-bs-theme="dark"] .scroll-hint,
+body[data-bs-theme="dark"] .cable-far-device {
+    fill: #adb5bd;
+}
+
+body[data-bs-theme="dark"] .cable-label {
+    fill: #e9ecef;
+}
+
+body[data-bs-theme="dark"] .strand-name {
+    fill: #ced4da;
+}
+
+body[data-bs-theme="dark"] .strand-node.spliced .strand-name {
+    fill: #8a939c;
+}
+
+/* Splice link curves — gradient stroke set inline */
 .splice-link {
     fill: none;
-    stroke: var(--bs-success, #198754);
-    stroke-width: 1.5;
-    opacity: 0.5;
-    pointer-events: stroke;
-    cursor: pointer;
-    transition: stroke-width 0.1s, opacity 0.1s;
+    stroke-width: 2;
+    opacity: 0.85;
+    pointer-events: none;
 }
 
-.splice-link:hover {
-    stroke-width: 3;
-    opacity: 1;
+/* Hit area (invisible wide target behind splice lines) */
+.splice-link-hit {
+    pointer-events: stroke;
+    cursor: pointer;
 }
 
 .splice-link.same-side {
-    stroke: var(--bs-info, #0dcaf0);
+    opacity: 0.5;
 }
 
-/* Column background */
+/* Column background — fill/stroke set inline by JS */
 .column-bg {
-    fill: var(--bs-body-bg, #fff);
-    stroke: var(--bs-border-color, #dee2e6);
     stroke-width: 1;
+}
+
+/* Light mode splice link background stroke */
+.splice-link-glow {
+    /* opacity set inline */
 }
 
 /* Column header */
 .column-header {
     font-size: 10px;
     font-weight: 600;
-    fill: var(--bs-secondary-color, #6c757d);
+    fill: var(--bs-secondary-color);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     text-anchor: middle;
@@ -120,13 +174,13 @@
 /* Scroll hint */
 .scroll-hint {
     font-size: 9px;
-    fill: var(--bs-secondary-color, #adb5bd);
+    fill: var(--bs-secondary-color);
     text-anchor: middle;
 }
 
 /* Divider line */
 .center-line {
-    stroke: var(--bs-border-color, #dee2e6);
+    stroke: var(--bs-border-color);
     stroke-width: 1;
     stroke-dasharray: 4, 4;
 }
@@ -138,24 +192,25 @@
 
 /* Pending splice states */
 .splice-link.pending-add {
-    stroke: var(--bs-success, #198754);
-    stroke-width: 2;
+    stroke-width: 2.5;
     opacity: 0.9;
+    stroke-dasharray: 6, 3;
     pointer-events: none;
 }
 
 .splice-link.pending-delete {
-    stroke: var(--bs-danger, #dc3545);
+    stroke: var(--bs-danger);
     stroke-width: 2;
-    stroke-dasharray: 6, 3;
+    stroke-dasharray: 4, 3;
     opacity: 0.8;
     pointer-events: none;
 }
 
-/* Ghost splice (existing but pending change) */
+/* Ghost splice (existing but pending delete — faded and unselectable) */
 .splice-link.ghost {
-    opacity: 0.2;
+    opacity: 0.15;
     stroke-width: 1;
+    pointer-events: none;
 }
 
 /* Save button pulse */

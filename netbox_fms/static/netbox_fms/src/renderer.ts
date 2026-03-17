@@ -21,6 +21,7 @@ interface NodePosition {
   x: number;
   y: number;
   hidden: boolean;
+  color?: string;
 }
 
 /**
@@ -36,6 +37,7 @@ export class SpliceRenderer {
   private onStrandClick: (node: LayoutNode, side: 'left' | 'right') => void;
   private onSpliceClick: (entry: SpliceEntry) => void;
   private onTubeToggle: (node: LayoutNode, nodes: LayoutNode[]) => void;
+  private onCableMove: ((cableId: number) => void) | null = null;
 
   private containerWidth: number;
 
@@ -46,11 +48,14 @@ export class SpliceRenderer {
   private rightBg: any;
   private rightHeader: any;
   private linksGroup: any;
+  private linksHitGroup: any;
   private leftGroup: any;
   private leftInner: any;
   private rightGroup: any;
   private rightInner: any;
   private linkGen: any;
+  private wheelAttached = false;
+  private currentSvgHeight = 0;
 
   constructor(
     state: EditorState,
@@ -74,8 +79,9 @@ export class SpliceRenderer {
       .attr('class', 'splice-editor-svg')
       .attr('width', this.containerWidth);
 
-    // Clip paths for left / right columns
     this.defs = this.svg.append('defs');
+
+    // Clip paths for left / right columns
     this.defs
       .append('clipPath')
       .attr('id', 'clip-left')
@@ -90,7 +96,7 @@ export class SpliceRenderer {
       .attr('y', HEADER_HEIGHT)
       .attr('width', COLUMN_WIDTH);
 
-    // Column backgrounds
+    // Column backgrounds — plain rects, colors set in render() to match current theme
     this.leftBg = this.svg
       .append('rect')
       .attr('class', 'column-bg')
@@ -103,25 +109,16 @@ export class SpliceRenderer {
       .attr('y', 0)
       .attr('width', COLUMN_WIDTH);
 
-    // Column headers
-    this.svg
-      .append('text')
-      .attr('class', 'column-header')
-      .attr('x', COLUMN_WIDTH / 2)
-      .attr('y', 18)
-      .text('LEFT SIDE');
-    this.rightHeader = this.svg
-      .append('text')
-      .attr('class', 'column-header')
-      .attr('y', 18)
-      .text('RIGHT SIDE');
+    // Column header placeholder (kept for layout spacing)
+    this.rightHeader = { attr: () => this.rightHeader }; // no-op stub
 
-    // Render order: links behind, columns on top
+    // Render order: links behind, columns in middle, link hit areas on top
     this.linksGroup = this.svg.append('g').attr('class', 'links-group');
     this.leftGroup = this.svg.append('g').attr('clip-path', 'url(#clip-left)');
     this.leftInner = this.leftGroup.append('g');
     this.rightGroup = this.svg.append('g');
     this.rightInner = this.rightGroup.append('g');
+    this.linksHitGroup = this.svg.append('g').attr('class', 'links-hit-group');
 
     // D3 horizontal link generator
     this.linkGen = d3
@@ -134,6 +131,11 @@ export class SpliceRenderer {
   // Public API
   // -------------------------------------------------------------------
 
+  /** Set callback for cable move button clicks. */
+  setOnCableMove(cb: (cableId: number) => void): void {
+    this.onCableMove = cb;
+  }
+
   /** Full re-render of the SVG contents. */
   render(): void {
     const leftHeight = this.state.columnHeight(this.state.leftNodes);
@@ -143,9 +145,15 @@ export class SpliceRenderer {
 
     this.svg.attr('height', svgHeight);
 
-    // Update backgrounds
-    this.leftBg.attr('height', svgHeight);
-    this.rightBg.attr('x', rightX).attr('height', svgHeight);
+    // Update backgrounds — read theme on every render
+    const isDark = document.body.getAttribute('data-bs-theme') === 'dark';
+    const colBg = isDark ? '#001423' : '#ffffff';
+    const colBorder = isDark ? '#1a2d3d' : '#dee2e6';
+    const gapBg = isDark ? '#000d17' : '#f0f0f0';
+    this.containerEl.style.background = gapBg;
+
+    this.leftBg.attr('height', svgHeight).attr('fill', colBg).attr('stroke', colBorder);
+    this.rightBg.attr('x', rightX).attr('height', svgHeight).attr('fill', colBg).attr('stroke', colBorder);
 
     // Update header
     this.rightHeader.attr('x', rightX + COLUMN_WIDTH / 2);
@@ -220,9 +228,54 @@ export class SpliceRenderer {
         .attr('x', textX)
         .attr('y', node.y + 14)
         .attr('text-anchor', anchor)
-        .attr('font-size', '9px')
-        .attr('fill', '#6c757d')
         .text(sub.join(' \u2022 '));
+    }
+
+    // Far-end device link (navigate to the closure at the other end)
+    if (node.farDeviceName && node.farDeviceUrl) {
+      const arrow = side === 'left' ? '\u2192 ' : '\u2190 ';
+      const linkX = textX;
+      const linkY = node.y + (node.fiberType || node.strandCount ? 23 : 14);
+      const linkEl = cg.append('a')
+        .attr('href', node.farDeviceUrl + 'splice-editor/')
+        .attr('target', '_self');
+      linkEl.append('text')
+        .attr('class', 'cable-far-device')
+        .attr('x', linkX)
+        .attr('y', linkY)
+        .attr('text-anchor', anchor)
+        .text(arrow + node.farDeviceName);
+    }
+
+    // Move-to-other-side button
+    if (this.onCableMove && node.cableId) {
+      const label = side === 'left' ? 'move right \u25b6' : '\u25c0 move left';
+      const btnX = xOffset + (side === 'left' ? COLUMN_WIDTH - 12 : 12);
+      const btnAnchor = side === 'left' ? 'end' : 'start';
+
+      const mutedColor = getComputedStyle(document.body).getPropertyValue('--bs-secondary-color').trim() || '#6c757d';
+      const hoverColor = getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
+
+      const btn = cg.append('text')
+        .attr('class', 'cable-move-btn')
+        .attr('x', btnX)
+        .attr('y', node.y + 4)
+        .attr('text-anchor', btnAnchor)
+        .attr('font-size', '9px')
+        .attr('fill', mutedColor)
+        .attr('cursor', 'pointer')
+        .text(label);
+
+      btn.on('click', () => {
+        this.onCableMove!(node.cableId!);
+      });
+
+      btn.on('mouseover', function () {
+        d3.select(this).attr('fill', hoverColor);
+      });
+      btn.on('mouseout', function () {
+        d3.select(this).attr('fill', mutedColor);
+      });
     }
   }
 
@@ -284,10 +337,14 @@ export class SpliceRenderer {
     const anchor = side === 'left' ? 'start' : 'end';
 
     const isSpliced = !!(node.liveSplicedTo || node.planSplicedTo);
+    const isSelected = this.state.selectedStrandId === node.id;
+    const isPendingAdd = node.id !== undefined && this.state.isStrandPendingAdd(node.id);
     const sg = g
       .append('g')
       .attr('class', 'strand-node')
       .classed('spliced', isSpliced)
+      .classed('selected', isSelected)
+      .classed('pending-taken', isPendingAdd)
       .datum(node);
 
     // Tube color accent bar
@@ -303,13 +360,50 @@ export class SpliceRenderer {
         .attr('opacity', 0.6);
     }
 
+    // Invisible hit area for easier clicking (wider than the visible row)
+    sg.append('rect')
+      .attr('class', 'strand-hit-area')
+      .attr('x', xOffset)
+      .attr('y', node.y - STRAND_HEIGHT / 2 + 1)
+      .attr('width', COLUMN_WIDTH)
+      .attr('height', STRAND_HEIGHT)
+      .attr('fill', 'transparent')
+      .attr('cursor', 'pointer');
+
+    // Selection glow ring (behind dot)
+    if (isSelected) {
+      sg.append('circle')
+        .attr('class', 'strand-glow')
+        .attr('cx', dotX)
+        .attr('cy', node.y)
+        .attr('r', STRAND_DOT_R + 5)
+        .attr('fill', 'none')
+        .attr('stroke', getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd')
+        .attr('stroke-width', 2)
+        .attr('stroke-opacity', 0.6);
+    }
+
+    // Subtle glow behind the dot for visibility
+    const dotDark = document.body.getAttribute('data-bs-theme') === 'dark';
+    const dotGlowColor = dotDark ? '#4dc9c0' : '#333333';
+    sg.append('circle')
+      .attr('class', 'strand-dot-glow')
+      .attr('cx', dotX)
+      .attr('cy', node.y)
+      .attr('r', STRAND_DOT_R + 3)
+      .attr('fill', dotGlowColor)
+      .attr('opacity', 0.12);
+
     // Strand fiber dot (EIA-598 color)
     sg.append('circle')
       .attr('class', 'strand-dot')
       .attr('cx', dotX)
       .attr('cy', node.y)
       .attr('r', STRAND_DOT_R)
-      .attr('fill', '#' + (node.color || 'ccc'));
+      .attr('fill', '#' + (node.color || 'ccc'))
+      .attr('stroke', dotDark ? '#adb5bd' : '#212529')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-opacity', 0.5);
 
     // Strand name
     sg.append('text')
@@ -351,17 +445,19 @@ export class SpliceRenderer {
 
   private renderLinks(): void {
     this.linksGroup.selectAll('*').remove();
+    this.linksHitGroup.selectAll('*').remove();
 
     const rightX = this.containerWidth - COLUMN_WIDTH;
     const nodeMap = new Map<number, NodePosition>();
 
-    // Build position map for all strands
+    // Build position map for all strands (including color for gradients)
     for (const n of this.state.leftNodes) {
       if (n.type === 'strand' && n.id !== undefined) {
         nodeMap.set(n.id, {
           x: COLUMN_WIDTH - 14,
           y: n.y + HEADER_HEIGHT + this.state.leftOffset,
           hidden: n.hidden,
+          color: n.color,
         });
       }
     }
@@ -371,9 +467,13 @@ export class SpliceRenderer {
           x: rightX + 14,
           y: n.y + HEADER_HEIGHT + this.state.rightOffset,
           hidden: n.hidden,
+          color: n.color,
         });
       }
     }
+
+    // Clear old link gradients
+    this.defs.selectAll('.link-gradient').remove();
 
     // Track strands involved in re-splices so we can avoid double-rendering
     const reSplices = this.state.getReSplices();
@@ -381,6 +481,15 @@ export class SpliceRenderer {
     for (const [strandId, info] of reSplices) {
       const key1 = Math.min(strandId, info.oldTarget) + '-' + Math.max(strandId, info.oldTarget);
       reSpliceOldPairs.add(key1);
+    }
+
+    // Track strands that are being re-spliced elsewhere (pending-add to a different target)
+    const pendingAddStrands = new Set<number>();
+    for (const p of this.state.pendingChanges) {
+      if (p.action === 'add') {
+        pendingAddStrands.add(p.fiberA);
+        pendingAddStrands.add(p.fiberB);
+      }
     }
 
     // --- Existing splice entries ---
@@ -394,49 +503,93 @@ export class SpliceRenderer {
       const entryKey =
         Math.min(entry.sourceId, entry.targetId) + '-' + Math.max(entry.sourceId, entry.targetId);
       const isReSpliceOld = reSpliceOldPairs.has(entryKey);
+      // If either strand is being spliced elsewhere, dim this line
+      const isSuperseded = !isPendingDelete && !isReSpliceOld &&
+        (pendingAddStrands.has(entry.sourceId) || pendingAddStrands.has(entry.targetId));
 
-      if (isPendingDelete || isReSpliceOld) {
-        // Ghost line (faded original)
+      const gradId = `link-grad-${entry.sourceId}-${entry.targetId}`;
+      const gradUrl = this.createLinkGradient(a, b, gradId);
+
+      if (isPendingDelete || isReSpliceOld || isSuperseded) {
+        // Ghost line (faded, unselectable)
         this.linksGroup
           .append('path')
-          .attr('class', 'splice-link')
+          .attr('class', 'splice-link ghost')
           .attr('d', pathD)
-          .attr('opacity', 0.2)
+          .attr('stroke', gradUrl)
+          .attr('opacity', 0.15)
           .attr('stroke-width', 1)
-          .datum(entry);
+          .attr('fill', 'none')
+          .attr('pointer-events', 'none');
 
-        // Dashed red overlay
+        // Dashed overlay — red for explicit delete, amber for superseded
+        if (isPendingDelete || isReSpliceOld) {
+          this.linksGroup
+            .append('path')
+            .attr('class', 'splice-link pending-delete')
+            .attr('d', pathD)
+            .attr('stroke-dasharray', '4,3')
+            .attr('fill', 'none');
+        }
+      } else {
+        // Invisible wide hit area for clicking — in top-most group so it's above strand hit areas
+        const hitEntry = entry;
+        this.linksHitGroup
+          .append('path')
+          .attr('class', 'splice-link-hit')
+          .attr('d', pathD)
+          .attr('stroke', 'transparent')
+          .attr('stroke-width', 14)
+          .attr('fill', 'none')
+          .attr('cursor', 'pointer')
+          .style('pointer-events', 'stroke')
+          .on('click', () => {
+            this.onSpliceClick(hitEntry);
+          });
+
+        const sameSide = Math.abs(a.x - b.x) < 10;
+        const isSelected = this.state.isSpliceSelected(entry.sourceId, entry.targetId);
+
+        // Subtle glow behind line — light halo in dark mode, dark halo in light mode
+        const dark = document.body.getAttribute('data-bs-theme') === 'dark';
+        const glowColor = dark ? '#4dc9c0' : '#333333';
         this.linksGroup
           .append('path')
-          .attr('class', 'splice-link pending-delete')
+          .attr('class', 'splice-link-glow')
           .attr('d', pathD)
-          .attr('stroke', '#dc3545')
-          .attr('stroke-dasharray', '4,3')
-          .attr('stroke-width', 1.5)
-          .attr('opacity', 0.7)
+          .attr('stroke', glowColor)
+          .attr('stroke-width', 6)
+          .attr('stroke-opacity', 0.12)
           .attr('fill', 'none')
-          .datum(entry)
-          .on('click', (_event: Event, d: SpliceEntry) => {
-            this.onSpliceClick(d);
-          });
-      } else {
-        // Normal splice link
-        const sameSide = Math.abs(a.x - b.x) < 10;
+          .attr('pointer-events', 'none');
+
+        // Selection highlight (bright outline behind the line)
+        if (isSelected) {
+          const selColor = getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
+          this.linksGroup
+            .append('path')
+            .attr('class', 'splice-link-selected')
+            .attr('d', pathD)
+            .attr('stroke', selColor)
+            .attr('stroke-width', 6)
+            .attr('stroke-opacity', 0.5)
+            .attr('fill', 'none')
+            .attr('pointer-events', 'none');
+        }
+
+        // Normal splice link with gradient
         const path = this.linksGroup
           .append('path')
           .attr('class', 'splice-link')
           .classed('same-side', sameSide)
           .attr('d', pathD)
+          .attr('stroke', gradUrl)
+          .attr('pointer-events', 'none')
           .datum(entry);
 
-        // Dim links to collapsed strands
         if (a.hidden || b.hidden) {
           path.attr('opacity', 0.2).attr('stroke-dasharray', '3,3');
         }
-
-        path.on('click', (_event: Event, d: SpliceEntry) => {
-          this.onSpliceClick(d);
-        });
       }
     }
 
@@ -449,13 +602,14 @@ export class SpliceRenderer {
       if (!a || !b) continue;
 
       const pathD = this.buildLinkPath(a, b);
+      const gradId = `link-grad-add-${pc.fiberA}-${pc.fiberB}`;
+      const gradUrl = this.createLinkGradient(a, b, gradId);
 
       this.linksGroup
         .append('path')
         .attr('class', 'splice-link pending-add')
         .attr('d', pathD)
-        .attr('stroke', '#28a745')
-        .attr('stroke-width', 2)
+        .attr('stroke', gradUrl)
         .attr('fill', 'none');
     }
   }
@@ -480,6 +634,24 @@ export class SpliceRenderer {
     const source = a.x < b.x ? a : b;
     const target = a.x < b.x ? b : a;
     return this.linkGen({ source, target }) as string;
+  }
+
+  /** Create an SVG gradient between two strand colors, return `url(#id)`. */
+  private createLinkGradient(a: NodePosition, b: NodePosition, id: string): string {
+    const colorA = '#' + (a.color || 'ccc');
+    const colorB = '#' + (b.color || 'ccc');
+    const grad = this.defs.append('linearGradient')
+      .attr('class', 'link-gradient')
+      .attr('id', id)
+      .attr('gradientUnits', 'userSpaceOnUse')
+      .attr('x1', a.x).attr('y1', a.y)
+      .attr('x2', b.x).attr('y2', b.y);
+    // Keep pure colors for 30% at each end, blend in the middle
+    grad.append('stop').attr('offset', '0%').attr('stop-color', colorA);
+    grad.append('stop').attr('offset', '30%').attr('stop-color', colorA);
+    grad.append('stop').attr('offset', '70%').attr('stop-color', colorB);
+    grad.append('stop').attr('offset', '100%').attr('stop-color', colorB);
+    return `url(#${id})`;
   }
 
   // -------------------------------------------------------------------
@@ -516,28 +688,40 @@ export class SpliceRenderer {
     this.leftBg.call(leftDrag).style('cursor', 'grab');
     this.rightBg.call(rightDrag).style('cursor', 'grab');
 
-    // Wheel scroll — detect which column half the cursor is in
-    this.svg.on('wheel', (event: WheelEvent) => {
-      event.preventDefault();
-      const mouseX: number = d3.pointer(event, this.svg.node())[0];
-      const delta = -event.deltaY;
+    // Wheel scroll — attach once on the container element
+    this.currentSvgHeight = svgHeight;
+    if (!this.wheelAttached) {
+      this.wheelAttached = true;
+      this.containerEl.addEventListener('wheel', (event: WheelEvent) => {
+        const rect = this.containerEl.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const delta = -event.deltaY;
+        const h = this.currentSvgHeight;
 
-      if (mouseX < this.containerWidth / 2) {
-        const maxL = Math.max(
-          0,
-          this.state.columnHeight(this.state.leftNodes) + HEADER_HEIGHT - svgHeight,
-        );
-        this.state.leftOffset = Math.max(-maxL, Math.min(0, this.state.leftOffset + delta));
-        this.leftInner.attr('transform', `translate(0,${this.state.leftOffset})`);
-      } else {
-        const maxR = Math.max(
-          0,
-          this.state.columnHeight(this.state.rightNodes) + HEADER_HEIGHT - svgHeight,
-        );
-        this.state.rightOffset = Math.max(-maxR, Math.min(0, this.state.rightOffset + delta));
-        this.rightInner.attr('transform', `translate(0,${this.state.rightOffset})`);
-      }
-      this.renderLinks();
-    });
+        if (mouseX < this.containerWidth / 2) {
+          const maxL = Math.max(
+            0,
+            this.state.columnHeight(this.state.leftNodes) + HEADER_HEIGHT - h,
+          );
+          if (maxL > 0) {
+            event.preventDefault();
+            this.state.leftOffset = Math.max(-maxL, Math.min(0, this.state.leftOffset + delta));
+            this.leftInner.attr('transform', `translate(0,${this.state.leftOffset})`);
+            this.renderLinks();
+          }
+        } else {
+          const maxR = Math.max(
+            0,
+            this.state.columnHeight(this.state.rightNodes) + HEADER_HEIGHT - h,
+          );
+          if (maxR > 0) {
+            event.preventDefault();
+            this.state.rightOffset = Math.max(-maxR, Math.min(0, this.state.rightOffset + delta));
+            this.rightInner.attr('transform', `translate(0,${this.state.rightOffset})`);
+            this.renderLinks();
+          }
+        }
+      }, { passive: false });
+    }
   }
 }

@@ -12,6 +12,9 @@ export class Interactions {
   private sequentialCount = 12;
   private statusEl: HTMLElement | null;
   private saveBtn: HTMLButtonElement | null = null;
+  private deleteBtn: HTMLButtonElement | null = null;
+  private undoBtn: HTMLButtonElement | null = null;
+  private redoBtn: HTMLButtonElement | null = null;
   private countContainer: HTMLElement | null = null;
 
   constructor(
@@ -46,23 +49,68 @@ export class Interactions {
       });
     });
 
-    // Save button (dynamically injected)
-    this.saveBtn = document.createElement('button');
-    this.saveBtn.type = 'button';
-    this.saveBtn.id = 'splice-save-btn';
-    this.saveBtn.className = 'btn btn-sm btn-success ms-2 d-none';
-    const saveIcon = document.createElement('i');
-    saveIcon.className = 'mdi mdi-content-save';
-    this.saveBtn.appendChild(saveIcon);
-    this.saveBtn.appendChild(document.createTextNode(' Save'));
-    this.saveBtn.addEventListener('click', () => this.onSave());
-    // Insert after the btn-group
-    const btnGroup = toolbar.querySelector('.btn-group');
-    if (btnGroup && btnGroup.parentNode) {
-      btnGroup.parentNode.insertBefore(this.saveBtn, btnGroup.nextSibling);
+    // Save button (already in HTML)
+    this.saveBtn = document.getElementById('splice-save-btn') as HTMLButtonElement | null;
+    if (this.saveBtn) {
+      this.saveBtn.addEventListener('click', () => this.onSave());
     }
 
-    // Sequential count selector (hidden by default)
+    // Undo / Redo buttons (already in HTML)
+    this.undoBtn = document.getElementById('splice-undo-btn') as HTMLButtonElement | null;
+    this.redoBtn = document.getElementById('splice-redo-btn') as HTMLButtonElement | null;
+    if (this.undoBtn) {
+      this.undoBtn.addEventListener('click', () => {
+        this.state.undo();
+        this.updateToolbarState();
+        this.renderer.render();
+        this.setStatus('Undone.');
+      });
+    }
+    if (this.redoBtn) {
+      this.redoBtn.addEventListener('click', () => {
+        this.state.redo();
+        this.updateToolbarState();
+        this.renderer.render();
+        this.setStatus('Redone.');
+      });
+    }
+
+    // Delete button (deletes selected splices)
+    this.deleteBtn = document.getElementById('splice-delete-btn') as HTMLButtonElement | null;
+    if (this.deleteBtn) {
+      this.deleteBtn.addEventListener('click', () => {
+        const count = this.state.deleteSelectedSplices();
+        if (count > 0) {
+          this.updateToolbarState();
+          this.renderer.render();
+          this.setStatus(`${count} splice(s) marked for deletion. Save to apply.`);
+        }
+      });
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        this.undoBtn?.click();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        this.redoBtn?.click();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (this.state.selectedSpliceKeys.size > 0) {
+          e.preventDefault();
+          this.deleteBtn?.click();
+        }
+      } else if (e.key === 'Escape') {
+        this.state.clearSpliceSelection();
+        this.clearSelection();
+        this.updateToolbarState();
+        this.renderer.render();
+        this.setStatus('Selection cleared.');
+      }
+    });
+
+    // Sequential count selector (injected dynamically after the mode btn-group)
     this.countContainer = document.createElement('span');
     this.countContainer.id = 'sequential-count';
     this.countContainer.className = 'ms-2 d-none align-items-center';
@@ -100,8 +148,10 @@ export class Interactions {
     this.countContainer.appendChild(countInput);
     this.countContainer.appendChild(plusBtn);
 
-    if (this.saveBtn.parentNode) {
-      this.saveBtn.parentNode.insertBefore(this.countContainer, this.saveBtn.nextSibling);
+    // Insert after the delete button so they don't overlap
+    const deleteEl = document.getElementById('splice-delete-btn');
+    if (deleteEl && deleteEl.parentNode) {
+      deleteEl.parentNode.insertBefore(this.countContainer, deleteEl.nextSibling);
     }
   }
 
@@ -134,8 +184,10 @@ export class Interactions {
   handleStrandClick(node: LayoutNode, side: 'left' | 'right'): void {
     if (!node.id || !node.frontPortId) return;
 
-    if (this.mode === 'delete') {
-      this.handleDeleteClick(node);
+    // If strand is in a pending-add, only block it as a target (second click).
+    // As a first click (no selection yet), allow it — user is replacing.
+    if (this.state.isStrandPendingAdd(node.id) && this.selected) {
+      this.setStatus(`${node.label} is already in a pending splice.`);
       return;
     }
 
@@ -151,7 +203,13 @@ export class Interactions {
 
   private handleSingleClick(node: LayoutNode, side: 'left' | 'right'): void {
     if (!this.selected) {
+      // If this strand is in a pending-add, undo it first (user is re-splicing)
+      if (this.state.isStrandPendingAdd(node.id!)) {
+        this.state.undoPendingAddForStrand(node.id!);
+        this.updateSaveButton();
+      }
       this.selected = { id: node.id!, side, portId: node.frontPortId! };
+      this.state.selectedStrandId = node.id!;
       this.setStatus(`Selected ${node.label}. Click another strand to splice.`);
       this.renderer.render();
     } else if (this.selected.id === node.id) {
@@ -172,6 +230,7 @@ export class Interactions {
   private handleSequentialClick(node: LayoutNode, side: 'left' | 'right'): void {
     if (!this.selected) {
       this.selected = { id: node.id!, side, portId: node.frontPortId! };
+      this.state.selectedStrandId = node.id!;
       this.setStatus(`Sequential start: ${node.label}. Click another strand.`);
       this.renderer.render();
     } else if (this.selected.id === node.id) {
@@ -183,10 +242,15 @@ export class Interactions {
       const count = Math.min(this.sequentialCount, startStrands.length, endStrands.length);
       let created = 0;
 
+      let skipped = 0;
       for (let i = 0; i < count; i++) {
         const a = startStrands[i];
         const b = endStrands[i];
         if (a.id && b.id && a.frontPortId && b.frontPortId) {
+          if (this.state.isStrandPendingAdd(a.id) || this.state.isStrandPendingAdd(b.id)) {
+            skipped++;
+            continue;
+          }
           this.state.addPendingSplice(a.id, b.id, a.frontPortId, b.frontPortId);
           created++;
         }
@@ -196,7 +260,9 @@ export class Interactions {
       this.updateSaveButton();
       this.renderer.render();
 
-      if (created < this.sequentialCount) {
+      if (skipped > 0) {
+        this.setStatus(`${created} splices added, ${skipped} skipped (already pending).`);
+      } else if (created < this.sequentialCount) {
         this.setStatus(`Spliced ${created} of ${this.sequentialCount} requested (not enough strands).`);
       } else {
         this.setStatus(`${created} sequential splices added. Click Save to commit.`);
@@ -204,39 +270,16 @@ export class Interactions {
     }
   }
 
-  private handleDeleteClick(node: LayoutNode): void {
-    // Find existing splice involving this strand
-    const entry = this.state.spliceEntries.find(
-      (e) => e.sourceId === node.id || e.targetId === node.id,
-    );
-    if (entry) {
-      // Need front port IDs for the pending change
-      const sourceNode = this.findStrandNode(entry.sourceId);
-      const targetNode = this.findStrandNode(entry.targetId);
-      if (sourceNode?.frontPortId && targetNode?.frontPortId) {
-        this.state.removePendingSplice(
-          entry.sourceId, entry.targetId,
-          sourceNode.frontPortId, targetNode.frontPortId,
-        );
-        this.updateSaveButton();
-        this.renderer.render();
-        this.setStatus('Pending delete added. Click Save to commit.');
-      }
-    }
-  }
-
   handleSpliceClick(entry: SpliceEntry): void {
-    if (this.mode !== 'delete') return;
-    const sourceNode = this.findStrandNode(entry.sourceId);
-    const targetNode = this.findStrandNode(entry.targetId);
-    if (sourceNode?.frontPortId && targetNode?.frontPortId) {
-      this.state.removePendingSplice(
-        entry.sourceId, entry.targetId,
-        sourceNode.frontPortId, targetNode.frontPortId,
-      );
-      this.updateSaveButton();
-      this.renderer.render();
-      this.setStatus('Pending delete added. Click Save to commit.');
+    // Toggle selection on the clicked line
+    this.state.toggleSpliceSelection(entry.sourceId, entry.targetId);
+    const selCount = this.state.selectedSpliceKeys.size;
+    this.updateToolbarState();
+    this.renderer.render();
+    if (selCount > 0) {
+      this.setStatus(`${selCount} splice(s) selected. Press Delete to remove.`);
+    } else {
+      this.setStatus('Selection cleared.');
     }
   }
 
@@ -247,12 +290,20 @@ export class Interactions {
   }
 
   updateSaveButton(): void {
-    if (!this.saveBtn) return;
-    if (this.state.hasPendingChanges()) {
-      this.saveBtn.classList.remove('d-none');
-    } else {
-      this.saveBtn.classList.add('d-none');
+    this.updateToolbarState();
+  }
+
+  private updateToolbarState(): void {
+    if (this.saveBtn) {
+      if (this.state.hasPendingChanges()) {
+        this.saveBtn.classList.remove('d-none');
+      } else {
+        this.saveBtn.classList.add('d-none');
+      }
     }
+    if (this.undoBtn) this.undoBtn.disabled = !this.state.canUndo();
+    if (this.redoBtn) this.redoBtn.disabled = !this.state.canRedo();
+    if (this.deleteBtn) this.deleteBtn.disabled = this.state.selectedSpliceKeys.size === 0;
   }
 
   setStatus(msg: string): void {
@@ -261,5 +312,6 @@ export class Interactions {
 
   clearSelection(): void {
     this.selected = null;
+    this.state.selectedStrandId = null;
   }
 }
