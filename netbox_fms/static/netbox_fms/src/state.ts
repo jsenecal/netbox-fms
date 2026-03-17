@@ -378,6 +378,8 @@ export class EditorState {
             liveSplicedTo: s.live_spliced_to,
             planEntryId: s.plan_entry_id,
             planSplicedTo: s.plan_spliced_to,
+            isProtected: s.protected,
+            circuitName: s.circuit_name,
             tubeId: tube.id,
             parentTubeNode: tubeNode,
           });
@@ -402,6 +404,8 @@ export class EditorState {
           liveSplicedTo: s.live_spliced_to,
           planEntryId: s.plan_entry_id,
           planSplicedTo: s.plan_spliced_to,
+          isProtected: s.protected,
+          circuitName: s.circuit_name,
           tubeId: undefined,
           parentTubeNode: undefined,
         });

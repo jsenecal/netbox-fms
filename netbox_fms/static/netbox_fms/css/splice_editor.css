@@ -112,6 +112,23 @@
     cursor: not-allowed;
 }
 
+/* Protected strand — dimmed and non-interactive */
+.strand-node.protected {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.strand-node.protected .strand-dot {
+    stroke: var(--bs-danger);
+    stroke-width: 1.5;
+    stroke-opacity: 0.6;
+}
+
+.strand-node.protected:hover .strand-dot {
+    stroke-width: 1.5;
+    stroke: var(--bs-danger);
+}
+
 /* Dark mode: boost text readability */
 body[data-bs-theme="dark"] .cable-subtitle,
 body[data-bs-theme="dark"] .tube-label,

@@ -31,6 +31,8 @@ export interface StrandData {
   live_spliced_to: number | null;
   plan_entry_id: number | null;
   plan_spliced_to: number | null;
+  protected: boolean;
+  circuit_name: string | null;
 }
 
 /** A tube group as returned by the API. */
@@ -88,6 +90,8 @@ export interface LayoutNode {
   liveSplicedTo?: number | null;
   planEntryId?: number | null;
   planSplicedTo?: number | null;
+  isProtected?: boolean;
+  circuitName?: string | null;
   parentTubeNode?: LayoutNode;
 }
 

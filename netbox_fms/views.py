@@ -374,6 +374,29 @@ class SplicePlanApplyView(LoginRequiredMixin, View):
     @transaction.atomic
     def post(self, request, pk):
         plan = get_object_or_404(SplicePlan, pk=pk)
+
+        # Block applying if any splices are protected by fiber circuits
+        from .choices import FiberCircuitStatusChoices
+        from .models import FiberCircuitNode
+
+        fp_ids = set()
+        for entry in plan.entries.all():
+            fp_ids.add(entry.fiber_a_id)
+            fp_ids.add(entry.fiber_b_id)
+        if fp_ids:
+            protected_circuits = set(
+                FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
+                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
+                .values_list("path__circuit__name", flat=True)
+            )
+            if protected_circuits:
+                names = ", ".join(sorted(protected_circuits))
+                messages.error(
+                    request,
+                    _("Cannot apply: splices are protected by circuit(s): {names}").format(names=names),
+                )
+                return redirect(plan.get_absolute_url())
+
         from .services import apply_diff
 
         try:

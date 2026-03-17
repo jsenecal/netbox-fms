@@ -339,12 +339,14 @@ export class SpliceRenderer {
     const isSpliced = !!(node.liveSplicedTo || node.planSplicedTo);
     const isSelected = this.state.selectedStrandId === node.id;
     const isPendingAdd = node.id !== undefined && this.state.isStrandPendingAdd(node.id);
+    const isProtected = !!node.isProtected;
     const sg = g
       .append('g')
       .attr('class', 'strand-node')
       .classed('spliced', isSpliced)
       .classed('selected', isSelected)
       .classed('pending-taken', isPendingAdd)
+      .classed('protected', isProtected)
       .datum(node);
 
     // Tube color accent bar
@@ -426,17 +428,36 @@ export class SpliceRenderer {
         .text('R');
     }
 
+    // Lock icon for protected strands
+    if (isProtected) {
+      const lockX = side === 'left' ? dotX - 16 : dotX + 16;
+      sg.append('text')
+        .attr('x', lockX)
+        .attr('y', node.y + 3)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '9px')
+        .attr('fill', '#dc3545')
+        .attr('opacity', 0.8)
+        .text('\uD83D\uDD12');
+    }
+
     // Hover title
     let title = node.label ?? '';
     if (node.tubeName) title += ' | Tube: ' + node.tubeName;
     if (node.ribbonName) title += ' | Ribbon: ' + node.ribbonName;
     if (node.frontPortId) title += ' | Port: #' + node.frontPortId;
+    if (isProtected && node.circuitName) title += ' | Protected by: ' + node.circuitName;
     sg.append('title').text(title);
 
-    sg.on('click', (event: Event) => {
-      event.stopPropagation();
-      this.onStrandClick(node, side);
-    });
+    // Protected strands are non-interactive
+    if (isProtected) {
+      sg.style('opacity', '0.7').style('cursor', 'not-allowed');
+    } else {
+      sg.on('click', (event: Event) => {
+        event.stopPropagation();
+        this.onStrandClick(node, side);
+      });
+    }
   }
 
   // -------------------------------------------------------------------

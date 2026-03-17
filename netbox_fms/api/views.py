@@ -172,6 +172,15 @@ class SplicePlanViewSet(NetBoxModelViewSet):
             )
         from ..services import apply_diff
 
+        # Check for protected splices being modified
+        protected = _get_protected_plan_ports(plan)
+        if protected:
+            names = ", ".join(sorted(set(protected.values())))
+            return Response(
+                {"error": f"Cannot apply: splices are protected by circuit(s): {names}"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         try:
             result = apply_diff(plan)
             return Response(result)
@@ -203,6 +212,27 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         removes = request.data.get("remove", [])
 
         from dcim.models import FrontPort
+
+        # Check for protected ports in removes
+        from ..choices import FiberCircuitStatusChoices
+
+        remove_port_ids = set()
+        for item in removes:
+            remove_port_ids.add(item["fiber_a"])
+            remove_port_ids.add(item["fiber_b"])
+        if remove_port_ids:
+            protected_nodes = (
+                FiberCircuitNode.objects.filter(front_port_id__in=remove_port_ids)
+                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
+                .select_related("path__circuit")
+            )
+            protected_names = {n.path.circuit.name for n in protected_nodes}
+            if protected_names:
+                names = ", ".join(sorted(protected_names))
+                return Response(
+                    {"error": f"Cannot modify protected splices (circuit(s): {names})"},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
         try:
             with transaction.atomic():
@@ -317,6 +347,24 @@ class FiberCircuitProtectingAPIView(APIView):
 # ---------------------------------------------------------------------------
 
 
+def _get_protected_plan_ports(plan):
+    """Return dict of {front_port_id: circuit_name} for ports in the plan that are protected."""
+    from ..choices import FiberCircuitStatusChoices
+
+    fp_ids = set()
+    for entry in plan.entries.all():
+        fp_ids.add(entry.fiber_a_id)
+        fp_ids.add(entry.fiber_b_id)
+    if not fp_ids:
+        return {}
+    protected_nodes = (
+        FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
+        .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
+        .select_related("path__circuit")
+    )
+    return {n.front_port_id: n.path.circuit.name for n in protected_nodes}
+
+
 class ClosureStrandsAPIView(APIView):
     """Return strands grouped by cable/tube for a closure device."""
 
@@ -326,6 +374,8 @@ class ClosureStrandsAPIView(APIView):
         # Find all FiberCables whose dcim.Cable terminates at this device
         from dcim.models import CableTermination, FrontPort
         from django.contrib.contenttypes.models import ContentType
+
+        from ..choices import FiberCircuitStatusChoices
 
         # Get all cables connected to this device
         cable_ids = (
@@ -392,7 +442,27 @@ class ClosureStrandsAPIView(APIView):
                 plan_lookup[fa_id] = (entry_id, fb_id)
                 plan_lookup[fb_id] = (entry_id, fa_id)
 
-        # --- C) Build front_port_id → strand_id reverse mapping ---
+        # --- C) Build protection lookup: front_port_id → circuit name ---
+        # A front port is "protected" if referenced by a non-decommissioned FiberCircuitNode
+        all_tray_fp_ids = set()
+        for fc in fiber_cables:
+            for s in fc.fiber_strands.all():
+                if s.front_port_a_id:
+                    all_tray_fp_ids.add(s.front_port_a_id)
+                if s.front_port_b_id:
+                    all_tray_fp_ids.add(s.front_port_b_id)
+
+        protection_lookup = {}  # front_port_id -> circuit name
+        if all_tray_fp_ids:
+            protected_nodes = (
+                FiberCircuitNode.objects.filter(front_port_id__in=all_tray_fp_ids)
+                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
+                .select_related("path__circuit")
+            )
+            for node in protected_nodes:
+                protection_lookup[node.front_port_id] = node.path.circuit.name
+
+        # --- D) Build front_port_id → strand_id reverse mapping ---
         fp_to_strand = {}
         for fc in fiber_cables:
             for s in fc.fiber_strands.all():
@@ -415,6 +485,7 @@ class ClosureStrandsAPIView(APIView):
                 live_strand = fp_to_strand.get(live_fp) if live_fp else None
                 plan_info = plan_lookup.get(local_fp_id, (None, None))
                 plan_strand = fp_to_strand.get(plan_info[1]) if plan_info[1] else None
+                circuit_name = protection_lookup.get(local_fp_id)
                 strand_data = {
                     "id": s.pk,
                     "name": s.name,
@@ -428,6 +499,8 @@ class ClosureStrandsAPIView(APIView):
                     "live_spliced_to": live_strand,
                     "plan_entry_id": plan_info[0],
                     "plan_spliced_to": plan_strand,
+                    "protected": circuit_name is not None,
+                    "circuit_name": circuit_name,
                 }
                 if s.buffer_tube:
                     tube_id = s.buffer_tube.pk

@@ -184,6 +184,12 @@ export class Interactions {
   handleStrandClick(node: LayoutNode, side: 'left' | 'right'): void {
     if (!node.id || !node.frontPortId) return;
 
+    // Block interaction with protected strands
+    if (node.isProtected) {
+      this.setStatus(`${node.label} is protected by circuit "${node.circuitName}" and cannot be modified.`);
+      return;
+    }
+
     // If strand is in a pending-add, only block it as a target (second click).
     // As a first click (no selection yet), allow it — user is replacing.
     if (this.state.isStrandPendingAdd(node.id) && this.selected) {
