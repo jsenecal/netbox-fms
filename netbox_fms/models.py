@@ -169,8 +169,7 @@ class FiberCableType(NetBoxModel):
 
     def get_strand_count_from_templates(self):
         """Compute total fiber count from buffer tube templates."""
-        total = self.buffer_tube_templates.aggregate(total=models.Sum("fiber_count"))["total"]
-        return total or 0
+        return sum(btt.get_total_fiber_count() for btt in self.buffer_tube_templates.all())
 
 
 class BufferTubeTemplate(NetBoxModel):
