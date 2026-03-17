@@ -4,6 +4,24 @@
 {% load render_table from django_tables2 %}
 {% load i18n %}
 
+{% block extra_controls %}
+    <a href="{% url 'plugins:netbox_fms:spliceplan_editor' pk=object.pk %}" class="btn btn-info">
+        <i class="mdi mdi-pencil"></i> {% trans "Visual Editor" %}
+    </a>
+    <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_import_device' pk=object.pk %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-warning">
+            <i class="mdi mdi-download"></i> {% trans "Import from Device" %}
+        </button>
+    </form>
+    <a href="{% url 'plugins:netbox_fms:spliceplan_apply' pk=object.pk %}" class="btn btn-success">
+        <i class="mdi mdi-check-circle"></i> {% trans "Apply" %}
+    </a>
+    <a href="{% url 'plugins:netbox_fms:spliceplan_export' pk=object.pk %}" class="btn btn-secondary">
+        <i class="mdi mdi-export"></i> {% trans "Export Draw.io" %}
+    </a>
+{% endblock %}
+
 {% block content %}
 <div class="row mb-3">
     <div class="col col-md-6">
@@ -40,26 +58,6 @@
             <div class="card-body">{{ object.description|markdown }}</div>
         </div>
         {% endif %}
-        <div class="card">
-            <h5 class="card-header">{% trans "Actions" %}</h5>
-            <div class="card-body">
-                <a href="{% url 'plugins:netbox_fms:spliceplan_editor' pk=object.pk %}" class="btn btn-info mb-2">
-                    <i class="mdi mdi-pencil"></i> {% trans "Visual Splice Editor" %}
-                </a>
-                <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_import_device' pk=object.pk %}" class="d-inline">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-warning mb-2">
-                        <i class="mdi mdi-download"></i> {% trans "Import from Device" %}
-                    </button>
-                </form>
-                <a href="{% url 'plugins:netbox_fms:spliceplan_apply' pk=object.pk %}" class="btn btn-success mb-2">
-                    <i class="mdi mdi-check-circle"></i> {% trans "Apply" %}
-                </a>
-                <a href="{% url 'plugins:netbox_fms:spliceplan_export' pk=object.pk %}" class="btn btn-secondary mb-2">
-                    <i class="mdi mdi-export"></i> {% trans "Export Draw.io" %}
-                </a>
-            </div>
-        </div>
     </div>
 </div>
 <div class="row mb-3">

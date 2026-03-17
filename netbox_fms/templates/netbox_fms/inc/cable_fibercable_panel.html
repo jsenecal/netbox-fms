@@ -1,0 +1,37 @@
+{% load helpers %}
+{% load i18n %}
+{% if fiber_cable %}
+<div class="card">
+    <h2 class="card-header">{% trans "Fiber Cable" %}</h2>
+    <table class="table table-hover attr-table">
+        <tr>
+            <th scope="row">{% trans "Fiber Cable Type" %}</th>
+            <td><a href="{{ fiber_cable.fiber_cable_type.get_absolute_url }}">{{ fiber_cable.fiber_cable_type }}</a></td>
+        </tr>
+        <tr>
+            <th scope="row">{% trans "Construction" %}</th>
+            <td>{{ fiber_cable.fiber_cable_type.get_construction_display }}</td>
+        </tr>
+        <tr>
+            <th scope="row">{% trans "Fiber Type" %}</th>
+            <td>{{ fiber_cable.fiber_cable_type.get_fiber_type_display }}</td>
+        </tr>
+        <tr>
+            <th scope="row">{% trans "Strand Count" %}</th>
+            <td>{{ fiber_cable.fiber_cable_type.strand_count }}</td>
+        </tr>
+        <tr>
+            <th scope="row">{% trans "Tubes" %}</th>
+            <td>{{ tube_count }}</td>
+        </tr>
+        <tr>
+            <th scope="row">{% trans "Serial Number" %}</th>
+            <td>{{ fiber_cable.serial_number|placeholder }}</td>
+        </tr>
+        <tr>
+            <th scope="row">{% trans "Install Date" %}</th>
+            <td>{{ fiber_cable.install_date|placeholder }}</td>
+        </tr>
+    </table>
+</div>
+{% endif %}
