@@ -669,14 +669,23 @@ class FiberStrand(NetBoxModel):
         verbose_name=_("color"),
         blank=True,
     )
-    front_port = models.ForeignKey(
+    front_port_a = models.ForeignKey(
         to="dcim.FrontPort",
         on_delete=models.SET_NULL,
-        related_name="fiber_strands",
+        related_name="fiber_strands_a",
         blank=True,
         null=True,
-        verbose_name=_("front port"),
-        help_text=_("The dcim FrontPort this strand has been provisioned to."),
+        verbose_name=_("front port (A-side)"),
+        help_text=_("The dcim FrontPort on the cable's A-side termination."),
+    )
+    front_port_b = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.SET_NULL,
+        related_name="fiber_strands_b",
+        blank=True,
+        null=True,
+        verbose_name=_("front port (B-side)"),
+        help_text=_("The dcim FrontPort on the cable's B-side termination."),
     )
 
     class Meta:
