@@ -1,5 +1,5 @@
 import pytest
-from dcim.models import Manufacturer
+from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Site
 
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
 
@@ -160,7 +160,7 @@ class TestGetCableProfile:
         assert fct.get_cable_profile() is None  # trunk-3c12p not in registry
 
 
-from netbox_fms.services import NeedsMappingConfirmation, propose_port_mapping
+from netbox_fms.services import NeedsMappingConfirmation, link_cable_topology, propose_port_mapping
 
 
 class TestNeedsMappingConfirmation:
@@ -176,3 +176,120 @@ class TestNeedsMappingConfirmation:
         fp2 = MagicMock(pk=20)
         result = propose_port_mapping(3, {1: fp1, 2: fp2})
         assert result == {1: 10, 2: 20}  # position 3 has no match
+
+
+@pytest.mark.django_db
+class TestLinkCableTopologyGreenfield:
+    def _make_fixtures(self):
+        site = Site.objects.create(name="LT-Site", slug="lt-site")
+        mfr = Manufacturer.objects.create(name="LT-Mfr2", slug="lt-mfr2")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="closure")
+        role = DeviceRole.objects.create(name="LT-Role", slug="lt-role")
+        device = Device.objects.create(name="LT-Closure", site=site, device_type=dt, role=role)
+        cable = Cable.objects.create()
+        return device, cable, mfr
+
+    def test_creates_fiber_cable_and_strands(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="GF-12F",
+            strand_count=12,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
+        )
+        fc, warnings = link_cable_topology(cable, fct, device)
+        assert fc.cable == cable
+        assert fc.fiber_strands.count() == 12
+
+    def test_creates_rearports_per_tube(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="GF-48F",
+            strand_count=48,
+            fiber_type="smf_os2",
+            construction="loose_tube",
+        )
+        for i in range(1, 5):
+            BufferTubeTemplate.objects.create(
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=12,
+            )
+        fc, warnings = link_cable_topology(cable, fct, device)
+        from dcim.models import RearPort
+
+        assert RearPort.objects.filter(device=device).count() == 4
+
+    def test_creates_single_rearport_no_tubes(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="GF-6F",
+            strand_count=6,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
+        )
+        fc, warnings = link_cable_topology(cable, fct, device)
+        from dcim.models import RearPort
+
+        rps = RearPort.objects.filter(device=device)
+        assert rps.count() == 1
+        assert rps.first().positions == 6
+
+    def test_creates_frontports_and_links_strands(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="GF-12F2",
+            strand_count=12,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
+        )
+        fc, warnings = link_cable_topology(cable, fct, device)
+        from dcim.models import FrontPort
+
+        assert FrontPort.objects.filter(device=device).count() == 12
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
+
+    def test_sets_cable_profile(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="GF-48F2",
+            strand_count=48,
+            fiber_type="smf_os2",
+            construction="loose_tube",
+        )
+        for i in range(1, 5):
+            BufferTubeTemplate.objects.create(
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=12,
+            )
+        fc, warnings = link_cable_topology(cable, fct, device)
+        cable.refresh_from_db()
+        assert cable.profile == "trunk-4c12p"
+
+    def test_missing_profile_adds_warning(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="GF-36F",
+            strand_count=36,
+            fiber_type="smf_os2",
+            construction="loose_tube",
+        )
+        for i in range(1, 4):
+            BufferTubeTemplate.objects.create(
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=12,
+            )
+        fc, warnings = link_cable_topology(cable, fct, device)
+        assert len(warnings) > 0
+        assert "profile" in warnings[0].lower()
