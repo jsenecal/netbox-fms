@@ -1,7 +1,6 @@
 """Signal handlers for splice plan diff cache invalidation."""
 
 from django.db.models.signals import post_save, pre_delete
-from django.dispatch import receiver
 
 
 def _invalidate_plans_for_cable(cable):
@@ -30,16 +29,17 @@ def _invalidate_plans_for_cable(cable):
         ).update(diff_stale=True)
 
 
+def _cable_post_save(sender, instance, **kwargs):
+    _invalidate_plans_for_cable(instance)
+
+
+def _cable_pre_delete(sender, instance, **kwargs):
+    _invalidate_plans_for_cable(instance)
+
+
 def connect_signals():
     """Connect cable signals. Called from AppConfig.ready()."""
     from dcim.models import Cable
 
-    @receiver(post_save, sender=Cable)
-    def cable_post_save(sender, instance, **kwargs):
-        _invalidate_plans_for_cable(instance)
-
-    # Use pre_delete (not post_delete) so cable terminations still exist
-    # for the device lookup. After delete, terminations are cascade-deleted.
-    @receiver(pre_delete, sender=Cable)
-    def cable_pre_delete(sender, instance, **kwargs):
-        _invalidate_plans_for_cable(instance)
+    post_save.connect(_cable_post_save, sender=Cable, dispatch_uid="fms_cable_post_save")
+    pre_delete.connect(_cable_pre_delete, sender=Cable, dispatch_uid="fms_cable_pre_delete")
