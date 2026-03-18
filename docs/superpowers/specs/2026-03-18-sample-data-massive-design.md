@@ -37,7 +37,8 @@ Some spur closures have 12F/24F drop cables to buildings.
 | Business spurs (12 hub × 1 ring spur, ~8 closures) | ~96 | ~108 | 48F |
 | Residential spurs (12 hubs × 2 spurs, ~7 closures avg) | ~168 | ~168 | 48F |
 | Building drops | — | ~50 | 12F / 24F |
-| **Total** | **~378** | **~458** | |
+| Patch cables (router/switch ↔ ODF) | — | ~170 | smf-os2 (1m) |
+| **Total** | **~378 closures + ~65 routers/switches** | **~628** | |
 
 ## Cable Types (6)
 
@@ -58,10 +59,25 @@ Some spur closures have 12F/24F drop cables to buildings.
 
 ## Devices
 
+### Network Infrastructure (fiber plant)
 - **3 COs**: DeviceType "ODF-288", role "Central Office"
 - **12 Hubs**: DeviceType "ODF-96", role "Distribution Hub"
 - **~378 Closures**: DeviceType "FOSC-450D" (backbone/metro) or "FOSC-200B" (spur), role "Splice Closure"
 - **~50 Building Panels**: DeviceType "Wall-Box-24", role "Patch Panel" (drop termination endpoints)
+
+### Routers and Switches (enables native NetBox cable tracing)
+These devices sit at the "edges" of the fiber plant — their Interfaces connect to the ODF/panel FrontPorts via short patch cables, giving NetBox's built-in cable trace a starting point.
+
+- **3 CO Core Routers**: DeviceType "Generic Router", role "Router", 48 LC interfaces each. Placed at each CO site, patched into the ODF.
+- **12 Hub Aggregation Switches**: DeviceType "Generic Switch", role "Switch", 24 LC interfaces each. Placed at each hub, patched into the ODF.
+- **~50 CPE Routers**: DeviceType "CPE Router", role "CPE", 2 LC interfaces each. Placed at building drop sites, patched into the wall box.
+
+### Patch Cables
+Short patch cables (type `smf-os2`, length 1m) connect router/switch Interfaces to ODF/panel FrontPorts. This completes the end-to-end path so NetBox's native cable trace can walk: `Interface → patch cable → FrontPort → (PortMapping) → RearPort → plant cable → ... → RearPort → (PortMapping) → FrontPort → patch cable → Interface`.
+
+- CO routers: ~12 patch cables each (one per metro direction × tubes in use)
+- Hub switches: ~8 patch cables each (subset of available ports)
+- CPE routers: 1-2 patch cables each
 
 ## Features Exercised
 
@@ -143,6 +159,12 @@ After running `create_sample_data`, these scenarios can be tested:
 1. Navigate to FMS → Cable Types → Fiber Cable Types
 2. Verify all 6 types exist with correct strand counts and constructions
 3. Filter Fiber Cables by type to see distribution across the network
+
+### Native NetBox Cable Trace
+1. Navigate to a CO core router (e.g., "CO-Downtown-Router") → Interfaces tab
+2. Pick an interface that has a cable connected (e.g., "xe-0/0/0")
+3. Click "Trace" — NetBox will follow: Interface → patch cable → ODF FrontPort → RearPort → plant cable → closure → ... → building panel → patch cable → CPE Interface
+4. Verify the trace traverses multiple closures and cable segments end-to-end
 
 ### Loss Budget Path (future)
 1. Pick a fiber circuit and note the number of splices and cable lengths
