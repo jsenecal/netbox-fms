@@ -86,7 +86,7 @@ class Command(BaseCommand):
     def _ensure_admin_user(self):
         from django.contrib.auth import get_user_model
 
-        User = get_user_model()
+        User = get_user_model()  # noqa: N806
         if not User.objects.filter(username="admin").exists():
             User.objects.create_superuser("admin", "admin@example.com", "admin")
             self.stdout.write("  Created admin user (admin/admin)")
@@ -281,13 +281,13 @@ class Command(BaseCommand):
         self.stdout.write("Creating ports and linking strands...")
         rp_ct = ContentType.objects.get_for_model(RearPort)
 
-        for label, info in cables.items():
+        for _label, info in cables.items():
             cable = info["cable"]
             fc = info["fiber_cable"]
             if not fc:
                 continue
 
-            for side, device, cable_end in [("A", info["a_device"], "A"), ("B", info["b_device"], "B")]:
+            for _side, device, cable_end in [("A", info["a_device"], "A"), ("B", info["b_device"], "B")]:
                 # Check if ports already exist for this cable on this device
                 existing_terms = CableTermination.objects.filter(
                     cable=cable, cable_end=cable_end, termination_type=rp_ct
@@ -302,7 +302,6 @@ class Command(BaseCommand):
 
                 if tubes:
                     # One RearPort per tube
-                    strand_idx = 0
                     for tube_idx, tube in enumerate(tubes):
                         tray = trays[tube_idx % len(trays)] if trays else None
                         tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
@@ -414,7 +413,7 @@ class Command(BaseCommand):
             cable_b_fps = fps_by_cable[cable_pks[1]][:12]
 
             entries_created = 0
-            for fp_a, fp_b in zip(cable_a_fps, cable_b_fps):
+            for fp_a, fp_b in zip(cable_a_fps, cable_b_fps, strict=False):
                 tray = fp_a.module
                 if tray:
                     SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fp_a, fiber_b=fp_b)
@@ -424,7 +423,7 @@ class Command(BaseCommand):
             if len(cable_pks) >= 3:
                 cable_c_fps = fps_by_cable[cable_pks[2]][:12]
                 cable_b_remaining = fps_by_cable[cable_pks[1]][12:24]
-                for fp_c, fp_b in zip(cable_c_fps, cable_b_remaining):
+                for fp_c, fp_b in zip(cable_c_fps, cable_b_remaining, strict=False):
                     tray = fp_c.module
                     if tray:
                         SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fp_c, fiber_b=fp_b)

@@ -18,12 +18,14 @@ readme = "README.md"
 authors = [
     { name = "Jonathan Senecal", email = "contact@jonathansenecal.com" },
 ]
+license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 
 classifiers = [
     'Development Status :: 3 - Alpha',
     'Intended Audience :: Developers',
+    'License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)',
     'Natural Language :: English',
     'Programming Language :: Python :: 3',
     'Programming Language :: Python :: 3.12',
