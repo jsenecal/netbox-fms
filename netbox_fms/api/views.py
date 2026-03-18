@@ -24,6 +24,7 @@ from ..filters import (
     FiberStrandFilterSet,
     RibbonFilterSet,
     RibbonTemplateFilterSet,
+    SlackLoopFilterSet,
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
     SpliceProjectFilterSet,
@@ -42,6 +43,7 @@ from ..models import (
     FiberStrand,
     Ribbon,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -61,6 +63,7 @@ from .serializers import (
     ProvisionPortsInputSerializer,
     RibbonSerializer,
     RibbonTemplateSerializer,
+    SlackLoopSerializer,
     SplicePlanEntrySerializer,
     SplicePlanSerializer,
     SpliceProjectSerializer,
@@ -121,6 +124,12 @@ class CableElementViewSet(NetBoxModelViewSet):
     queryset = CableElement.objects.prefetch_related("fiber_cable", "tags")
     serializer_class = CableElementSerializer
     filterset_class = CableElementFilterSet
+
+
+class SlackLoopViewSet(NetBoxModelViewSet):
+    queryset = SlackLoop.objects.prefetch_related("fiber_cable", "site", "location", "tags")
+    serializer_class = SlackLoopSerializer
+    filterset_class = SlackLoopFilterSet
 
 
 class SplicePlanEntryViewSet(NetBoxModelViewSet):

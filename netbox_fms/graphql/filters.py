@@ -9,6 +9,7 @@ from ..models import (
     FiberCircuit,
     FiberCircuitPath,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -26,6 +27,7 @@ __all__ = (
     "ClosureCableEntryFilter",
     "FiberCircuitFilter",
     "FiberCircuitPathFilter",
+    "SlackLoopFilter",
 )
 
 
@@ -111,3 +113,13 @@ class FiberCircuitPathFilter:
     id: int | None
     circuit_id: int | None
     is_complete: bool | None
+
+
+@strawberry_django.filters.filter(SlackLoop)
+class SlackLoopFilter:
+    id: int | None
+    fiber_cable_id: int | None
+    site_id: int | None
+    location_id: int | None
+    storage_method: str | None
+    length_unit: str | None

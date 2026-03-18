@@ -52,6 +52,30 @@ menu = PluginMenu(
             ),
         ),
         (
+            "Slack Loops",
+            (
+                PluginMenuItem(
+                    link="plugins:netbox_fms:slackloop_list",
+                    link_text="Slack Loops",
+                    permissions=["netbox_fms.view_slackloop"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:slackloop_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_slackloop"],
+                        ),
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:slackloop_import",
+                            title="Import",
+                            icon_class="mdi mdi-upload",
+                            permissions=["netbox_fms.add_slackloop"],
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        (
             "Circuits",
             (
                 PluginMenuItem(

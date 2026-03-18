@@ -17,6 +17,7 @@ from ..models import (
     FiberStrand,
     Ribbon,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -38,6 +39,7 @@ __all__ = (
     "ClosureCableEntryType",
     "FiberCircuitType",
     "FiberCircuitPathType",
+    "SlackLoopType",
 )
 
 
@@ -121,3 +123,8 @@ class FiberCircuitType(NetBoxObjectType):
 @strawberry_django.type(FiberCircuitPath, fields="__all__")
 class FiberCircuitPathType(NetBoxObjectType):
     circuit: Annotated["FiberCircuitType", strawberry.lazy(".types")]
+
+
+@strawberry_django.type(SlackLoop, fields="__all__")
+class SlackLoopType(NetBoxObjectType):
+    pass

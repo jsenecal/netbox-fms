@@ -22,6 +22,7 @@ from ..models import (
     FiberStrand,
     Ribbon,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -329,6 +330,32 @@ class SplicePlanEntrySerializer(NetBoxModelSerializer):
             "last_updated",
         )
         brief_fields = ("id", "url", "display", "fiber_a", "fiber_b")
+
+
+class SlackLoopSerializer(NetBoxModelSerializer):
+    loop_length = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = SlackLoop
+        fields = (
+            "id",
+            "url",
+            "display",
+            "fiber_cable",
+            "site",
+            "location",
+            "start_mark",
+            "end_mark",
+            "length_unit",
+            "loop_length",
+            "storage_method",
+            "notes",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "fiber_cable", "start_mark", "end_mark")
 
 
 # ---------------------------------------------------------------------------
