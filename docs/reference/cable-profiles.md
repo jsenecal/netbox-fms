@@ -1,5 +1,8 @@
 # Cable Profiles
 
+!!! warning "Monkey-patching"
+    NetBox does not currently provide a public API for plugins to register custom cable profiles. NetBox FMS works around this limitation by **monkey-patching** the internal profile registry at startup. This approach may break if NetBox changes its cable-profile internals in a future release. We track upstream progress via [netbox#21663](https://github.com/netbox-community/netbox/issues/21663) and will migrate to an official API as soon as one becomes available.
+
 NetBox's built-in cable profiles cap at 16 positions. Fiber cables commonly have 24-432 strands. NetBox FMS registers custom profiles to extend the system.
 
 ## Single-Connector Profiles
