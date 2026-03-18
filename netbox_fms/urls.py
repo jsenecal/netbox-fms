@@ -17,8 +17,16 @@ urlpatterns = [
     # BufferTubeTemplate
     path("buffer-tube-templates/", views.BufferTubeTemplateListView.as_view(), name="buffertubetemplate_list"),
     path("buffer-tube-templates/add/", views.BufferTubeTemplateEditView.as_view(), name="buffertubetemplate_add"),
-    path("buffer-tube-templates/edit/", views.BufferTubeTemplateBulkEditView.as_view(), name="buffertubetemplate_bulk_edit"),
-    path("buffer-tube-templates/delete/", views.BufferTubeTemplateBulkDeleteView.as_view(), name="buffertubetemplate_bulk_delete"),
+    path(
+        "buffer-tube-templates/edit/",
+        views.BufferTubeTemplateBulkEditView.as_view(),
+        name="buffertubetemplate_bulk_edit",
+    ),
+    path(
+        "buffer-tube-templates/delete/",
+        views.BufferTubeTemplateBulkDeleteView.as_view(),
+        name="buffertubetemplate_bulk_delete",
+    ),
     path("buffer-tube-templates/<int:pk>/", include(get_model_urls("netbox_fms", "buffertubetemplate"))),
     path("buffer-tube-templates/<int:pk>/", views.BufferTubeTemplateView.as_view(), name="buffertubetemplate"),
     path(
@@ -43,8 +51,16 @@ urlpatterns = [
     # CableElementTemplate
     path("cable-element-templates/", views.CableElementTemplateListView.as_view(), name="cableelementtemplate_list"),
     path("cable-element-templates/add/", views.CableElementTemplateEditView.as_view(), name="cableelementtemplate_add"),
-    path("cable-element-templates/edit/", views.CableElementTemplateBulkEditView.as_view(), name="cableelementtemplate_bulk_edit"),
-    path("cable-element-templates/delete/", views.CableElementTemplateBulkDeleteView.as_view(), name="cableelementtemplate_bulk_delete"),
+    path(
+        "cable-element-templates/edit/",
+        views.CableElementTemplateBulkEditView.as_view(),
+        name="cableelementtemplate_bulk_edit",
+    ),
+    path(
+        "cable-element-templates/delete/",
+        views.CableElementTemplateBulkDeleteView.as_view(),
+        name="cableelementtemplate_bulk_delete",
+    ),
     path("cable-element-templates/<int:pk>/", include(get_model_urls("netbox_fms", "cableelementtemplate"))),
     path("cable-element-templates/<int:pk>/", views.CableElementTemplateView.as_view(), name="cableelementtemplate"),
     path(

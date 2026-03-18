@@ -1018,8 +1018,7 @@ class FiberCircuit(NetBoxModel):
                     path.rebuild_nodes()
 
     @classmethod
-    def find_paths(cls, origin_device, destination_device, strand_count=1,
-                   priorities=None, max_results=20):
+    def find_paths(cls, origin_device, destination_device, strand_count=1, priorities=None, max_results=20):
         """Find available fiber paths between two devices.
 
         Delegates to the provisioning engine. See
@@ -1028,8 +1027,10 @@ class FiberCircuit(NetBoxModel):
         from .provisioning import find_fiber_paths
 
         return find_fiber_paths(
-            origin_device, destination_device,
-            strand_count=strand_count, priorities=priorities,
+            origin_device,
+            destination_device,
+            strand_count=strand_count,
+            priorities=priorities,
             max_results=max_results,
         )
 

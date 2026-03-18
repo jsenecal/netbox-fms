@@ -142,9 +142,7 @@ class FiberCableTypeComponentsView(generic.ObjectChildrenView):
     viewname = None
 
     def get_children(self, request, parent):
-        return self.child_model.objects.restrict(request.user, "view").filter(
-            fiber_cable_type=parent
-        )
+        return self.child_model.objects.restrict(request.user, "view").filter(fiber_cable_type=parent)
 
     def get_extra_context(self, request, instance):
         return {

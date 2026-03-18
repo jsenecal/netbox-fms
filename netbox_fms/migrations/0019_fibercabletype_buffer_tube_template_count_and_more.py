@@ -5,25 +5,30 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('netbox_fms', '0018_fibercircuitpath_fibercircuitnode'),
+        ("netbox_fms", "0018_fibercircuitpath_fibercircuitnode"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='fibercabletype',
-            name='buffer_tube_template_count',
-            field=utilities.fields.CounterCacheField(default=0, editable=False, to_field='fiber_cable_type', to_model='netbox_fms.BufferTubeTemplate'),
+            model_name="fibercabletype",
+            name="buffer_tube_template_count",
+            field=utilities.fields.CounterCacheField(
+                default=0, editable=False, to_field="fiber_cable_type", to_model="netbox_fms.BufferTubeTemplate"
+            ),
         ),
         migrations.AddField(
-            model_name='fibercabletype',
-            name='cable_element_template_count',
-            field=utilities.fields.CounterCacheField(default=0, editable=False, to_field='fiber_cable_type', to_model='netbox_fms.CableElementTemplate'),
+            model_name="fibercabletype",
+            name="cable_element_template_count",
+            field=utilities.fields.CounterCacheField(
+                default=0, editable=False, to_field="fiber_cable_type", to_model="netbox_fms.CableElementTemplate"
+            ),
         ),
         migrations.AddField(
-            model_name='fibercabletype',
-            name='ribbon_template_count',
-            field=utilities.fields.CounterCacheField(default=0, editable=False, to_field='fiber_cable_type', to_model='netbox_fms.RibbonTemplate'),
+            model_name="fibercabletype",
+            name="ribbon_template_count",
+            field=utilities.fields.CounterCacheField(
+                default=0, editable=False, to_field="fiber_cable_type", to_model="netbox_fms.RibbonTemplate"
+            ),
         ),
     ]

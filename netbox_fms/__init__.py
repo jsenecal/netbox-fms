@@ -22,7 +22,9 @@ class NetBoxFMSConfig(PluginConfig):
 
         connect_signals()
         from utilities.counters import connect_counters
+
         from .models import FiberCableType
+
         connect_counters(FiberCableType)
 
 
