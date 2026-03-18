@@ -1,3 +1,4 @@
+from django.utils.translation import gettext_lazy as _
 from utilities.choices import ChoiceSet
 
 #
@@ -213,6 +214,22 @@ class FiberCircuitStatusChoices(ChoiceSet):
         (STAGED, "Staged"),
         (ACTIVE, "Active"),
         (DECOMMISSIONED, "Decommissioned"),
+    )
+
+
+class StorageMethodChoices(ChoiceSet):
+    COIL = "coil"
+    FIGURE_8 = "figure_8"
+    IN_TRAY = "in_tray"
+    ON_POLE = "on_pole"
+    IN_VAULT = "in_vault"
+
+    CHOICES = (
+        (COIL, _("Coil")),
+        (FIGURE_8, _("Figure-8")),
+        (IN_TRAY, _("In Tray")),
+        (ON_POLE, _("On Pole")),
+        (IN_VAULT, _("In Vault")),
     )
 
 

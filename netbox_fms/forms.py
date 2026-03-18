@@ -450,7 +450,7 @@ class SplicePlanEntryForm(NetBoxModelForm):
 
     class Meta:
         model = SplicePlanEntry
-        fields = ("plan", "tray", "fiber_a", "fiber_b", "notes", "tags")
+        fields = ("plan", "tray", "fiber_a", "fiber_b", "notes", "is_express", "tags")
 
 
 class SplicePlanEntryFilterForm(NetBoxModelFilterSetForm):

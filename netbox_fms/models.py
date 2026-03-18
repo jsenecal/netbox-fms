@@ -887,6 +887,11 @@ class SplicePlanEntry(NetBoxModel):
         verbose_name=_("notes"),
         blank=True,
     )
+    is_express = models.BooleanField(
+        verbose_name=_("express"),
+        default=False,
+        help_text=_("Fiber passes through closure without being physically spliced."),
+    )
 
     class Meta:
         ordering = ("plan", "pk")

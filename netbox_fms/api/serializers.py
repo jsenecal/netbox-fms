@@ -322,6 +322,7 @@ class SplicePlanEntrySerializer(NetBoxModelSerializer):
             "fiber_a",
             "fiber_b",
             "notes",
+            "is_express",
             "tags",
             "custom_fields",
             "created",

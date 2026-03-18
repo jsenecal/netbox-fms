@@ -329,12 +329,13 @@ class SplicePlanEntryTable(NetBoxTable):
     tray = tables.Column(linkify=True, verbose_name=_("Tray"))
     fiber_a = tables.Column(linkify=True, verbose_name=_("Fiber A"))
     fiber_b = tables.Column(linkify=True, verbose_name=_("Fiber B"))
+    is_express = columns.BooleanColumn(verbose_name=_("Express"))
     actions = columns.ActionsColumn()
 
     class Meta(NetBoxTable.Meta):
         model = SplicePlanEntry
-        fields = ("pk", "id", "plan", "tray", "fiber_a", "fiber_b", "notes", "actions")
-        default_columns = ("pk", "plan", "tray", "fiber_a", "fiber_b", "actions")
+        fields = ("pk", "id", "plan", "tray", "fiber_a", "fiber_b", "is_express", "notes", "actions")
+        default_columns = ("pk", "plan", "tray", "fiber_a", "fiber_b", "is_express", "actions")
 
 
 class ClosureCableEntryTable(NetBoxTable):
