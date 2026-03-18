@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
@@ -25,7 +26,9 @@ from .filters import (
     SpliceProjectFilterSet,
 )
 from .forms import (
+    BufferTubeTemplateBulkEditForm,
     BufferTubeTemplateForm,
+    CableElementTemplateBulkEditForm,
     CableElementTemplateForm,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
@@ -43,6 +46,7 @@ from .forms import (
     FiberCircuitImportForm,
     LinkTopologyForm,
     ProvisionPortsForm,
+    RibbonTemplateBulkEditForm,
     RibbonTemplateForm,
     SplicePlanBulkEditForm,
     SplicePlanEntryFilterForm,
@@ -95,21 +99,9 @@ class FiberCableTypeListView(generic.ObjectListView):
     filterset_form = FiberCableTypeFilterForm
 
 
+@register_model_view(FiberCableType)
 class FiberCableTypeView(generic.ObjectView):
     queryset = FiberCableType.objects.all()
-
-    def get_extra_context(self, request, instance):
-        tubes_table = BufferTubeTemplateTable(instance.buffer_tube_templates.all())
-        tubes_table.configure(request)
-        ribbons_table = RibbonTemplateTable(instance.ribbon_templates.all())
-        ribbons_table.configure(request)
-        elements_table = CableElementTemplateTable(instance.cable_element_templates.all())
-        elements_table.configure(request)
-        return {
-            "tubes_table": tubes_table,
-            "ribbons_table": ribbons_table,
-            "elements_table": elements_table,
-        }
 
 
 class FiberCableTypeEditView(generic.ObjectEditView):
@@ -137,6 +129,116 @@ class FiberCableTypeBulkDeleteView(generic.BulkDeleteView):
     queryset = FiberCableType.objects.all()
     filterset = FiberCableTypeFilterSet
     table = FiberCableTypeTable
+
+
+# ---------------------------------------------------------------------------
+# FiberCableType component tab views
+# ---------------------------------------------------------------------------
+
+
+class FiberCableTypeComponentsView(generic.ObjectChildrenView):
+    queryset = FiberCableType.objects.all()
+    actions = (EditObject, DeleteObject, BulkEdit, BulkDelete)
+    viewname = None
+
+    def get_children(self, request, parent):
+        return self.child_model.objects.restrict(request.user, "view").filter(
+            fiber_cable_type=parent
+        )
+
+    def get_extra_context(self, request, instance):
+        return {
+            "return_url": reverse(self.viewname, kwargs={"pk": instance.pk}),
+        }
+
+
+@register_model_view(FiberCableType, "buffertubes", path="buffer-tubes")
+class FiberCableTypeBufferTubesView(FiberCableTypeComponentsView):
+    child_model = BufferTubeTemplate
+    table = BufferTubeTemplateTable
+    filterset = BufferTubeTemplateFilterSet
+    viewname = "plugins:netbox_fms:fibercabletype_buffertubes"
+    tab = ViewTab(
+        label=_("Buffer Tubes"),
+        badge=lambda obj: obj.buffer_tube_template_count,
+        permission="netbox_fms.view_buffertubetemplate",
+        weight=500,
+        hide_if_empty=True,
+    )
+
+
+@register_model_view(FiberCableType, "ribbons", path="ribbons")
+class FiberCableTypeRibbonsView(FiberCableTypeComponentsView):
+    child_model = RibbonTemplate
+    table = RibbonTemplateTable
+    filterset = RibbonTemplateFilterSet
+    viewname = "plugins:netbox_fms:fibercabletype_ribbons"
+    tab = ViewTab(
+        label=_("Ribbons"),
+        badge=lambda obj: obj.ribbon_template_count,
+        permission="netbox_fms.view_ribbontemplate",
+        weight=510,
+        hide_if_empty=True,
+    )
+
+
+@register_model_view(FiberCableType, "cableelements", path="cable-elements")
+class FiberCableTypeCableElementsView(FiberCableTypeComponentsView):
+    child_model = CableElementTemplate
+    table = CableElementTemplateTable
+    filterset = CableElementTemplateFilterSet
+    viewname = "plugins:netbox_fms:fibercabletype_cableelements"
+    tab = ViewTab(
+        label=_("Cable Elements"),
+        badge=lambda obj: obj.cable_element_template_count,
+        permission="netbox_fms.view_cableelementtemplate",
+        weight=520,
+        hide_if_empty=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# FiberCableType component bulk edit/delete views
+# ---------------------------------------------------------------------------
+
+
+class BufferTubeTemplateBulkEditView(generic.BulkEditView):
+    queryset = BufferTubeTemplate.objects.all()
+    filterset = BufferTubeTemplateFilterSet
+    table = BufferTubeTemplateTable
+    form = BufferTubeTemplateBulkEditForm
+
+
+class BufferTubeTemplateBulkDeleteView(generic.BulkDeleteView):
+    queryset = BufferTubeTemplate.objects.all()
+    filterset = BufferTubeTemplateFilterSet
+    table = BufferTubeTemplateTable
+
+
+class RibbonTemplateBulkEditView(generic.BulkEditView):
+    queryset = RibbonTemplate.objects.all()
+    filterset = RibbonTemplateFilterSet
+    table = RibbonTemplateTable
+    form = RibbonTemplateBulkEditForm
+
+
+class RibbonTemplateBulkDeleteView(generic.BulkDeleteView):
+    queryset = RibbonTemplate.objects.all()
+    filterset = RibbonTemplateFilterSet
+    table = RibbonTemplateTable
+
+
+class CableElementTemplateBulkEditView(generic.BulkEditView):
+    queryset = CableElementTemplate.objects.all()
+    filterset = CableElementTemplateFilterSet
+    table = CableElementTemplateTable
+    form = CableElementTemplateBulkEditForm
+
+
+class CableElementTemplateBulkDeleteView(generic.BulkDeleteView):
+    queryset = CableElementTemplate.objects.all()
+    filterset = CableElementTemplateFilterSet
+    table = CableElementTemplateTable
 
 
 # ---------------------------------------------------------------------------
