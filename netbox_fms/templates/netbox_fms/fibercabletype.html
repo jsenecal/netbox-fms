@@ -1,8 +1,40 @@
 {% extends 'generic/object.html' %}
 {% load helpers %}
 {% load plugins %}
-{% load render_table from django_tables2 %}
 {% load i18n %}
+
+{% block extra_controls %}
+  {% if perms.netbox_fms.add_buffertubetemplate or perms.netbox_fms.add_ribbontemplate or perms.netbox_fms.add_cableelementtemplate %}
+    <div class="dropdown">
+      <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="mdi mdi-plus-thick" aria-hidden="true"></i> {% trans "Add Components" %}
+      </button>
+      <ul class="dropdown-menu">
+        {% if perms.netbox_fms.add_buffertubetemplate %}
+          <li>
+            <a class="dropdown-item" href="{% url 'plugins:netbox_fms:buffertubetemplate_add' %}?fiber_cable_type={{ object.pk }}&return_url={% url 'plugins:netbox_fms:fibercabletype_buffertubes' pk=object.pk %}">
+              {% trans "Buffer Tube Templates" %}
+            </a>
+          </li>
+        {% endif %}
+        {% if perms.netbox_fms.add_ribbontemplate %}
+          <li>
+            <a class="dropdown-item" href="{% url 'plugins:netbox_fms:ribbontemplate_add' %}?fiber_cable_type={{ object.pk }}&return_url={% url 'plugins:netbox_fms:fibercabletype_ribbons' pk=object.pk %}">
+              {% trans "Ribbon Templates" %}
+            </a>
+          </li>
+        {% endif %}
+        {% if perms.netbox_fms.add_cableelementtemplate %}
+          <li>
+            <a class="dropdown-item" href="{% url 'plugins:netbox_fms:cableelementtemplate_add' %}?fiber_cable_type={{ object.pk }}&return_url={% url 'plugins:netbox_fms:fibercabletype_cableelements' pk=object.pk %}">
+              {% trans "Cable Element Templates" %}
+            </a>
+          </li>
+        {% endif %}
+      </ul>
+    </div>
+  {% endif %}
+{% endblock extra_controls %}
 
 {% block content %}
 <div class="row mb-3">
@@ -75,36 +107,6 @@
                     <td>{{ object.get_fire_rating_display|placeholder }}</td>
                 </tr>
             </table>
-        </div>
-    </div>
-</div>
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header">{% trans "Buffer Tubes" %}</h5>
-            <div class="card-body table-responsive">
-                {% render_table tubes_table %}
-            </div>
-        </div>
-    </div>
-</div>
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header">{% trans "Ribbon Templates" %}</h5>
-            <div class="card-body table-responsive">
-                {% render_table ribbons_table %}
-            </div>
-        </div>
-    </div>
-</div>
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header">{% trans "Cable Elements" %}</h5>
-            <div class="card-body table-responsive">
-                {% render_table elements_table %}
-            </div>
         </div>
     </div>
 </div>
