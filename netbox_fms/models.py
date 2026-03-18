@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import NetBoxModel
 from utilities.fields import ColorField
+from utilities.tracking import TrackingModelMixin
 
 from .choices import (
     ArmorTypeChoices,
@@ -191,7 +192,7 @@ class FiberCableType(NetBoxModel):
         return key if key in FIBER_CABLE_PROFILES else None
 
 
-class BufferTubeTemplate(NetBoxModel):
+class BufferTubeTemplate(TrackingModelMixin, NetBoxModel):
     """
     Defines a buffer tube within a FiberCableType.
     A tube contains either loose fibers (fiber_count set) or ribbons
@@ -273,7 +274,7 @@ class BufferTubeTemplate(NetBoxModel):
         )
 
 
-class RibbonTemplate(NetBoxModel):
+class RibbonTemplate(TrackingModelMixin, NetBoxModel):
     """
     Defines a fiber ribbon within a FiberCableType.
     A ribbon may live inside a BufferTubeTemplate (ribbon-in-tube construction)
@@ -355,7 +356,7 @@ class RibbonTemplate(NetBoxModel):
         )
 
 
-class CableElementTemplate(NetBoxModel):
+class CableElementTemplate(TrackingModelMixin, NetBoxModel):
     """
     Defines a non-fiber component within a FiberCableType
     (strength members, power conductors, tracer wire, etc.).
