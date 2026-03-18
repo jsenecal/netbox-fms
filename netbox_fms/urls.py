@@ -1,5 +1,4 @@
 from django.urls import include, path
-from django.views.generic import RedirectView
 from utilities.urls import get_model_urls
 
 from . import views
@@ -156,8 +155,16 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
-    # SlackLoop (stub – full CRUD added in Task 3)
-    path("slack-loops/<int:pk>/", RedirectView.as_view(url="/"), name="slackloop"),
+    # SlackLoop
+    path("slack-loops/", views.SlackLoopListView.as_view(), name="slackloop_list"),
+    path("slack-loops/add/", views.SlackLoopEditView.as_view(), name="slackloop_add"),
+    path("slack-loops/import/", views.SlackLoopBulkImportView.as_view(), name="slackloop_import"),
+    path("slack-loops/edit/", views.SlackLoopBulkEditView.as_view(), name="slackloop_bulk_edit"),
+    path("slack-loops/delete/", views.SlackLoopBulkDeleteView.as_view(), name="slackloop_bulk_delete"),
+    path("slack-loops/<int:pk>/", include(get_model_urls("netbox_fms", "slackloop"))),
+    path("slack-loops/<int:pk>/", views.SlackLoopView.as_view(), name="slackloop"),
+    path("slack-loops/<int:pk>/edit/", views.SlackLoopEditView.as_view(), name="slackloop_edit"),
+    path("slack-loops/<int:pk>/delete/", views.SlackLoopDeleteView.as_view(), name="slackloop_delete"),
     # FiberCircuit
     path("fiber-circuits/", views.FiberCircuitListView.as_view(), name="fibercircuit_list"),
     path("fiber-circuits/add/", views.FiberCircuitEditView.as_view(), name="fibercircuit_add"),

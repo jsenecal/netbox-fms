@@ -1,4 +1,5 @@
-from dcim.models import Cable, Device, FrontPort, Manufacturer, Module
+from dcim.choices import CableLengthUnitChoices
+from dcim.models import Cable, Device, FrontPort, Location, Manufacturer, Module, Site
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
@@ -25,6 +26,7 @@ from .choices import (
     FireRatingChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
+    StorageMethodChoices,
 )
 from .models import (
     BufferTubeTemplate,
@@ -34,6 +36,7 @@ from .models import (
     FiberCableType,
     FiberCircuit,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -498,6 +501,102 @@ class ClosureCableEntryFilterForm(NetBoxModelFilterSetForm):
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
         FieldSet("closure_id", name=_("Attributes")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SlackLoop
+# ---------------------------------------------------------------------------
+
+
+class SlackLoopForm(NetBoxModelForm):
+    fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
+    site = DynamicModelChoiceField(queryset=Site.objects.all(), label=_("Site"))
+    location = DynamicModelChoiceField(
+        queryset=Location.objects.all(),
+        required=False,
+        label=_("Location"),
+        query_params={"site_id": "$site"},
+    )
+
+    fieldsets = (
+        FieldSet("fiber_cable", "site", "location", name=_("Slack Loop")),
+        FieldSet("start_mark", "end_mark", "length_unit", name=_("Position")),
+        FieldSet("storage_method", name=_("Storage")),
+        FieldSet("notes", "tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = SlackLoop
+        fields = (
+            "fiber_cable",
+            "site",
+            "location",
+            "start_mark",
+            "end_mark",
+            "length_unit",
+            "storage_method",
+            "notes",
+            "tags",
+        )
+
+
+class SlackLoopImportForm(NetBoxModelImportForm):
+    fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all())
+    length_unit = forms.ChoiceField(choices=CableLengthUnitChoices)
+    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+
+    class Meta:
+        model = SlackLoop
+        fields = (
+            "fiber_cable",
+            "site",
+            "location",
+            "start_mark",
+            "end_mark",
+            "length_unit",
+            "storage_method",
+            "notes",
+        )
+
+
+class SlackLoopBulkEditForm(NetBoxModelBulkEditForm):
+    model = SlackLoop
+
+    site = DynamicModelChoiceField(queryset=Site.objects.all(), required=False)
+    location = DynamicModelChoiceField(queryset=Location.objects.all(), required=False)
+    length_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
+    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+
+    fieldsets = (FieldSet("site", "location", "length_unit", "storage_method"),)
+    nullable_fields = ("location", "storage_method")
+
+
+class SlackLoopFilterForm(NetBoxModelFilterSetForm):
+    model = SlackLoop
+
+    fiber_cable_id = DynamicModelMultipleChoiceField(
+        queryset=FiberCable.objects.all(),
+        required=False,
+        label=_("Fiber Cable"),
+    )
+    site_id = DynamicModelMultipleChoiceField(
+        queryset=Site.objects.all(),
+        required=False,
+        label=_("Site"),
+    )
+    location_id = DynamicModelMultipleChoiceField(
+        queryset=Location.objects.all(),
+        required=False,
+        label=_("Location"),
+    )
+    length_unit = forms.MultipleChoiceField(choices=CableLengthUnitChoices, required=False)
+    storage_method = forms.MultipleChoiceField(choices=StorageMethodChoices, required=False)
+
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("fiber_cable_id", "site_id", "location_id", name=_("Location")),
+        FieldSet("length_unit", "storage_method", name=_("Attributes")),
     )
 
 

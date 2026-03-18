@@ -1,5 +1,6 @@
 import django_filters
-from dcim.models import Cable, Device, Manufacturer, Module
+from dcim.choices import CableLengthUnitChoices
+from dcim.models import Cable, Device, Location, Manufacturer, Module, Site
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from netbox.filtersets import NetBoxModelFilterSet
@@ -14,6 +15,7 @@ from .choices import (
     FireRatingChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
+    StorageMethodChoices,
 )
 from .models import (
     BufferTube,
@@ -27,6 +29,7 @@ from .models import (
     FiberStrand,
     Ribbon,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -331,6 +334,35 @@ class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
         if not value.strip():
             return queryset
         return queryset.filter(models.Q(entrance_label__icontains=value) | models.Q(notes__icontains=value))
+
+
+class SlackLoopFilterSet(NetBoxModelFilterSet):
+    fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=FiberCable.objects.all(),
+        field_name="fiber_cable",
+        label=_("Fiber Cable (ID)"),
+    )
+    site_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Site.objects.all(),
+        field_name="site",
+        label=_("Site (ID)"),
+    )
+    location_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Location.objects.all(),
+        field_name="location",
+        label=_("Location (ID)"),
+    )
+    length_unit = django_filters.MultipleChoiceFilter(choices=CableLengthUnitChoices)
+    storage_method = django_filters.MultipleChoiceFilter(choices=StorageMethodChoices)
+
+    class Meta:
+        model = SlackLoop
+        fields = ("id", "fiber_cable_id", "site_id", "location_id", "length_unit", "storage_method")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(notes__icontains=value))
 
 
 class FiberCircuitFilterSet(NetBoxModelFilterSet):

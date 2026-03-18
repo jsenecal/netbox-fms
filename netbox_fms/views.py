@@ -21,6 +21,7 @@ from .filters import (
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
     RibbonTemplateFilterSet,
+    SlackLoopFilterSet,
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
     SpliceProjectFilterSet,
@@ -48,6 +49,10 @@ from .forms import (
     ProvisionPortsForm,
     RibbonTemplateBulkEditForm,
     RibbonTemplateForm,
+    SlackLoopBulkEditForm,
+    SlackLoopFilterForm,
+    SlackLoopForm,
+    SlackLoopImportForm,
     SplicePlanBulkEditForm,
     SplicePlanEntryFilterForm,
     SplicePlanEntryForm,
@@ -65,6 +70,7 @@ from .models import (
     FiberCableType,
     FiberCircuit,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -82,6 +88,7 @@ from .tables import (
     FiberStrandTable,
     RibbonTable,
     RibbonTemplateTable,
+    SlackLoopTable,
     SplicePlanEntryTable,
     SplicePlanTable,
     SpliceProjectTable,
@@ -623,6 +630,50 @@ class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
     queryset = SpliceProject.objects.all()
     filterset = SpliceProjectFilterSet
     table = SpliceProjectTable
+
+
+# ---------------------------------------------------------------------------
+# SlackLoop
+# ---------------------------------------------------------------------------
+
+
+class SlackLoopListView(generic.ObjectListView):
+    queryset = SlackLoop.objects.prefetch_related("fiber_cable", "site", "location", "tags")
+    table = SlackLoopTable
+    filterset = SlackLoopFilterSet
+    filterset_form = SlackLoopFilterForm
+
+
+@register_model_view(SlackLoop)
+class SlackLoopView(generic.ObjectView):
+    queryset = SlackLoop.objects.all()
+
+
+class SlackLoopEditView(generic.ObjectEditView):
+    queryset = SlackLoop.objects.all()
+    form = SlackLoopForm
+
+
+class SlackLoopDeleteView(generic.ObjectDeleteView):
+    queryset = SlackLoop.objects.all()
+
+
+class SlackLoopBulkImportView(generic.BulkImportView):
+    queryset = SlackLoop.objects.all()
+    model_form = SlackLoopImportForm
+
+
+class SlackLoopBulkEditView(generic.BulkEditView):
+    queryset = SlackLoop.objects.all()
+    filterset = SlackLoopFilterSet
+    table = SlackLoopTable
+    form = SlackLoopBulkEditForm
+
+
+class SlackLoopBulkDeleteView(generic.BulkDeleteView):
+    queryset = SlackLoop.objects.all()
+    filterset = SlackLoopFilterSet
+    table = SlackLoopTable
 
 
 # ---------------------------------------------------------------------------

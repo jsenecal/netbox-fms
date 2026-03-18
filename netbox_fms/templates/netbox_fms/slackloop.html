@@ -1,0 +1,62 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Slack Loop" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Fiber Cable" %}</th>
+                    <td>{{ object.fiber_cable|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Site" %}</th>
+                    <td>{{ object.site|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Location" %}</th>
+                    <td>{{ object.location|linkify|default:"—" }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Storage Method" %}</th>
+                    <td>{{ object.get_storage_method_display|default:"—" }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Position" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Start Mark" %}</th>
+                    <td>{{ object.start_mark }} {{ object.get_length_unit_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "End Mark" %}</th>
+                    <td>{{ object.end_mark }} {{ object.get_length_unit_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Loop Length" %}</th>
+                    <td>{{ object.loop_length }} {{ object.get_length_unit_display }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        {% if object.notes %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Notes" %}</h5>
+            <div class="card-body">{{ object.notes|markdown }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% plugin_full_width_page object %}
+{% endblock %}

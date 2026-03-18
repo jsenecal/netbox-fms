@@ -14,6 +14,7 @@ from .models import (
     FiberStrand,
     Ribbon,
     RibbonTemplate,
+    SlackLoop,
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
@@ -349,6 +350,50 @@ class ClosureCableEntryTable(NetBoxTable):
         model = ClosureCableEntry
         fields = ("pk", "id", "closure", "fiber_cable", "entrance_label", "notes", "actions")
         default_columns = ("pk", "closure", "fiber_cable", "entrance_label", "actions")
+
+
+# ---------------------------------------------------------------------------
+# Slack Loops
+# ---------------------------------------------------------------------------
+
+
+class SlackLoopTable(NetBoxTable):
+    pk = columns.ToggleColumn()
+    fiber_cable = tables.Column(linkify=True, verbose_name=_("Fiber Cable"))
+    site = tables.Column(linkify=True, verbose_name=_("Site"))
+    location = tables.Column(linkify=True, verbose_name=_("Location"))
+    start_mark = tables.Column(verbose_name=_("Start Mark"))
+    end_mark = tables.Column(verbose_name=_("End Mark"))
+    loop_length = tables.Column(accessor="loop_length", orderable=False, verbose_name=_("Loop Length"))
+    length_unit = tables.Column(verbose_name=_("Unit"))
+    storage_method = tables.Column(verbose_name=_("Storage Method"))
+    actions = columns.ActionsColumn()
+
+    class Meta(NetBoxTable.Meta):
+        model = SlackLoop
+        fields = (
+            "pk",
+            "id",
+            "fiber_cable",
+            "site",
+            "location",
+            "start_mark",
+            "end_mark",
+            "loop_length",
+            "length_unit",
+            "storage_method",
+            "actions",
+        )
+        default_columns = (
+            "pk",
+            "fiber_cable",
+            "site",
+            "start_mark",
+            "end_mark",
+            "loop_length",
+            "length_unit",
+            "actions",
+        )
 
 
 # ---------------------------------------------------------------------------
