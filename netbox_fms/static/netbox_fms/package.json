@@ -3,11 +3,14 @@
   "scripts": {
     "build": "node bundle.cjs",
     "watch": "node bundle.cjs --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
+    "@types/d3": "^7.4.0",
     "esbuild": "^0.25.0",
     "typescript": "~5.8.0",
-    "@types/d3": "^7.4.0"
+    "vitest": "^2.1.9"
   }
 }
