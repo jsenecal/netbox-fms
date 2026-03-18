@@ -1,5 +1,5 @@
 from dcim.choices import CableLengthUnitChoices
-from dcim.models import Cable, Device, FrontPort, Location, Manufacturer, Module, Site
+from dcim.models import Cable, Device, FrontPort, Location, Manufacturer, Module, RearPort, Site
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
@@ -725,3 +725,44 @@ class LinkTopologyForm(forms.Form):
         label=_("Port Type"),
         required=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Insert Slack Loop into Closure
+# ---------------------------------------------------------------------------
+
+
+class InsertSlackLoopForm(forms.Form):
+    """Form for the 'Insert into Splice Closure' workflow."""
+
+    closure = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        label=_("Closure"),
+        help_text=_("Target splice closure device."),
+    )
+    a_side_rear_ports = DynamicModelMultipleChoiceField(
+        queryset=RearPort.objects.all(),
+        label=_("A-side Rear Ports"),
+        help_text=_("Closure RearPorts for the A-side cable segment."),
+        query_params={"device_id": "$closure"},
+    )
+    b_side_rear_ports = DynamicModelMultipleChoiceField(
+        queryset=RearPort.objects.all(),
+        label=_("B-side Rear Ports"),
+        help_text=_("Closure RearPorts for the B-side cable segment."),
+        query_params={"device_id": "$closure"},
+    )
+    express_strand_positions = forms.CharField(
+        required=False,
+        label=_("Express Strand Positions"),
+        help_text=_("Comma-separated strand positions that pass through without splicing (e.g., '1,2,3')."),
+    )
+
+    def clean_express_strand_positions(self):
+        value = self.cleaned_data.get("express_strand_positions", "")
+        if not value.strip():
+            return set()
+        try:
+            return {int(x.strip()) for x in value.split(",") if x.strip()}
+        except ValueError as err:
+            raise forms.ValidationError(_("Enter comma-separated integers.")) from err

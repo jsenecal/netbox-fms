@@ -45,6 +45,7 @@ from .forms import (
     FiberCircuitFilterForm,
     FiberCircuitForm,
     FiberCircuitImportForm,
+    InsertSlackLoopForm,
     LinkTopologyForm,
     ProvisionPortsForm,
     RibbonTemplateBulkEditForm,
@@ -674,6 +675,167 @@ class SlackLoopBulkDeleteView(generic.BulkDeleteView):
     queryset = SlackLoop.objects.all()
     filterset = SlackLoopFilterSet
     table = SlackLoopTable
+
+
+# ---------------------------------------------------------------------------
+# Insert Slack Loop into Closure
+# ---------------------------------------------------------------------------
+
+
+def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_side_rear_ports, express_strand_positions):
+    """Split a cable at a slack loop location and connect both halves through a closure."""
+    from dcim.models import FrontPort as DcimFrontPort
+
+    old_fiber_cable = slack_loop.fiber_cable
+    old_cable = old_fiber_cable.cable
+    fct = old_fiber_cable.fiber_cable_type
+    old_metadata = {
+        "serial_number": old_fiber_cable.serial_number,
+        "install_date": old_fiber_cable.install_date,
+        "notes": old_fiber_cable.notes,
+    }
+
+    # Capture actual endpoint objects (survive cable deletion)
+    old_a_terms = list(old_cable.a_terminations)
+    old_b_terms = list(old_cable.b_terminations)
+    old_cable_attrs = {
+        "type": old_cable.type,
+        "status": old_cable.status,
+        "label": old_cable.label,
+        "color": old_cable.color,
+    }
+
+    with transaction.atomic():
+        # Snapshot for change logging
+        old_cable.snapshot()
+
+        # Handle FiberCircuitNode references defensively
+        rewiring_records = []
+        try:
+            from .models import FiberCircuitNode
+
+            nodes = FiberCircuitNode.objects.filter(
+                models.Q(cable=old_cable) | models.Q(fiber_strand__fiber_cable=old_fiber_cable)
+            )
+            for node in nodes:
+                record = {"path_id": node.path_id, "position": node.position}
+                if node.cable_id:
+                    record["field"] = "cable"
+                elif node.fiber_strand_id:
+                    record["field"] = "fiber_strand"
+                    record["strand_position"] = node.fiber_strand.position
+                rewiring_records.append(record)
+            nodes.delete()
+        except (ImportError, LookupError):
+            pass
+
+        # Delete old cable (cascades FiberCable, strands, etc.)
+        old_cable.delete()
+
+        # Create Cable A (original A-side -> closure)
+        cable_a = Cable(a_terminations=old_a_terms, b_terminations=a_side_rear_ports, **old_cable_attrs)
+        cable_a.save()
+
+        # Create Cable B (closure -> original B-side)
+        cable_b = Cable(a_terminations=b_side_rear_ports, b_terminations=old_b_terms, **old_cable_attrs)
+        cable_b.save()
+
+        # Create FiberCable instances (auto-instantiates strands)
+        fc_a = FiberCable.objects.create(cable=cable_a, fiber_cable_type=fct, **old_metadata)
+        fc_b = FiberCable.objects.create(cable=cable_b, fiber_cable_type=fct, **old_metadata)
+
+        # Create/get SplicePlan
+        plan, _ = SplicePlan.objects.get_or_create(
+            closure=closure,
+            defaults={"name": f"Plan for {closure.name}"},
+        )
+
+        # Find FrontPorts mapped to our RearPorts via PortMapping
+        a_front_ports = list(
+            DcimFrontPort.objects.filter(mappings__rear_port__in=a_side_rear_ports).order_by(
+                "mappings__rear_port_position"
+            )
+        )
+        b_front_ports = list(
+            DcimFrontPort.objects.filter(mappings__rear_port__in=b_side_rear_ports).order_by(
+                "mappings__rear_port_position"
+            )
+        )
+
+        # Create SplicePlanEntries
+        tray = a_front_ports[0].module if a_front_ports and a_front_ports[0].module else None
+        entries = []
+        for i, (fp_a, fp_b) in enumerate(zip(a_front_ports, b_front_ports, strict=False)):
+            strand_pos = i + 1
+            entry_tray = fp_a.module or tray
+            entries.append(
+                SplicePlanEntry(
+                    plan=plan,
+                    tray=entry_tray,
+                    fiber_a=fp_a,
+                    fiber_b=fp_b,
+                    is_express=strand_pos in express_strand_positions,
+                )
+            )
+        SplicePlanEntry.objects.bulk_create(entries)
+
+        # Create ClosureCableEntry records
+        ClosureCableEntry.objects.create(closure=closure, fiber_cable=fc_a)
+        ClosureCableEntry.objects.create(closure=closure, fiber_cable=fc_b)
+
+        # Re-wire FiberCircuitNodes
+        if rewiring_records:
+            try:
+                from .models import FiberCircuitNode
+
+                for record in rewiring_records:
+                    kwargs = {"path_id": record["path_id"], "position": record["position"]}
+                    if record["field"] == "cable":
+                        kwargs["cable"] = cable_a
+                    elif record["field"] == "fiber_strand":
+                        strand_pos = record["strand_position"]
+                        strand = fc_a.fiber_strands.filter(position=strand_pos).first()
+                        if not strand:
+                            strand = fc_b.fiber_strands.filter(position=strand_pos).first()
+                        if strand:
+                            kwargs["fiber_strand"] = strand
+                        else:
+                            continue
+                    FiberCircuitNode.objects.create(**kwargs)
+            except (ImportError, LookupError):
+                pass
+
+        # Delete the SlackLoop
+        slack_loop.delete()
+
+    return cable_a, cable_b, fc_a, fc_b, plan
+
+
+class SlackLoopInsertView(LoginRequiredMixin, View):
+    """Insert a slack loop into a splice closure by splitting the cable."""
+
+    def get(self, request, pk):
+        slack_loop = get_object_or_404(SlackLoop, pk=pk)
+        form = InsertSlackLoopForm()
+        return render(request, "netbox_fms/slackloop_insert.html", {"object": slack_loop, "form": form})
+
+    def post(self, request, pk):
+        slack_loop = get_object_or_404(SlackLoop, pk=pk)
+        form = InsertSlackLoopForm(request.POST)
+        if form.is_valid():
+            try:
+                cable_a, cable_b, fc_a, fc_b, plan = insert_slack_loop_into_closure(
+                    slack_loop=slack_loop,
+                    closure=form.cleaned_data["closure"],
+                    a_side_rear_ports=list(form.cleaned_data["a_side_rear_ports"]),
+                    b_side_rear_ports=list(form.cleaned_data["b_side_rear_ports"]),
+                    express_strand_positions=form.cleaned_data["express_strand_positions"],
+                )
+                messages.success(request, f"Slack loop inserted into {form.cleaned_data['closure']}.")
+                return redirect(plan.get_absolute_url())
+            except Exception as e:
+                messages.error(request, f"Failed to insert slack loop: {e}")
+        return render(request, "netbox_fms/slackloop_insert.html", {"object": slack_loop, "form": form})
 
 
 # ---------------------------------------------------------------------------

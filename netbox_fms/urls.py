@@ -165,6 +165,7 @@ urlpatterns = [
     path("slack-loops/<int:pk>/", views.SlackLoopView.as_view(), name="slackloop"),
     path("slack-loops/<int:pk>/edit/", views.SlackLoopEditView.as_view(), name="slackloop_edit"),
     path("slack-loops/<int:pk>/delete/", views.SlackLoopDeleteView.as_view(), name="slackloop_delete"),
+    path("slack-loops/<int:pk>/insert/", views.SlackLoopInsertView.as_view(), name="slackloop_insert"),
     # FiberCircuit
     path("fiber-circuits/", views.FiberCircuitListView.as_view(), name="fibercircuit_list"),
     path("fiber-circuits/add/", views.FiberCircuitEditView.as_view(), name="fibercircuit_add"),

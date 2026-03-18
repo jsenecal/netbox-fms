@@ -1,0 +1,43 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load form_helpers %}
+{% load i18n %}
+
+{% block title %}{% trans "Insert into Splice Closure" %}: {{ object }}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-8">
+        <div class="card">
+            <h5 class="card-header">{% trans "Insert into Splice Closure" %}</h5>
+            <div class="card-body">
+                <p>
+                    This will split cable <strong>{{ object.fiber_cable }}</strong> at the slack loop location
+                    and connect both halves through the selected closure device.
+                    The original cable will be deleted and replaced with two new cables.
+                </p>
+                <form method="post">
+                    {% csrf_token %}
+                    {% render_form form %}
+                    <div class="text-end">
+                        <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">{% trans "Cancel" %}</a>
+                        <button type="submit" class="btn btn-primary">{% trans "Insert" %}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col col-md-4">
+        <div class="card">
+            <h5 class="card-header">{% trans "Slack Loop Details" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr><th>{% trans "Fiber Cable" %}</th><td>{{ object.fiber_cable|linkify }}</td></tr>
+                <tr><th>{% trans "Site" %}</th><td>{{ object.site|linkify }}</td></tr>
+                <tr><th>{% trans "Start Mark" %}</th><td>{{ object.start_mark }} {{ object.get_length_unit_display }}</td></tr>
+                <tr><th>{% trans "End Mark" %}</th><td>{{ object.end_mark }} {{ object.get_length_unit_display }}</td></tr>
+                <tr><th>{% trans "Loop Length" %}</th><td>{{ object.loop_length }} {{ object.get_length_unit_display }}</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

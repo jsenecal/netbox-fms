@@ -27,6 +27,13 @@
                 </tr>
             </table>
         </div>
+        <div class="card mt-3">
+            <div class="card-body text-end">
+                <a href="{% url 'plugins:netbox_fms:slackloop_insert' object.pk %}" class="btn btn-warning">
+                    <i class="mdi mdi-content-cut"></i> {% trans "Insert into Splice Closure" %}
+                </a>
+            </div>
+        </div>
     </div>
     <div class="col col-md-6">
         <div class="card">
