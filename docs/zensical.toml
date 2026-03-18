@@ -6,6 +6,32 @@ site_author = "Jonathan Senecal"
 repo_url = "https://github.com/jsenecal/netbox-fms"
 repo_name = "jsenecal/netbox-fms"
 edit_uri = "edit/main/docs/"
+docs_dir = "."
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = [
+    { "Installation" = "getting-started/installation.md" },
+    { "Configuration" = "getting-started/configuration.md" },
+    { "Quickstart" = "getting-started/quickstart.md" },
+  ] },
+  { "User Guide" = [
+    { "Core Concepts" = "user-guide/concepts.md" },
+    { "Fiber Cable Types" = "user-guide/fiber-cable-types.md" },
+    { "Fiber Cables" = "user-guide/fiber-cables.md" },
+    { "Splice Planning" = "user-guide/splice-planning.md" },
+    { "Fiber Circuits" = "user-guide/fiber-circuits.md" },
+    { "Device Fiber Overview" = "user-guide/device-fiber-overview.md" },
+  ] },
+  { "Developer" = [
+    { "Architecture" = "developer/architecture.md" },
+    { "API Examples" = "developer/api-examples.md" },
+    { "Contributing" = "developer/contributing.md" },
+  ] },
+  { "Reference" = [
+    { "Choice Values" = "reference/choices.md" },
+    { "Cable Profiles" = "reference/cable-profiles.md" },
+  ] },
+]
 
 [project.theme]
 features = [
@@ -15,33 +41,3 @@ features = [
 
 [project.theme.icon]
 repo = "fontawesome/brands/github"
-
-[[project.nav]]
-"Getting Started" = [
-  { "Installation" = "getting-started/installation.md" },
-  { "Configuration" = "getting-started/configuration.md" },
-  { "Quickstart" = "getting-started/quickstart.md" },
-]
-
-[[project.nav]]
-"User Guide" = [
-  { "Core Concepts" = "user-guide/concepts.md" },
-  { "Fiber Cable Types" = "user-guide/fiber-cable-types.md" },
-  { "Fiber Cables" = "user-guide/fiber-cables.md" },
-  { "Splice Planning" = "user-guide/splice-planning.md" },
-  { "Fiber Circuits" = "user-guide/fiber-circuits.md" },
-  { "Device Fiber Overview" = "user-guide/device-fiber-overview.md" },
-]
-
-[[project.nav]]
-"Developer" = [
-  { "Architecture" = "developer/architecture.md" },
-  { "API Examples" = "developer/api-examples.md" },
-  { "Contributing" = "developer/contributing.md" },
-]
-
-[[project.nav]]
-"Reference" = [
-  { "Choice Values" = "reference/choices.md" },
-  { "Cable Profiles" = "reference/cable-profiles.md" },
-]
