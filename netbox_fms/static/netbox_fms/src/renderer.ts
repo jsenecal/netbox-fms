@@ -270,11 +270,11 @@ export class SpliceRenderer {
         this.onCableMove!(node.cableId!);
       });
 
-      btn.on('mouseover', function () {
-        d3.select(this).attr('fill', hoverColor);
+      btn.on('mouseover', (_event: MouseEvent, _d: unknown, _i?: number) => {
+        btn.attr('fill', hoverColor);
       });
-      btn.on('mouseout', function () {
-        d3.select(this).attr('fill', mutedColor);
+      btn.on('mouseout', (_event: MouseEvent, _d: unknown, _i?: number) => {
+        btn.attr('fill', mutedColor);
       });
     }
   }
