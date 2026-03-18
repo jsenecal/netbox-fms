@@ -101,6 +101,7 @@ jobs:
           }
           SECRET_KEY = 'abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*(-_=+)abcdefghijklmnopqrstuvwxyz'
           PLUGINS = ['netbox_fms']
+          PLUGINS_CONFIG = {}
           EOF
 
       - name: Run migrations
@@ -111,6 +112,6 @@ jobs:
       - name: Run tests
         run: |
           cd /opt/netbox/netbox
-          python -m pytest "${GITHUB_WORKSPACE}/tests/" -v --tb=short
+          python -m pytest "${GITHUB_WORKSPACE}/tests/" -v --tb=short -p no:reuse-db --create-db
         env:
           DJANGO_SETTINGS_MODULE: netbox.settings
