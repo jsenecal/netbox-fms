@@ -8,7 +8,9 @@ Scale: ~380 closures, ~460 plant cables, ~170 patch cables, ~65 routers/switches
 ~86 slack loops, 5 fiber circuits.
 """
 
-from dcim.choices import CableTypeChoices
+from decimal import Decimal
+
+from dcim.choices import CableLengthUnitChoices, CableTypeChoices, InterfaceTypeChoices
 from dcim.models import (
     Cable,
     CableTermination,
@@ -29,15 +31,19 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from netbox_fms.choices import StorageMethodChoices
 from netbox_fms.models import (
     BufferTubeTemplate,
     CableElementTemplate,
+    ClosureCableEntry,
     FiberCable,
     FiberCableType,
     FiberCircuit,
     FiberStrand,
     RibbonTemplate,
     SlackLoop,
+    SplicePlan,
+    SplicePlanEntry,
 )
 
 # EIA/TIA-598 colors (12 standard)
@@ -658,26 +664,421 @@ class Command(BaseCommand):
         )
 
     # ------------------------------------------------------------------
-    # Stubs for future tasks
+    # Metro rings
     # ------------------------------------------------------------------
 
     def _build_metro_rings(self):
-        self.stdout.write("Building metro rings... (not yet implemented)")
+        self.stdout.write("Building metro rings...")
+        for co_name, co_slug, directions in CO_DEFS:
+            co_short = co_slug.replace("co-", "")
+            hub_names = []
+            for d in directions:
+                hub_name = f"Hub-{co_short.title()}-{d}"
+                hub_slug = f"{co_short}-hub-{d.lower()}"
+                self._get_or_create_device(hub_name, hub_slug, "hub", "odf_96")
+                self._create_tray_modules(self.devices[hub_name], 8)
+                hub_names.append(hub_name)
+
+            # Ring: CO -> Hub1 -> Hub2 -> Hub3 -> Hub4 -> CO
+            ring = [co_name, *hub_names, co_name]
+            for i in range(len(ring) - 1):
+                dev_a_name, dev_b_name = ring[i], ring[i + 1]
+                seg_prefix = f"MR-{co_short[:2].title()}"
+                # Derive suffixes from last 2 chars of device names
+                a_suffix = dev_a_name[-2:]
+                b_suffix = dev_b_name[-2:]
+                self._build_metro_segment(
+                    dev_a_name,
+                    dev_b_name,
+                    seg_prefix,
+                    a_suffix,
+                    b_suffix,
+                    num_closures=5,
+                    co_slug=co_slug,
+                )
+
+        self.stdout.write("  Metro rings complete")
+
+    def _build_metro_segment(self, dev_a_name, dev_b_name, seg_prefix, a_suffix, b_suffix, num_closures, co_slug):
+        """Build a metro ring segment with intermediate closures."""
+        closures = []
+        for i in range(1, num_closures + 1):
+            name = f"{seg_prefix}-{a_suffix}-{b_suffix}-{i:02d}"
+            device = self._get_or_create_device(name, co_slug, "closure", "fosc_450d")
+            self._create_tray_modules(device, 4)
+            closures.append(device)
+
+        chain = [self.devices[dev_a_name], *closures, self.devices[dev_b_name]]
+        for i in range(len(chain) - 1):
+            seg_label = f"{chain[i].name} \u2192 {chain[i + 1].name}"
+            length = 200 + (hash(seg_label) % 1500)
+            info = self._create_cable_segment(seg_label, chain[i], chain[i + 1], "96f", length)
+            self._create_ports_and_link_strands(info)
+
+    # ------------------------------------------------------------------
+    # Spurs
+    # ------------------------------------------------------------------
 
     def _build_spurs(self):
-        self.stdout.write("Building spurs... (not yet implemented)")
+        self.stdout.write("Building spur routes...")
+        hub_devices = {n: d for n, d in self.devices.items() if n.startswith("Hub-")}
+
+        for hub_name in hub_devices:
+            co_short = hub_name.split("-")[1].lower()
+            hub_dir = hub_name.split("-")[-1]
+
+            # Business spur: ring-fed back to an adjacent hub
+            self._build_business_spur(hub_name, co_short, hub_dir)
+
+            # 2 residential spurs
+            for spur_idx in range(1, 3):
+                self._build_residential_spur(hub_name, co_short, hub_dir, spur_idx)
+
+        self.stdout.write("  Spurs complete")
+
+    def _build_business_spur(self, hub_name, co_short, hub_dir):
+        """Build a ring-fed business spur (~8 closures, loops back to a different hub)."""
+        # Find an adjacent hub to loop back to
+        all_hubs = [n for n in self.devices if n.startswith(f"Hub-{co_short.title()}-")]
+        adj_hub = None
+        for h in all_hubs:
+            if h != hub_name:
+                adj_hub = h
+                break
+        if not adj_hub:
+            return
+
+        site_slug = f"{co_short}-hub-{hub_dir.lower()}"
+        num_closures = 8
+        closures = []
+        for i in range(1, num_closures + 1):
+            name = f"BS-{co_short[:2].upper()}-{hub_dir}-{i:02d}"
+            device = self._get_or_create_device(name, site_slug, "closure", "fosc_200b")
+            self._create_tray_modules(device, 4)
+            closures.append(device)
+
+        # Ring: hub -> closures -> adj_hub
+        chain = [self.devices[hub_name], *closures, self.devices[adj_hub]]
+        for i in range(len(chain) - 1):
+            seg_label = f"{chain[i].name} \u2192 {chain[i + 1].name}"
+            length = 100 + (hash(seg_label) % 800)
+            info = self._create_cable_segment(seg_label, chain[i], chain[i + 1], "48f", length)
+            self._create_ports_and_link_strands(info)
+
+    def _build_residential_spur(self, hub_name, co_short, hub_dir, spur_idx):
+        """Build a single-homed residential spur (5-10 closures from hub)."""
+        site_slug = f"{co_short}-hub-{hub_dir.lower()}"
+        num_closures = 5 + (hash(f"{hub_name}-{spur_idx}") % 6)  # 5-10
+        closures = []
+        for i in range(1, num_closures + 1):
+            name = f"RS-{co_short[:2].upper()}-{hub_dir}-S{spur_idx}-{i:02d}"
+            device = self._get_or_create_device(name, site_slug, "closure", "fosc_200b")
+            self._create_tray_modules(device, 4)
+            closures.append(device)
+
+        # Linear: hub -> closures (no loop back)
+        chain = [self.devices[hub_name], *closures]
+        for i in range(len(chain) - 1):
+            seg_label = f"{chain[i].name} \u2192 {chain[i + 1].name}"
+            length = 50 + (hash(seg_label) % 500)
+            info = self._create_cable_segment(seg_label, chain[i], chain[i + 1], "48f", length)
+            self._create_ports_and_link_strands(info)
+
+        # Add drop cables from some spur closures to buildings
+        for i, closure in enumerate(closures):
+            if i % 3 == 0:  # Every 3rd closure gets a drop
+                bldg_name = f"Bldg-{closure.name}"
+                bldg = self._get_or_create_device(bldg_name, site_slug, "panel", "wall_box")
+                seg_label = f"{closure.name} \u2192 {bldg_name}"
+                drop_type = "12f" if spur_idx == 1 else "24f"
+                info = self._create_cable_segment(seg_label, closure, bldg, drop_type, 30 + (hash(seg_label) % 100))
+                self._create_ports_and_link_strands(info)
+
+    # ------------------------------------------------------------------
+    # Edge devices and patch cables
+    # ------------------------------------------------------------------
 
     def _build_edge_devices(self):
-        self.stdout.write("Building edge devices... (not yet implemented)")
+        self.stdout.write("Building edge devices and patch cables...")
+
+        # CO core routers: 48 LC interfaces, patch ~12 to ODF FrontPorts
+        for co_name, co_slug, _ in CO_DEFS:
+            router_name = f"{co_name}-Router"
+            router = self._get_or_create_device(router_name, co_slug, "router", "router")
+            intfs = self._create_interfaces(router, 48, "xe-0/0/")
+            self._patch_interfaces_to_odf(self.devices[co_name], intfs[:12])
+
+        # Hub aggregation switches: 24 LC interfaces, patch ~8
+        for name, device in list(self.devices.items()):
+            if not name.startswith("Hub-"):
+                continue
+            sw_name = f"{name}-Switch"
+            site_slug = self._find_site_slug_for_device(device)
+            if not site_slug:
+                continue
+            sw = self._get_or_create_device(sw_name, site_slug, "switch", "switch")
+            intfs = self._create_interfaces(sw, 24, "ge-0/0/")
+            self._patch_interfaces_to_odf(device, intfs[:8])
+
+        # CPE routers at buildings: 2 LC interfaces, patch 1
+        for name, device in list(self.devices.items()):
+            if not name.startswith("Bldg-"):
+                continue
+            cpe_name = f"CPE-{name.replace('Bldg-', '')}"
+            site_slug = self._find_site_slug_for_device(device)
+            if not site_slug:
+                continue
+            cpe = self._get_or_create_device(cpe_name, site_slug, "cpe", "cpe")
+            intfs = self._create_interfaces(cpe, 2, "eth")
+            self._patch_interfaces_to_odf(device, intfs[:1])
+
+        self.stdout.write("  Edge devices complete")
+
+    def _find_site_slug_for_device(self, device):
+        """Find the site slug in our cache for a given device."""
+        for slug, site in self.sites.items():
+            if site.pk == device.site_id:
+                return slug
+        return None
+
+    def _create_interfaces(self, device, count, prefix):
+        """Create LC interfaces on a device if they don't exist."""
+        if Interface.objects.filter(device=device).exists():
+            return list(Interface.objects.filter(device=device).order_by("name"))
+        intfs = []
+        for i in range(count):
+            intfs.append(
+                Interface(
+                    device=device,
+                    name=f"{prefix}{i}",
+                    type=InterfaceTypeChoices.TYPE_10GE_SFP_PLUS,
+                )
+            )
+        return Interface.objects.bulk_create(intfs)
+
+    def _patch_interfaces_to_odf(self, odf_device, interfaces):
+        """Create patch cables from interfaces to available FrontPorts on ODF."""
+        # Find FrontPorts on odf_device that are not already patched
+        patched_fp_ids = CableTermination.objects.filter(termination_type=self.fp_ct).values_list(
+            "termination_id", flat=True
+        )
+        available_fps = list(
+            FrontPort.objects.filter(device=odf_device)
+            .exclude(pk__in=patched_fp_ids)
+            .order_by("name")[: len(interfaces)]
+        )
+        for intf, fp in zip(interfaces, available_fps, strict=False):
+            # Check if interface already has a cable
+            if CableTermination.objects.filter(termination_type=self.intf_ct, termination_id=intf.pk).exists():
+                continue
+            cable = Cable(
+                a_terminations=[intf],
+                b_terminations=[fp],
+                type=CableTypeChoices.TYPE_SMF_OS2,
+                length=1,
+                length_unit="m",
+                label=f"Patch: {intf.device.name}:{intf.name}",
+                color="2196f3",
+            )
+            cable.save()
+
+    # ------------------------------------------------------------------
+    # Slack loops
+    # ------------------------------------------------------------------
 
     def _create_slack_loops(self):
-        self.stdout.write("Creating slack loops... (not yet implemented)")
+        self.stdout.write("Creating slack loops...")
+        if SlackLoop.objects.exists():
+            self.stdout.write("  Skipping -- slack loops already exist")
+            return
+
+        loops = []
+        storage_cycle = [
+            StorageMethodChoices.COIL,
+            StorageMethodChoices.IN_VAULT,
+            StorageMethodChoices.FIGURE_8,
+            StorageMethodChoices.ON_POLE,
+            StorageMethodChoices.IN_TRAY,
+        ]
+
+        for label, info in self.cables_by_segment.items():
+            fc = info["fiber_cable"]
+            if not fc:
+                continue
+            a_device = info["a_device"]
+
+            # Determine category from cable segment label or device names
+            is_backbone = "BB-" in label
+            is_residential = "RS-" in label
+            is_business = "BS-" in label
+
+            should_add = False
+            if is_backbone and hash(label) % 3 == 0:
+                should_add = True
+                start = Decimal(str(abs(500 + hash(label) % 1500)))
+                end = start + Decimal(str(abs(10 + hash(label) % 30)))
+            elif is_residential and hash(label) % 3 == 0:
+                should_add = True
+                start = Decimal(str(abs(50 + hash(label) % 400)))
+                end = start + Decimal(str(abs(5 + hash(label) % 20)))
+            elif is_business and hash(label) % 4 == 0:
+                should_add = True
+                start = Decimal(str(abs(100 + hash(label) % 600)))
+                end = start + Decimal(str(abs(8 + hash(label) % 25)))
+
+            if should_add:
+                loops.append(
+                    SlackLoop(
+                        fiber_cable=fc,
+                        site=a_device.site,
+                        start_mark=start,
+                        end_mark=end,
+                        length_unit=CableLengthUnitChoices.UNIT_METER,
+                        storage_method=storage_cycle[len(loops) % len(storage_cycle)],
+                    )
+                )
+
+        SlackLoop.objects.bulk_create(loops, ignore_conflicts=True)
+        self.stdout.write(f"  Created {len(loops)} slack loops")
+
+    # ------------------------------------------------------------------
+    # Splice plans
+    # ------------------------------------------------------------------
 
     def _create_splice_plans(self):
-        self.stdout.write("Creating splice plans... (not yet implemented)")
+        self.stdout.write("Creating splice plans...")
+        closures = {n: d for n, d in self.devices.items() if n.startswith(("BB-", "MR-", "BS-", "RS-"))}
+        plans_created = 0
+
+        for name, closure in closures.items():
+            if SplicePlan.objects.filter(closure=closure).exists():
+                continue
+
+            plan = SplicePlan.objects.create(
+                closure=closure,
+                name=f"{name} Plan",
+                description=f"Splice plan for {name}",
+                status="draft",
+            )
+
+            # Group FrontPorts by cable
+            fps_by_cable = {}
+            for fp in FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"):
+                if fp.name.startswith("#"):
+                    try:
+                        cable_pk = int(fp.name.split(":")[0][1:])
+                        fps_by_cable.setdefault(cable_pk, []).append(fp)
+                    except (ValueError, IndexError):
+                        pass
+
+            cable_pks = sorted(fps_by_cable.keys())
+            if len(cable_pks) < 2:
+                continue
+
+            # Determine if this is a backbone pass-through
+            is_backbone_passthrough = name.startswith("BB-")
+
+            entries = []
+            cable_a_fps = fps_by_cable[cable_pks[0]]
+            cable_b_fps = fps_by_cable[cable_pks[1]]
+
+            # Splice tube-for-tube
+            for fp_a, fp_b in zip(cable_a_fps[:48], cable_b_fps[:48], strict=False):
+                tray = fp_a.module
+                if tray:
+                    # Backbone: first 2 tubes are cut/spliced, rest express through
+                    is_express = False
+                    if is_backbone_passthrough:
+                        # Parse tube number from name like "#123:T03:F5"
+                        parts = fp_a.name.split(":")
+                        if len(parts) >= 2:
+                            is_express = parts[1] > "T02"
+                    entries.append(
+                        SplicePlanEntry(
+                            plan=plan,
+                            tray=tray,
+                            fiber_a=fp_a,
+                            fiber_b=fp_b,
+                            is_express=is_express,
+                        )
+                    )
+
+            # Third cable if present
+            if len(cable_pks) >= 3:
+                cable_c_fps = fps_by_cable[cable_pks[2]]
+                remaining_b = cable_b_fps[48:] if len(cable_b_fps) > 48 else cable_b_fps[12:]
+                for fp_c, fp_b in zip(cable_c_fps[:12], remaining_b[:12], strict=False):
+                    tray = fp_c.module
+                    if tray:
+                        entries.append(
+                            SplicePlanEntry(
+                                plan=plan,
+                                tray=tray,
+                                fiber_a=fp_c,
+                                fiber_b=fp_b,
+                            )
+                        )
+
+            SplicePlanEntry.objects.bulk_create(entries, ignore_conflicts=True)
+            plans_created += 1
+
+        self.stdout.write(f"  Created {plans_created} splice plans")
+
+    # ------------------------------------------------------------------
+    # Closure cable entries
+    # ------------------------------------------------------------------
 
     def _create_closure_cable_entries(self):
-        self.stdout.write("Creating closure cable entries... (not yet implemented)")
+        self.stdout.write("Creating closure cable entries...")
+        if ClosureCableEntry.objects.exists():
+            self.stdout.write("  Skipping -- closure cable entries already exist")
+            return
+
+        entries = []
+        seen = set()
+        for info in self.cables_by_segment.values():
+            fc = info["fiber_cable"]
+            if not fc:
+                continue
+            for device in [info["a_device"], info["b_device"]]:
+                if device.name.startswith(("BB-", "MR-", "BS-", "RS-")):
+                    key = (device.pk, fc.pk)
+                    if key not in seen:
+                        seen.add(key)
+                        entries.append(
+                            ClosureCableEntry(
+                                closure=device,
+                                fiber_cable=fc,
+                                entrance_label=f"Port {len(entries) % 8 + 1}",
+                            )
+                        )
+        ClosureCableEntry.objects.bulk_create(entries, ignore_conflicts=True)
+        self.stdout.write(f"  Created {len(entries)} closure cable entries")
+
+    # ------------------------------------------------------------------
+    # Fiber circuits
+    # ------------------------------------------------------------------
 
     def _create_fiber_circuits(self):
-        self.stdout.write("Creating fiber circuits... (not yet implemented)")
+        self.stdout.write("Creating fiber circuits...")
+        if FiberCircuit.objects.exists():
+            self.stdout.write("  Skipping -- circuits already exist")
+            return
+
+        circuits_to_create = [
+            ("Backbone DT\u2192NO Path A", "BB-DT-NO-001", 1),
+            ("Metro Downtown Ring", "MR-DT-001", 1),
+            ("Spur North Business", "BS-NO-001", 1),
+            ("Cross-CO NO\u2192SO", "BB-NO-SO-001", 1),
+            ("Last-Mile Drop", "DROP-001", 1),
+        ]
+
+        for name, cid, strand_count in circuits_to_create:
+            FiberCircuit.objects.create(
+                name=name,
+                cid=cid,
+                strand_count=strand_count,
+                status="active",
+                description=f"Sample circuit: {name}",
+            )
+            self.stdout.write(f"  Created circuit: {name}")
