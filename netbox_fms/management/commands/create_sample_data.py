@@ -39,6 +39,7 @@ from netbox_fms.models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
+    FiberCircuitPath,
     FiberStrand,
     RibbonTemplate,
     SlackLoop,
@@ -950,6 +951,11 @@ class Command(BaseCommand):
         closures = {n: d for n, d in self.devices.items() if n.startswith(("BB-", "MR-", "BS-", "RS-"))}
         plans_created = 0
 
+        # Pre-fetch all FrontPort IDs that already have cable terminations (e.g., from patch cables)
+        self._patched_fp_ids = set(
+            CableTermination.objects.filter(termination_type=self.fp_ct).values_list("termination_id", flat=True)
+        )
+
         for name, closure in closures.items():
             if SplicePlan.objects.filter(closure=closure).exists():
                 continue
@@ -1020,9 +1026,42 @@ class Command(BaseCommand):
                         )
 
             SplicePlanEntry.objects.bulk_create(entries, ignore_conflicts=True)
+
+            # Create FP-to-FP splice cables (zero-length) so the trace engine can traverse closures
+            # Filter out entries where either FP already has a cable termination
+            splice_pairs = []
+            for entry in entries:
+                if entry.fiber_a_id in self._patched_fp_ids or entry.fiber_b_id in self._patched_fp_ids:
+                    continue
+                splice_pairs.append((entry.fiber_a_id, entry.fiber_b_id))
+                self._patched_fp_ids.add(entry.fiber_a_id)
+                self._patched_fp_ids.add(entry.fiber_b_id)
+
+            # Bulk create splice cables in batches
+            if splice_pairs:
+                cables = Cable.objects.bulk_create([Cable(length=0, length_unit="m") for _ in splice_pairs])
+                terms = []
+                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
+                    terms.append(
+                        CableTermination(
+                            cable=cable,
+                            cable_end="A",
+                            termination_type=self.fp_ct,
+                            termination_id=fp_a_id,
+                        )
+                    )
+                    terms.append(
+                        CableTermination(
+                            cable=cable,
+                            cable_end="B",
+                            termination_type=self.fp_ct,
+                            termination_id=fp_b_id,
+                        )
+                    )
+                CableTermination.objects.bulk_create(terms)
             plans_created += 1
 
-        self.stdout.write(f"  Created {plans_created} splice plans")
+        self.stdout.write(f"  Created {plans_created} splice plans with splice cables")
 
     # ------------------------------------------------------------------
     # Closure cable entries
@@ -1065,20 +1104,70 @@ class Command(BaseCommand):
             self.stdout.write("  Skipping -- circuits already exist")
             return
 
+        # Find origin FrontPorts for each circuit by looking at CO device FrontPorts
+        # that belong to specific backbone/metro cables
         circuits_to_create = [
-            ("Backbone DT\u2192NO Path A", "BB-DT-NO-001", 1),
-            ("Metro Downtown Ring", "MR-DT-001", 1),
-            ("Spur North Business", "BS-NO-001", 1),
-            ("Cross-CO NO\u2192SO", "BB-NO-SO-001", 1),
-            ("Last-Mile Drop", "DROP-001", 1),
+            ("Backbone DT→NO Path A", "BB-DT-NO-001", "CO-Downtown", "BB-DO-NO-A-"),
+            ("Metro Downtown Ring", "MR-DT-001", "CO-Downtown", "MR-Do-"),
+            ("Spur North Business", "BS-NO-001", "CO-North", "BB-NO-"),
+            ("Cross-CO NO→SO", "BB-NO-SO-001", "CO-North", "BB-NO-SO-A-"),
+            ("Last-Mile Drop", "DROP-001", "CO-South", "BB-SO-"),
         ]
 
-        for name, cid, strand_count in circuits_to_create:
-            FiberCircuit.objects.create(
+        for name, cid, origin_device_name, cable_prefix in circuits_to_create:
+            circuit = FiberCircuit.objects.create(
                 name=name,
                 cid=cid,
-                strand_count=strand_count,
+                strand_count=2,
                 status="active",
                 description=f"Sample circuit: {name}",
             )
-            self.stdout.write(f"  Created circuit: {name}")
+
+            # Find origin FrontPorts on the origin device
+            origin_device = self.devices.get(origin_device_name)
+            if not origin_device:
+                self.stdout.write(f"  Created circuit: {name} (no origin device found)")
+                continue
+
+            # Find FrontPorts on this device that belong to cables matching the prefix
+            origin_fps = []
+            for fp in FrontPort.objects.filter(device=origin_device).order_by("name"):
+                if fp.name.startswith("#"):
+                    try:
+                        cable_pk = int(fp.name.split(":")[0][1:])
+                        cable = Cable.objects.filter(pk=cable_pk).first()
+                        if (
+                            cable
+                            and cable.label
+                            and any(
+                                cable.label.startswith(f"{origin_device_name} →") and cable_prefix in cable.label
+                                for _ in [None]  # just need the condition
+                            )
+                        ):
+                            origin_fps.append(fp)
+                    except (ValueError, IndexError):
+                        pass
+
+            # Fallback: just pick the first 2 FrontPorts on the device
+            if not origin_fps:
+                origin_fps = list(FrontPort.objects.filter(device=origin_device).order_by("name")[:2])
+
+            # Trace paths for up to 2 strands
+            paths_created = 0
+            for pos, fp in enumerate(origin_fps[:2], 1):
+                try:
+                    path = FiberCircuitPath.from_origin(fp)
+                    path.circuit = circuit
+                    path.position = pos
+                    path.save()
+                    path.rebuild_nodes()
+                    paths_created += 1
+                except Exception as e:
+                    self.stdout.write(f"    Trace from {fp} failed: {e}")
+
+            hops = "no paths"
+            if paths_created > 0:
+                first_path = FiberCircuitPath.objects.filter(circuit=circuit).first()
+                if first_path:
+                    hops = f"{len(first_path.path)} hops, complete={first_path.is_complete}"
+            self.stdout.write(f"  Created circuit: {name} ({paths_created} paths, {hops})")
