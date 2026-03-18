@@ -1,18 +1,18 @@
-# NetBox FMS — Fiber Management System
+# NetBox FMS -- Fiber Management System
 
 A [NetBox](https://github.com/netbox-community/netbox) plugin for fiber cable management, splice planning, and circuit provisioning.
 
-Define fiber cable construction as reusable blueprints, auto-instantiate components on cable creation, plan splices with diff computation and draw.io export, and provision end-to-end fiber circuits with DAG-based pathfinding — all within NetBox's native UI and API.
+Define fiber cable construction as reusable blueprints, auto-instantiate components on cable creation, plan splices with diff computation and draw.io export, and provision end-to-end fiber circuits with DAG-based pathfinding -- all within NetBox's native UI and API.
 
 ## Features
 
-- **Cable type blueprints with auto-instantiation** — Define fiber cable construction once as a FiberCableType, then create instances that automatically populate buffer tubes, ribbons, strands, and cable elements following NetBox's Device/DeviceType pattern.
-- **Four construction cases** — Loose tube, ribbon-in-tube, central-core ribbon, and tight buffer cable designs with full template-driven instantiation.
-- **Splice planning** — Map strand-to-strand connections in splice closures, compute diffs against live state, and export diagrams to draw.io for field crews.
-- **Fiber circuit provisioning** — Provision end-to-end fiber circuits across your infrastructure using directed acyclic graph traversal for optimal path selection.
-- **Device fiber overview** — View all fiber connections on a device at a glance, manage splice closures with tray and group organization.
-- **Slack loop tracking** — Record slack loop locations and storage methods at splice closures, with insert-into-closure workflows.
-- **Full REST API and GraphQL** — All models exposed via NetBox's standard API framework.
+- **Cable type blueprints with auto-instantiation** -- Define fiber cable construction once as a FiberCableType, then create instances that automatically populate buffer tubes, ribbons, strands, and cable elements following NetBox's Device/DeviceType pattern.
+- **Four construction cases** -- Loose tube, ribbon-in-tube, central-core ribbon, and tight buffer cable designs with full template-driven instantiation.
+- **Splice planning** -- Map strand-to-strand connections in splice closures, compute diffs against live state, and export diagrams to draw.io for field crews.
+- **Fiber circuit provisioning** -- End-to-end fiber circuit provisioning with DAG-based pathfinding and multi-hop tracing.
+- **Device fiber overview** -- Per-device fiber connection view, splice closure management with tray and group organization.
+- **Slack loop tracking** -- Record slack loop locations and storage methods at splice closures, with insert-into-closure workflows.
+- **Full REST API and GraphQL** -- All models exposed via NetBox's standard API framework.
 
 ## Compatibility
 
