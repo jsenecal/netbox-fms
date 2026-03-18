@@ -1,3 +1,4 @@
+from dcim.choices import CableLengthUnitChoices
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.urls import reverse
@@ -16,6 +17,7 @@ from .choices import (
     FireRatingChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
+    StorageMethodChoices,
 )
 from .constants import get_eia598_color
 
@@ -33,6 +35,7 @@ __all__ = (
     "SplicePlan",
     "SplicePlanEntry",
     "ClosureCableEntry",
+    "SlackLoop",
     "FiberCircuit",
     "FiberCircuitPath",
     "FiberCircuitNode",
@@ -963,6 +966,88 @@ class ClosureCableEntry(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])
+
+
+# ---------------------------------------------------------------------------
+# Slack Loops
+# ---------------------------------------------------------------------------
+
+
+class SlackLoop(NetBoxModel):
+    """A coil of spare fiber cable left at a specific location along a route."""
+
+    fiber_cable = models.ForeignKey(
+        to="netbox_fms.FiberCable",
+        on_delete=models.CASCADE,
+        related_name="slack_loops",
+        verbose_name=_("fiber cable"),
+    )
+    site = models.ForeignKey(
+        to="dcim.Site",
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name=_("site"),
+    )
+    location = models.ForeignKey(
+        to="dcim.Location",
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name=_("location"),
+        blank=True,
+        null=True,
+    )
+    start_mark = models.DecimalField(
+        verbose_name=_("start mark"),
+        max_digits=10,
+        decimal_places=2,
+        help_text=_("Sheath distance mark where the loop begins."),
+    )
+    end_mark = models.DecimalField(
+        verbose_name=_("end mark"),
+        max_digits=10,
+        decimal_places=2,
+        help_text=_("Sheath distance mark where the loop ends."),
+    )
+    length_unit = models.CharField(
+        verbose_name=_("length unit"),
+        max_length=10,
+        choices=CableLengthUnitChoices,
+    )
+    storage_method = models.CharField(
+        verbose_name=_("storage method"),
+        max_length=50,
+        choices=StorageMethodChoices,
+        blank=True,
+    )
+    notes = models.TextField(verbose_name=_("notes"), blank=True)
+
+    class Meta:
+        ordering = ("fiber_cable", "start_mark")
+        unique_together = ("fiber_cable", "start_mark", "end_mark")
+        verbose_name = _("slack loop")
+        verbose_name_plural = _("slack loops")
+
+    def __str__(self):
+        return f"{self.fiber_cable} @ {self.start_mark}\u2013{self.end_mark} {self.length_unit}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:slackloop", args=[self.pk])
+
+    @property
+    def loop_length(self):
+        return self.end_mark - self.start_mark
+
+    def clean(self):
+        super().clean()
+        if self.start_mark is not None and self.start_mark < 0:
+            raise ValidationError({"start_mark": _("Start mark must be non-negative.")})
+        if self.end_mark is not None and self.end_mark < 0:
+            raise ValidationError({"end_mark": _("End mark must be non-negative.")})
+
+    def save(self, *args, **kwargs):
+        if self.start_mark is not None and self.end_mark is not None and self.end_mark < self.start_mark:
+            self.start_mark, self.end_mark = self.end_mark, self.start_mark
+        super().save(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------

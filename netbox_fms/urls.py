@@ -1,4 +1,5 @@
 from django.urls import include, path
+from django.views.generic import RedirectView
 from utilities.urls import get_model_urls
 
 from . import views
@@ -155,6 +156,8 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
+    # SlackLoop (stub – full CRUD added in Task 3)
+    path("slack-loops/<int:pk>/", RedirectView.as_view(url="/"), name="slackloop"),
     # FiberCircuit
     path("fiber-circuits/", views.FiberCircuitListView.as_view(), name="fibercircuit_list"),
     path("fiber-circuits/add/", views.FiberCircuitEditView.as_view(), name="fibercircuit_add"),

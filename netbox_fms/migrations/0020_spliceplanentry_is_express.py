@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('netbox_fms', '0019_fibercabletype_buffer_tube_template_count_and_more'),
+        ("netbox_fms", "0019_fibercabletype_buffer_tube_template_count_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='spliceplanentry',
-            name='is_express',
+            model_name="spliceplanentry",
+            name="is_express",
             field=models.BooleanField(default=False),
         ),
     ]
