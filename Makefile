@@ -145,6 +145,18 @@ ts-typecheck: ## Run TypeScript type checking
 	cd netbox_fms/static/netbox_fms && npm run typecheck
 
 # ---------------------------------------------------------------------------
+# Documentation
+# ---------------------------------------------------------------------------
+
+.PHONY: docs
+docs: ## Build documentation site
+	cd docs && zensical build
+
+.PHONY: docs-serve
+docs-serve: ## Serve documentation with live reload
+	cd docs && zensical serve
+
+# ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
 

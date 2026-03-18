@@ -42,8 +42,7 @@ dev = [
     "ruff",
 ]
 docs = [
-    "mkdocs>=1.5",
-    "mkdocs-material>=9.0",
+    "zensical",
 ]
 
 [project.urls]
