@@ -106,3 +106,15 @@ These are the valid values for choice fields used throughout the FMS plugin. Use
 | staged | Staged |
 | active | Active |
 | decommissioned | Decommissioned |
+
+## StorageMethodChoices
+
+Used by the SlackLoop model to describe how excess fiber cable is stored.
+
+| Value | Label |
+|-------|-------|
+| coil | Coil |
+| figure_8 | Figure-8 |
+| in_tray | In Tray |
+| on_pole | On Pole |
+| in_vault | In Vault |

@@ -247,7 +247,7 @@ for s in strands["results"]:
       "ribbon": null,
       "name": "Strand 1",
       "position": 1,
-      "color": "bl",
+      "color": "0000ff",
       "front_port_a": null,
       "front_port_b": null,
       "tags": []

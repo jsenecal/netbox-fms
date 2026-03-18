@@ -24,24 +24,24 @@ Fiber cable management, splice planning, and circuit provisioning for NetBox.
 
     Install and configure the plugin in your NetBox environment.
 
-    [:octicons-arrow-right-24: Getting Started](getting-started/index.md)
+    [:octicons-arrow-right-24: Getting Started](getting-started/installation.md)
 
 -   **User Guide**
 
     Learn how to use each feature, from cable types to splice planning.
 
-    [:octicons-arrow-right-24: User Guide](user-guide/index.md)
+    [:octicons-arrow-right-24: User Guide](user-guide/concepts.md)
 
 -   **Developer**
 
     Architecture overview, REST API reference, and contributing guidelines.
 
-    [:octicons-arrow-right-24: Developer](developer/index.md)
+    [:octicons-arrow-right-24: Developer](developer/architecture.md)
 
 -   **Reference**
 
     Choice values, cable profiles, and configuration options.
 
-    [:octicons-arrow-right-24: Reference](reference/index.md)
+    [:octicons-arrow-right-24: Reference](reference/choices.md)
 
 </div>

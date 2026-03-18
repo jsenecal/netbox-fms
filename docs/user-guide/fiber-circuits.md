@@ -12,7 +12,7 @@ The top-level circuit object. Each FiberCircuit has a name, description, and a s
 
 ### FiberCircuitPath
 
-An ordered sequence of nodes representing a route from origin to destination. Each path carries a `position` field for ordering and a `loss_db` field for recording the cumulative optical loss along that route.
+An ordered sequence of nodes representing a route from origin to destination. Each path carries a `position` field for ordering, a `calculated_loss_db` field for computed optical loss, an `actual_loss_db` field for measured loss, and a `wavelength_nm` field for the operating wavelength.
 
 ### FiberCircuitNode
 
@@ -82,6 +82,9 @@ The algorithm maintains a set of visited nodes and terminates immediately if a l
 
 ## Loss Budgets
 
-Each FiberCircuitPath carries a `loss_db` field that records the total optical loss for that route in decibels. This value accounts for fiber attenuation, splice losses, and connector losses along the path.
+Each FiberCircuitPath carries two loss fields:
 
-Loss budget tracking is useful for verifying that the end-to-end optical loss remains within the acceptable limits for the transceiver modules deployed at each endpoint. Circuits whose measured or calculated loss exceeds the receiver sensitivity threshold can be flagged for review before activation.
+- **`calculated_loss_db`** — the computed optical loss for the route, based on fiber attenuation, splice losses, and connector losses along the path.
+- **`actual_loss_db`** — the measured loss from OTDR or power meter testing in the field.
+
+Comparing calculated and actual loss values helps identify anomalies such as bad splices or damaged fiber. Circuits whose loss exceeds the receiver sensitivity threshold for the deployed transceiver modules can be flagged for review before activation.
