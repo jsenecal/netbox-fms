@@ -25,34 +25,50 @@ Add three `CounterCacheField`s to `FiberCableType`:
 
 Requires a new migration. Counter values are auto-maintained by NetBox's `CounterCacheField` on create/delete of child objects.
 
+**Prerequisites:**
+- Child template models (`BufferTubeTemplate`, `RibbonTemplate`, `CableElementTemplate`) must add `TrackingModelMixin` to their inheritance chain. `CounterCacheField` relies on `instance.tracker` which is only available via this mixin.
+- `connect_counters(FiberCableType)` must be called in the plugin's `ready()` method in `__init__.py` to wire up the signals.
+
 ### 2. Tab Views
+
+Decorate the existing `FiberCableTypeView` with `@register_model_view(FiberCableType)` so the tab system attaches properly.
 
 Create a base view and three registered tab views in `views.py`:
 
 ```python
 class FiberCableTypeComponentsView(generic.ObjectChildrenView):
     queryset = FiberCableType.objects.all()
-    template_name = "netbox_fms/fibercabletype/base.html"
+    actions = (EditObject, DeleteObject, BulkEdit, BulkDelete)
+    viewname = None  # Set by each subclass
 
     def get_children(self, request, parent):
         return self.child_model.objects.restrict(request.user, "view").filter(
             fiber_cable_type=parent
         )
+
+    def get_extra_context(self, request, instance):
+        return {
+            "return_url": reverse(self.viewname, kwargs={"pk": instance.pk}),
+        }
 ```
+
+Uses the default `generic/object_children.html` template inherited from `ObjectChildrenView` — no custom template needed for tab views.
 
 Registered views:
 
-| View Class | `register_model_view` name | path | child_model | table | weight | badge field |
-|------------|---------------------------|------|-------------|-------|--------|-------------|
-| `FiberCableTypeBufferTubesView` | `buffertubes` | `buffer-tubes` | `BufferTubeTemplate` | `BufferTubeTemplateTable` | 500 | `buffer_tube_template_count` |
-| `FiberCableTypeRibbonsView` | `ribbons` | `ribbons` | `RibbonTemplate` | `RibbonTemplateTable` | 510 | `ribbon_template_count` |
-| `FiberCableTypeCableElementsView` | `cableelements` | `cable-elements` | `CableElementTemplate` | `CableElementTemplateTable` | 520 | `cable_element_template_count` |
+| View Class | `register_model_view` name | path | child_model | table | filterset | weight | badge field | permission |
+|------------|---------------------------|------|-------------|-------|-----------|--------|-------------|------------|
+| `FiberCableTypeBufferTubesView` | `buffertubes` | `buffer-tubes` | `BufferTubeTemplate` | `BufferTubeTemplateTable` | `BufferTubeTemplateFilterSet` | 500 | `buffer_tube_template_count` | `netbox_fms.view_buffertubetemplate` |
+| `FiberCableTypeRibbonsView` | `ribbons` | `ribbons` | `RibbonTemplate` | `RibbonTemplateTable` | `RibbonTemplateFilterSet` | 510 | `ribbon_template_count` | `netbox_fms.view_ribbontemplate` |
+| `FiberCableTypeCableElementsView` | `cableelements` | `cable-elements` | `CableElementTemplate` | `CableElementTemplateTable` | `CableElementTemplateFilterSet` | 520 | `cable_element_template_count` | `netbox_fms.view_cableelementtemplate` |
 
 All tabs use `hide_if_empty=True` so tabs only appear when the cable type has that component.
 
-### 3. Template Restructure
+Each tab view sets `viewname` (e.g., `viewname = 'plugins:netbox_fms:fibercabletype_buffertubes'`) for proper `return_url` construction in bulk actions.
 
-Move `fibercabletype.html` to `fibercabletype/base.html` (directory-based, matching DeviceType pattern).
+### 3. Template Changes
+
+Keep `fibercabletype.html` as a flat file (matching NetBox's actual DeviceType pattern).
 
 Remove the inline Buffer Tubes, Ribbons, and Cable Elements cards from the main detail view. These are now served by the tab views using `generic/object_children.html`.
 
@@ -107,15 +123,16 @@ Bulk edit/delete URLs for child templates use existing patterns or are added alo
 
 | File | Change |
 |------|--------|
-| `models.py` | Add 3 `CounterCacheField`s to `FiberCableType` |
-| `views.py` | Add `FiberCableTypeComponentsView` base + 3 tab views; add bulk edit/delete views for templates; clean up `FiberCableTypeView` |
+| `models.py` | Add `TrackingModelMixin` to child template models; add 3 `CounterCacheField`s to `FiberCableType` |
+| `__init__.py` | Add `connect_counters(FiberCableType)` call in `ready()` |
+| `views.py` | Decorate `FiberCableTypeView` with `@register_model_view`; add `FiberCableTypeComponentsView` base + 3 tab views with `viewname`, `filterset`, `permission`, `actions`; add bulk edit/delete views for templates; clean up `FiberCableTypeView` |
 | `forms.py` | Add 3 bulk edit forms for template types |
-| `templates/netbox_fms/fibercabletype.html` | Move to `fibercabletype/base.html`; remove inline child tables; add "Add Components" dropdown |
+| `templates/netbox_fms/fibercabletype.html` | Remove inline child tables; add "Add Components" dropdown via `extra_controls` block |
 | `urls.py` | Add bulk edit/delete URL patterns for child templates |
 | Migration | New migration for counter cache fields |
 
 ## Out of Scope
 
 - Changes to FiberCable (instance) detail page
-- Changes to the template model definitions themselves
+- Changes to the template model definitions beyond adding TrackingModelMixin
 - New permissions beyond what already exists
