@@ -20,7 +20,7 @@ Define fiber cable construction as reusable blueprints, auto-instantiate compone
 |------------|---------|--------|
 | 0.1.x      | 4.5+    | 3.12+  |
 
-## Dependencies
+## Python Dependencies
 
 None beyond NetBox itself.
 
