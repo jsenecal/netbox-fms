@@ -17,6 +17,7 @@ from utilities.forms.fields import (
 from utilities.forms.rendering import FieldSet
 
 from .choices import (
+    CableElementTypeChoices,
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
@@ -176,6 +177,17 @@ class BufferTubeTemplateForm(NetBoxModelForm):
         fields = ("fiber_cable_type", "name", "position", "color", "stripe_color", "fiber_count", "description", "tags")
 
 
+class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
+    model = BufferTubeTemplate
+
+    color = ColorField(required=False)
+    stripe_color = ColorField(required=False)
+    fiber_count = forms.IntegerField(required=False)
+
+    fieldsets = (FieldSet("color", "stripe_color", "fiber_count"),)
+    nullable_fields = ("color", "stripe_color")
+
+
 # ---------------------------------------------------------------------------
 # RibbonTemplate
 # ---------------------------------------------------------------------------
@@ -225,6 +237,17 @@ class RibbonTemplateForm(NetBoxModelForm):
         )
 
 
+class RibbonTemplateBulkEditForm(NetBoxModelBulkEditForm):
+    model = RibbonTemplate
+
+    color = ColorField(required=False)
+    stripe_color = ColorField(required=False)
+    fiber_count = forms.IntegerField(required=False)
+
+    fieldsets = (FieldSet("color", "stripe_color", "fiber_count"),)
+    nullable_fields = ("color", "stripe_color")
+
+
 # ---------------------------------------------------------------------------
 # CableElementTemplate
 # ---------------------------------------------------------------------------
@@ -244,6 +267,15 @@ class CableElementTemplateForm(NetBoxModelForm):
     class Meta:
         model = CableElementTemplate
         fields = ("fiber_cable_type", "name", "element_type", "description", "tags")
+
+
+class CableElementTemplateBulkEditForm(NetBoxModelBulkEditForm):
+    model = CableElementTemplate
+
+    element_type = forms.ChoiceField(choices=CableElementTypeChoices, required=False)
+
+    fieldsets = (FieldSet("element_type"),)
+    nullable_fields = ()
 
 
 # ---------------------------------------------------------------------------
