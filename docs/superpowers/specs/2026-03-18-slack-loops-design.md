@@ -126,10 +126,11 @@ transaction.atomic():
        objects that will be CASCADE-deleted (FiberCable, FiberStrands,
        BufferTubes, CableElements)
      - For each node, store a re-wiring record:
-       {node_id, field_name, old_value, strand_position (if fiber_strand)}
-     - Temporarily nullify all PROTECT FK fields on these nodes
-       (cable, fiber_strand, front_port, rear_port, splice_entry)
-       so the old cable can be deleted without ProtectedError
+       {path_id, position, field_name, old_value, strand_position (if fiber_strand)}
+     - DELETE these FiberCircuitNode rows (cannot nullify — the
+       `fibercircuitnode_exactly_one_ref` CHECK constraint requires
+       exactly one FK to be non-null at all times)
+     - Nodes will be recreated in step 9 with correct new FK values
      - NOTE: The original A-side/B-side termination endpoint objects
        (Devices, Interfaces, FrontPorts on OTHER devices) survive the
        cable deletion — only CableTerminations (the join table) are
@@ -169,18 +170,19 @@ transaction.atomic():
      - Create ClosureCableEntry for FiberCable A at the closure
      - Create ClosureCableEntry for FiberCable B at the closure
 
-  9. Re-wire FiberCircuitNodes (if any existed in step 2)
-     - For each stored re-wiring record from step 2:
-       a. node.cable: map to new_cable_a or new_cable_b based on
+  9. Recreate FiberCircuitNodes (if any were deleted in step 2)
+     - For each stored re-wiring record from step 2, create a new
+       FiberCircuitNode with the mapped FK value:
+       a. cable: map to new_cable_a or new_cable_b based on
           which side of the original cable the node was on
-       b. node.fiber_strand: map old strand position to the
+       b. fiber_strand: map old strand position to the
           corresponding new FiberStrand (same position) on the
           correct new FiberCable (A or B)
-       c. node.front_port / node.rear_port: if these referenced
-          ports on the closure side, update to the new closure
-          RearPorts/FrontPorts; if they referenced the far-end
-          endpoints, they remain unchanged (those objects survived)
-       d. node.splice_entry: if the node referenced a splice entry
+       c. front_port / rear_port: if these referenced ports on
+          the closure side, map to the new closure RearPorts/
+          FrontPorts; if they referenced far-end endpoints, those
+          objects survived deletion and can be referenced directly
+       d. splice_entry: if the node referenced a splice entry
           that was on the old cable, map to the new corresponding
           SplicePlanEntry created in step 7
 
@@ -204,8 +206,8 @@ transaction.atomic():
 
 ### Edge Cases
 
-1. **FiberCircuitNode PROTECT**: If `FiberCircuitNode` models reference the old cable (or its FiberStrands, FrontPorts, etc.) via PROTECT FKs, `.delete()` will raise `ProtectedError`. Step 2 handles this by temporarily nullifying all PROTECT FK fields on affected nodes, and step 9 re-wires them to the correct new objects (cables, strands, ports, splice entries) by matching on strand position.
-2. **Existing SplicePlan on closure**: If the closure already has a SplicePlan, add entries to it rather than creating a new one.
+1. **FiberCircuitNode PROTECT + CHECK constraint**: If `FiberCircuitNode` models reference the old cable (or its FiberStrands, etc.) via PROTECT FKs, `.delete()` will raise `ProtectedError`. The `fibercircuitnode_exactly_one_ref` CHECK constraint prevents nullifying FKs as a workaround. Step 2 handles this by deleting the affected nodes (after capturing re-wiring records), and step 9 recreates them with the correct new FK values.
+2. **Existing SplicePlan on closure**: If the closure already has a SplicePlan, add entries to it rather than creating a new one. The view must verify no `unique_together` conflicts arise (e.g., if the closure FrontPorts are already used in existing splice entries).
 3. **Strand count mismatch**: Both cable segments use the same FiberCableType, so strand counts match by definition.
 4. **Endpoint objects survive cable deletion**: When the old `dcim.Cable` is deleted, only `CableTermination` join-table rows are cascade-deleted. The actual endpoint objects (Devices, Interfaces, FrontPorts on far-end devices) remain intact and are available for re-termination in steps 4–5.
 
