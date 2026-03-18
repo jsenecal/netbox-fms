@@ -99,7 +99,7 @@ jobs:
                   'DATABASE': 1,
               },
           }
-          SECRET_KEY = 'ci-test-secret-key-not-for-production'
+          SECRET_KEY = 'abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*(-_=+)abcdefghijklmnopqrstuvwxyz'
           PLUGINS = ['netbox_fms']
           EOF
 
