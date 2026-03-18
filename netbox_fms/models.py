@@ -3,7 +3,7 @@ from django.db import models, transaction
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import NetBoxModel
-from utilities.fields import ColorField
+from utilities.fields import ColorField, CounterCacheField
 from utilities.tracking import TrackingModelMixin
 
 from .choices import (
@@ -123,6 +123,19 @@ class FiberCableType(NetBoxModel):
     notes = models.TextField(
         verbose_name=_("notes"),
         blank=True,
+    )
+
+    buffer_tube_template_count = CounterCacheField(
+        to_model="netbox_fms.BufferTubeTemplate",
+        to_field="fiber_cable_type",
+    )
+    ribbon_template_count = CounterCacheField(
+        to_model="netbox_fms.RibbonTemplate",
+        to_field="fiber_cable_type",
+    )
+    cable_element_template_count = CounterCacheField(
+        to_model="netbox_fms.CableElementTemplate",
+        to_field="fiber_cable_type",
     )
 
     clone_fields = (
