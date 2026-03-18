@@ -12,27 +12,26 @@ from dcim.models import (
     Site,
 )
 from django.contrib.contenttypes.models import ContentType
-from django.test import TestCase
+from django.test import TransactionTestCase
 
 from netbox_fms.models import SplicePlan
 from tests.conftest import make_front_port
 
 
-class TestDiffCacheInvalidation(TestCase):
-    @classmethod
-    def setUpTestData(cls):
+class TestDiffCacheInvalidation(TransactionTestCase):
+    def setUp(self):
         site = Site.objects.create(name="Sig Site", slug="sig-site")
         mfr = Manufacturer.objects.create(name="Sig Mfr", slug="sig-mfr")
         dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="sig-closure")
         role = DeviceRole.objects.create(name="Sig Role", slug="sig-role")
-        cls.closure = Device.objects.create(name="C-Sig", site=site, device_type=dt, role=role)
+        self.closure = Device.objects.create(name="C-Sig", site=site, device_type=dt, role=role)
 
         mt = ModuleType.objects.create(manufacturer=mfr, model="Tray")
-        bay = ModuleBay.objects.create(device=cls.closure, name="Bay 1")
-        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
+        bay = ModuleBay.objects.create(device=self.closure, name="Bay 1")
+        self.tray = Module.objects.create(device=self.closure, module_bay=bay, module_type=mt)
 
-        cls.fp1 = make_front_port(device=cls.closure, module=cls.tray, name="F1")
-        cls.fp2 = make_front_port(device=cls.closure, module=cls.tray, name="F2")
+        self.fp1 = make_front_port(device=self.closure, module=self.tray, name="F1")
+        self.fp2 = make_front_port(device=self.closure, module=self.tray, name="F2")
 
     def _make_cable_with_terminations(self, port_a, port_b):
         fp_ct = ContentType.objects.get_for_model(FrontPort)
