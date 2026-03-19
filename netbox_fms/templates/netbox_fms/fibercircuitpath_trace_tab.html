@@ -66,6 +66,66 @@
     justify-content: center;
     min-height: 300px;
 }
+.trace-search-bar {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    flex-shrink: 0;
+}
+.trace-stats-bar {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+    border-bottom: 1px solid var(--bs-border-color);
+    flex-shrink: 0;
+}
+.trace-feature-list {
+    flex: 1;
+    overflow-y: auto;
+}
+.trace-list-item {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+.trace-list-item:hover {
+    background: var(--bs-tertiary-bg);
+}
+.trace-list-item.active {
+    background: var(--bs-primary-bg-subtle);
+}
+.trace-list-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.trace-list-name {
+    font-size: 0.85rem;
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.trace-list-badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    background: var(--bs-secondary-bg);
+    color: var(--bs-secondary-color);
+    flex-shrink: 0;
+}
+.trace-list-subtitle {
+    width: 100%;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+    padding-left: 1.2rem;
+}
 </style>
 
 <div class="trace-breadcrumb" id="trace-breadcrumb">
