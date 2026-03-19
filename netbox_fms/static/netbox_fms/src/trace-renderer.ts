@@ -1,5 +1,4 @@
 declare const d3: any;
-declare const htmx: any;
 
 import type { TraceConfig, TraceResponse, Hop, DeviceHop, CableHop } from './trace-types';
 
@@ -606,16 +605,10 @@ export class TraceRenderer {
     this.drawSvg();
     this.updateBreadcrumb();
 
-    // Load sidebar detail via HTMX
+    // Render sidebar detail client-side from hop data (no second fetch needed)
     const entry = this.layout[index];
     if (entry) {
-      const hop = entry.hop;
-      const nodeType = isDeviceHop(hop) ? 'device' : 'cable';
-      const detailUrl = this.config.detailBaseUrl + nodeType + '/' + hop.id + '/';
-
-      if (typeof htmx !== 'undefined') {
-        htmx.ajax('GET', detailUrl, { target: '#trace-detail-panel' });
-      }
+      this.renderSidebarDetail(entry.hop);
     }
   }
 
@@ -624,6 +617,200 @@ export class TraceRenderer {
     this.computeLayout();
     this.drawSvg();
     this.updateBreadcrumb();
+    this.clearSidebar();
+  }
+
+  // -------------------------------------------------------------------
+  // Sidebar detail rendering (client-side, like netbox-pathways)
+  // -------------------------------------------------------------------
+
+  private renderSidebarDetail(hop: Hop): void {
+    const panel = document.getElementById('trace-detail-panel');
+    if (!panel) return;
+    panel.replaceChildren();
+
+    // Back button header
+    const header = document.createElement('div');
+    header.className = 'trace-detail-header';
+    const backBtn = document.createElement('button');
+    backBtn.className = 'btn btn-sm btn-outline-secondary trace-back-btn';
+    backBtn.textContent = '\u2190 Back';
+    backBtn.addEventListener('click', () => this.deselect());
+    header.appendChild(backBtn);
+    panel.appendChild(header);
+
+    // Detail body
+    const body = document.createElement('div');
+    body.className = 'trace-detail-body';
+
+    if (isDeviceHop(hop)) {
+      this.renderDeviceDetail(body, hop);
+    } else if (isCableHop(hop)) {
+      this.renderCableDetail(body, hop);
+    }
+
+    // Loss summary footer
+    const footer = document.createElement('div');
+    footer.className = 'trace-loss-summary mt-4 pt-3 border-top';
+    const small = document.createElement('small');
+    small.className = 'text-muted';
+    const lossParts: string[] = [];
+    lossParts.push('Path Loss: ' + (this.data.total_calculated_loss_db ?? '\u2014') + ' dB');
+    if (this.data.wavelength_nm) lossParts.push('@ ' + this.data.wavelength_nm + ' nm');
+    lossParts.push(this.data.is_complete ? 'Complete' : 'Incomplete');
+    small.textContent = lossParts.join(' \u00b7 ');
+    footer.appendChild(small);
+    body.appendChild(footer);
+
+    panel.appendChild(body);
+  }
+
+  private renderDeviceDetail(body: HTMLElement, hop: DeviceHop): void {
+    // Title
+    const h6 = document.createElement('h6');
+    h6.textContent = hop.name;
+    body.appendChild(h6);
+
+    // Role badge
+    if (hop.role) {
+      const badge = document.createElement('span');
+      badge.className = 'badge bg-secondary';
+      badge.textContent = hop.role;
+      body.appendChild(badge);
+    }
+
+    // Details table
+    const table = document.createElement('table');
+    table.className = 'table table-sm trace-detail-table mt-3';
+    const rows: [string, string][] = [
+      ['Site', hop.site || '\u2014'],
+      ['Role', hop.role || '\u2014'],
+    ];
+
+    // Port info
+    if (hop.ports) {
+      rows.push(['Front Port', hop.ports.front_port.name]);
+      if (hop.ports.rear_port) rows.push(['Rear Port', hop.ports.rear_port.name]);
+    }
+    if (hop.ingress) {
+      rows.push(['Ingress RP', hop.ingress.rear_port?.name || '\u2014']);
+      rows.push(['Ingress FP', hop.ingress.front_port.name]);
+    }
+    if (hop.egress) {
+      rows.push(['Egress FP', hop.egress.front_port.name]);
+      rows.push(['Egress RP', hop.egress.rear_port?.name || '\u2014']);
+    }
+    if (hop.splice) {
+      rows.push(['Splice Plan', hop.splice.plan_name]);
+      if (hop.splice.tray) rows.push(['Tray', hop.splice.tray]);
+      rows.push(['Type', hop.splice.is_express ? 'Express' : 'Fusion']);
+    }
+
+    for (const [label, value] of rows) {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = label;
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(th);
+      tr.appendChild(td);
+      table.appendChild(tr);
+    }
+    body.appendChild(table);
+
+    // Action links
+    const links = document.createElement('div');
+    links.className = 'mt-3';
+    const viewLink = document.createElement('a');
+    viewLink.href = hop.url;
+    viewLink.className = 'btn btn-sm btn-outline-primary me-2';
+    viewLink.textContent = 'View Device';
+    links.appendChild(viewLink);
+
+    if (isClosure(hop)) {
+      const spliceLink = document.createElement('a');
+      spliceLink.href = hop.url + 'splice-editor/';
+      spliceLink.className = 'btn btn-sm btn-outline-info';
+      spliceLink.textContent = 'Splice Editor';
+      links.appendChild(spliceLink);
+    }
+    body.appendChild(links);
+  }
+
+  private renderCableDetail(body: HTMLElement, hop: CableHop): void {
+    // Title
+    const h6 = document.createElement('h6');
+    h6.textContent = hop.label || 'Cable';
+    body.appendChild(h6);
+
+    // Badge
+    const badge = document.createElement('span');
+    badge.className = 'badge bg-info';
+    badge.textContent = 'Cable';
+    body.appendChild(badge);
+
+    // Details table
+    const table = document.createElement('table');
+    table.className = 'table table-sm trace-detail-table mt-3';
+    const rows: [string, string][] = [];
+
+    if (hop.fiber_type) rows.push(['Fiber Type', hop.fiber_type]);
+    if (hop.strand_count) rows.push(['Strand Count', hop.strand_count + 'F']);
+    if (hop.strand_position != null) rows.push(['Strand Position', '#' + hop.strand_position]);
+    if (hop.tube_name) rows.push(['Tube', hop.tube_name]);
+
+    for (const [label, value] of rows) {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = label;
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(th);
+      tr.appendChild(td);
+      table.appendChild(tr);
+    }
+
+    // Strand color swatch row
+    if (hop.strand_color) {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = 'Strand Color';
+      const td = document.createElement('td');
+      const swatch = document.createElement('span');
+      swatch.style.cssText = 'display:inline-block;width:12px;height:12px;border-radius:2px;border:1px solid #ccc;vertical-align:middle;margin-right:6px;background:#' + hop.strand_color;
+      td.appendChild(swatch);
+      td.appendChild(document.createTextNode(hop.strand_color));
+      tr.appendChild(th);
+      tr.appendChild(td);
+      table.appendChild(tr);
+    }
+
+    body.appendChild(table);
+
+    // Action links
+    const links = document.createElement('div');
+    links.className = 'mt-3';
+    if (hop.fiber_cable_url) {
+      const fcLink = document.createElement('a');
+      fcLink.href = hop.fiber_cable_url;
+      fcLink.className = 'btn btn-sm btn-outline-primary';
+      fcLink.textContent = 'View Fiber Cable';
+      links.appendChild(fcLink);
+    }
+    body.appendChild(links);
+  }
+
+  private clearSidebar(): void {
+    const panel = document.getElementById('trace-detail-panel');
+    if (panel) {
+      panel.replaceChildren();
+      const wrapper = document.createElement('div');
+      wrapper.className = 'trace-sidebar-empty';
+      const p = document.createElement('p');
+      p.textContent = 'Click a node to view details';
+      wrapper.appendChild(p);
+      panel.appendChild(wrapper);
+    }
   }
 
   // -------------------------------------------------------------------
