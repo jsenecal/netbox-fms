@@ -19,7 +19,7 @@
                     {% trans "Splice Editor" %}{% if plan %} &mdash; {{ plan.name }}{% endif %}
                 </span>
                 {% if plan %}
-                <span class="badge bg-{{ plan.status }}">{{ plan.get_status_display }}</span>
+                {% include "netbox_fms/inc/splice_plan_status_badge.html" with status=plan.status %}
                 {% endif %}
             </h5>
             <div class="card-body p-0">
