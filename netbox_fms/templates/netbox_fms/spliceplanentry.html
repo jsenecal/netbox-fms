@@ -14,6 +14,10 @@
                     <td>{{ object.plan|linkify }}</td>
                 </tr>
                 <tr>
+                    <th scope="row">{% trans "Tray" %}</th>
+                    <td>{{ object.tray|linkify }}</td>
+                </tr>
+                <tr>
                     <th scope="row">{% trans "Fiber A" %}</th>
                     <td>{{ object.fiber_a|linkify }}</td>
                 </tr>
@@ -22,15 +26,20 @@
                     <td>{{ object.fiber_b|linkify }}</td>
                 </tr>
                 <tr>
-                    <th scope="row">{% trans "Mode Override" %}</th>
-                    <td>{{ object.get_mode_override_display|placeholder }}</td>
-                </tr>
-                <tr>
-                    <th scope="row">{% trans "Cable" %}</th>
-                    <td>{{ object.cable|linkify|placeholder }}</td>
+                    <th scope="row">{% trans "Express" %}</th>
+                    <td>{% if object.is_express %}<span class="text-success"><i class="mdi mdi-check-bold"></i></span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
                 </tr>
             </table>
         </div>
+    </div>
+    <div class="col col-md-6">
+        {% if object.notes %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Notes" %}</h5>
+            <div class="card-body">{{ object.notes|markdown }}</div>
+        </div>
+        {% endif %}
+        {% include 'inc/panels/comments.html' %}
     </div>
 </div>
 {% plugin_full_width_page object %}
