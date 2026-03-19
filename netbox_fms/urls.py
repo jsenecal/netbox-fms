@@ -176,6 +176,17 @@ urlpatterns = [
     path("fiber-circuits/<int:pk>/", views.FiberCircuitView.as_view(), name="fibercircuit"),
     path("fiber-circuits/<int:pk>/edit/", views.FiberCircuitEditView.as_view(), name="fibercircuit_edit"),
     path("fiber-circuits/<int:pk>/delete/", views.FiberCircuitDeleteView.as_view(), name="fibercircuit_delete"),
+    # FiberCircuitPath
+    path("fiber-circuit-paths/", views.FiberCircuitPathListView.as_view(), name="fibercircuitpath_list"),
+    path("fiber-circuit-paths/add/", views.FiberCircuitPathEditView.as_view(), name="fibercircuitpath_add"),
+    path("fiber-circuit-paths/<int:pk>/", include(get_model_urls("netbox_fms", "fibercircuitpath"))),
+    path("fiber-circuit-paths/<int:pk>/", views.FiberCircuitPathView.as_view(), name="fibercircuitpath"),
+    path("fiber-circuit-paths/<int:pk>/edit/", views.FiberCircuitPathEditView.as_view(), name="fibercircuitpath_edit"),
+    path(
+        "fiber-circuit-paths/<int:pk>/delete/",
+        views.FiberCircuitPathDeleteView.as_view(),
+        name="fibercircuitpath_delete",
+    ),
     # Provision Ports
     path("provision-ports/", views.ProvisionPortsView.as_view(), name="provision_ports"),
     # Fiber Overview HTMX actions
