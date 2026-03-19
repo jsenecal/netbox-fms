@@ -20,6 +20,7 @@ from .filters import (
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
+    FiberCircuitPathFilterSet,
     RibbonTemplateFilterSet,
     SlackLoopFilterSet,
     SplicePlanEntryFilterSet,
@@ -45,6 +46,8 @@ from .forms import (
     FiberCircuitFilterForm,
     FiberCircuitForm,
     FiberCircuitImportForm,
+    FiberCircuitPathFilterForm,
+    FiberCircuitPathForm,
     InsertSlackLoopForm,
     LinkTopologyForm,
     ProvisionPortsForm,
@@ -70,6 +73,7 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
+    FiberCircuitPath,
     RibbonTemplate,
     SlackLoop,
     SplicePlan,
@@ -85,6 +89,7 @@ from .tables import (
     ClosureCableEntryTable,
     FiberCableTable,
     FiberCableTypeTable,
+    FiberCircuitPathTable,
     FiberCircuitTable,
     FiberStrandTable,
     RibbonTable,
@@ -882,6 +887,31 @@ class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
     queryset = FiberCircuit.objects.all()
     filterset = FiberCircuitFilterSet
     table = FiberCircuitTable
+
+
+# ---------------------------------------------------------------------------
+# FiberCircuitPath
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuitPathListView(generic.ObjectListView):
+    queryset = FiberCircuitPath.objects.select_related("circuit", "origin", "destination")
+    table = FiberCircuitPathTable
+    filterset = FiberCircuitPathFilterSet
+    filterset_form = FiberCircuitPathFilterForm
+
+
+class FiberCircuitPathView(generic.ObjectView):
+    queryset = FiberCircuitPath.objects.select_related("circuit", "origin", "destination")
+
+
+class FiberCircuitPathEditView(generic.ObjectEditView):
+    queryset = FiberCircuitPath.objects.all()
+    form = FiberCircuitPathForm
+
+
+class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
+    queryset = FiberCircuitPath.objects.all()
 
 
 # ---------------------------------------------------------------------------
