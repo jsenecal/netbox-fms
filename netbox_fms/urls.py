@@ -200,4 +200,10 @@ urlpatterns = [
         views.LinkTopologyView.as_view(),
         name="fiber_overview_link_topology",
     ),
+    # Trace detail HTMX
+    path(
+        "fiber-circuit-paths/<int:pk>/trace-detail/<str:node_type>/<int:object_id>/",
+        views.TraceDetailView.as_view(),
+        name="fibercircuitpath_trace_detail",
+    ),
 ]

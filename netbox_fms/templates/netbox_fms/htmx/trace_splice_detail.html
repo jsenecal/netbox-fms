@@ -1,0 +1,23 @@
+{% load i18n %}
+{% load helpers %}
+<div class="trace-detail-header">
+    <button class="btn btn-sm btn-outline-secondary trace-back-btn" onclick="TraceView.deselectNode()">
+        <i class="mdi mdi-arrow-left"></i> {% trans "Back" %}
+    </button>
+</div>
+<div class="trace-detail-body">
+    <h6>{{ splice_entry.plan.name }}</h6>
+    <span class="badge bg-warning text-dark">{% trans "Splice" %}</span>
+    <table class="table table-sm trace-detail-table mt-3">
+        <tr><th>{% trans "Plan Status" %}</th><td>{{ splice_entry.plan.get_status_display }}</td></tr>
+        {% if splice_entry.tray %}
+        <tr><th>{% trans "Tray" %}</th><td>{{ splice_entry.tray.name }}</td></tr>
+        {% endif %}
+        <tr><th>{% trans "Fiber A" %}</th><td>{{ splice_entry.fiber_a }}</td></tr>
+        <tr><th>{% trans "Fiber B" %}</th><td>{{ splice_entry.fiber_b }}</td></tr>
+        <tr><th>{% trans "Type" %}</th><td>{% if splice_entry.is_express %}{% trans "Express" %}{% else %}{% trans "Fusion" %}{% endif %}</td></tr>
+    </table>
+    <div class="mt-3">
+        <a href="{{ splice_entry.plan.get_absolute_url }}" class="btn btn-sm btn-outline-primary">{% trans "View Splice Plan" %} <i class="mdi mdi-open-in-new"></i></a>
+    </div>
+</div>
