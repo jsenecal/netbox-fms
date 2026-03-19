@@ -18,6 +18,10 @@
                     <td>{{ object.buffer_tube|linkify|placeholder }}</td>
                 </tr>
                 <tr>
+                    <th scope="row">{% trans "Ribbon" %}</th>
+                    <td>{{ object.ribbon|linkify|placeholder }}</td>
+                </tr>
+                <tr>
                     <th scope="row">{% trans "Name" %}</th>
                     <td>{{ object.name }}</td>
                 </tr>
@@ -31,6 +35,39 @@
                         {% if object.color %}
                             <span class="color-label" style="background-color: #{{ object.color }}">&nbsp;</span>
                             {{ object.color }}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Port Assignments" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Front Port (A-side)" %}</th>
+                    <td>
+                        {% if object.front_port_a %}
+                            {{ object.front_port_a|linkify }}
+                            {% if object.front_port_a.device %}
+                                <br><small class="text-muted">{{ object.front_port_a.device|linkify }}</small>
+                            {% endif %}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Front Port (B-side)" %}</th>
+                    <td>
+                        {% if object.front_port_b %}
+                            {{ object.front_port_b|linkify }}
+                            {% if object.front_port_b.device %}
+                                <br><small class="text-muted">{{ object.front_port_b.device|linkify }}</small>
+                            {% endif %}
                         {% else %}
                             {{ ''|placeholder }}
                         {% endif %}
