@@ -134,9 +134,7 @@ export class TraceRenderer {
 
   private computeLayout(): void {
     const containerWidth = this.container.clientWidth || 600;
-    // Account for 340px sidebar
-    const availableWidth = Math.max(400, containerWidth - 340);
-    const centerX = availableWidth / 2;
+    const centerX = containerWidth / 2;
 
     this.layout = [];
     let y = TOP_PAD;
@@ -190,7 +188,6 @@ export class TraceRenderer {
     const isDark = document.body.getAttribute('data-bs-theme') === 'dark';
     const colors = getThemeColors(isDark);
     const containerWidth = this.container.clientWidth || 600;
-    const availableWidth = Math.max(400, containerWidth - 340);
 
     // Calculate total SVG height
     const lastEntry = this.layout[this.layout.length - 1];
@@ -203,7 +200,7 @@ export class TraceRenderer {
       .select(this.container)
       .append('svg')
       .attr('class', 'trace-svg')
-      .attr('width', availableWidth)
+      .attr('width', containerWidth)
       .attr('height', totalHeight + extraHeight)
       .style('cursor', 'default');
 
