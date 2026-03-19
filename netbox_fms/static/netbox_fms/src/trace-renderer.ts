@@ -78,6 +78,15 @@ function isClosure(hop: DeviceHop): boolean {
   return !!(hop.ingress || hop.egress);
 }
 
+/** Truncate text to fit within a given pixel width (approximate). */
+function truncateText(text: string, maxWidthPx: number, fontSize: number): string {
+  // Approximate average character width as 0.6 * fontSize
+  const avgCharWidth = fontSize * 0.6;
+  const maxChars = Math.floor(maxWidthPx / avgCharWidth);
+  if (text.length <= maxChars) return text;
+  return text.slice(0, Math.max(1, maxChars - 1)) + '\u2026';
+}
+
 /**
  * D3-based SVG renderer for the fiber circuit path trace visualization.
  *
@@ -245,9 +254,20 @@ export class TraceRenderer {
     const dimmed = this.selectedIndex !== null && !isSelected;
     const closure = isClosure(hop);
 
+    const clipId = 'device-clip-' + index;
+    this.svg.append('defs').append('clipPath')
+      .attr('id', clipId)
+      .append('rect')
+      .attr('x', -4)
+      .attr('y', -4)
+      .attr('width', entry.width + 8)
+      .attr('height', entry.height + 8)
+      .attr('rx', NODE_RX + 2);
+
     const g = this.mainGroup.append('g')
       .attr('class', 'trace-device-node')
       .attr('transform', `translate(${entry.x}, ${entry.y})`)
+      .attr('clip-path', `url(#${clipId})`)
       .style('cursor', 'pointer')
       .style('opacity', dimmed ? 0.5 : 1);
 
@@ -292,7 +312,8 @@ export class TraceRenderer {
       d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1);
     });
 
-    // Device name (bold)
+    // Device name (bold) — truncate to fit within node, with padding
+    const nameMaxWidth = entry.width - 20;
     g.append('text')
       .attr('x', entry.width / 2)
       .attr('y', 22)
@@ -300,7 +321,7 @@ export class TraceRenderer {
       .attr('fill', colors.text)
       .attr('font-size', '13px')
       .attr('font-weight', '600')
-      .text(hop.name);
+      .text(truncateText(hop.name, nameMaxWidth, 13));
 
     // Role + site subtitle
     const subtitleParts: string[] = [];
@@ -313,7 +334,7 @@ export class TraceRenderer {
         .attr('text-anchor', 'middle')
         .attr('fill', colors.subtitleText)
         .attr('font-size', '10px')
-        .text(subtitleParts.join(' \u2022 '));
+        .text(truncateText(subtitleParts.join(' \u2022 '), nameMaxWidth, 10));
     }
 
     // Closure indicator
@@ -341,6 +362,7 @@ export class TraceRenderer {
     colors: ThemeColors,
   ): void {
     let detailY = 62;
+    const detailMaxWidth = entry.width - 28; // 14px padding each side
 
     // Separator line
     g.append('line')
@@ -358,14 +380,14 @@ export class TraceRenderer {
         .attr('y', detailY + 6)
         .attr('fill', colors.subtitleText)
         .attr('font-size', '10px')
-        .text('FP: ' + hop.ports.front_port.name);
+        .text(truncateText('FP: ' + hop.ports.front_port.name, detailMaxWidth, 10));
       if (hop.ports.rear_port) {
         g.append('text')
           .attr('x', 14)
           .attr('y', detailY + 20)
           .attr('fill', colors.subtitleText)
           .attr('font-size', '10px')
-          .text('RP: ' + hop.ports.rear_port.name);
+          .text(truncateText('RP: ' + hop.ports.rear_port.name, detailMaxWidth, 10));
       }
       detailY += 30;
     }
@@ -377,7 +399,7 @@ export class TraceRenderer {
         .attr('y', detailY + 6)
         .attr('fill', colors.subtitleText)
         .attr('font-size', '10px')
-        .text('In: ' + hop.ingress.front_port.name);
+        .text(truncateText('In: ' + hop.ingress.front_port.name, detailMaxWidth, 10));
       detailY += 14;
     }
     if (hop.egress) {
@@ -386,7 +408,7 @@ export class TraceRenderer {
         .attr('y', detailY + 6)
         .attr('fill', colors.subtitleText)
         .attr('font-size', '10px')
-        .text('Out: ' + hop.egress.front_port.name);
+        .text(truncateText('Out: ' + hop.egress.front_port.name, detailMaxWidth, 10));
       detailY += 14;
     }
 
@@ -399,14 +421,14 @@ export class TraceRenderer {
         .attr('fill', colors.subtitleText)
         .attr('font-size', '10px')
         .attr('font-style', 'italic')
-        .text(spliceText);
+        .text(truncateText(spliceText, detailMaxWidth, 10));
       if (hop.splice.tray) {
         g.append('text')
           .attr('x', 14)
           .attr('y', detailY + 20)
           .attr('fill', colors.subtitleText)
           .attr('font-size', '10px')
-          .text('Tray: ' + hop.splice.tray);
+          .text(truncateText('Tray: ' + hop.splice.tray, detailMaxWidth, 10));
       }
     }
   }
@@ -426,8 +448,19 @@ export class TraceRenderer {
     const dimmed = this.selectedIndex !== null && !isSelected;
 
     const centerX = entry.x + entry.width / 2;
+
+    const clipId = 'cable-clip-' + index;
+    this.svg.append('defs').append('clipPath')
+      .attr('id', clipId)
+      .append('rect')
+      .attr('x', entry.x - 10)
+      .attr('y', entry.y - 4)
+      .attr('width', entry.width + 20)
+      .attr('height', entry.height + 8);
+
     const g = this.mainGroup.append('g')
       .attr('class', 'trace-cable-edge')
+      .attr('clip-path', `url(#${clipId})`)
       .style('cursor', 'pointer')
       .style('opacity', dimmed ? 0.5 : 1);
 
@@ -459,9 +492,11 @@ export class TraceRenderer {
     // Label badge — near top when expanded, centered when collapsed
     const badgeY = entry.expanded ? entry.y + 24 : entry.y + entry.height / 2;
     const labelText = hop.label || 'Cable';
+    const maxBadgeWidth = entry.width - 20;
+    const truncatedLabel = truncateText(labelText, maxBadgeWidth - 20, 11);
 
-    // Badge background
-    const badgeWidth = Math.max(80, labelText.length * 7 + 20);
+    // Badge background — cap width to node width
+    const badgeWidth = Math.min(maxBadgeWidth, Math.max(80, truncatedLabel.length * 7 + 20));
     g.append('rect')
       .attr('x', centerX - badgeWidth / 2)
       .attr('y', badgeY - 12)
@@ -480,7 +515,7 @@ export class TraceRenderer {
       .attr('fill', colors.text)
       .attr('font-size', '11px')
       .attr('font-weight', '500')
-      .text(labelText);
+      .text(truncatedLabel);
 
     // Strand count + fiber type badge below label
     const infoParts: string[] = [];
@@ -493,7 +528,7 @@ export class TraceRenderer {
         .attr('text-anchor', 'middle')
         .attr('fill', colors.subtitleText)
         .attr('font-size', '9px')
-        .text(infoParts.join(' \u2022 '));
+        .text(truncateText(infoParts.join(' \u2022 '), maxBadgeWidth, 9));
     }
 
     // Expanded details
@@ -511,6 +546,7 @@ export class TraceRenderer {
     colors: ThemeColors,
   ): void {
     let detailY = badgeY + 36;
+    const cableDetailMaxWidth = entry.width - 20;
 
     // Strand position
     if (hop.strand_position != null) {
@@ -558,7 +594,7 @@ export class TraceRenderer {
         .attr('y', detailY)
         .attr('fill', colors.subtitleText)
         .attr('font-size', '10px')
-        .text('Tube: ' + hop.tube_name);
+        .text(truncateText('Tube: ' + hop.tube_name, cableDetailMaxWidth, 10));
     }
   }
 
