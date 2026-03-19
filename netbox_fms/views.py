@@ -1,4 +1,4 @@
-from dcim.models import Cable, Device
+from dcim.models import Cable, Device, FrontPort
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
@@ -74,6 +74,7 @@ from .models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberStrand,
     RibbonTemplate,
     SlackLoop,
     SplicePlan,
@@ -1350,3 +1351,72 @@ class LinkTopologyView(LoginRequiredMixin, View):
         response = HttpResponse(status=200)
         response["HX-Redirect"] = redirect_url
         return response
+
+
+class TraceDetailView(LoginRequiredMixin, View):
+    """HTMX partial view for trace sidebar detail panels."""
+
+    def get(self, request, pk, node_type, object_id):
+        if not request.user.has_perm("netbox_fms.view_fibercircuitpath"):
+            return HttpResponse("Permission denied", status=403)
+
+        path_obj = get_object_or_404(FiberCircuitPath, pk=pk)
+
+        if node_type == "device":
+            device = get_object_or_404(Device, pk=object_id)
+            has_splice_plans = SplicePlan.objects.filter(closure=device).exists()
+            return render(
+                request,
+                "netbox_fms/htmx/trace_device_detail.html",
+                {
+                    "device": device,
+                    "path": path_obj,
+                    "has_splice_plans": has_splice_plans,
+                },
+            )
+
+        elif node_type == "cable":
+            cable = get_object_or_404(Cable, pk=object_id)
+            fiber_cable = FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+            return render(
+                request,
+                "netbox_fms/htmx/trace_cable_detail.html",
+                {
+                    "cable": cable,
+                    "fiber_cable": fiber_cable,
+                    "path": path_obj,
+                },
+            )
+
+        elif node_type == "port":
+            port = get_object_or_404(FrontPort, pk=object_id)
+            strand = (
+                FiberStrand.objects.filter(models.Q(front_port_a=port) | models.Q(front_port_b=port))
+                .select_related("buffer_tube")
+                .first()
+            )
+            return render(
+                request,
+                "netbox_fms/htmx/trace_port_detail.html",
+                {
+                    "port": port,
+                    "strand": strand,
+                    "path": path_obj,
+                },
+            )
+
+        elif node_type == "splice":
+            splice_entry = get_object_or_404(
+                SplicePlanEntry.objects.select_related("plan", "tray", "fiber_a", "fiber_b"),
+                pk=object_id,
+            )
+            return render(
+                request,
+                "netbox_fms/htmx/trace_splice_detail.html",
+                {
+                    "splice_entry": splice_entry,
+                    "path": path_obj,
+                },
+            )
+
+        return HttpResponse("Unknown node type", status=400)
