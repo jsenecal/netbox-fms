@@ -107,6 +107,7 @@ export class TraceRenderer {
   render(): void {
     this.computeLayout();
     this.drawSvg();
+    this.renderSidebarList();
   }
 
   // -------------------------------------------------------------------
@@ -621,6 +622,125 @@ export class TraceRenderer {
   }
 
   // -------------------------------------------------------------------
+  // Sidebar list (default view — all hops with search)
+  // -------------------------------------------------------------------
+
+  private renderSidebarList(): void {
+    const panel = document.getElementById('trace-detail-panel');
+    if (!panel) return;
+    panel.replaceChildren();
+
+    // Search bar
+    const searchBar = document.createElement('div');
+    searchBar.className = 'trace-search-bar';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'form-control form-control-sm';
+    searchInput.placeholder = 'Search nodes...';
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase().trim();
+      const items = listEl.querySelectorAll('.trace-list-item');
+      items.forEach((item) => {
+        const text = (item as HTMLElement).dataset.searchText || '';
+        (item as HTMLElement).style.display = text.includes(query) ? '' : 'none';
+      });
+    });
+    searchBar.appendChild(searchInput);
+    panel.appendChild(searchBar);
+
+    // Stats bar
+    const stats = document.createElement('div');
+    stats.className = 'trace-stats-bar';
+    const deviceCount = this.data.hops.filter(h => h.type === 'device').length;
+    const cableCount = this.data.hops.filter(h => h.type === 'cable').length;
+    stats.textContent = deviceCount + ' devices \u00b7 ' + cableCount + ' cables';
+    panel.appendChild(stats);
+
+    // List container
+    const listEl = document.createElement('div');
+    listEl.className = 'trace-feature-list';
+
+    for (let i = 0; i < this.data.hops.length; i++) {
+      const hop = this.data.hops[i];
+      const item = document.createElement('div');
+      item.className = 'trace-list-item';
+      if (this.selectedIndex === i) item.classList.add('active');
+
+      const searchText = this.getHopSearchText(hop);
+      item.dataset.searchText = searchText;
+      item.dataset.index = String(i);
+
+      // Type dot
+      const dot = document.createElement('span');
+      dot.className = 'trace-list-dot';
+      if (isDeviceHop(hop)) {
+        dot.style.background = isClosure(hop) ? '#4caf50' : '#2196f3';
+      } else {
+        dot.style.background = '#ff9800';
+      }
+      item.appendChild(dot);
+
+      // Name
+      const name = document.createElement('span');
+      name.className = 'trace-list-name';
+      if (isDeviceHop(hop)) {
+        name.textContent = hop.name;
+      } else if (isCableHop(hop)) {
+        name.textContent = hop.label || 'Cable';
+      }
+      item.appendChild(name);
+
+      // Type badge
+      const badge = document.createElement('span');
+      badge.className = 'trace-list-badge';
+      if (isDeviceHop(hop)) {
+        badge.textContent = isClosure(hop) ? 'closure' : 'device';
+      } else {
+        badge.textContent = 'cable';
+      }
+      item.appendChild(badge);
+
+      // Subtitle (role/site for devices, fiber type for cables)
+      const subtitle = document.createElement('div');
+      subtitle.className = 'trace-list-subtitle';
+      if (isDeviceHop(hop)) {
+        const parts: string[] = [];
+        if (hop.role) parts.push(hop.role);
+        if (hop.site) parts.push(hop.site);
+        subtitle.textContent = parts.join(' \u00b7 ');
+      } else if (isCableHop(hop)) {
+        const parts: string[] = [];
+        if (hop.strand_count) parts.push(hop.strand_count + 'F');
+        if (hop.fiber_type) parts.push(hop.fiber_type);
+        subtitle.textContent = parts.join(' \u00b7 ');
+      }
+      if (subtitle.textContent) item.appendChild(subtitle);
+
+      // Click handler
+      item.addEventListener('click', () => {
+        this.selectNode(i);
+      });
+
+      listEl.appendChild(item);
+    }
+
+    panel.appendChild(listEl);
+  }
+
+  private getHopSearchText(hop: Hop): string {
+    const parts: string[] = [];
+    if (isDeviceHop(hop)) {
+      parts.push(hop.name, hop.role || '', hop.site || '', 'device');
+      if (isClosure(hop)) parts.push('closure');
+      if (hop.splice) parts.push(hop.splice.plan_name, 'splice');
+    } else if (isCableHop(hop)) {
+      parts.push(hop.label || '', hop.fiber_type || '', 'cable');
+      if (hop.tube_name) parts.push(hop.tube_name);
+    }
+    return parts.join(' ').toLowerCase();
+  }
+
+  // -------------------------------------------------------------------
   // Sidebar detail rendering (client-side, like netbox-pathways)
   // -------------------------------------------------------------------
 
@@ -801,16 +921,7 @@ export class TraceRenderer {
   }
 
   private clearSidebar(): void {
-    const panel = document.getElementById('trace-detail-panel');
-    if (panel) {
-      panel.replaceChildren();
-      const wrapper = document.createElement('div');
-      wrapper.className = 'trace-sidebar-empty';
-      const p = document.createElement('p');
-      p.textContent = 'Click a node to view details';
-      wrapper.appendChild(p);
-      panel.appendChild(wrapper);
-    }
+    this.renderSidebarList();
   }
 
   // -------------------------------------------------------------------
