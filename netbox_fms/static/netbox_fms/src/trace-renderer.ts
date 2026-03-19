@@ -456,8 +456,8 @@ export class TraceRenderer {
       d3.select(this).select('line').attr('stroke-width', lineWidth);
     });
 
-    // Label badge
-    const badgeY = entry.y + entry.height / 2;
+    // Label badge — near top when expanded, centered when collapsed
+    const badgeY = entry.expanded ? entry.y + 24 : entry.y + entry.height / 2;
     const labelText = hop.label || 'Cable';
 
     // Badge background
