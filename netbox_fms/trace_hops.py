@@ -143,7 +143,7 @@ def build_hops(path_entries):
                         h["splice"] = {
                             "id": se.pk,
                             "plan_name": se.plan.name,
-                            "tray": se.tray.name if se.tray else None,
+                            "tray": str(se.tray) if se.tray else None,
                             "is_express": se.is_express,
                         }
                         break

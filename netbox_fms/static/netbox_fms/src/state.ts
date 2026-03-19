@@ -380,6 +380,7 @@ export class EditorState {
             planSplicedTo: s.plan_spliced_to,
             isProtected: s.protected,
             circuitName: s.circuit_name,
+            circuitUrl: s.circuit_url,
             tubeId: tube.id,
             parentTubeNode: tubeNode,
           });
@@ -406,6 +407,7 @@ export class EditorState {
           planSplicedTo: s.plan_spliced_to,
           isProtected: s.protected,
           circuitName: s.circuit_name,
+          circuitUrl: s.circuit_url,
           tubeId: undefined,
           parentTubeNode: undefined,
         });
