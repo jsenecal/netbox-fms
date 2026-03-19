@@ -18,11 +18,14 @@
                     <td>{{ object.name }}</td>
                 </tr>
                 <tr>
-                    <th scope="row">{% trans "Element Type" %}</th>
+                    <th scope="row">{% trans "Type" %}</th>
                     <td>{{ object.get_element_type_display }}</td>
                 </tr>
             </table>
         </div>
+    </div>
+    <div class="col col-md-6">
+        {% include 'inc/panels/comments.html' %}
     </div>
 </div>
 {% plugin_full_width_page object %}
