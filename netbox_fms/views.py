@@ -216,6 +216,28 @@ class FiberCableTypeCableElementsView(FiberCableTypeComponentsView):
     )
 
 
+@register_model_view(FiberCableType, "instances", path="instances")
+class FiberCableTypeInstancesView(generic.ObjectChildrenView):
+    queryset = FiberCableType.objects.all()
+    child_model = FiberCable
+    table = FiberCableTable
+    viewname = "plugins:netbox_fms:fibercabletype_instances"
+    tab = ViewTab(
+        label=_("Instances"),
+        badge=lambda obj: FiberCable.objects.filter(fiber_cable_type=obj).count(),
+        weight=530,
+        hide_if_empty=True,
+    )
+
+    def get_children(self, request, parent):
+        return FiberCable.objects.restrict(request.user, "view").filter(fiber_cable_type=parent)
+
+    def get_extra_context(self, request, instance):
+        return {
+            "return_url": reverse(self.viewname, kwargs={"pk": instance.pk}),
+        }
+
+
 # ---------------------------------------------------------------------------
 # FiberCableType component bulk edit/delete views
 # ---------------------------------------------------------------------------
@@ -625,6 +647,18 @@ class ClosureCableEntryListView(generic.ObjectListView):
 
 class ClosureCableEntryView(generic.ObjectView):
     queryset = ClosureCableEntry.objects.all()
+
+    def get_extra_context(self, request, instance):
+        strand_info = None
+        if instance.fiber_cable:
+            from django.db.models import Q
+
+            total = instance.fiber_cable.fiber_strands.count()
+            linked = instance.fiber_cable.fiber_strands.filter(
+                Q(front_port_a__device=instance.closure) | Q(front_port_b__device=instance.closure)
+            ).count()
+            strand_info = {"linked": linked, "total": total}
+        return {"strand_info": strand_info}
 
 
 class ClosureCableEntryEditView(generic.ObjectEditView):
