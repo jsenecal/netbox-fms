@@ -93,7 +93,7 @@
 window.TRACE_VIEW_CONFIG = {
     pathId: {{ object.pk }},
     traceUrl: '/api/plugins/fms/fiber-circuit-paths/{{ object.pk }}/trace/',
-    detailBaseUrl: '/plugins/netbox-fms/fiber-circuit-paths/{{ object.pk }}/trace-detail/',
+    detailBaseUrl: '/plugins/fms/fiber-circuit-paths/{{ object.pk }}/trace-detail/',
     circuitName: '{{ object.circuit.name|escapejs }}',
     pathPosition: {{ object.position }},
 };
