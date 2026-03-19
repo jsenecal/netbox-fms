@@ -5,6 +5,7 @@ declare const d3: typeof import('d3');
 declare const htmx: any;
 
 const config = (window as unknown as { TRACE_VIEW_CONFIG?: TraceConfig }).TRACE_VIEW_CONFIG;
+console.log('[trace-view] config:', config);
 if (config) {
   initTraceView(config);
 }
@@ -17,23 +18,32 @@ async function initTraceView(config: TraceConfig): Promise<void> {
 
   // Wait for tab activation before initializing
   const tabBtn = document.getElementById('trace-tab-btn');
+  console.log('[trace-view] tabBtn:', tabBtn, 'hash:', window.location.hash);
   if (tabBtn) {
-    tabBtn.addEventListener('shown.bs.tab', () => loadAndRender(), { once: true });
+    tabBtn.addEventListener('shown.bs.tab', () => {
+      console.log('[trace-view] shown.bs.tab fired, calling loadAndRender');
+      loadAndRender();
+    }, { once: true });
     // If trace tab is directly activated via URL hash
     if (window.location.hash === '#trace') {
+      console.log('[trace-view] clicking tab for #trace hash');
       tabBtn.click();
     }
   } else {
+    console.log('[trace-view] no tabBtn, calling loadAndRender directly');
     await loadAndRender();
   }
 
   async function loadAndRender(): Promise<void> {
+    console.log('[trace-view] loadAndRender called, fetching:', config.traceUrl);
     try {
       const resp = await fetch(config.traceUrl, {
         headers: { 'Accept': 'application/json' },
       });
+      console.log('[trace-view] fetch response:', resp.status);
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data: TraceResponse = await resp.json();
+      console.log('[trace-view] data:', data.hops.length, 'hops, container width:', container.clientWidth);
 
       // Clear loading spinner safely
       while (container.firstChild) {
