@@ -1,0 +1,85 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load i18n %}
+{% load static %}
+
+{% block content %}
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details" type="button" role="tab">
+            {% trans "Details" %}
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-trace" type="button" role="tab" id="trace-tab-btn">
+            {% trans "Trace" %}
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="tab-details" role="tabpanel">
+        <div class="row mb-3">
+            <div class="col col-md-6">
+                <div class="card">
+                    <h5 class="card-header">{% trans "Fiber Circuit Path" %}</h5>
+                    <table class="table table-hover attr-table">
+                        <tr>
+                            <th scope="row">{% trans "Circuit" %}</th>
+                            <td>{{ object.circuit|linkify }}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Position" %}</th>
+                            <td>{{ object.position }}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Origin" %}</th>
+                            <td>{{ object.origin|linkify }}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Destination" %}</th>
+                            <td>{% if object.destination %}{{ object.destination|linkify }}{% else %}&mdash;{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Complete" %}</th>
+                            <td>{{ object.is_complete|yesno }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            <div class="col col-md-6">
+                <div class="card">
+                    <h5 class="card-header">{% trans "Optical Parameters" %}</h5>
+                    <table class="table table-hover attr-table">
+                        <tr>
+                            <th scope="row">{% trans "Calculated Loss (dB)" %}</th>
+                            <td>{% if object.calculated_loss_db is not None %}{{ object.calculated_loss_db }}{% else %}&mdash;{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Actual Loss (dB)" %}</th>
+                            <td>{% if object.actual_loss_db is not None %}{{ object.actual_loss_db }}{% else %}&mdash;{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Wavelength (nm)" %}</th>
+                            <td>{% if object.wavelength_nm %}{{ object.wavelength_nm }}{% else %}&mdash;{% endif %}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-trace" role="tabpanel">
+        {% include "netbox_fms/fibercircuitpath_trace_tab.html" %}
+    </div>
+</div>
+
+{% plugin_full_width_page object %}
+{% endblock %}
+
+{% block javascript %}
+{{ block.super }}
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="{% static 'netbox_fms/dist/trace-view.min.js' %}"></script>
+{% endblock %}

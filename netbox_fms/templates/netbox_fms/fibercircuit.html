@@ -58,6 +58,7 @@
                             <th>{% trans "Calculated Loss (dB)" %}</th>
                             <th>{% trans "Actual Loss (dB)" %}</th>
                             <th>{% trans "Wavelength (nm)" %}</th>
+                            <th>{% trans "Trace" %}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -70,6 +71,7 @@
                             <td>{% if path.calculated_loss_db is not None %}{{ path.calculated_loss_db }}{% else %}&mdash;{% endif %}</td>
                             <td>{% if path.actual_loss_db is not None %}{{ path.actual_loss_db }}{% else %}&mdash;{% endif %}</td>
                             <td>{% if path.wavelength_nm %}{{ path.wavelength_nm }}{% else %}&mdash;{% endif %}</td>
+                            <td><a href="{{ path.get_absolute_url }}#trace" class="btn btn-sm btn-outline-secondary">{% trans "Trace" %}</a></td>
                         </tr>
                         {% endfor %}
                     </tbody>
