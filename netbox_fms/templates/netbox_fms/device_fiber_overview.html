@@ -28,7 +28,7 @@
                     </div>
                     <div class="col">
                         {% if plan %}
-                            <h4><span class="badge bg-{{ plan.status }}">{{ plan.get_status_display }}</span></h4>
+                            <h4>{% include "netbox_fms/inc/splice_plan_status_badge.html" with status=plan.status %}</h4>
                         {% else %}
                             <h4><span class="text-muted">{% trans "None" %}</span></h4>
                         {% endif %}
@@ -75,7 +75,7 @@
                 {% if plan %}
                     <p>
                         <strong>{{ plan.name }}</strong>
-                        <span class="badge bg-{{ plan.status }}">{{ plan.get_status_display }}</span>
+                        {% include "netbox_fms/inc/splice_plan_status_badge.html" with status=plan.status %}
                     </p>
                     <a href="{{ plan.get_absolute_url }}" class="btn btn-sm btn-outline-primary">
                         <i class="mdi mdi-eye"></i> {% trans "View Plan" %}
