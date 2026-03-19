@@ -21,6 +21,7 @@ from ..filters import (
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
+    FiberCircuitPathFilterSet,
     FiberStrandFilterSet,
     RibbonFilterSet,
     RibbonTemplateFilterSet,
@@ -318,6 +319,27 @@ class FiberCircuitViewSet(NetBoxModelViewSet):
 class FiberCircuitPathViewSet(NetBoxModelViewSet):
     queryset = FiberCircuitPath.objects.prefetch_related("tags")
     serializer_class = FiberCircuitPathSerializer
+    filterset_class = FiberCircuitPathFilterSet
+
+    @action(detail=True, methods=["get"], url_path="trace")
+    def trace(self, request, pk=None):
+        from ..trace_hops import build_hops
+
+        path_obj = self.get_object()
+        hops = build_hops(path_obj.path)
+        return Response(
+            {
+                "circuit_id": path_obj.circuit_id,
+                "circuit_name": path_obj.circuit.name,
+                "circuit_url": path_obj.circuit.get_absolute_url(),
+                "path_position": path_obj.position,
+                "is_complete": path_obj.is_complete,
+                "total_calculated_loss_db": str(path_obj.calculated_loss_db) if path_obj.calculated_loss_db else None,
+                "total_actual_loss_db": str(path_obj.actual_loss_db) if path_obj.actual_loss_db else None,
+                "wavelength_nm": path_obj.wavelength_nm,
+                "hops": hops,
+            }
+        )
 
 
 class FiberCircuitNodeViewSet(ModelViewSet):
