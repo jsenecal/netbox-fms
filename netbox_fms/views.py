@@ -14,13 +14,17 @@ from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
 from .filters import (
+    BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
+    CableElementFilterSet,
     CableElementTemplateFilterSet,
     ClosureCableEntryFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
     FiberCircuitPathFilterSet,
+    FiberStrandFilterSet,
+    RibbonFilterSet,
     RibbonTemplateFilterSet,
     SlackLoopFilterSet,
     SplicePlanEntryFilterSet,
@@ -67,7 +71,9 @@ from .forms import (
     SpliceProjectForm,
 )
 from .models import (
+    BufferTube,
     BufferTubeTemplate,
+    CableElement,
     CableElementTemplate,
     ClosureCableEntry,
     FiberCable,
@@ -75,6 +81,7 @@ from .models import (
     FiberCircuit,
     FiberCircuitPath,
     FiberStrand,
+    Ribbon,
     RibbonTemplate,
     SlackLoop,
     SplicePlan,
@@ -337,24 +344,9 @@ class FiberCableListView(generic.ObjectListView):
     filterset_form = FiberCableFilterForm
 
 
+@register_model_view(FiberCable)
 class FiberCableView(generic.ObjectView):
     queryset = FiberCable.objects.all()
-
-    def get_extra_context(self, request, instance):
-        tubes_table = BufferTubeTable(instance.buffer_tubes.all())
-        tubes_table.configure(request)
-        ribbons_table = RibbonTable(instance.ribbons.all())
-        ribbons_table.configure(request)
-        strands_table = FiberStrandTable(instance.fiber_strands.all())
-        strands_table.configure(request)
-        elements_table = CableElementTable(instance.cable_elements.all())
-        elements_table.configure(request)
-        return {
-            "tubes_table": tubes_table,
-            "ribbons_table": ribbons_table,
-            "strands_table": strands_table,
-            "elements_table": elements_table,
-        }
 
 
 class FiberCableEditView(generic.ObjectEditView):
@@ -382,6 +374,84 @@ class FiberCableBulkDeleteView(generic.BulkDeleteView):
     queryset = FiberCable.objects.all()
     filterset = FiberCableFilterSet
     table = FiberCableTable
+
+
+# ---------------------------------------------------------------------------
+# FiberCable component tab views
+# ---------------------------------------------------------------------------
+
+
+class FiberCableComponentsView(generic.ObjectChildrenView):
+    queryset = FiberCable.objects.all()
+    actions = (EditObject, DeleteObject, BulkDelete)
+    viewname = None
+
+    def get_children(self, request, parent):
+        return self.child_model.objects.restrict(request.user, "view").filter(fiber_cable=parent)
+
+    def get_extra_context(self, request, instance):
+        return {
+            "return_url": reverse(self.viewname, kwargs={"pk": instance.pk}),
+        }
+
+
+@register_model_view(FiberCable, "buffertubes", path="buffer-tubes")
+class FiberCableBufferTubesView(FiberCableComponentsView):
+    child_model = BufferTube
+    table = BufferTubeTable
+    filterset = BufferTubeFilterSet
+    viewname = "plugins:netbox_fms:fibercable_buffertubes"
+    tab = ViewTab(
+        label=_("Buffer Tubes"),
+        badge=lambda obj: obj.buffer_tubes.count(),
+        permission="netbox_fms.view_buffertube",
+        weight=500,
+        hide_if_empty=True,
+    )
+
+
+@register_model_view(FiberCable, "ribbons", path="ribbons")
+class FiberCableRibbonsView(FiberCableComponentsView):
+    child_model = Ribbon
+    table = RibbonTable
+    filterset = RibbonFilterSet
+    viewname = "plugins:netbox_fms:fibercable_ribbons"
+    tab = ViewTab(
+        label=_("Ribbons"),
+        badge=lambda obj: obj.ribbons.count(),
+        permission="netbox_fms.view_ribbon",
+        weight=510,
+        hide_if_empty=True,
+    )
+
+
+@register_model_view(FiberCable, "strands", path="strands")
+class FiberCableStrandsView(FiberCableComponentsView):
+    child_model = FiberStrand
+    table = FiberStrandTable
+    filterset = FiberStrandFilterSet
+    viewname = "plugins:netbox_fms:fibercable_strands"
+    tab = ViewTab(
+        label=_("Fiber Strands"),
+        badge=lambda obj: obj.fiber_strands.count(),
+        permission="netbox_fms.view_fiberstrand",
+        weight=520,
+    )
+
+
+@register_model_view(FiberCable, "cableelements", path="cable-elements")
+class FiberCableCableElementsView(FiberCableComponentsView):
+    child_model = CableElement
+    table = CableElementTable
+    filterset = CableElementFilterSet
+    viewname = "plugins:netbox_fms:fibercable_cableelements"
+    tab = ViewTab(
+        label=_("Cable Elements"),
+        badge=lambda obj: obj.cable_elements.count(),
+        permission="netbox_fms.view_cableelement",
+        weight=530,
+        hide_if_empty=True,
+    )
 
 
 # ---------------------------------------------------------------------------

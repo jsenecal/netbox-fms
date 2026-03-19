@@ -1,8 +1,15 @@
 {% extends 'generic/object.html' %}
 {% load helpers %}
 {% load plugins %}
-{% load render_table from django_tables2 %}
 {% load i18n %}
+
+{% block extra_controls %}
+    {% if perms.dcim.add_frontport %}
+    <a href="{% url 'plugins:netbox_fms:provision_ports' %}?fiber_cable={{ object.pk }}" class="btn btn-outline-primary">
+        <i class="mdi mdi-ethernet"></i> {% trans "Provision Ports" %}
+    </a>
+    {% endif %}
+{% endblock extra_controls %}
 
 {% block content %}
 <div class="row mb-3">
@@ -53,48 +60,6 @@
         </div>
     </div>
 </div>
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header">{% trans "Buffer Tubes" %}</h5>
-            <div class="card-body table-responsive">
-                {% render_table tubes_table %}
-            </div>
-        </div>
-    </div>
-</div>
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header">{% trans "Ribbons" %}</h5>
-            <div class="card-body table-responsive">
-                {% render_table ribbons_table %}
-            </div>
-        </div>
-    </div>
-</div>
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header">{% trans "Fiber Strands" %}</h5>
-            <div class="card-body table-responsive">
-                {% render_table strands_table %}
-            </div>
-        </div>
-    </div>
-</div>
-{% if elements_table.rows|length %}
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header">{% trans "Cable Elements" %}</h5>
-            <div class="card-body table-responsive">
-                {% render_table elements_table %}
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
 {% if object.notes %}
 <div class="row mb-3">
     <div class="col col-md-12">
