@@ -35,6 +35,7 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
+    FiberCircuitPath,
     RibbonTemplate,
     SlackLoop,
     SplicePlan,
@@ -707,6 +708,47 @@ class FiberCircuitFilterForm(NetBoxModelFilterSetForm):
     )
 
     fieldsets = (FieldSet("q", "status", "tenant_id"),)
+
+
+# ---------------------------------------------------------------------------
+# FiberCircuitPath
+# ---------------------------------------------------------------------------
+
+
+class FiberCircuitPathForm(NetBoxModelForm):
+    circuit = DynamicModelChoiceField(
+        queryset=FiberCircuit.objects.all(),
+        label=_("Circuit"),
+    )
+
+    fieldsets = (
+        FieldSet("circuit", "position", "origin", "destination", name=_("Path")),
+        FieldSet("calculated_loss_db", "actual_loss_db", "wavelength_nm", name=_("Optical Parameters")),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = FiberCircuitPath
+        fields = (
+            "circuit",
+            "position",
+            "origin",
+            "destination",
+            "calculated_loss_db",
+            "actual_loss_db",
+            "wavelength_nm",
+            "tags",
+        )
+
+
+class FiberCircuitPathFilterForm(NetBoxModelFilterSetForm):
+    model = FiberCircuitPath
+    circuit_id = DynamicModelChoiceField(
+        queryset=FiberCircuit.objects.all(),
+        required=False,
+        label=_("Circuit"),
+    )
+    is_complete = forms.NullBooleanField(required=False, label=_("Complete"))
 
 
 # ---------------------------------------------------------------------------

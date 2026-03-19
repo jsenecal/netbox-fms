@@ -26,6 +26,7 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
+    FiberCircuitPath,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -383,3 +384,21 @@ class FiberCircuitFilterSet(NetBoxModelFilterSet):
         return queryset.filter(
             models.Q(name__icontains=value) | models.Q(cid__icontains=value) | models.Q(description__icontains=value)
         )
+
+
+class FiberCircuitPathFilterSet(NetBoxModelFilterSet):
+    circuit_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=FiberCircuit.objects.all(),
+        field_name="circuit",
+        label=_("Circuit (ID)"),
+    )
+    is_complete = django_filters.BooleanFilter()
+
+    class Meta:
+        model = FiberCircuitPath
+        fields = ("id", "circuit", "position", "is_complete", "wavelength_nm")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(circuit__name__icontains=value) | models.Q(circuit__cid__icontains=value))
