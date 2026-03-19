@@ -11,6 +11,7 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
+    FiberCircuitPath,
     FiberStrand,
     Ribbon,
     RibbonTemplate,
@@ -415,3 +416,27 @@ class FiberCircuitTable(NetBoxTable):
         model = FiberCircuit
         fields = ("pk", "name", "cid", "status", "strand_count", "tenant", "path_count", "actions")
         default_columns = ("pk", "name", "cid", "status", "strand_count", "tenant", "actions")
+
+
+class FiberCircuitPathTable(NetBoxTable):
+    circuit = tables.Column(linkify=True)
+    position = tables.Column()
+    origin = tables.Column(linkify=True)
+    destination = tables.Column(linkify=True)
+    is_complete = columns.BooleanColumn()
+
+    class Meta(NetBoxTable.Meta):
+        model = FiberCircuitPath
+        fields = (
+            "pk",
+            "id",
+            "circuit",
+            "position",
+            "origin",
+            "destination",
+            "is_complete",
+            "calculated_loss_db",
+            "actual_loss_db",
+            "wavelength_nm",
+        )
+        default_columns = ("circuit", "position", "origin", "destination", "is_complete")
