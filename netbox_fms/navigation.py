@@ -25,6 +25,45 @@ menu = PluginMenu(
                         ),
                     ),
                 ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:buffertubetemplate_list",
+                    link_text="Buffer Tube Templates",
+                    permissions=["netbox_fms.view_buffertubetemplate"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:buffertubetemplate_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_buffertubetemplate"],
+                        ),
+                    ),
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:ribbontemplate_list",
+                    link_text="Ribbon Templates",
+                    permissions=["netbox_fms.view_ribbontemplate"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:ribbontemplate_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_ribbontemplate"],
+                        ),
+                    ),
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:cableelementtemplate_list",
+                    link_text="Cable Element Templates",
+                    permissions=["netbox_fms.view_cableelementtemplate"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:cableelementtemplate_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_cableelementtemplate"],
+                        ),
+                    ),
+                ),
             ),
         ),
         (
@@ -97,6 +136,11 @@ menu = PluginMenu(
                         ),
                     ),
                 ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:fibercircuitpath_list",
+                    link_text="Fiber Circuit Paths",
+                    permissions=["netbox_fms.view_fibercircuitpath"],
+                ),
             ),
         ),
         (
@@ -125,6 +169,24 @@ menu = PluginMenu(
                             title="Add",
                             icon_class="mdi mdi-plus-thick",
                             permissions=["netbox_fms.add_spliceplan"],
+                        ),
+                    ),
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:spliceplanentry_list",
+                    link_text="Splice Plan Entries",
+                    permissions=["netbox_fms.view_spliceplanentry"],
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:closurecableentry_list",
+                    link_text="Closure Cable Entries",
+                    permissions=["netbox_fms.view_closurecableentry"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:closurecableentry_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_closurecableentry"],
                         ),
                     ),
                 ),
