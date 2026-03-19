@@ -29,6 +29,7 @@ function makeStrand(overrides: Partial<StrandData> & { id: number }): StrandData
     plan_spliced_to: null,
     protected: false,
     circuit_name: null,
+    circuit_url: null,
     ...overrides,
   };
 }
