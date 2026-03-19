@@ -483,7 +483,7 @@ class ClosureStrandsAPIView(APIView):
                 if s.front_port_b_id:
                     all_tray_fp_ids.add(s.front_port_b_id)
 
-        protection_lookup = {}  # front_port_id -> circuit name
+        protection_lookup = {}  # front_port_id -> (circuit_name, circuit_url)
         if all_tray_fp_ids:
             protected_nodes = (
                 FiberCircuitNode.objects.filter(front_port_id__in=all_tray_fp_ids)
@@ -491,7 +491,8 @@ class ClosureStrandsAPIView(APIView):
                 .select_related("path__circuit")
             )
             for node in protected_nodes:
-                protection_lookup[node.front_port_id] = node.path.circuit.name
+                circuit = node.path.circuit
+                protection_lookup[node.front_port_id] = (circuit.name, circuit.get_absolute_url())
 
         # --- D) Build front_port_id → strand_id reverse mapping ---
         fp_to_strand = {}
@@ -516,7 +517,9 @@ class ClosureStrandsAPIView(APIView):
                 live_strand = fp_to_strand.get(live_fp) if live_fp else None
                 plan_info = plan_lookup.get(local_fp_id, (None, None))
                 plan_strand = fp_to_strand.get(plan_info[1]) if plan_info[1] else None
-                circuit_name = protection_lookup.get(local_fp_id)
+                circuit_info = protection_lookup.get(local_fp_id)
+                circuit_name = circuit_info[0] if circuit_info else None
+                circuit_url = circuit_info[1] if circuit_info else None
                 strand_data = {
                     "id": s.pk,
                     "name": s.name,
@@ -532,6 +535,7 @@ class ClosureStrandsAPIView(APIView):
                     "plan_spliced_to": plan_strand,
                     "protected": circuit_name is not None,
                     "circuit_name": circuit_name,
+                    "circuit_url": circuit_url,
                 }
                 if s.buffer_tube:
                     tube_id = s.buffer_tube.pk

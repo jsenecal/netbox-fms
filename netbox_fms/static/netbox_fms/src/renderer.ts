@@ -428,7 +428,7 @@ export class SpliceRenderer {
         .text('R');
     }
 
-    // Lock icon for protected strands
+    // Lock icon + circuit name link for protected strands
     if (isProtected) {
       const lockX = side === 'left' ? dotX - 16 : dotX + 16;
       sg.append('text')
@@ -439,6 +439,33 @@ export class SpliceRenderer {
         .attr('fill', '#dc3545')
         .attr('opacity', 0.8)
         .text('\uD83D\uDD12');
+
+      if (node.circuitName) {
+        const circuitX = side === 'left' ? lockX - 12 : lockX + 12;
+        const circuitAnchor = side === 'left' ? 'end' : 'start';
+        if (node.circuitUrl) {
+          const linkEl = sg.append('a')
+            .attr('href', node.circuitUrl)
+            .attr('target', '_self');
+          linkEl.append('text')
+            .attr('x', circuitX)
+            .attr('y', node.y + 3)
+            .attr('text-anchor', circuitAnchor)
+            .attr('font-size', '9px')
+            .attr('fill', getComputedStyle(document.body).getPropertyValue('--bs-link-color').trim() || '#0d6efd')
+            .attr('cursor', 'pointer')
+            .text(node.circuitName);
+        } else {
+          sg.append('text')
+            .attr('x', circuitX)
+            .attr('y', node.y + 3)
+            .attr('text-anchor', circuitAnchor)
+            .attr('font-size', '9px')
+            .attr('fill', '#dc3545')
+            .attr('opacity', 0.7)
+            .text(node.circuitName);
+        }
+      }
     }
 
     // Hover title
