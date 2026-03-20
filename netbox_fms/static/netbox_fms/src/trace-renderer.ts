@@ -3,15 +3,16 @@ declare const d3: any;
 import type { TraceConfig, TraceResponse, Hop, DeviceHop, CableHop } from './trace-types';
 
 // Layout constants
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 56;
+const NODE_WIDTH = 280;
+const CABLE_WIDTH = 240;
+const NODE_HEIGHT = 64;
 const NODE_RX = 8;
-const EDGE_HEIGHT = 80;
+const EDGE_HEIGHT = 90;
 const TOP_PAD = 30;
 
-const EXPANDED_ENDPOINT_HEIGHT = 100;
-const EXPANDED_CLOSURE_HEIGHT = 160;
-const EXPANDED_CABLE_HEIGHT = 120;
+// Base heights for expanded nodes before detail content
+const EXPANDED_BASE_DEVICE = 62; // up to separator line
+const EXPANDED_BASE_CABLE = 60;  // badge area (badgeY=24, info at +20, details start at +36)
 
 /** Internal layout entry for each hop. */
 interface LayoutEntry {
@@ -80,8 +81,8 @@ function isClosure(hop: DeviceHop): boolean {
 
 /** Truncate text to fit within a given pixel width (approximate). */
 function truncateText(text: string, maxWidthPx: number, fontSize: number): string {
-  // Approximate average character width as 0.6 * fontSize
-  const avgCharWidth = fontSize * 0.6;
+  // Conservative estimate: average char width ~0.65 * fontSize for mixed-case text
+  const avgCharWidth = fontSize * 0.65;
   const maxChars = Math.floor(maxWidthPx / avgCharWidth);
   if (text.length <= maxChars) return text;
   return text.slice(0, Math.max(1, maxChars - 1)) + '\u2026';
@@ -155,19 +156,22 @@ export class TraceRenderer {
 
       if (expanded) {
         if (isDeviceHop(hop)) {
-          height = isClosure(hop) ? EXPANDED_CLOSURE_HEIGHT : EXPANDED_ENDPOINT_HEIGHT;
+          height = this.calcExpandedDeviceHeight(hop);
+        } else if (isCableHop(hop)) {
+          height = this.calcExpandedCableHeight(hop);
         } else {
-          height = EXPANDED_CABLE_HEIGHT;
+          height = EDGE_HEIGHT;
         }
       } else {
         height = isDeviceHop(hop) ? NODE_HEIGHT : EDGE_HEIGHT;
       }
 
+      const w = isCableHop(hop) ? CABLE_WIDTH : NODE_WIDTH;
       this.layout.push({
         hop,
-        x: centerX - NODE_WIDTH / 2,
+        x: centerX - w / 2,
         y,
-        width: NODE_WIDTH,
+        width: w,
         height,
         expanded,
       });
@@ -181,6 +185,38 @@ export class TraceRenderer {
         // Small gap after cable edges before next device
       }
     }
+  }
+
+  /** Calculate expanded height for a device node based on its content. */
+  private calcExpandedDeviceHeight(hop: DeviceHop): number {
+    let h = EXPANDED_BASE_DEVICE; // includes name, subtitle, separator
+    if (hop.ports) {
+      h += 16; // front port line
+      if (hop.ports.rear_port) h += 14;
+      h += 14; // spacing after ports block
+    }
+    if (hop.ingress) h += 14;
+    if (hop.egress) h += 14;
+    if (hop.splice) {
+      h += 14; // splice text
+      if (hop.splice.tray) h += 14;
+    }
+    return Math.max(NODE_HEIGHT, h + 10); // 10px bottom padding
+  }
+
+  /** Calculate expanded height for a cable edge based on its content. */
+  private calcExpandedCableHeight(hop: CableHop): number {
+    // Single box: label (20) + info (16 if present) + separator (6) + detail rows (18 each) + padding (16)
+    const hasInfo = !!(hop.strand_count || hop.fiber_type);
+    let contentHeight = 20; // label
+    if (hasInfo) contentHeight += 16;
+    let rowCount = 0;
+    if (hop.strand_position != null) rowCount++;
+    if (hop.strand_color) rowCount++;
+    if (hop.tube_name) rowCount++;
+    if (rowCount > 0) contentHeight += 6 + rowCount * 18; // separator + rows
+    const boxHeight = contentHeight + 16; // padding
+    return Math.max(EDGE_HEIGHT, boxHeight + 20); // 20px margin around box
   }
 
   // -------------------------------------------------------------------
@@ -312,11 +348,22 @@ export class TraceRenderer {
       d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1);
     });
 
-    // Device name (bold) — truncate to fit within node, with padding
+    // Vertically center text block in collapsed node
     const nameMaxWidth = entry.width - 20;
+    const hasSubtitle = !!(hop.role || hop.site);
+    // Line heights: name=16, subtitle=14, closure=12
+    let textBlockHeight = 16;
+    if (hasSubtitle) textBlockHeight += 14;
+    if (closure) textBlockHeight += 12;
+    // When expanded, pin text to top (same as before)
+    const collapsedHeight = NODE_HEIGHT;
+    const textStartY = entry.expanded
+      ? 22
+      : (collapsedHeight - textBlockHeight) / 2 + 14;
+
     g.append('text')
       .attr('x', entry.width / 2)
-      .attr('y', 22)
+      .attr('y', textStartY)
       .attr('text-anchor', 'middle')
       .attr('fill', colors.text)
       .attr('font-size', '13px')
@@ -327,10 +374,10 @@ export class TraceRenderer {
     const subtitleParts: string[] = [];
     if (hop.role) subtitleParts.push(hop.role);
     if (hop.site) subtitleParts.push(hop.site);
-    if (subtitleParts.length > 0) {
+    if (hasSubtitle) {
       g.append('text')
         .attr('x', entry.width / 2)
-        .attr('y', 38)
+        .attr('y', textStartY + 16)
         .attr('text-anchor', 'middle')
         .attr('fill', colors.subtitleText)
         .attr('font-size', '10px')
@@ -339,9 +386,10 @@ export class TraceRenderer {
 
     // Closure indicator
     if (closure) {
+      const closureY = hasSubtitle ? textStartY + 28 : textStartY + 14;
       g.append('text')
         .attr('x', entry.width / 2)
-        .attr('y', 50)
+        .attr('y', closureY)
         .attr('text-anchor', 'middle')
         .attr('fill', colors.subtitleText)
         .attr('font-size', '9px')
@@ -362,7 +410,7 @@ export class TraceRenderer {
     colors: ThemeColors,
   ): void {
     let detailY = 62;
-    const detailMaxWidth = entry.width - 28; // 14px padding each side
+    const detailMaxWidth = entry.width - 28;
 
     // Separator line
     g.append('line')
@@ -489,114 +537,139 @@ export class TraceRenderer {
       d3.select(this).select('line').attr('stroke-width', lineWidth);
     });
 
-    // Label badge — near top when expanded, centered when collapsed
-    const badgeY = entry.expanded ? entry.y + 24 : entry.y + entry.height / 2;
+    // Cable box — single container for all content, resizes when expanded
     const labelText = hop.label || 'Cable';
-    const maxBadgeWidth = entry.width - 20;
-    const truncatedLabel = truncateText(labelText, maxBadgeWidth - 20, 11);
+    const boxWidth = entry.width;
+    const truncatedLabel = truncateText(labelText, boxWidth - 24, 12);
 
-    // Badge background — cap width to node width
-    const badgeWidth = Math.min(maxBadgeWidth, Math.max(80, truncatedLabel.length * 7 + 20));
+    // Calculate text block height to center within edge area
+    const hasInfo = !!(hop.strand_count || hop.fiber_type);
+    const LINE_LABEL = 16;
+    const LINE_INFO = 14;
+    let textBlockHeight = LINE_LABEL; // label
+    if (hasInfo) textBlockHeight += LINE_INFO;
+    if (entry.expanded) {
+      const sep = 10;
+      let detailRows = 0;
+      if (hop.strand_position != null) detailRows++;
+      if (hop.strand_color) detailRows++;
+      if (hop.tube_name) detailRows++;
+      if (detailRows > 0) textBlockHeight += sep + detailRows * 18;
+    }
+    const boxPad = 12;
+    const boxHeight = textBlockHeight + boxPad * 2;
+    const boxTop = entry.y + (entry.height - boxHeight) / 2;
+
+    // Box background
     g.append('rect')
-      .attr('x', centerX - badgeWidth / 2)
-      .attr('y', badgeY - 12)
-      .attr('width', badgeWidth)
-      .attr('height', 24)
-      .attr('rx', 4)
+      .attr('x', entry.x)
+      .attr('y', boxTop)
+      .attr('width', boxWidth)
+      .attr('height', boxHeight)
+      .attr('rx', NODE_RX)
       .attr('fill', colors.badgeFill)
       .attr('stroke', isSelected ? colors.selectedStroke : colors.cableLine)
       .attr('stroke-width', isSelected ? 1.5 : 0.5);
 
+    // Hover effect on box
+    g.on('mouseover', function () {
+      d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1.5);
+    });
+    g.on('mouseout', function () {
+      d3.select(this).select('rect').attr('stroke-width', isSelected ? 1.5 : 0.5);
+    });
+
+    let textY = boxTop + boxPad + 12; // baseline of first text line
+
     // Label text
     g.append('text')
       .attr('x', centerX)
-      .attr('y', badgeY + 4)
+      .attr('y', textY)
       .attr('text-anchor', 'middle')
       .attr('fill', colors.text)
-      .attr('font-size', '11px')
+      .attr('font-size', '12px')
       .attr('font-weight', '500')
       .text(truncatedLabel);
+    textY += LINE_INFO;
 
-    // Strand count + fiber type badge below label
-    const infoParts: string[] = [];
-    if (hop.strand_count) infoParts.push(hop.strand_count + 'F');
-    if (hop.fiber_type) infoParts.push(hop.fiber_type);
-    if (infoParts.length > 0) {
+    // Strand count + fiber type
+    if (hasInfo) {
+      const infoParts: string[] = [];
+      if (hop.strand_count) infoParts.push(hop.strand_count + 'F');
+      if (hop.fiber_type) infoParts.push(hop.fiber_type);
       g.append('text')
         .attr('x', centerX)
-        .attr('y', badgeY + 20)
+        .attr('y', textY)
         .attr('text-anchor', 'middle')
         .attr('fill', colors.subtitleText)
-        .attr('font-size', '9px')
-        .text(truncateText(infoParts.join(' \u2022 '), maxBadgeWidth, 9));
+        .attr('font-size', '10px')
+        .text(truncateText(infoParts.join(' \u2022 '), boxWidth - 24, 10));
+      textY += 16;
     }
 
-    // Expanded details
+    // Expanded details — rendered inside the same box
     if (entry.expanded) {
-      this.drawExpandedCable(g, entry, hop, centerX, badgeY, colors);
-    }
-  }
+      // Separator
+      g.append('line')
+        .attr('x1', entry.x + 12)
+        .attr('y1', textY - 4)
+        .attr('x2', entry.x + boxWidth - 12)
+        .attr('y2', textY - 4)
+        .attr('stroke', colors.subtitleText)
+        .attr('stroke-opacity', 0.3);
+      textY += 6;
 
-  private drawExpandedCable(
-    g: any,
-    entry: LayoutEntry,
-    hop: CableHop,
-    centerX: number,
-    badgeY: number,
-    colors: ThemeColors,
-  ): void {
-    let detailY = badgeY + 36;
-    const cableDetailMaxWidth = entry.width - 20;
+      const detailMaxWidth = boxWidth - 40;
 
-    // Strand position
-    if (hop.strand_position != null) {
-      g.append('text')
-        .attr('x', centerX)
-        .attr('y', detailY)
-        .attr('text-anchor', 'middle')
-        .attr('fill', colors.subtitleText)
-        .attr('font-size', '10px')
-        .text('Strand #' + hop.strand_position);
-      detailY += 14;
-    }
+      if (hop.strand_position != null) {
+        g.append('text')
+          .attr('x', centerX)
+          .attr('y', textY)
+          .attr('text-anchor', 'middle')
+          .attr('fill', colors.subtitleText)
+          .attr('font-size', '10px')
+          .text('Strand #' + hop.strand_position);
+        textY += 18;
+      }
 
-    // Strand color dot
-    if (hop.strand_color) {
-      g.append('circle')
-        .attr('cx', centerX - 20)
-        .attr('cy', detailY - 4)
-        .attr('r', 5)
-        .attr('fill', '#' + hop.strand_color)
-        .attr('stroke', colors.cableLine)
-        .attr('stroke-width', 1);
-      g.append('text')
-        .attr('x', centerX - 10)
-        .attr('y', detailY)
-        .attr('fill', colors.subtitleText)
-        .attr('font-size', '10px')
-        .text('strand color');
-      detailY += 14;
-    }
-
-    // Tube info
-    if (hop.tube_name) {
-      if (hop.tube_color) {
+      if (hop.strand_color) {
         g.append('circle')
-          .attr('cx', centerX - 20)
-          .attr('cy', detailY - 4)
+          .attr('cx', entry.x + 20)
+          .attr('cy', textY - 4)
           .attr('r', 5)
-          .attr('fill', '#' + hop.tube_color)
+          .attr('fill', '#' + hop.strand_color)
           .attr('stroke', colors.cableLine)
           .attr('stroke-width', 1);
+        g.append('text')
+          .attr('x', entry.x + 30)
+          .attr('y', textY)
+          .attr('fill', colors.subtitleText)
+          .attr('font-size', '10px')
+          .text('strand color');
+        textY += 18;
       }
-      g.append('text')
-        .attr('x', centerX - 10)
-        .attr('y', detailY)
-        .attr('fill', colors.subtitleText)
-        .attr('font-size', '10px')
-        .text(truncateText('Tube: ' + hop.tube_name, cableDetailMaxWidth, 10));
+
+      if (hop.tube_name) {
+        if (hop.tube_color) {
+          g.append('circle')
+            .attr('cx', entry.x + 20)
+            .attr('cy', textY - 4)
+            .attr('r', 5)
+            .attr('fill', '#' + hop.tube_color)
+            .attr('stroke', colors.cableLine)
+            .attr('stroke-width', 1);
+        }
+        g.append('text')
+          .attr('x', entry.x + 30)
+          .attr('y', textY)
+          .attr('fill', colors.subtitleText)
+          .attr('font-size', '10px')
+          .text(truncateText('Tube: ' + hop.tube_name, detailMaxWidth, 10));
+      }
     }
   }
+
+
 
   // -------------------------------------------------------------------
   // Incomplete path indicator
