@@ -88,7 +88,7 @@ class WdmNodeIndex(SearchIndex):
     """Search index for WdmNode."""
 
     model = WdmNode
-    fields = (("device__name", 100),)
+    fields = (("description", 500),)
     display_attrs = ("device", "node_type", "grid")
 
 
