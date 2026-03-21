@@ -33,6 +33,12 @@ from .filters import (
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
     SpliceProjectFilterSet,
+    WavelengthChannelFilterSet,
+    WavelengthServiceFilterSet,
+    WdmChannelTemplateFilterSet,
+    WdmDeviceTypeProfileFilterSet,
+    WdmNodeFilterSet,
+    WdmTrunkPortFilterSet,
 )
 from .forms import (
     BufferTubeTemplateBulkEditForm,
@@ -72,6 +78,20 @@ from .forms import (
     SplicePlanImportForm,
     SpliceProjectFilterForm,
     SpliceProjectForm,
+    WavelengthChannelBulkEditForm,
+    WavelengthChannelFilterForm,
+    WavelengthChannelForm,
+    WavelengthServiceFilterForm,
+    WavelengthServiceForm,
+    WavelengthServiceImportForm,
+    WdmChannelTemplateForm,
+    WdmDeviceTypeProfileFilterForm,
+    WdmDeviceTypeProfileForm,
+    WdmDeviceTypeProfileImportForm,
+    WdmNodeFilterForm,
+    WdmNodeForm,
+    WdmNodeImportForm,
+    WdmTrunkPortForm,
 )
 from .models import (
     BufferTube,
@@ -91,6 +111,12 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    WavelengthChannel,
+    WavelengthService,
+    WdmChannelTemplate,
+    WdmDeviceTypeProfile,
+    WdmNode,
+    WdmTrunkPort,
 )
 from .services import (
     NeedsMappingConfirmation,
@@ -116,6 +142,12 @@ from .tables import (
     SplicePlanEntryTable,
     SplicePlanTable,
     SpliceProjectTable,
+    WavelengthChannelTable,
+    WavelengthServiceTable,
+    WdmChannelTemplateTable,
+    WdmDeviceTypeProfileTable,
+    WdmNodeTable,
+    WdmTrunkPortTable,
 )
 
 # ---------------------------------------------------------------------------
@@ -1704,3 +1736,331 @@ class TraceDetailView(LoginRequiredMixin, View):
             )
 
         return HttpResponse("Unknown node type", status=400)
+
+
+# ---------------------------------------------------------------------------
+# WDM Device Type Profile
+# ---------------------------------------------------------------------------
+
+
+class WdmDeviceTypeProfileListView(generic.ObjectListView):
+    """List all WDM device type profiles."""
+
+    queryset = WdmDeviceTypeProfile.objects.select_related("device_type")
+    table = WdmDeviceTypeProfileTable
+    filterset = WdmDeviceTypeProfileFilterSet
+    filterset_form = WdmDeviceTypeProfileFilterForm
+
+
+@register_model_view(WdmDeviceTypeProfile)
+class WdmDeviceTypeProfileView(generic.ObjectView):
+    """Display a single WDM device type profile."""
+
+    queryset = WdmDeviceTypeProfile.objects.all()
+
+
+class WdmDeviceTypeProfileEditView(generic.ObjectEditView):
+    """Handle WDM device type profile creation and editing."""
+
+    queryset = WdmDeviceTypeProfile.objects.all()
+    form = WdmDeviceTypeProfileForm
+
+
+class WdmDeviceTypeProfileDeleteView(generic.ObjectDeleteView):
+    """Delete a WDM device type profile."""
+
+    queryset = WdmDeviceTypeProfile.objects.all()
+
+
+class WdmDeviceTypeProfileBulkImportView(generic.BulkImportView):
+    """Bulk import WDM device type profiles from CSV."""
+
+    queryset = WdmDeviceTypeProfile.objects.all()
+    model_form = WdmDeviceTypeProfileImportForm
+
+
+class WdmDeviceTypeProfileBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete WDM device type profiles."""
+
+    queryset = WdmDeviceTypeProfile.objects.all()
+    filterset = WdmDeviceTypeProfileFilterSet
+    table = WdmDeviceTypeProfileTable
+
+
+# ---------------------------------------------------------------------------
+# WDM Device Type Profile component tab views
+# ---------------------------------------------------------------------------
+
+
+@register_model_view(WdmDeviceTypeProfile, "channel_templates", path="channel-templates")
+class WdmDeviceTypeProfileChannelTemplatesView(generic.ObjectChildrenView):
+    """Display channel templates for a WDM device type profile."""
+
+    queryset = WdmDeviceTypeProfile.objects.all()
+    child_model = WdmChannelTemplate
+    table = WdmChannelTemplateTable
+    filterset = WdmChannelTemplateFilterSet
+    actions = (EditObject, DeleteObject, BulkDelete)
+    tab = ViewTab(
+        label=_("Channel Templates"),
+        badge=lambda obj: obj.channel_templates.count(),
+        permission="netbox_fms.view_wdmchanneltemplate",
+        weight=500,
+    )
+
+    def get_children(self, request, parent):
+        """Return channel templates filtered by parent profile."""
+        return self.child_model.objects.restrict(request.user, "view").filter(profile=parent)
+
+
+# ---------------------------------------------------------------------------
+# WDM Channel Template
+# ---------------------------------------------------------------------------
+
+
+@register_model_view(WdmChannelTemplate)
+class WdmChannelTemplateView(generic.ObjectView):
+    """Display a single WDM channel template."""
+
+    queryset = WdmChannelTemplate.objects.all()
+
+
+class WdmChannelTemplateEditView(generic.ObjectEditView):
+    """Handle WDM channel template creation and editing."""
+
+    queryset = WdmChannelTemplate.objects.all()
+    form = WdmChannelTemplateForm
+
+
+class WdmChannelTemplateDeleteView(generic.ObjectDeleteView):
+    """Delete a WDM channel template."""
+
+    queryset = WdmChannelTemplate.objects.all()
+
+
+# ---------------------------------------------------------------------------
+# WDM Node
+# ---------------------------------------------------------------------------
+
+
+class WdmNodeListView(generic.ObjectListView):
+    """List all WDM nodes."""
+
+    queryset = WdmNode.objects.select_related("device")
+    table = WdmNodeTable
+    filterset = WdmNodeFilterSet
+    filterset_form = WdmNodeFilterForm
+
+
+@register_model_view(WdmNode)
+class WdmNodeView(generic.ObjectView):
+    """Display a single WDM node with channel and trunk port counts."""
+
+    queryset = WdmNode.objects.all()
+
+    def get_extra_context(self, request, instance):
+        """Return channel and trunk port counts for the WDM node."""
+        return {
+            "channel_count": instance.channels.count(),
+            "trunk_port_count": instance.trunk_ports.count(),
+        }
+
+
+class WdmNodeEditView(generic.ObjectEditView):
+    """Handle WDM node creation and editing."""
+
+    queryset = WdmNode.objects.all()
+    form = WdmNodeForm
+
+
+class WdmNodeDeleteView(generic.ObjectDeleteView):
+    """Delete a WDM node."""
+
+    queryset = WdmNode.objects.all()
+
+
+class WdmNodeBulkImportView(generic.BulkImportView):
+    """Bulk import WDM nodes from CSV."""
+
+    queryset = WdmNode.objects.all()
+    model_form = WdmNodeImportForm
+
+
+class WdmNodeBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete WDM nodes."""
+
+    queryset = WdmNode.objects.all()
+    filterset = WdmNodeFilterSet
+    table = WdmNodeTable
+
+
+# ---------------------------------------------------------------------------
+# WDM Node component tab views
+# ---------------------------------------------------------------------------
+
+
+@register_model_view(WdmNode, "channels", path="channels")
+class WdmNodeChannelsView(generic.ObjectChildrenView):
+    """Display wavelength channels for a WDM node."""
+
+    queryset = WdmNode.objects.all()
+    child_model = WavelengthChannel
+    table = WavelengthChannelTable
+    filterset = WavelengthChannelFilterSet
+    actions = (EditObject, DeleteObject, BulkDelete)
+    tab = ViewTab(
+        label=_("Channels"),
+        badge=lambda obj: obj.channels.count(),
+        permission="netbox_fms.view_wavelengthchannel",
+        weight=500,
+    )
+
+    def get_children(self, request, parent):
+        """Return channels filtered by parent WDM node."""
+        return self.child_model.objects.restrict(request.user, "view").filter(wdm_node=parent)
+
+
+@register_model_view(WdmNode, "trunk_ports", path="trunk-ports")
+class WdmNodeTrunkPortsView(generic.ObjectChildrenView):
+    """Display trunk ports for a WDM node."""
+
+    queryset = WdmNode.objects.all()
+    child_model = WdmTrunkPort
+    table = WdmTrunkPortTable
+    filterset = WdmTrunkPortFilterSet
+    actions = (EditObject, DeleteObject, BulkDelete)
+    tab = ViewTab(
+        label=_("Trunk Ports"),
+        badge=lambda obj: obj.trunk_ports.count(),
+        permission="netbox_fms.view_wdmtrunkport",
+        weight=510,
+    )
+
+    def get_children(self, request, parent):
+        """Return trunk ports filtered by parent WDM node."""
+        return self.child_model.objects.restrict(request.user, "view").filter(wdm_node=parent)
+
+
+# ---------------------------------------------------------------------------
+# WDM Trunk Port
+# ---------------------------------------------------------------------------
+
+
+@register_model_view(WdmTrunkPort)
+class WdmTrunkPortView(generic.ObjectView):
+    """Display a single WDM trunk port."""
+
+    queryset = WdmTrunkPort.objects.all()
+
+
+class WdmTrunkPortEditView(generic.ObjectEditView):
+    """Handle WDM trunk port creation and editing."""
+
+    queryset = WdmTrunkPort.objects.all()
+    form = WdmTrunkPortForm
+
+
+class WdmTrunkPortDeleteView(generic.ObjectDeleteView):
+    """Delete a WDM trunk port."""
+
+    queryset = WdmTrunkPort.objects.all()
+
+
+# ---------------------------------------------------------------------------
+# Wavelength Channel
+# ---------------------------------------------------------------------------
+
+
+class WavelengthChannelListView(generic.ObjectListView):
+    """List all wavelength channels."""
+
+    queryset = WavelengthChannel.objects.select_related("wdm_node", "front_port")
+    table = WavelengthChannelTable
+    filterset = WavelengthChannelFilterSet
+    filterset_form = WavelengthChannelFilterForm
+
+
+@register_model_view(WavelengthChannel)
+class WavelengthChannelView(generic.ObjectView):
+    """Display a single wavelength channel."""
+
+    queryset = WavelengthChannel.objects.all()
+
+
+class WavelengthChannelEditView(generic.ObjectEditView):
+    """Handle wavelength channel creation and editing."""
+
+    queryset = WavelengthChannel.objects.all()
+    form = WavelengthChannelForm
+
+
+class WavelengthChannelDeleteView(generic.ObjectDeleteView):
+    """Delete a wavelength channel."""
+
+    queryset = WavelengthChannel.objects.all()
+
+
+class WavelengthChannelBulkEditView(generic.BulkEditView):
+    """Bulk edit wavelength channels."""
+
+    queryset = WavelengthChannel.objects.all()
+    filterset = WavelengthChannelFilterSet
+    table = WavelengthChannelTable
+    form = WavelengthChannelBulkEditForm
+
+
+class WavelengthChannelBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete wavelength channels."""
+
+    queryset = WavelengthChannel.objects.all()
+    filterset = WavelengthChannelFilterSet
+    table = WavelengthChannelTable
+
+
+# ---------------------------------------------------------------------------
+# Wavelength Service
+# ---------------------------------------------------------------------------
+
+
+class WavelengthServiceListView(generic.ObjectListView):
+    """List all wavelength services."""
+
+    queryset = WavelengthService.objects.all()
+    table = WavelengthServiceTable
+    filterset = WavelengthServiceFilterSet
+    filterset_form = WavelengthServiceFilterForm
+
+
+@register_model_view(WavelengthService)
+class WavelengthServiceView(generic.ObjectView):
+    """Display a single wavelength service."""
+
+    queryset = WavelengthService.objects.all()
+
+
+class WavelengthServiceEditView(generic.ObjectEditView):
+    """Handle wavelength service creation and editing."""
+
+    queryset = WavelengthService.objects.all()
+    form = WavelengthServiceForm
+
+
+class WavelengthServiceDeleteView(generic.ObjectDeleteView):
+    """Delete a wavelength service."""
+
+    queryset = WavelengthService.objects.all()
+
+
+class WavelengthServiceBulkImportView(generic.BulkImportView):
+    """Bulk import wavelength services from CSV."""
+
+    queryset = WavelengthService.objects.all()
+    model_form = WavelengthServiceImportForm
+
+
+class WavelengthServiceBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete wavelength services."""
+
+    queryset = WavelengthService.objects.all()
+    filterset = WavelengthServiceFilterSet
+    table = WavelengthServiceTable

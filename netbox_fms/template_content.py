@@ -1,6 +1,6 @@
 from netbox.plugins import PluginTemplateExtension
 
-from .models import FiberCable
+from .models import FiberCable, WdmNode
 
 
 class CableFiberCablePanel(PluginTemplateExtension):
@@ -23,4 +23,20 @@ class CableFiberCablePanel(PluginTemplateExtension):
         )
 
 
-template_extensions = [CableFiberCablePanel]
+class DeviceWdmNodePanel(PluginTemplateExtension):
+    """Template extension that adds a WDM node panel to the Device detail view."""
+
+    models = ["dcim.device"]
+
+    def right_page(self):
+        device = self.context["object"]
+        wdm_node = WdmNode.objects.filter(device=device).first()
+        if not wdm_node:
+            return ""
+        return self.render(
+            "netbox_fms/inc/device_wdm_panel.html",
+            extra_context={"wdm_node": wdm_node},
+        )
+
+
+template_extensions = [CableFiberCablePanel, DeviceWdmNodePanel]
