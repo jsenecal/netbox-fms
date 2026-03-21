@@ -2038,6 +2038,26 @@ class WavelengthServiceView(generic.ObjectView):
     queryset = WavelengthService.objects.all()
 
 
+@register_model_view(WavelengthService, "trace", path="trace")
+class WavelengthServiceTraceView(generic.ObjectView):
+    """Stitched wavelength path trace visualization."""
+
+    queryset = WavelengthService.objects.all()
+    tab = ViewTab(
+        label=_("Trace"),
+        permission="netbox_fms.view_wavelengthservice",
+        weight=500,
+    )
+
+    def get_template_name(self):
+        """Return the trace tab template."""
+        return "netbox_fms/wavelengthservice_trace_tab.html"
+
+    def get_extra_context(self, request, instance):
+        """Return the stitched path for the trace tab."""
+        return {"stitched_path": instance.get_stitched_path()}
+
+
 class WavelengthServiceEditView(generic.ObjectEditView):
     """Handle wavelength service creation and editing."""
 
