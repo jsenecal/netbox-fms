@@ -4,6 +4,9 @@ from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPor
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
+from .choices import SplicePlanStatusChoices
+from .models import FiberCable, SplicePlanEntry
+
 
 class NeedsMappingConfirmation(Exception):  # noqa: N818
     """Raised when existing ports are found and need user confirmation."""
@@ -65,8 +68,6 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
     Returns: (FiberCable, warnings_list)
     Raises: NeedsMappingConfirmation if existing ports found without port_mapping
     """
-    from .models import FiberCable
-
     warnings = []
     rp_ct = ContentType.objects.get_for_model(RearPort)
 
@@ -312,10 +313,6 @@ def import_live_state(plan):
     Creates SplicePlanEntry rows for each existing FrontPort<->FrontPort pair.
     Returns the number of entries created.
     """
-    from dcim.models import FrontPort
-
-    from .models import SplicePlanEntry
-
     live = get_live_state(plan.closure)
 
     # Collect unique pairs across all trays
@@ -358,12 +355,6 @@ def apply_diff(plan):
     Execute the diff: create cables for "add", delete cables for "remove".
     Returns {"added": int, "removed": int}.
     """
-    from dcim.models import CableTermination, FrontPort
-    from django.contrib.contenttypes.models import ContentType
-    from django.db import transaction
-
-    from .choices import SplicePlanStatusChoices
-
     diff = compute_diff(plan)
 
     fp_ct = ContentType.objects.get_for_model(FrontPort)

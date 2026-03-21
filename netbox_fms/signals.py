@@ -30,10 +30,12 @@ def _invalidate_plans_for_cable(cable):
 
 
 def _cable_post_save(sender, instance, **kwargs):
+    """Invalidate splice plan diff cache when a cable is saved."""
     _invalidate_plans_for_cable(instance)
 
 
 def _cable_pre_delete(sender, instance, **kwargs):
+    """Invalidate splice plan diff cache before a cable is deleted."""
     _invalidate_plans_for_cable(instance)
 
 

@@ -49,6 +49,8 @@ from .models import (
 
 
 class FiberCableTypeForm(NetBoxModelForm):
+    """Form for creating/editing a FiberCableType."""
+
     manufacturer = DynamicModelChoiceField(
         queryset=Manufacturer.objects.all(),
         label=_("Manufacturer"),
@@ -86,6 +88,8 @@ class FiberCableTypeForm(NetBoxModelForm):
 
 
 class FiberCableTypeImportForm(NetBoxModelImportForm):
+    """Import form for FiberCableType."""
+
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
     construction = forms.ChoiceField(choices=ConstructionChoices)
     fiber_type = forms.ChoiceField(choices=FiberTypeChoices)
@@ -111,6 +115,8 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
 
 
 class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for FiberCableType."""
+
     model = FiberCableType
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all(), required=False)
@@ -128,6 +134,8 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for FiberCableType."""
+
     model = FiberCableType
 
     manufacturer_id = DynamicModelMultipleChoiceField(
@@ -155,6 +163,8 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
 
 
 class BufferTubeTemplateForm(NetBoxModelForm):
+    """Form for creating/editing a BufferTubeTemplate."""
+
     fiber_cable_type = DynamicModelChoiceField(
         queryset=FiberCableType.objects.all(),
         label=_("Fiber Cable Type"),
@@ -182,6 +192,8 @@ class BufferTubeTemplateForm(NetBoxModelForm):
 
 
 class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for BufferTubeTemplate."""
+
     model = BufferTubeTemplate
 
     color = ColorField(required=False)
@@ -198,6 +210,8 @@ class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class RibbonTemplateForm(NetBoxModelForm):
+    """Form for creating/editing a RibbonTemplate."""
+
     fiber_cable_type = DynamicModelChoiceField(
         queryset=FiberCableType.objects.all(),
         label=_("Fiber Cable Type"),
@@ -242,6 +256,8 @@ class RibbonTemplateForm(NetBoxModelForm):
 
 
 class RibbonTemplateBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for RibbonTemplate."""
+
     model = RibbonTemplate
 
     color = ColorField(required=False)
@@ -258,6 +274,8 @@ class RibbonTemplateBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class CableElementTemplateForm(NetBoxModelForm):
+    """Form for creating/editing a CableElementTemplate."""
+
     fiber_cable_type = DynamicModelChoiceField(
         queryset=FiberCableType.objects.all(),
         label=_("Fiber Cable Type"),
@@ -274,6 +292,8 @@ class CableElementTemplateForm(NetBoxModelForm):
 
 
 class CableElementTemplateBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for CableElementTemplate."""
+
     model = CableElementTemplate
 
     element_type = forms.ChoiceField(choices=CableElementTypeChoices, required=False)
@@ -288,6 +308,8 @@ class CableElementTemplateBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class FiberCableForm(NetBoxModelForm):
+    """Form for creating/editing a FiberCable."""
+
     cable = DynamicModelChoiceField(queryset=Cable.objects.all(), label=_("Cable"))
     fiber_cable_type = DynamicModelChoiceField(
         queryset=FiberCableType.objects.all(),
@@ -307,6 +329,8 @@ class FiberCableForm(NetBoxModelForm):
 
 
 class FiberCableImportForm(NetBoxModelImportForm):
+    """Import form for FiberCable."""
+
     cable = DynamicModelChoiceField(queryset=Cable.objects.all())
     fiber_cable_type = DynamicModelChoiceField(queryset=FiberCableType.objects.all())
 
@@ -316,6 +340,8 @@ class FiberCableImportForm(NetBoxModelImportForm):
 
 
 class FiberCableBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for FiberCable."""
+
     model = FiberCable
 
     fiber_cable_type = DynamicModelChoiceField(queryset=FiberCableType.objects.all(), required=False)
@@ -326,6 +352,8 @@ class FiberCableBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class FiberCableFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for FiberCable."""
+
     model = FiberCable
 
     fiber_cable_type_id = DynamicModelMultipleChoiceField(
@@ -346,6 +374,8 @@ class FiberCableFilterForm(NetBoxModelFilterSetForm):
 
 
 class SpliceProjectForm(NetBoxModelForm):
+    """Form for creating/editing a SpliceProject."""
+
     comments = CommentField()
 
     fieldsets = (
@@ -359,12 +389,16 @@ class SpliceProjectForm(NetBoxModelForm):
 
 
 class SpliceProjectImportForm(NetBoxModelImportForm):
+    """Import form for SpliceProject."""
+
     class Meta:
         model = SpliceProject
         fields = ("name", "description")
 
 
 class SpliceProjectBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for SpliceProject."""
+
     model = SpliceProject
     description = forms.CharField(required=False)
     fieldsets = (FieldSet("description"),)
@@ -372,6 +406,8 @@ class SpliceProjectBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class SpliceProjectFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for SpliceProject."""
+
     model = SpliceProject
     fieldsets = (FieldSet("q", "filter_id", "tag"),)
 
@@ -382,6 +418,8 @@ class SpliceProjectFilterForm(NetBoxModelFilterSetForm):
 
 
 class SplicePlanForm(NetBoxModelForm):
+    """Form for creating/editing a SplicePlan."""
+
     closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
     project = DynamicModelChoiceField(
         queryset=SpliceProject.objects.all(),
@@ -402,6 +440,8 @@ class SplicePlanForm(NetBoxModelForm):
 
 
 class SplicePlanImportForm(NetBoxModelImportForm):
+    """Import form for SplicePlan."""
+
     closure = DynamicModelChoiceField(queryset=Device.objects.all())
     status = forms.ChoiceField(choices=SplicePlanStatusChoices)
 
@@ -411,6 +451,8 @@ class SplicePlanImportForm(NetBoxModelImportForm):
 
 
 class SplicePlanBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for SplicePlan."""
+
     model = SplicePlan
 
     status = forms.ChoiceField(choices=SplicePlanStatusChoices, required=False)
@@ -420,6 +462,8 @@ class SplicePlanBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class SplicePlanFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for SplicePlan."""
+
     model = SplicePlan
 
     closure_id = DynamicModelMultipleChoiceField(
@@ -441,6 +485,8 @@ class SplicePlanFilterForm(NetBoxModelFilterSetForm):
 
 
 class SplicePlanEntryForm(NetBoxModelForm):
+    """Form for creating/editing a SplicePlanEntry."""
+
     plan = DynamicModelChoiceField(queryset=SplicePlan.objects.all(), label=_("Plan"))
     tray = DynamicModelChoiceField(queryset=Module.objects.all(), label=_("Tray"))
     fiber_a = DynamicModelChoiceField(queryset=FrontPort.objects.all(), label=_("Fiber A"))
@@ -458,6 +504,8 @@ class SplicePlanEntryForm(NetBoxModelForm):
 
 
 class SplicePlanEntryFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for SplicePlanEntry."""
+
     model = SplicePlanEntry
 
     plan_id = DynamicModelMultipleChoiceField(
@@ -478,6 +526,8 @@ class SplicePlanEntryFilterForm(NetBoxModelFilterSetForm):
 
 
 class ClosureCableEntryForm(NetBoxModelForm):
+    """Form for creating/editing a ClosureCableEntry."""
+
     closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
 
@@ -493,6 +543,8 @@ class ClosureCableEntryForm(NetBoxModelForm):
 
 
 class ClosureCableEntryFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for ClosureCableEntry."""
+
     model = ClosureCableEntry
     closure_id = DynamicModelMultipleChoiceField(
         queryset=Device.objects.all(),
@@ -511,6 +563,8 @@ class ClosureCableEntryFilterForm(NetBoxModelFilterSetForm):
 
 
 class SlackLoopForm(NetBoxModelForm):
+    """Form for creating/editing a SlackLoop."""
+
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
     site = DynamicModelChoiceField(queryset=Site.objects.all(), label=_("Site"))
     location = DynamicModelChoiceField(
@@ -543,6 +597,8 @@ class SlackLoopForm(NetBoxModelForm):
 
 
 class SlackLoopImportForm(NetBoxModelImportForm):
+    """Import form for SlackLoop."""
+
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all())
     length_unit = forms.ChoiceField(choices=CableLengthUnitChoices)
     storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
@@ -562,6 +618,8 @@ class SlackLoopImportForm(NetBoxModelImportForm):
 
 
 class SlackLoopBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for SlackLoop."""
+
     model = SlackLoop
 
     site = DynamicModelChoiceField(queryset=Site.objects.all(), required=False)
@@ -574,6 +632,8 @@ class SlackLoopBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class SlackLoopFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for SlackLoop."""
+
     model = SlackLoop
 
     fiber_cable_id = DynamicModelMultipleChoiceField(
@@ -639,6 +699,8 @@ PORT_TYPE_CHOICES = (
 
 
 class ProvisionPortsForm(forms.Form):
+    """Form for provisioning front/rear ports on a device for a fiber cable."""
+
     fiber_cable = DynamicModelChoiceField(
         queryset=FiberCable.objects.all(),
         label=_("Fiber Cable"),
@@ -663,6 +725,8 @@ class ProvisionPortsForm(forms.Form):
 
 
 class FiberCircuitForm(NetBoxModelForm):
+    """Form for creating/editing a FiberCircuit."""
+
     tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
     comments = CommentField()
 
@@ -677,12 +741,16 @@ class FiberCircuitForm(NetBoxModelForm):
 
 
 class FiberCircuitImportForm(NetBoxModelImportForm):
+    """Import form for FiberCircuit."""
+
     class Meta:
         model = FiberCircuit
         fields = ("name", "cid", "status", "strand_count", "description", "comments")
 
 
 class FiberCircuitBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for FiberCircuit."""
+
     model = FiberCircuit
 
     status = forms.ChoiceField(choices=FiberCircuitStatusChoices, required=False)
@@ -698,6 +766,8 @@ class FiberCircuitBulkEditForm(NetBoxModelBulkEditForm):
 
 
 class FiberCircuitFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for FiberCircuit."""
+
     model = FiberCircuit
 
     status = forms.MultipleChoiceField(choices=FiberCircuitStatusChoices, required=False)
@@ -716,6 +786,8 @@ class FiberCircuitFilterForm(NetBoxModelFilterSetForm):
 
 
 class FiberCircuitPathForm(NetBoxModelForm):
+    """Form for creating/editing a FiberCircuitPath."""
+
     circuit = DynamicModelChoiceField(
         queryset=FiberCircuit.objects.all(),
         label=_("Circuit"),
@@ -742,6 +814,8 @@ class FiberCircuitPathForm(NetBoxModelForm):
 
 
 class FiberCircuitPathFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for FiberCircuitPath."""
+
     model = FiberCircuitPath
     circuit_id = DynamicModelChoiceField(
         queryset=FiberCircuit.objects.all(),
@@ -757,6 +831,8 @@ class FiberCircuitPathFilterForm(NetBoxModelFilterSetForm):
 
 
 class LinkTopologyForm(forms.Form):
+    """Form for selecting a cable type and port type for link topology preview."""
+
     fiber_cable_type = DynamicModelChoiceField(
         queryset=FiberCableType.objects.all(),
         label=_("Fiber Cable Type"),

@@ -38,6 +38,8 @@ from .models import (
 
 
 class FiberCableTypeFilterSet(NetBoxModelFilterSet):
+    """FilterSet for FiberCableType model."""
+
     manufacturer_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Manufacturer.objects.all(),
         field_name="manufacturer",
@@ -87,6 +89,8 @@ class FiberCableTypeFilterSet(NetBoxModelFilterSet):
 
 
 class BufferTubeTemplateFilterSet(NetBoxModelFilterSet):
+    """FilterSet for BufferTubeTemplate model."""
+
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCableType.objects.all(),
         field_name="fiber_cable_type",
@@ -104,6 +108,8 @@ class BufferTubeTemplateFilterSet(NetBoxModelFilterSet):
 
 
 class RibbonTemplateFilterSet(NetBoxModelFilterSet):
+    """FilterSet for RibbonTemplate model."""
+
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCableType.objects.all(),
         field_name="fiber_cable_type",
@@ -126,6 +132,8 @@ class RibbonTemplateFilterSet(NetBoxModelFilterSet):
 
 
 class CableElementTemplateFilterSet(NetBoxModelFilterSet):
+    """FilterSet for CableElementTemplate model."""
+
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCableType.objects.all(),
         field_name="fiber_cable_type",
@@ -143,6 +151,8 @@ class CableElementTemplateFilterSet(NetBoxModelFilterSet):
 
 
 class FiberCableFilterSet(NetBoxModelFilterSet):
+    """FilterSet for FiberCable model."""
+
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCableType.objects.all(),
         field_name="fiber_cable_type",
@@ -170,6 +180,8 @@ class FiberCableFilterSet(NetBoxModelFilterSet):
 
 
 class BufferTubeFilterSet(NetBoxModelFilterSet):
+    """FilterSet for BufferTube model."""
+
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCable.objects.all(),
         field_name="fiber_cable",
@@ -187,6 +199,8 @@ class BufferTubeFilterSet(NetBoxModelFilterSet):
 
 
 class RibbonFilterSet(NetBoxModelFilterSet):
+    """FilterSet for Ribbon model."""
+
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCable.objects.all(),
         field_name="fiber_cable",
@@ -209,6 +223,8 @@ class RibbonFilterSet(NetBoxModelFilterSet):
 
 
 class FiberStrandFilterSet(NetBoxModelFilterSet):
+    """FilterSet for FiberStrand model."""
+
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCable.objects.all(),
         field_name="fiber_cable",
@@ -248,6 +264,8 @@ class FiberStrandFilterSet(NetBoxModelFilterSet):
 
 
 class CableElementFilterSet(NetBoxModelFilterSet):
+    """FilterSet for CableElement model."""
+
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCable.objects.all(),
         field_name="fiber_cable",
@@ -265,6 +283,8 @@ class CableElementFilterSet(NetBoxModelFilterSet):
 
 
 class SpliceProjectFilterSet(NetBoxModelFilterSet):
+    """FilterSet for SpliceProject model."""
+
     class Meta:
         model = SpliceProject
         fields = ("id", "name")
@@ -276,6 +296,8 @@ class SpliceProjectFilterSet(NetBoxModelFilterSet):
 
 
 class SplicePlanFilterSet(NetBoxModelFilterSet):
+    """FilterSet for SplicePlan model."""
+
     closure_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Device.objects.all(),
         field_name="closure",
@@ -299,6 +321,8 @@ class SplicePlanFilterSet(NetBoxModelFilterSet):
 
 
 class SplicePlanEntryFilterSet(NetBoxModelFilterSet):
+    """FilterSet for SplicePlanEntry model."""
+
     plan_id = django_filters.ModelMultipleChoiceFilter(
         queryset=SplicePlan.objects.all(),
         field_name="plan",
@@ -321,6 +345,8 @@ class SplicePlanEntryFilterSet(NetBoxModelFilterSet):
 
 
 class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
+    """FilterSet for ClosureCableEntry model."""
+
     closure_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Device.objects.all(),
         field_name="closure",
@@ -338,6 +364,8 @@ class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
 
 
 class SlackLoopFilterSet(NetBoxModelFilterSet):
+    """FilterSet for SlackLoop model."""
+
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCable.objects.all(),
         field_name="fiber_cable",
@@ -367,6 +395,8 @@ class SlackLoopFilterSet(NetBoxModelFilterSet):
 
 
 class FiberCircuitFilterSet(NetBoxModelFilterSet):
+    """FilterSet for FiberCircuit model."""
+
     status = django_filters.MultipleChoiceFilter(choices=FiberCircuitStatusChoices)
     tenant_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Tenant.objects.all(),
@@ -387,6 +417,8 @@ class FiberCircuitFilterSet(NetBoxModelFilterSet):
 
 
 class FiberCircuitPathFilterSet(NetBoxModelFilterSet):
+    """FilterSet for FiberCircuitPath model."""
+
     circuit_id = django_filters.ModelMultipleChoiceFilter(
         queryset=FiberCircuit.objects.all(),
         field_name="circuit",

@@ -1,3 +1,5 @@
+"""GraphQL schema definition for netbox_fms plugin."""
+
 import strawberry
 import strawberry_django
 
@@ -23,6 +25,8 @@ from .types import (
 
 @strawberry.type(name="Query")
 class NetBoxFMSQuery:
+    """Root GraphQL query type exposing all netbox_fms models."""
+
     fiber_cable_type: FiberCableTypeType = strawberry_django.field()
     fiber_cable_type_list: list[FiberCableTypeType] = strawberry_django.field()
 

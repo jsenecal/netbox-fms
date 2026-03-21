@@ -27,6 +27,8 @@ from .models import (
 
 
 class FiberCableTypeTable(NetBoxTable):
+    """Table for displaying FiberCableType objects."""
+
     pk = columns.ToggleColumn()
     model = tables.Column(linkify=True, verbose_name=_("Model"))
     manufacturer = tables.Column(linkify=True, verbose_name=_("Manufacturer"))
@@ -84,6 +86,8 @@ class FiberCableTypeTable(NetBoxTable):
 
 
 class BufferTubeTemplateTable(NetBoxTable):
+    """Table for displaying BufferTubeTemplate objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Cable Type"))
@@ -120,6 +124,8 @@ class BufferTubeTemplateTable(NetBoxTable):
 
 
 class RibbonTemplateTable(NetBoxTable):
+    """Table for displaying RibbonTemplate objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Cable Type"))
@@ -159,6 +165,8 @@ class RibbonTemplateTable(NetBoxTable):
 
 
 class CableElementTemplateTable(NetBoxTable):
+    """Table for displaying CableElementTemplate objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Cable Type"))
@@ -177,6 +185,8 @@ class CableElementTemplateTable(NetBoxTable):
 
 
 class FiberCableTable(NetBoxTable):
+    """Table for displaying FiberCable objects."""
+
     pk = columns.ToggleColumn()
     cable = tables.Column(linkify=True, verbose_name=_("Cable"))
     fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Type"))
@@ -196,6 +206,8 @@ class FiberCableTable(NetBoxTable):
 
 
 class BufferTubeTable(NetBoxTable):
+    """Table for displaying BufferTube objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     position = tables.Column(verbose_name=_("Position"))
@@ -210,6 +222,8 @@ class BufferTubeTable(NetBoxTable):
 
 
 class RibbonTable(NetBoxTable):
+    """Table for displaying Ribbon objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     position = tables.Column(verbose_name=_("Position"))
@@ -225,6 +239,8 @@ class RibbonTable(NetBoxTable):
 
 
 class FiberStrandTable(NetBoxTable):
+    """Table for displaying FiberStrand objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     position = tables.Column(verbose_name=_("Position"))
@@ -263,6 +279,8 @@ class FiberStrandTable(NetBoxTable):
 
 
 class CableElementTable(NetBoxTable):
+    """Table for displaying CableElement objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     element_type = tables.Column(verbose_name=_("Type"))
@@ -280,6 +298,8 @@ class CableElementTable(NetBoxTable):
 
 
 class SpliceProjectTable(NetBoxTable):
+    """Table for displaying SpliceProject objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     description = tables.Column(verbose_name=_("Description"))
@@ -297,6 +317,8 @@ class SpliceProjectTable(NetBoxTable):
 
 
 class SplicePlanTable(NetBoxTable):
+    """Table for displaying SplicePlan objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     project = tables.Column(linkify=True, verbose_name=_("Project"))
@@ -326,6 +348,8 @@ class SplicePlanTable(NetBoxTable):
 
 
 class SplicePlanEntryTable(NetBoxTable):
+    """Table for displaying SplicePlanEntry objects."""
+
     pk = columns.ToggleColumn()
     plan = tables.Column(linkify=True, verbose_name=_("Plan"))
     tray = tables.Column(linkify=True, verbose_name=_("Tray"))
@@ -341,6 +365,8 @@ class SplicePlanEntryTable(NetBoxTable):
 
 
 class ClosureCableEntryTable(NetBoxTable):
+    """Table for displaying ClosureCableEntry objects."""
+
     pk = columns.ToggleColumn()
     closure = tables.Column(linkify=True, verbose_name=_("Closure"))
     fiber_cable = tables.Column(linkify=True, verbose_name=_("Fiber Cable"))
@@ -359,6 +385,8 @@ class ClosureCableEntryTable(NetBoxTable):
 
 
 class SlackLoopTable(NetBoxTable):
+    """Table for displaying SlackLoop objects."""
+
     pk = columns.ToggleColumn()
     fiber_cable = tables.Column(linkify=True, verbose_name=_("Fiber Cable"))
     site = tables.Column(linkify=True, verbose_name=_("Site"))
@@ -403,6 +431,8 @@ class SlackLoopTable(NetBoxTable):
 
 
 class FiberCircuitTable(NetBoxTable):
+    """Table for displaying FiberCircuit objects."""
+
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     cid = tables.Column(verbose_name=_("Circuit ID"))
@@ -419,6 +449,8 @@ class FiberCircuitTable(NetBoxTable):
 
 
 class FiberCircuitPathTable(NetBoxTable):
+    """Table for displaying FiberCircuitPath objects."""
+
     circuit = tables.Column(linkify=True)
     position = tables.Column()
     origin = tables.Column(linkify=True)

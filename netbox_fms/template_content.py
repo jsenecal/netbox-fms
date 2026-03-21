@@ -4,6 +4,8 @@ from .models import FiberCable
 
 
 class CableFiberCablePanel(PluginTemplateExtension):
+    """Template extension that adds a FiberCable panel to the Cable detail view."""
+
     models = ["dcim.cable"]
 
     def left_page(self):
