@@ -15,6 +15,10 @@ from ..models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    WavelengthChannel,
+    WavelengthService,
+    WdmDeviceTypeProfile,
+    WdmNode,
 )
 
 __all__ = (
@@ -30,6 +34,10 @@ __all__ = (
     "FiberCircuitFilter",
     "FiberCircuitPathFilter",
     "SlackLoopFilter",
+    "WdmDeviceTypeProfileFilter",
+    "WdmNodeFilter",
+    "WavelengthChannelFilter",
+    "WavelengthServiceFilter",
 )
 
 
@@ -149,3 +157,41 @@ class SlackLoopFilter:
     location_id: int | None
     storage_method: str | None
     length_unit: str | None
+
+
+@strawberry_django.filters.filter(WdmDeviceTypeProfile)
+class WdmDeviceTypeProfileFilter:
+    """GraphQL filter for WdmDeviceTypeProfile."""
+
+    id: int | None
+    node_type: str | None
+    grid: str | None
+
+
+@strawberry_django.filters.filter(WdmNode)
+class WdmNodeFilter:
+    """GraphQL filter for WdmNode."""
+
+    id: int | None
+    node_type: str | None
+    grid: str | None
+    device_id: int | None
+
+
+@strawberry_django.filters.filter(WavelengthChannel)
+class WavelengthChannelFilter:
+    """GraphQL filter for WavelengthChannel."""
+
+    id: int | None
+    wdm_node_id: int | None
+    status: str | None
+    grid_position: int | None
+
+
+@strawberry_django.filters.filter(WavelengthService)
+class WavelengthServiceFilter:
+    """GraphQL filter for WavelengthService."""
+
+    id: int | None
+    name: str | None
+    status: str | None
