@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
-from ..choices import FiberCircuitStatusChoices
+from ..choices import FiberCircuitStatusChoices, WavelengthChannelStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -65,7 +65,7 @@ from ..models import (
     WdmTrunkPort,
 )
 from ..services import apply_diff, get_or_recompute_diff, import_live_state
-from ..trace_hops import build_hops
+from ..trace_hops import build_hops, get_wavelength_service_annotations
 from .serializers import (
     BufferTubeSerializer,
     BufferTubeTemplateSerializer,
@@ -376,19 +376,19 @@ class FiberCircuitPathViewSet(NetBoxModelViewSet):
         """Return the full hop-by-hop trace for this circuit path."""
         path_obj = self.get_object()
         hops = build_hops(path_obj.path)
-        return Response(
-            {
-                "circuit_id": path_obj.circuit_id,
-                "circuit_name": path_obj.circuit.name,
-                "circuit_url": path_obj.circuit.get_absolute_url(),
-                "path_position": path_obj.position,
-                "is_complete": path_obj.is_complete,
-                "total_calculated_loss_db": str(path_obj.calculated_loss_db) if path_obj.calculated_loss_db else None,
-                "total_actual_loss_db": str(path_obj.actual_loss_db) if path_obj.actual_loss_db else None,
-                "wavelength_nm": path_obj.wavelength_nm,
-                "hops": hops,
-            }
-        )
+        data = {
+            "circuit_id": path_obj.circuit_id,
+            "circuit_name": path_obj.circuit.name,
+            "circuit_url": path_obj.circuit.get_absolute_url(),
+            "path_position": path_obj.position,
+            "is_complete": path_obj.is_complete,
+            "total_calculated_loss_db": str(path_obj.calculated_loss_db) if path_obj.calculated_loss_db else None,
+            "total_actual_loss_db": str(path_obj.actual_loss_db) if path_obj.actual_loss_db else None,
+            "wavelength_nm": path_obj.wavelength_nm,
+            "hops": hops,
+        }
+        data["wavelength_services"] = get_wavelength_service_annotations(path_obj.circuit)
+        return Response(data)
 
 
 class FiberCircuitNodeViewSet(ModelViewSet):
@@ -420,12 +420,186 @@ class WdmChannelTemplateViewSet(NetBoxModelViewSet):
     filterset_class = WdmChannelTemplateFilterSet
 
 
+def _validate_mapping_changes(wdm_node, desired_mapping: dict[int, int | None]) -> list[str]:
+    """Validate proposed channel-to-port mapping changes for a WDM node.
+
+    Args:
+        wdm_node: The WdmNode instance being modified.
+        desired_mapping: Dict of {channel_pk: front_port_pk or None}.
+
+    Returns:
+        List of error strings. Empty list means validation passed.
+    """
+    errors = []
+    channels = {ch.pk: ch for ch in wdm_node.channels.all()}
+
+    # Check protected channels are not being remapped
+    protected_statuses = {WavelengthChannelStatusChoices.LIT, WavelengthChannelStatusChoices.RESERVED}
+    for ch_pk, desired_fp_pk in desired_mapping.items():
+        ch = channels.get(ch_pk)
+        if ch is None:
+            continue
+        if ch.status in protected_statuses and ch.front_port_id != desired_fp_pk:
+            errors.append(
+                f"Channel {ch.label} (pk={ch.pk}) is {ch.get_status_display()} and cannot be remapped."
+            )
+
+    # Check no two channels map to the same FrontPort
+    port_usage = {}  # front_port_pk -> channel label
+    for ch_pk, desired_fp_pk in desired_mapping.items():
+        if desired_fp_pk is None:
+            continue
+        ch = channels.get(ch_pk)
+        label = ch.label if ch else f"pk={ch_pk}"
+        if desired_fp_pk in port_usage:
+            errors.append(
+                f"Port conflict: channels {port_usage[desired_fp_pk]} and {label} "
+                f"both map to FrontPort pk={desired_fp_pk}."
+            )
+        else:
+            port_usage[desired_fp_pk] = label
+
+    return errors
+
+
+def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
+    """Apply channel-to-port mapping changes for a WDM node.
+
+    Updates WavelengthChannel.front_port and manages PortMapping rows
+    for trunk ports on the node.
+
+    Args:
+        wdm_node: The WdmNode instance being modified.
+        desired_mapping: Dict of {channel_pk: front_port_pk or None}.
+
+    Returns:
+        Dict with counts: {"added": int, "removed": int, "changed": int}.
+    """
+    channels = {ch.pk: ch for ch in wdm_node.channels.all()}
+    trunk_ports = list(wdm_node.trunk_ports.select_related("rear_port").all())
+
+    added = 0
+    removed = 0
+    changed = 0
+    affected_channels = []
+
+    for ch_pk, desired_fp_pk in desired_mapping.items():
+        ch = channels.get(ch_pk)
+        if ch is None:
+            continue
+
+        current_fp_pk = ch.front_port_id
+        if current_fp_pk == desired_fp_pk:
+            continue  # No change
+
+        affected_channels.append(ch)
+
+        # Update channel front_port
+        ch.front_port_id = desired_fp_pk
+        ch.save(update_fields=["front_port_id"])
+
+        # Manage PortMappings for each trunk port
+        for tp in trunk_ports:
+            rp = tp.rear_port
+
+            # Remove old mapping if there was a previous front_port
+            if current_fp_pk is not None:
+                PortMapping.objects.filter(
+                    front_port_id=current_fp_pk,
+                    rear_port=rp,
+                    rear_port_position=ch.grid_position,
+                ).delete()
+
+            # Create new mapping if there is a new front_port
+            if desired_fp_pk is not None:
+                PortMapping.objects.create(
+                    device=wdm_node.device,
+                    front_port_id=desired_fp_pk,
+                    rear_port=rp,
+                    front_port_position=1,
+                    rear_port_position=ch.grid_position,
+                )
+
+        # Count changes
+        if current_fp_pk is None and desired_fp_pk is not None:
+            added += 1
+        elif current_fp_pk is not None and desired_fp_pk is None:
+            removed += 1
+        else:
+            changed += 1
+
+    # Retrace affected FiberCircuitPaths that reference cables on this node's trunk ports
+    if affected_channels:
+        _retrace_affected_paths(wdm_node, trunk_ports)
+
+    return {"added": added, "removed": removed, "changed": changed}
+
+
+def _retrace_affected_paths(wdm_node, trunk_ports):
+    """Retrace FiberCircuitPaths that traverse cables connected to the node's trunk ports.
+
+    Args:
+        wdm_node: The WdmNode instance.
+        trunk_ports: List of WdmTrunkPort instances on this node.
+    """
+    from dcim.models import CableTermination
+
+    rp_ids = [tp.rear_port_id for tp in trunk_ports]
+    if not rp_ids:
+        return
+
+    rp_ct = ContentType.objects.get_for_model(RearPort)
+    cable_ids = (
+        CableTermination.objects.filter(
+            termination_type=rp_ct,
+            termination_id__in=rp_ids,
+        )
+        .values_list("cable_id", flat=True)
+        .distinct()
+    )
+
+    if not cable_ids:
+        return
+
+    affected_paths = FiberCircuitPath.objects.filter(
+        nodes__cable_id__in=cable_ids,
+    ).distinct()
+
+    for path in affected_paths:
+        path.retrace()
+
+
 class WdmNodeViewSet(NetBoxModelViewSet):
     """Manage WDM node instances attached to devices."""
 
     queryset = WdmNode.objects.prefetch_related("device", "tags")
     serializer_class = WdmNodeSerializer
     filterset_class = WdmNodeFilterSet
+
+    @action(detail=True, methods=["post"], url_path="apply-mapping")
+    def apply_mapping(self, request, pk=None):
+        """Apply channel-to-port mapping changes atomically."""
+        node = self.get_object()
+
+        # Concurrent edit check
+        last_updated = request.data.get("last_updated")
+        if last_updated and str(node.last_updated) != last_updated:
+            return Response(
+                {"detail": "Node was modified since editor loaded. Please reload."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        desired = request.data.get("mapping", {})
+        desired = {int(k): (int(v) if v else None) for k, v in desired.items()}
+
+        errors = _validate_mapping_changes(node, desired)
+        if errors:
+            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            result = _apply_mapping(node, desired)
+
+        return Response(result)
 
 
 class WdmTrunkPortViewSet(NetBoxModelViewSet):
@@ -450,6 +624,22 @@ class WavelengthServiceViewSet(NetBoxModelViewSet):
     queryset = WavelengthService.objects.prefetch_related("tenant", "tags")
     serializer_class = WavelengthServiceSerializer
     filterset_class = WavelengthServiceFilterSet
+
+    @action(detail=True, methods=["get"], url_path="stitch")
+    def stitch(self, request, pk=None):
+        """Return the stitched end-to-end wavelength path."""
+        service = self.get_object()
+        path = service.get_stitched_path()
+        return Response(
+            {
+                "service_id": service.pk,
+                "service_name": service.name,
+                "wavelength_nm": float(service.wavelength_nm),
+                "status": service.status,
+                "is_complete": len(path) > 0,
+                "hops": path,
+            }
+        )
 
 
 class FiberCircuitProtectingAPIView(APIView):
