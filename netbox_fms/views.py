@@ -113,6 +113,7 @@ from .models import (
     SpliceProject,
     WavelengthChannel,
     WavelengthService,
+    WavelengthServiceChannelAssignment,
     WdmChannelTemplate,
     WdmDeviceTypeProfile,
     WdmNode,
@@ -1939,6 +1940,66 @@ class WdmNodeTrunkPortsView(generic.ObjectChildrenView):
     def get_children(self, request, parent):
         """Return trunk ports filtered by parent WDM node."""
         return self.child_model.objects.restrict(request.user, "view").filter(wdm_node=parent)
+
+
+@register_model_view(WdmNode, "wavelength_editor", path="wavelength-editor")
+class WdmNodeWavelengthEditorView(generic.ObjectView):
+    """Live wavelength channel editor for ROADM nodes."""
+
+    queryset = WdmNode.objects.all()
+    tab = ViewTab(
+        label=_("Wavelength Editor"),
+        permission="netbox_fms.change_wavelengthchannel",
+        weight=600,
+    )
+
+    def get_template_name(self):
+        """Return the wavelength editor template."""
+        return "netbox_fms/wdmnode_wavelength_editor.html"
+
+    def get_extra_context(self, request, instance):
+        """Build JSON config for the wavelength editor frontend."""
+        import json
+
+        channels = instance.channels.select_related("front_port").order_by("grid_position")
+        # Available ports = device FrontPorts not already assigned to a channel
+        assigned_fp_ids = set(
+            instance.channels.exclude(front_port__isnull=True).values_list("front_port_id", flat=True)
+        )
+        available_ports = FrontPort.objects.filter(device=instance.device).exclude(pk__in=assigned_fp_ids)
+
+        channel_data = []
+        for ch in channels:
+            svc_name = None
+            svc_assignment = (
+                WavelengthServiceChannelAssignment.objects.filter(channel=ch).select_related("service").first()
+            )
+            if svc_assignment:
+                svc_name = svc_assignment.service.name
+            channel_data.append(
+                {
+                    "id": ch.pk,
+                    "grid_position": ch.grid_position,
+                    "wavelength_nm": float(ch.wavelength_nm),
+                    "label": ch.label,
+                    "front_port_id": ch.front_port_id,
+                    "front_port_name": ch.front_port.name if ch.front_port else None,
+                    "status": ch.status,
+                    "service_name": svc_name,
+                }
+            )
+
+        port_data = [{"id": p.pk, "name": p.name} for p in available_ports]
+
+        config = {
+            "nodeId": instance.pk,
+            "nodeType": instance.node_type,
+            "lastUpdated": str(instance.last_updated),
+            "applyUrl": reverse("plugins-api:netbox_fms-api:wdmnode-apply-mapping", args=[instance.pk]),
+            "channels": channel_data,
+            "availablePorts": port_data,
+        }
+        return {"editor_config_json": json.dumps(config)}
 
 
 # ---------------------------------------------------------------------------
