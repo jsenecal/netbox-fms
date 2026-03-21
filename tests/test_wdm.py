@@ -434,3 +434,162 @@ class TestWavelengthService:
             tenant=tenant,
         )
         assert svc.tenant == tenant
+
+
+# ---------------------------------------------------------------------------
+# Task 9: Auto-populate channels from profile
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestWdmNodeAutoPopulate:
+    def test_auto_populate_from_profile(self, wdm_fixtures):
+        from netbox_fms.models import WdmChannelTemplate, WdmDeviceTypeProfile, WdmNode
+
+        dt = wdm_fixtures["device_type"]
+        profile = WdmDeviceTypeProfile.objects.create(
+            device_type=dt,
+            node_type="terminal_mux",
+            grid="dwdm_100ghz",
+        )
+        WdmChannelTemplate.objects.create(
+            profile=profile,
+            grid_position=1,
+            wavelength_nm=1560.61,
+            label="C21",
+        )
+        WdmChannelTemplate.objects.create(
+            profile=profile,
+            grid_position=2,
+            wavelength_nm=1559.79,
+            label="C22",
+        )
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type="terminal_mux",
+            grid="dwdm_100ghz",
+        )
+        assert node.channels.count() == 2
+        ch1 = node.channels.get(grid_position=1)
+        assert ch1.label == "C21"
+        assert ch1.status == "available"
+
+    def test_no_profile_no_auto_populate(self, wdm_fixtures):
+        from netbox_fms.models import WdmNode
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type="terminal_mux",
+            grid="dwdm_100ghz",
+        )
+        assert node.channels.count() == 0
+
+    def test_amplifier_no_channels_even_with_templates(self, wdm_fixtures):
+        from netbox_fms.models import WdmChannelTemplate, WdmDeviceTypeProfile, WdmNode
+
+        profile = WdmDeviceTypeProfile.objects.create(
+            device_type=wdm_fixtures["device_type"],
+            node_type="amplifier",
+            grid="dwdm_100ghz",
+        )
+        WdmChannelTemplate.objects.create(
+            profile=profile,
+            grid_position=1,
+            wavelength_nm=1560.61,
+            label="C21",
+        )
+        WdmChannelTemplate.objects.create(
+            profile=profile,
+            grid_position=2,
+            wavelength_nm=1559.79,
+            label="C22",
+        )
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type="amplifier",
+            grid="dwdm_100ghz",
+        )
+        assert node.channels.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 10: Protection & Lifecycle
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestWavelengthServiceProtection:
+    def test_active_service_protects_channel(self, wdm_fixtures):
+        from netbox_fms.models import (
+            WavelengthChannel,
+            WavelengthService,
+            WavelengthServiceChannelAssignment,
+            WdmNode,
+        )
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type="terminal_mux",
+            grid="dwdm_100ghz",
+        )
+        ch = WavelengthChannel.objects.create(
+            wdm_node=node,
+            grid_position=1,
+            wavelength_nm=1560.61,
+            label="C21",
+        )
+        svc = WavelengthService.objects.create(
+            name="SVC-P1",
+            status="active",
+            wavelength_nm=1560.61,
+        )
+        WavelengthServiceChannelAssignment.objects.create(
+            service=svc,
+            channel=ch,
+            sequence=1,
+        )
+        svc.rebuild_nodes()
+
+        with pytest.raises(Exception):  # ProtectedError
+            ch.delete()
+
+    def test_decommissioned_service_releases_channel(self, wdm_fixtures):
+        from netbox_fms.models import (
+            WavelengthChannel,
+            WavelengthService,
+            WavelengthServiceChannelAssignment,
+            WdmNode,
+        )
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type="terminal_mux",
+            grid="dwdm_100ghz",
+        )
+        ch = WavelengthChannel.objects.create(
+            wdm_node=node,
+            grid_position=1,
+            wavelength_nm=1560.61,
+            label="C21",
+            status="lit",
+        )
+        svc = WavelengthService.objects.create(
+            name="SVC-P2",
+            status="active",
+            wavelength_nm=1560.61,
+        )
+        WavelengthServiceChannelAssignment.objects.create(
+            service=svc,
+            channel=ch,
+            sequence=1,
+        )
+        svc.rebuild_nodes()
+
+        svc.status = "decommissioned"
+        svc.save()
+
+        assert svc.nodes.count() == 0
+        ch.refresh_from_db()
+        assert ch.status == "available"
+        ch.delete()  # Should succeed now
