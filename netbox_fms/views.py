@@ -592,9 +592,14 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
 
     def get_children(self, request, parent):
         """Return fiber circuit paths that traverse the parent cable."""
-        return FiberCircuitPath.objects.restrict(request.user, "view").filter(
-            nodes__cable=parent,
-        ).select_related("circuit", "origin", "destination").distinct()
+        return (
+            FiberCircuitPath.objects.restrict(request.user, "view")
+            .filter(
+                nodes__cable=parent,
+            )
+            .select_related("circuit", "origin", "destination")
+            .distinct()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1025,14 +1030,10 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
 
         # Find FrontPorts mapped to our RearPorts via PortMapping
         a_front_ports = list(
-            FrontPort.objects.filter(mappings__rear_port__in=a_side_rear_ports).order_by(
-                "mappings__rear_port_position"
-            )
+            FrontPort.objects.filter(mappings__rear_port__in=a_side_rear_ports).order_by("mappings__rear_port_position")
         )
         b_front_ports = list(
-            FrontPort.objects.filter(mappings__rear_port__in=b_side_rear_ports).order_by(
-                "mappings__rear_port_position"
-            )
+            FrontPort.objects.filter(mappings__rear_port__in=b_side_rear_ports).order_by("mappings__rear_port_position")
         )
 
         # Create SplicePlanEntries
