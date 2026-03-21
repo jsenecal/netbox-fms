@@ -5,6 +5,8 @@ from .models import FiberCable, FiberCableType, FiberCircuit, SlackLoop, SpliceP
 
 @register_search
 class FiberCableTypeIndex(SearchIndex):
+    """Search index for FiberCableType."""
+
     model = FiberCableType
     fields = (
         ("model", 100),
@@ -16,6 +18,8 @@ class FiberCableTypeIndex(SearchIndex):
 
 @register_search
 class FiberCableIndex(SearchIndex):
+    """Search index for FiberCable."""
+
     model = FiberCable
     fields = (
         ("serial_number", 300),
@@ -26,6 +30,8 @@ class FiberCableIndex(SearchIndex):
 
 @register_search
 class SplicePlanIndex(SearchIndex):
+    """Search index for SplicePlan."""
+
     model = SplicePlan
     fields = (
         ("name", 100),
@@ -36,6 +42,8 @@ class SplicePlanIndex(SearchIndex):
 
 @register_search
 class SpliceProjectIndex(SearchIndex):
+    """Search index for SpliceProject."""
+
     model = SpliceProject
     fields = (
         ("name", 100),
@@ -46,6 +54,8 @@ class SpliceProjectIndex(SearchIndex):
 
 @register_search
 class FiberCircuitIndex(SearchIndex):
+    """Search index for FiberCircuit."""
+
     model = FiberCircuit
     fields = (
         ("name", 100),
@@ -57,6 +67,8 @@ class FiberCircuitIndex(SearchIndex):
 
 @register_search
 class SlackLoopIndex(SearchIndex):
+    """Search index for SlackLoop."""
+
     model = SlackLoop
     fields = (("notes", 5000),)
     display_attrs = ("fiber_cable", "site", "start_mark", "end_mark", "length_unit")

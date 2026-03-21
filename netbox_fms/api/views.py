@@ -1,5 +1,7 @@
 from collections import OrderedDict
 
+from dcim.models import CableTermination, Device, FrontPort, PortMapping, RearPort
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Count
@@ -12,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
+from ..choices import FiberCircuitStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -49,6 +52,8 @@ from ..models import (
     SplicePlanEntry,
     SpliceProject,
 )
+from ..services import apply_diff, get_or_recompute_diff, import_live_state
+from ..trace_hops import build_hops
 from .serializers import (
     BufferTubeSerializer,
     BufferTubeTemplateSerializer,
@@ -72,6 +77,8 @@ from .serializers import (
 
 
 class FiberCableTypeViewSet(NetBoxModelViewSet):
+    """Manage fiber cable type blueprints."""
+
     queryset = FiberCableType.objects.prefetch_related("manufacturer", "tags").annotate(
         instance_count=Count("instances")
     )
@@ -80,92 +87,117 @@ class FiberCableTypeViewSet(NetBoxModelViewSet):
 
 
 class BufferTubeTemplateViewSet(NetBoxModelViewSet):
+    """Manage buffer tube templates for fiber cable types."""
+
     queryset = BufferTubeTemplate.objects.prefetch_related("fiber_cable_type", "tags")
     serializer_class = BufferTubeTemplateSerializer
     filterset_class = BufferTubeTemplateFilterSet
 
 
 class CableElementTemplateViewSet(NetBoxModelViewSet):
+    """Manage cable element templates (e.g., strength members, jackets)."""
+
     queryset = CableElementTemplate.objects.prefetch_related("fiber_cable_type", "tags")
     serializer_class = CableElementTemplateSerializer
     filterset_class = CableElementTemplateFilterSet
 
 
 class RibbonTemplateViewSet(NetBoxModelViewSet):
+    """Manage ribbon templates for fiber cable types."""
+
     queryset = RibbonTemplate.objects.prefetch_related("fiber_cable_type", "buffer_tube_template", "tags")
     serializer_class = RibbonTemplateSerializer
     filterset_class = RibbonTemplateFilterSet
 
 
 class FiberCableViewSet(NetBoxModelViewSet):
+    """Manage fiber cable instances linked to dcim cables."""
+
     queryset = FiberCable.objects.prefetch_related("cable", "fiber_cable_type", "tags")
     serializer_class = FiberCableSerializer
     filterset_class = FiberCableFilterSet
 
 
 class BufferTubeViewSet(NetBoxModelViewSet):
+    """Manage buffer tube instances within fiber cables."""
+
     queryset = BufferTube.objects.prefetch_related("fiber_cable", "tags")
     serializer_class = BufferTubeSerializer
     filterset_class = BufferTubeFilterSet
 
 
 class RibbonViewSet(NetBoxModelViewSet):
+    """Manage ribbon instances within fiber cables."""
+
     queryset = Ribbon.objects.prefetch_related("fiber_cable", "buffer_tube", "tags")
     serializer_class = RibbonSerializer
     filterset_class = RibbonFilterSet
 
 
 class FiberStrandViewSet(NetBoxModelViewSet):
+    """Manage individual fiber strand instances."""
+
     queryset = FiberStrand.objects.prefetch_related("fiber_cable", "buffer_tube", "ribbon", "tags")
     serializer_class = FiberStrandSerializer
     filterset_class = FiberStrandFilterSet
 
 
 class CableElementViewSet(NetBoxModelViewSet):
+    """Manage non-fiber cable elements (e.g., strength members)."""
+
     queryset = CableElement.objects.prefetch_related("fiber_cable", "tags")
     serializer_class = CableElementSerializer
     filterset_class = CableElementFilterSet
 
 
 class SlackLoopViewSet(NetBoxModelViewSet):
+    """Manage slack loop records for fiber cables."""
+
     queryset = SlackLoop.objects.prefetch_related("fiber_cable", "site", "location", "tags")
     serializer_class = SlackLoopSerializer
     filterset_class = SlackLoopFilterSet
 
 
 class SplicePlanEntryViewSet(NetBoxModelViewSet):
+    """Manage individual splice plan entries mapping fiber-to-fiber connections."""
+
     queryset = SplicePlanEntry.objects.prefetch_related("plan", "tray", "fiber_a", "fiber_b", "tags")
     serializer_class = SplicePlanEntrySerializer
     filterset_class = SplicePlanEntryFilterSet
 
 
 class SpliceProjectViewSet(NetBoxModelViewSet):
+    """Manage splice projects that group splice plans."""
+
     queryset = SpliceProject.objects.prefetch_related("tags").annotate(plan_count=Count("plans"))
     serializer_class = SpliceProjectSerializer
     filterset_class = SpliceProjectFilterSet
 
 
 class ClosureCableEntryViewSet(NetBoxModelViewSet):
+    """Manage cable entry records for closures."""
+
     queryset = ClosureCableEntry.objects.prefetch_related("closure", "fiber_cable", "tags")
     serializer_class = ClosureCableEntrySerializer
     filterset_class = ClosureCableEntryFilterSet
 
 
 class SplicePlanViewSet(NetBoxModelViewSet):
+    """Manage splice plans and their associated actions (import, apply, diff)."""
+
     queryset = SplicePlan.objects.prefetch_related("closure", "project", "tags").annotate(entry_count=Count("entries"))
     serializer_class = SplicePlanSerializer
     filterset_class = SplicePlanFilterSet
 
     @action(detail=True, methods=["post"], url_path="import-from-device")
     def import_from_device(self, request, pk=None):
+        """Import live splice state from the closure device into the plan."""
         plan = self.get_object()
         if not request.user.has_perm("netbox_fms.change_spliceplan"):
             return Response(
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        from ..services import import_live_state
-
         try:
             count = import_live_state(plan)
             return Response({"imported": count})
@@ -174,14 +206,13 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="apply")
     def apply_plan(self, request, pk=None):
+        """Apply the splice plan diff to create/remove live cable terminations."""
         plan = self.get_object()
         if not request.user.has_perm("netbox_fms.change_spliceplan"):
             return Response(
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        from ..services import apply_diff
-
         # Check for protected splices being modified
         protected = _get_protected_plan_ports(plan)
         if protected:
@@ -199,19 +230,19 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="diff")
     def get_diff(self, request, pk=None):
+        """Return the computed diff between the plan and live splice state."""
         plan = self.get_object()
         if not request.user.has_perm("netbox_fms.view_spliceplan"):
             return Response(
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        from ..services import get_or_recompute_diff
-
         diff = get_or_recompute_diff(plan)
         return Response(diff)
 
     @action(detail=True, methods=["post"], url_path="bulk-update")
     def bulk_update_entries(self, request, pk=None):
+        """Add and remove splice plan entries in a single atomic operation."""
         plan = self.get_object()
         if not request.user.has_perm("netbox_fms.change_spliceplan"):
             return Response(
@@ -220,11 +251,6 @@ class SplicePlanViewSet(NetBoxModelViewSet):
             )
         adds = request.data.get("add", [])
         removes = request.data.get("remove", [])
-
-        from dcim.models import FrontPort
-
-        # Check for protected ports in removes
-        from ..choices import FiberCircuitStatusChoices
 
         remove_port_ids = set()
         for item in removes:
@@ -286,6 +312,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="quick-add")
     def quick_add(self, request):
+        """Create a new splice plan without requiring a full form submission."""
         if not request.user.has_perm("netbox_fms.add_spliceplan"):
             return Response(
                 {"detail": "You do not have permission to perform this action."},
@@ -303,12 +330,15 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 
 
 class FiberCircuitViewSet(NetBoxModelViewSet):
+    """Manage fiber circuits and their paths."""
+
     queryset = FiberCircuit.objects.prefetch_related("paths", "tags")
     serializer_class = FiberCircuitSerializer
     filterset_class = FiberCircuitFilterSet
 
     @action(detail=True, methods=["post"])
     def retrace(self, request, pk=None):
+        """Retrace all paths belonging to this fiber circuit."""
         circuit = self.get_object()
         for path in circuit.paths.all():
             path.retrace()
@@ -317,14 +347,15 @@ class FiberCircuitViewSet(NetBoxModelViewSet):
 
 
 class FiberCircuitPathViewSet(NetBoxModelViewSet):
+    """Manage fiber circuit paths and provide trace data."""
+
     queryset = FiberCircuitPath.objects.prefetch_related("tags")
     serializer_class = FiberCircuitPathSerializer
     filterset_class = FiberCircuitPathFilterSet
 
     @action(detail=True, methods=["get"], url_path="trace")
     def trace(self, request, pk=None):
-        from ..trace_hops import build_hops
-
+        """Return the full hop-by-hop trace for this circuit path."""
         path_obj = self.get_object()
         hops = build_hops(path_obj.path)
         return Response(
@@ -343,6 +374,8 @@ class FiberCircuitPathViewSet(NetBoxModelViewSet):
 
 
 class FiberCircuitNodeViewSet(ModelViewSet):
+    """Provide read-only access to fiber circuit nodes."""
+
     queryset = FiberCircuitNode.objects.all()
     serializer_class = FiberCircuitNodeSerializer
     http_method_names = ["get", "head", "options"]
@@ -354,6 +387,7 @@ class FiberCircuitProtectingAPIView(APIView):
     queryset = FiberCircuit.objects.all()
 
     def get(self, request):
+        """Return circuits that protect the specified cables, ports, or strands."""
         filters = models.Q()
         for param, field in [
             ("cable", "paths__nodes__cable_id"),
@@ -380,8 +414,6 @@ class FiberCircuitProtectingAPIView(APIView):
 
 def _get_protected_plan_ports(plan):
     """Return dict of {front_port_id: circuit_name} for ports in the plan that are protected."""
-    from ..choices import FiberCircuitStatusChoices
-
     fp_ids = set()
     for entry in plan.entries.all():
         fp_ids.add(entry.fiber_a_id)
@@ -402,12 +434,8 @@ class ClosureStrandsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, device_id):
+        """Return strands grouped by cable and tube for the given closure device."""
         # Find all FiberCables whose dcim.Cable terminates at this device
-        from dcim.models import CableTermination, FrontPort
-        from django.contrib.contenttypes.models import ContentType
-
-        from ..choices import FiberCircuitStatusChoices
-
         # Get all cables connected to this device
         cable_ids = (
             CableTermination.objects.filter(
@@ -424,16 +452,14 @@ class ClosureStrandsAPIView(APIView):
         all_terms = CableTermination.objects.filter(cable_id__in=cable_ids).select_related("cable")
         for term in all_terms:
             if term._device_id and term._device_id != device_id:
-                from dcim.models import Device as DcimDevice
-
                 try:
-                    far_dev = DcimDevice.objects.get(pk=term._device_id)
+                    far_dev = Device.objects.get(pk=term._device_id)
                     far_end_lookup[term.cable_id] = {
                         "id": far_dev.pk,
                         "name": str(far_dev),
                         "url": far_dev.get_absolute_url(),
                     }
-                except DcimDevice.DoesNotExist:
+                except Device.DoesNotExist:
                     pass
 
         # --- A) Build LIVE splice lookup (front_port_id → front_port_id) ---
@@ -577,10 +603,9 @@ class ProvisionPortsAPIView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        """Create rear/front ports on a device and link them to fiber strands."""
         serializer = ProvisionPortsInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        from dcim.models import Device, FrontPort, PortMapping, RearPort
 
         fiber_cable = get_object_or_404(FiberCable, pk=serializer.validated_data["fiber_cable_id"])
         device = get_object_or_404(Device, pk=serializer.validated_data["device_id"])

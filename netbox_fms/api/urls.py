@@ -1,3 +1,5 @@
+"""REST API URL configuration for netbox_fms plugin."""
+
 from django.urls import path
 from netbox.api.routers import NetBoxRouter
 

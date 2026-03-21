@@ -2,6 +2,10 @@
 
 import xml.etree.ElementTree as ET
 
+from dcim.models import FrontPort, Module
+
+from netbox_fms.models import FiberStrand
+
 from .services import compute_diff
 
 
@@ -13,8 +17,6 @@ def generate_drawio(plan):
     diff = compute_diff(plan)
 
     mxfile = ET.Element("mxfile", host="netbox-fms")
-
-    from dcim.models import FrontPort, Module
 
     trays = Module.objects.filter(device=plan.closure).order_by("module_bay__name")
 
@@ -58,8 +60,6 @@ def generate_drawio(plan):
         cell_id += 1
 
         # Look up fiber strand colors via FiberStrand.front_port_a FK
-        from netbox_fms.models import FiberStrand
-
         strand_colors = dict(FiberStrand.objects.filter(front_port_a__in=ports).values_list("front_port_a_id", "color"))
 
         for port in ports:

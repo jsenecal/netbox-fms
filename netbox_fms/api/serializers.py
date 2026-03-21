@@ -33,6 +33,8 @@ __all__ = ("FrontPortSerializer",)
 
 
 class FiberCableTypeSerializer(NetBoxModelSerializer):
+    """Serializer for FiberCableType model."""
+
     manufacturer = ManufacturerSerializer(nested=True)
     instance_count = serializers.IntegerField(read_only=True, default=0)
 
@@ -65,6 +67,8 @@ class FiberCableTypeSerializer(NetBoxModelSerializer):
 
 
 class BufferTubeTemplateSerializer(NetBoxModelSerializer):
+    """Serializer for BufferTubeTemplate model."""
+
     fiber_cable_type = FiberCableTypeSerializer(nested=True)
 
     class Meta:
@@ -89,6 +93,8 @@ class BufferTubeTemplateSerializer(NetBoxModelSerializer):
 
 
 class CableElementTemplateSerializer(NetBoxModelSerializer):
+    """Serializer for CableElementTemplate model."""
+
     fiber_cable_type = FiberCableTypeSerializer(nested=True)
 
     class Meta:
@@ -110,6 +116,8 @@ class CableElementTemplateSerializer(NetBoxModelSerializer):
 
 
 class RibbonTemplateSerializer(NetBoxModelSerializer):
+    """Serializer for RibbonTemplate model."""
+
     fiber_cable_type = FiberCableTypeSerializer(nested=True)
     buffer_tube_template = BufferTubeTemplateSerializer(nested=True, required=False, allow_null=True)
 
@@ -136,6 +144,8 @@ class RibbonTemplateSerializer(NetBoxModelSerializer):
 
 
 class FiberCableSerializer(NetBoxModelSerializer):
+    """Serializer for FiberCable model."""
+
     cable = CableSerializer(nested=True)
     fiber_cable_type = FiberCableTypeSerializer(nested=True)
 
@@ -159,6 +169,8 @@ class FiberCableSerializer(NetBoxModelSerializer):
 
 
 class BufferTubeSerializer(NetBoxModelSerializer):
+    """Serializer for BufferTube model."""
+
     class Meta:
         model = BufferTube
         fields = (
@@ -179,6 +191,8 @@ class BufferTubeSerializer(NetBoxModelSerializer):
 
 
 class RibbonSerializer(NetBoxModelSerializer):
+    """Serializer for Ribbon model."""
+
     class Meta:
         model = Ribbon
         fields = (
@@ -200,6 +214,8 @@ class RibbonSerializer(NetBoxModelSerializer):
 
 
 class FiberStrandSerializer(NetBoxModelSerializer):
+    """Serializer for FiberStrand model."""
+
     front_port_a = FrontPortSerializer(nested=True, required=False, allow_null=True)
     front_port_b = FrontPortSerializer(nested=True, required=False, allow_null=True)
 
@@ -226,6 +242,8 @@ class FiberStrandSerializer(NetBoxModelSerializer):
 
 
 class CableElementSerializer(NetBoxModelSerializer):
+    """Serializer for CableElement model."""
+
     class Meta:
         model = CableElement
         fields = (
@@ -244,6 +262,8 @@ class CableElementSerializer(NetBoxModelSerializer):
 
 
 class SpliceProjectSerializer(NetBoxModelSerializer):
+    """Serializer for SpliceProject model."""
+
     class Meta:
         model = SpliceProject
         fields = (
@@ -261,6 +281,8 @@ class SpliceProjectSerializer(NetBoxModelSerializer):
 
 
 class ClosureCableEntrySerializer(NetBoxModelSerializer):
+    """Serializer for ClosureCableEntry model."""
+
     class Meta:
         model = ClosureCableEntry
         fields = (
@@ -280,6 +302,8 @@ class ClosureCableEntrySerializer(NetBoxModelSerializer):
 
 
 class SplicePlanSerializer(NetBoxModelSerializer):
+    """Serializer for SplicePlan model."""
+
     closure = DeviceSerializer(nested=True)
     project = SpliceProjectSerializer(nested=True, required=False, allow_null=True)
     entry_count = serializers.IntegerField(read_only=True, default=0)
@@ -307,6 +331,8 @@ class SplicePlanSerializer(NetBoxModelSerializer):
 
 
 class SplicePlanEntrySerializer(NetBoxModelSerializer):
+    """Serializer for SplicePlanEntry model."""
+
     plan = SplicePlanSerializer(nested=True)
     tray = ModuleSerializer(nested=True)
     fiber_a = FrontPortSerializer(nested=True)
@@ -333,6 +359,8 @@ class SplicePlanEntrySerializer(NetBoxModelSerializer):
 
 
 class SlackLoopSerializer(NetBoxModelSerializer):
+    """Serializer for SlackLoop model."""
+
     loop_length = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
@@ -364,6 +392,8 @@ class SlackLoopSerializer(NetBoxModelSerializer):
 
 
 class FiberCircuitSerializer(NetBoxModelSerializer):
+    """Serializer for FiberCircuit model."""
+
     class Meta:
         model = FiberCircuit
         fields = (
@@ -386,6 +416,8 @@ class FiberCircuitSerializer(NetBoxModelSerializer):
 
 
 class FiberCircuitPathSerializer(NetBoxModelSerializer):
+    """Serializer for FiberCircuitPath model."""
+
     class Meta:
         model = FiberCircuitPath
         fields = (
@@ -410,6 +442,8 @@ class FiberCircuitPathSerializer(NetBoxModelSerializer):
 
 
 class FiberCircuitNodeSerializer(serializers.ModelSerializer):
+    """Serializer for FiberCircuitNode model."""
+
     class Meta:
         model = FiberCircuitNode
         fields = ("id", "path", "position", "cable", "front_port", "rear_port", "fiber_strand", "splice_entry")
@@ -435,6 +469,8 @@ class ClosureStrandSerializer(serializers.Serializer):
 
 
 class TubeGroupSerializer(serializers.Serializer):
+    """Serializer for a buffer tube and its contained strands."""
+
     id = serializers.IntegerField()
     name = serializers.CharField()
     color = serializers.CharField()
@@ -442,6 +478,8 @@ class TubeGroupSerializer(serializers.Serializer):
 
 
 class CableGroupSerializer(serializers.Serializer):
+    """Serializer for a fiber cable's tubes and loose strands."""
+
     fiber_cable_id = serializers.IntegerField()
     cable_label = serializers.CharField()
     tubes = TubeGroupSerializer(many=True)
@@ -449,6 +487,8 @@ class CableGroupSerializer(serializers.Serializer):
 
 
 class ProvisionPortsInputSerializer(serializers.Serializer):
+    """Serializer for port provisioning request input."""
+
     fiber_cable_id = serializers.IntegerField()
     device_id = serializers.IntegerField()
     port_type = serializers.CharField(default="splice")

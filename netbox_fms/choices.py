@@ -7,6 +7,8 @@ from utilities.choices import ChoiceSet
 
 
 class ConstructionChoices(ChoiceSet):
+    """Choice set for cable construction method."""
+
     LOOSE_TUBE = "loose_tube"
     TIGHT_BUFFER = "tight_buffer"
     RIBBON = "ribbon"
@@ -25,6 +27,8 @@ class ConstructionChoices(ChoiceSet):
 
 
 class FiberTypeChoices(ChoiceSet):
+    """Choice set for fiber optic type classification."""
+
     SMF_OS1 = "smf_os1"
     SMF_OS2 = "smf_os2"
     MMF_OM1 = "mmf_om1"
@@ -55,6 +59,8 @@ class FiberTypeChoices(ChoiceSet):
 
 
 class SheathMaterialChoices(ChoiceSet):
+    """Choice set for cable sheath material."""
+
     LSZH = "lszh"
     PE = "pe"
     MDPE = "mdpe"
@@ -73,6 +79,8 @@ class SheathMaterialChoices(ChoiceSet):
 
 
 class ArmorTypeChoices(ChoiceSet):
+    """Choice set for cable armor type."""
+
     STEEL_TAPE = "steel_tape"
     STEEL_WIRE = "steel_wire"
     CORRUGATED_STEEL = "corrugated_steel"
@@ -89,6 +97,8 @@ class ArmorTypeChoices(ChoiceSet):
 
 
 class DeploymentChoices(ChoiceSet):
+    """Choice set for cable deployment environment."""
+
     INDOOR = "indoor"
     OUTDOOR = "outdoor"
     INDOOR_OUTDOOR = "indoor_outdoor"
@@ -131,6 +141,8 @@ class DeploymentChoices(ChoiceSet):
 
 
 class FireRatingChoices(ChoiceSet):
+    """Choice set for cable fire rating classification."""
+
     OFNR = "ofnr"
     OFNP = "ofnp"
     OFN = "ofn"
@@ -179,6 +191,8 @@ class FireRatingChoices(ChoiceSet):
 
 
 class CableElementTypeChoices(ChoiceSet):
+    """Choice set for non-fiber cable element type."""
+
     STRENGTH_MEMBER = "strength_member"
     CENTRAL_MEMBER = "central_member"
     POWER_CONDUCTOR = "power_conductor"
@@ -204,6 +218,8 @@ class CableElementTypeChoices(ChoiceSet):
 
 
 class FiberCircuitStatusChoices(ChoiceSet):
+    """Choice set for fiber circuit lifecycle status."""
+
     PLANNED = "planned"
     STAGED = "staged"
     ACTIVE = "active"
@@ -218,6 +234,8 @@ class FiberCircuitStatusChoices(ChoiceSet):
 
 
 class StorageMethodChoices(ChoiceSet):
+    """Choice set for slack loop storage method."""
+
     COIL = "coil"
     FIGURE_8 = "figure_8"
     IN_TRAY = "in_tray"
@@ -234,6 +252,8 @@ class StorageMethodChoices(ChoiceSet):
 
 
 class SplicePlanStatusChoices(ChoiceSet):
+    """Choice set for splice plan workflow status."""
+
     DRAFT = "draft"
     PENDING_REVIEW = "pending_review"
     READY_TO_APPLY = "ready_to_apply"

@@ -159,6 +159,7 @@ def build_hops(path_entries):
 
 
 def _make_device_hop(device):
+    """Create a device hop dict from a Device instance."""
     return {
         "type": "device",
         "id": device.pk,
@@ -170,6 +171,7 @@ def _make_device_hop(device):
 
 
 def _get_last_front_port_id(hops):
+    """Return the last FrontPort ID found in the hop list, or None."""
     for h in reversed(hops):
         if h["type"] == "device":
             if "egress" in h and h["egress"].get("front_port"):

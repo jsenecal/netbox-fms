@@ -161,12 +161,15 @@ class FiberCableType(NetBoxModel):
         verbose_name_plural = _("fiber cable types")
 
     def __str__(self):
+        """Return manufacturer and model name."""
         return f"{self.manufacturer} {self.model}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this fiber cable type."""
         return reverse("plugins:netbox_fms:fibercabletype", args=[self.pk])
 
     def clean(self):
+        """Validate armor consistency and strand count against templates."""
         super().clean()
 
         # Armor type required if armored
@@ -266,12 +269,15 @@ class BufferTubeTemplate(TrackingModelMixin, NetBoxModel):
         verbose_name_plural = _("buffer tube templates")
 
     def __str__(self):
+        """Return cable type and tube name."""
         return f"{self.fiber_cable_type} → {self.name}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this buffer tube template."""
         return reverse("plugins:netbox_fms:buffertubetemplate", args=[self.pk])
 
     def clean(self):
+        """Validate that fiber_count and ribbon templates are mutually exclusive."""
         super().clean()
         if self.pk and self.fiber_count and self.ribbon_templates.exists():
             raise ValidationError(
@@ -365,10 +371,12 @@ class RibbonTemplate(TrackingModelMixin, NetBoxModel):
         verbose_name_plural = _("ribbon templates")
 
     def __str__(self):
+        """Return parent (tube or cable type) and ribbon name."""
         parent = self.buffer_tube_template or self.fiber_cable_type
         return f"{parent} → {self.name}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this ribbon template."""
         return reverse("plugins:netbox_fms:ribbontemplate", args=[self.pk])
 
     def instantiate(self, fiber_cable, buffer_tube=None):
@@ -416,9 +424,11 @@ class CableElementTemplate(TrackingModelMixin, NetBoxModel):
         verbose_name_plural = _("cable element templates")
 
     def __str__(self):
+        """Return cable type and element name."""
         return f"{self.fiber_cable_type} → {self.name}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this cable element template."""
         return reverse("plugins:netbox_fms:cableelementtemplate", args=[self.pk])
 
     def instantiate(self, fiber_cable):
@@ -474,12 +484,15 @@ class FiberCable(NetBoxModel):
         verbose_name_plural = _("fiber cables")
 
     def __str__(self):
+        """Return cable and fiber cable type."""
         return f"{self.cable} ({self.fiber_cable_type})"
 
     def get_absolute_url(self):
+        """Return the detail URL for this fiber cable."""
         return reverse("plugins:netbox_fms:fibercable", args=[self.pk])
 
     def save(self, *args, **kwargs):
+        """Save and auto-instantiate components on first creation."""
         is_new = self.pk is None
         if is_new:
             with transaction.atomic():
@@ -626,9 +639,11 @@ class BufferTube(NetBoxModel):
         verbose_name_plural = _("buffer tubes")
 
     def __str__(self):
+        """Return cable and tube name."""
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this buffer tube."""
         return reverse("plugins:netbox_fms:buffertube", args=[self.pk])
 
 
@@ -673,9 +688,11 @@ class Ribbon(NetBoxModel):
         verbose_name_plural = _("ribbons")
 
     def __str__(self):
+        """Return cable and ribbon name."""
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this ribbon."""
         return reverse("plugins:netbox_fms:ribbon", args=[self.pk])
 
 
@@ -742,9 +759,11 @@ class FiberStrand(NetBoxModel):
         verbose_name_plural = _("fiber strands")
 
     def __str__(self):
+        """Return cable and strand name."""
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this fiber strand."""
         return reverse("plugins:netbox_fms:fiberstrand", args=[self.pk])
 
 
@@ -776,9 +795,11 @@ class CableElement(NetBoxModel):
         verbose_name_plural = _("cable elements")
 
     def __str__(self):
+        """Return cable and element name."""
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this cable element."""
         return reverse("plugins:netbox_fms:cableelement", args=[self.pk])
 
 
@@ -805,9 +826,11 @@ class SpliceProject(NetBoxModel):
         verbose_name_plural = _("splice projects")
 
     def __str__(self):
+        """Return the project name."""
         return self.name
 
     def get_absolute_url(self):
+        """Return the detail URL for this splice project."""
         return reverse("plugins:netbox_fms:spliceproject", args=[self.pk])
 
 
@@ -861,9 +884,11 @@ class SplicePlan(NetBoxModel):
         verbose_name_plural = _("splice plans")
 
     def __str__(self):
+        """Return the plan name."""
         return self.name
 
     def get_absolute_url(self):
+        """Return the detail URL for this splice plan."""
         return reverse("plugins:netbox_fms:spliceplan", args=[self.pk])
 
 
@@ -917,9 +942,11 @@ class SplicePlanEntry(NetBoxModel):
         verbose_name_plural = _("splice plan entries")
 
     def __str__(self):
+        """Return fiber A to fiber B representation."""
         return f"{self.fiber_a} → {self.fiber_b}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this splice plan entry."""
         return reverse("plugins:netbox_fms:spliceplanentry", args=[self.pk])
 
     @property
@@ -928,6 +955,7 @@ class SplicePlanEntry(NetBoxModel):
         return self.fiber_a.module_id != self.fiber_b.module_id
 
     def clean(self):
+        """Validate both FrontPorts belong to the closure and tray matches fiber_a."""
         super().clean()
         # Validate both FrontPorts belong to the plan's closure Device
         if self.fiber_a.device_id != self.plan.closure_id:
@@ -972,10 +1000,12 @@ class ClosureCableEntry(NetBoxModel):
         verbose_name_plural = _("closure cable entries")
 
     def __str__(self):
+        """Return closure, entrance label, and fiber cable."""
         label = self.entrance_label or "\u2014"
         return f"{self.closure} \u2192 {label} ({self.fiber_cable})"
 
     def get_absolute_url(self):
+        """Return the detail URL for this closure cable entry."""
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])
 
 
@@ -1039,16 +1069,20 @@ class SlackLoop(NetBoxModel):
         verbose_name_plural = _("slack loops")
 
     def __str__(self):
+        """Return cable, start/end marks, and length unit."""
         return f"{self.fiber_cable} @ {self.start_mark}\u2013{self.end_mark} {self.length_unit}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this slack loop."""
         return reverse("plugins:netbox_fms:slackloop", args=[self.pk])
 
     @property
     def loop_length(self):
+        """Return the length of the slack loop (end_mark minus start_mark)."""
         return self.end_mark - self.start_mark
 
     def clean(self):
+        """Validate that start and end marks are non-negative."""
         super().clean()
         if self.start_mark is not None and self.start_mark < 0:
             raise ValidationError({"start_mark": _("Start mark must be non-negative.")})
@@ -1056,6 +1090,7 @@ class SlackLoop(NetBoxModel):
             raise ValidationError({"end_mark": _("End mark must be non-negative.")})
 
     def save(self, *args, **kwargs):
+        """Swap start/end marks if inverted, then save."""
         if self.start_mark is not None and self.end_mark is not None and self.end_mark < self.start_mark:
             self.start_mark, self.end_mark = self.end_mark, self.start_mark
         super().save(*args, **kwargs)
@@ -1100,12 +1135,15 @@ class FiberCircuit(NetBoxModel):
         verbose_name_plural = _("fiber circuits")
 
     def __str__(self):
+        """Return the circuit name."""
         return self.name
 
     def get_absolute_url(self):
+        """Return the detail URL for this fiber circuit."""
         return reverse("plugins:netbox_fms:fibercircuit", args=[self.pk])
 
     def save(self, *args, **kwargs):
+        """Save and rebuild or delete nodes on status transitions."""
         is_new = self.pk is None
         old_status = None
         if not is_new:
@@ -1200,13 +1238,16 @@ class FiberCircuitPath(NetBoxModel):
         verbose_name_plural = _("fiber circuit paths")
 
     def __str__(self):
+        """Return circuit, position, origin, and destination."""
         dest = self.destination or "incomplete"
         return f"{self.circuit} path {self.position}: {self.origin} → {dest}"
 
     def get_absolute_url(self):
+        """Return the detail URL for this fiber circuit path."""
         return reverse("plugins:netbox_fms:fibercircuitpath", args=[self.pk])
 
     def clean(self):
+        """Validate wavelength is set when loss values exist and path count does not exceed strand count."""
         super().clean()
         if (self.calculated_loss_db is not None or self.actual_loss_db is not None) and self.wavelength_nm is None:
             raise ValidationError({"wavelength_nm": _("Wavelength is required when loss values are set.")})
@@ -1377,6 +1418,7 @@ class FiberCircuitNode(models.Model):
         ]
 
     def __str__(self):
+        """Return the populated reference field and its value."""
         for field in ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry"):
             obj = getattr(self, field)
             if obj is not None:

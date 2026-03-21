@@ -1,6 +1,7 @@
-from dcim.models import Cable, Device, FrontPort
+from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Q
@@ -13,6 +14,8 @@ from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
+from .choices import FiberCircuitStatusChoices
+from .export import generate_drawio
 from .filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -79,6 +82,7 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
+    FiberCircuitNode,
     FiberCircuitPath,
     FiberStrand,
     Ribbon,
@@ -88,7 +92,13 @@ from .models import (
     SplicePlanEntry,
     SpliceProject,
 )
-from .services import NeedsMappingConfirmation, link_cable_topology
+from .services import (
+    NeedsMappingConfirmation,
+    apply_diff,
+    get_or_recompute_diff,
+    import_live_state,
+    link_cable_topology,
+)
 from .tables import (
     BufferTubeTable,
     BufferTubeTemplateTable,
@@ -114,6 +124,8 @@ from .tables import (
 
 
 class FiberCableTypeListView(generic.ObjectListView):
+    """List all fiber cable types."""
+
     queryset = FiberCableType.objects.annotate(instance_count=models.Count("instances"))
     table = FiberCableTypeTable
     filterset = FiberCableTypeFilterSet
@@ -122,24 +134,34 @@ class FiberCableTypeListView(generic.ObjectListView):
 
 @register_model_view(FiberCableType)
 class FiberCableTypeView(generic.ObjectView):
+    """Display a single fiber cable type."""
+
     queryset = FiberCableType.objects.all()
 
 
 class FiberCableTypeEditView(generic.ObjectEditView):
+    """Handle fiber cable type creation and editing."""
+
     queryset = FiberCableType.objects.all()
     form = FiberCableTypeForm
 
 
 class FiberCableTypeDeleteView(generic.ObjectDeleteView):
+    """Delete a fiber cable type."""
+
     queryset = FiberCableType.objects.all()
 
 
 class FiberCableTypeBulkImportView(generic.BulkImportView):
+    """Bulk import fiber cable types from CSV."""
+
     queryset = FiberCableType.objects.all()
     model_form = FiberCableTypeImportForm
 
 
 class FiberCableTypeBulkEditView(generic.BulkEditView):
+    """Bulk edit fiber cable types."""
+
     queryset = FiberCableType.objects.all()
     filterset = FiberCableTypeFilterSet
     table = FiberCableTypeTable
@@ -147,6 +169,8 @@ class FiberCableTypeBulkEditView(generic.BulkEditView):
 
 
 class FiberCableTypeBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete fiber cable types."""
+
     queryset = FiberCableType.objects.all()
     filterset = FiberCableTypeFilterSet
     table = FiberCableTypeTable
@@ -158,11 +182,14 @@ class FiberCableTypeBulkDeleteView(generic.BulkDeleteView):
 
 
 class FiberCableTypeComponentsView(generic.ObjectChildrenView):
+    """Base view for fiber cable type component tabs."""
+
     queryset = FiberCableType.objects.all()
     actions = (EditObject, DeleteObject, BulkEdit, BulkDelete)
     viewname = None
 
     def get_children(self, request, parent):
+        """Return child components filtered by parent fiber cable type."""
         return self.child_model.objects.restrict(request.user, "view").filter(fiber_cable_type=parent)
 
     def get_extra_context(self, request, instance):
@@ -173,6 +200,8 @@ class FiberCableTypeComponentsView(generic.ObjectChildrenView):
 
 @register_model_view(FiberCableType, "buffertubes", path="buffer-tubes")
 class FiberCableTypeBufferTubesView(FiberCableTypeComponentsView):
+    """Display buffer tube templates for a fiber cable type."""
+
     child_model = BufferTubeTemplate
     table = BufferTubeTemplateTable
     filterset = BufferTubeTemplateFilterSet
@@ -188,6 +217,8 @@ class FiberCableTypeBufferTubesView(FiberCableTypeComponentsView):
 
 @register_model_view(FiberCableType, "ribbons", path="ribbons")
 class FiberCableTypeRibbonsView(FiberCableTypeComponentsView):
+    """Display ribbon templates for a fiber cable type."""
+
     child_model = RibbonTemplate
     table = RibbonTemplateTable
     filterset = RibbonTemplateFilterSet
@@ -203,6 +234,8 @@ class FiberCableTypeRibbonsView(FiberCableTypeComponentsView):
 
 @register_model_view(FiberCableType, "cableelements", path="cable-elements")
 class FiberCableTypeCableElementsView(FiberCableTypeComponentsView):
+    """Display cable element templates for a fiber cable type."""
+
     child_model = CableElementTemplate
     table = CableElementTemplateTable
     filterset = CableElementTemplateFilterSet
@@ -218,6 +251,8 @@ class FiberCableTypeCableElementsView(FiberCableTypeComponentsView):
 
 @register_model_view(FiberCableType, "instances", path="instances")
 class FiberCableTypeInstancesView(generic.ObjectChildrenView):
+    """Display fiber cable instances of a fiber cable type."""
+
     queryset = FiberCableType.objects.all()
     child_model = FiberCable
     table = FiberCableTable
@@ -230,6 +265,7 @@ class FiberCableTypeInstancesView(generic.ObjectChildrenView):
     )
 
     def get_children(self, request, parent):
+        """Return fiber cable instances for the parent type."""
         return FiberCable.objects.restrict(request.user, "view").filter(fiber_cable_type=parent)
 
     def get_extra_context(self, request, instance):
@@ -244,6 +280,8 @@ class FiberCableTypeInstancesView(generic.ObjectChildrenView):
 
 
 class BufferTubeTemplateBulkEditView(generic.BulkEditView):
+    """Bulk edit buffer tube templates."""
+
     queryset = BufferTubeTemplate.objects.all()
     filterset = BufferTubeTemplateFilterSet
     table = BufferTubeTemplateTable
@@ -251,12 +289,16 @@ class BufferTubeTemplateBulkEditView(generic.BulkEditView):
 
 
 class BufferTubeTemplateBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete buffer tube templates."""
+
     queryset = BufferTubeTemplate.objects.all()
     filterset = BufferTubeTemplateFilterSet
     table = BufferTubeTemplateTable
 
 
 class RibbonTemplateBulkEditView(generic.BulkEditView):
+    """Bulk edit ribbon templates."""
+
     queryset = RibbonTemplate.objects.all()
     filterset = RibbonTemplateFilterSet
     table = RibbonTemplateTable
@@ -264,12 +306,16 @@ class RibbonTemplateBulkEditView(generic.BulkEditView):
 
 
 class RibbonTemplateBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete ribbon templates."""
+
     queryset = RibbonTemplate.objects.all()
     filterset = RibbonTemplateFilterSet
     table = RibbonTemplateTable
 
 
 class CableElementTemplateBulkEditView(generic.BulkEditView):
+    """Bulk edit cable element templates."""
+
     queryset = CableElementTemplate.objects.all()
     filterset = CableElementTemplateFilterSet
     table = CableElementTemplateTable
@@ -277,6 +323,8 @@ class CableElementTemplateBulkEditView(generic.BulkEditView):
 
 
 class CableElementTemplateBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete cable element templates."""
+
     queryset = CableElementTemplate.objects.all()
     filterset = CableElementTemplateFilterSet
     table = CableElementTemplateTable
@@ -288,21 +336,29 @@ class CableElementTemplateBulkDeleteView(generic.BulkDeleteView):
 
 
 class BufferTubeTemplateListView(generic.ObjectListView):
+    """List all buffer tube templates."""
+
     queryset = BufferTubeTemplate.objects.all()
     table = BufferTubeTemplateTable
     filterset = BufferTubeTemplateFilterSet
 
 
 class BufferTubeTemplateView(generic.ObjectView):
+    """Display a single buffer tube template."""
+
     queryset = BufferTubeTemplate.objects.all()
 
 
 class BufferTubeTemplateEditView(generic.ObjectEditView):
+    """Handle buffer tube template creation and editing."""
+
     queryset = BufferTubeTemplate.objects.all()
     form = BufferTubeTemplateForm
 
 
 class BufferTubeTemplateDeleteView(generic.ObjectDeleteView):
+    """Delete a buffer tube template."""
+
     queryset = BufferTubeTemplate.objects.all()
 
 
@@ -312,21 +368,29 @@ class BufferTubeTemplateDeleteView(generic.ObjectDeleteView):
 
 
 class CableElementTemplateListView(generic.ObjectListView):
+    """List all cable element templates."""
+
     queryset = CableElementTemplate.objects.all()
     table = CableElementTemplateTable
     filterset = CableElementTemplateFilterSet
 
 
 class CableElementTemplateView(generic.ObjectView):
+    """Display a single cable element template."""
+
     queryset = CableElementTemplate.objects.all()
 
 
 class CableElementTemplateEditView(generic.ObjectEditView):
+    """Handle cable element template creation and editing."""
+
     queryset = CableElementTemplate.objects.all()
     form = CableElementTemplateForm
 
 
 class CableElementTemplateDeleteView(generic.ObjectDeleteView):
+    """Delete a cable element template."""
+
     queryset = CableElementTemplate.objects.all()
 
 
@@ -336,21 +400,29 @@ class CableElementTemplateDeleteView(generic.ObjectDeleteView):
 
 
 class RibbonTemplateListView(generic.ObjectListView):
+    """List all ribbon templates."""
+
     queryset = RibbonTemplate.objects.all()
     table = RibbonTemplateTable
     filterset = RibbonTemplateFilterSet
 
 
 class RibbonTemplateView(generic.ObjectView):
+    """Display a single ribbon template."""
+
     queryset = RibbonTemplate.objects.all()
 
 
 class RibbonTemplateEditView(generic.ObjectEditView):
+    """Handle ribbon template creation and editing."""
+
     queryset = RibbonTemplate.objects.all()
     form = RibbonTemplateForm
 
 
 class RibbonTemplateDeleteView(generic.ObjectDeleteView):
+    """Delete a ribbon template."""
+
     queryset = RibbonTemplate.objects.all()
 
 
@@ -360,6 +432,8 @@ class RibbonTemplateDeleteView(generic.ObjectDeleteView):
 
 
 class FiberCableListView(generic.ObjectListView):
+    """List all fiber cables."""
+
     queryset = FiberCable.objects.select_related("cable", "fiber_cable_type")
     table = FiberCableTable
     filterset = FiberCableFilterSet
@@ -368,24 +442,34 @@ class FiberCableListView(generic.ObjectListView):
 
 @register_model_view(FiberCable)
 class FiberCableView(generic.ObjectView):
+    """Display a single fiber cable."""
+
     queryset = FiberCable.objects.all()
 
 
 class FiberCableEditView(generic.ObjectEditView):
+    """Handle fiber cable creation and editing."""
+
     queryset = FiberCable.objects.all()
     form = FiberCableForm
 
 
 class FiberCableDeleteView(generic.ObjectDeleteView):
+    """Delete a fiber cable."""
+
     queryset = FiberCable.objects.all()
 
 
 class FiberCableBulkImportView(generic.BulkImportView):
+    """Bulk import fiber cables from CSV."""
+
     queryset = FiberCable.objects.all()
     model_form = FiberCableImportForm
 
 
 class FiberCableBulkEditView(generic.BulkEditView):
+    """Bulk edit fiber cables."""
+
     queryset = FiberCable.objects.all()
     filterset = FiberCableFilterSet
     table = FiberCableTable
@@ -393,6 +477,8 @@ class FiberCableBulkEditView(generic.BulkEditView):
 
 
 class FiberCableBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete fiber cables."""
+
     queryset = FiberCable.objects.all()
     filterset = FiberCableFilterSet
     table = FiberCableTable
@@ -404,11 +490,14 @@ class FiberCableBulkDeleteView(generic.BulkDeleteView):
 
 
 class FiberCableComponentsView(generic.ObjectChildrenView):
+    """Base view for fiber cable component tabs."""
+
     queryset = FiberCable.objects.all()
     actions = (EditObject, DeleteObject, BulkDelete)
     viewname = None
 
     def get_children(self, request, parent):
+        """Return child components filtered by parent fiber cable."""
         return self.child_model.objects.restrict(request.user, "view").filter(fiber_cable=parent)
 
     def get_extra_context(self, request, instance):
@@ -419,6 +508,8 @@ class FiberCableComponentsView(generic.ObjectChildrenView):
 
 @register_model_view(FiberCable, "buffertubes", path="buffer-tubes")
 class FiberCableBufferTubesView(FiberCableComponentsView):
+    """Display buffer tubes for a fiber cable."""
+
     child_model = BufferTube
     table = BufferTubeTable
     filterset = BufferTubeFilterSet
@@ -434,6 +525,8 @@ class FiberCableBufferTubesView(FiberCableComponentsView):
 
 @register_model_view(FiberCable, "ribbons", path="ribbons")
 class FiberCableRibbonsView(FiberCableComponentsView):
+    """Display ribbons for a fiber cable."""
+
     child_model = Ribbon
     table = RibbonTable
     filterset = RibbonFilterSet
@@ -449,6 +542,8 @@ class FiberCableRibbonsView(FiberCableComponentsView):
 
 @register_model_view(FiberCable, "strands", path="strands")
 class FiberCableStrandsView(FiberCableComponentsView):
+    """Display fiber strands for a fiber cable."""
+
     child_model = FiberStrand
     table = FiberStrandTable
     filterset = FiberStrandFilterSet
@@ -463,6 +558,8 @@ class FiberCableStrandsView(FiberCableComponentsView):
 
 @register_model_view(FiberCable, "cableelements", path="cable-elements")
 class FiberCableCableElementsView(FiberCableComponentsView):
+    """Display cable elements for a fiber cable."""
+
     child_model = CableElement
     table = CableElementTable
     filterset = CableElementFilterSet
@@ -478,6 +575,8 @@ class FiberCableCableElementsView(FiberCableComponentsView):
 
 @register_model_view(Cable, "fibercircuits", path="fiber-circuits")
 class CableFiberCircuitsView(generic.ObjectChildrenView):
+    """Display fiber circuit paths passing through a dcim.Cable."""
+
     queryset = Cable.objects.all()
     child_model = FiberCircuitPath
     table = FiberCircuitPathTable
@@ -492,6 +591,7 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
     )
 
     def get_children(self, request, parent):
+        """Return fiber circuit paths that traverse the parent cable."""
         return FiberCircuitPath.objects.restrict(request.user, "view").filter(
             nodes__cable=parent,
         ).select_related("circuit", "origin", "destination").distinct()
@@ -503,6 +603,8 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
 
 
 class SplicePlanListView(generic.ObjectListView):
+    """List all splice plans."""
+
     queryset = SplicePlan.objects.annotate(entry_count=models.Count("entries"))
     table = SplicePlanTable
     filterset = SplicePlanFilterSet
@@ -510,6 +612,8 @@ class SplicePlanListView(generic.ObjectListView):
 
 
 class SplicePlanView(generic.ObjectView):
+    """Display a single splice plan with its entries."""
+
     queryset = SplicePlan.objects.all()
 
     def get_extra_context(self, request, instance):
@@ -521,20 +625,28 @@ class SplicePlanView(generic.ObjectView):
 
 
 class SplicePlanEditView(generic.ObjectEditView):
+    """Handle splice plan creation and editing."""
+
     queryset = SplicePlan.objects.all()
     form = SplicePlanForm
 
 
 class SplicePlanDeleteView(generic.ObjectDeleteView):
+    """Delete a splice plan."""
+
     queryset = SplicePlan.objects.all()
 
 
 class SplicePlanBulkImportView(generic.BulkImportView):
+    """Bulk import splice plans from CSV."""
+
     queryset = SplicePlan.objects.all()
     model_form = SplicePlanImportForm
 
 
 class SplicePlanBulkEditView(generic.BulkEditView):
+    """Bulk edit splice plans."""
+
     queryset = SplicePlan.objects.all()
     filterset = SplicePlanFilterSet
     table = SplicePlanTable
@@ -542,6 +654,8 @@ class SplicePlanBulkEditView(generic.BulkEditView):
 
 
 class SplicePlanBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete splice plans."""
+
     queryset = SplicePlan.objects.all()
     filterset = SplicePlanFilterSet
     table = SplicePlanTable
@@ -551,8 +665,7 @@ class SplicePlanQuickAddFormView(LoginRequiredMixin, View):
     """Return rendered SplicePlanForm HTML for the quick-add modal."""
 
     def get(self, request):
-        from django.http import HttpResponse
-
+        """Render the splice plan quick-add form, optionally pre-filled with a closure."""
         closure_id = request.GET.get("closure_id")
         initial = {}
         if closure_id:
@@ -570,9 +683,8 @@ class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
     """Import current live connections into a splice plan."""
 
     def post(self, request, pk):
+        """Import live device connections into the splice plan."""
         plan = get_object_or_404(SplicePlan, pk=pk)
-        from .services import import_live_state
-
         try:
             count = import_live_state(plan)
             messages.success(
@@ -588,9 +700,8 @@ class SplicePlanApplyView(LoginRequiredMixin, View):
     """Preview and apply a splice plan's diff to NetBox."""
 
     def get(self, request, pk):
+        """Display the diff preview before applying the splice plan."""
         plan = get_object_or_404(SplicePlan, pk=pk)
-        from .services import get_or_recompute_diff
-
         diff = get_or_recompute_diff(plan)
         return render(
             request,
@@ -600,12 +711,10 @@ class SplicePlanApplyView(LoginRequiredMixin, View):
 
     @transaction.atomic
     def post(self, request, pk):
+        """Apply the splice plan diff to NetBox, creating and removing connections."""
         plan = get_object_or_404(SplicePlan, pk=pk)
 
         # Block applying if any splices are protected by fiber circuits
-        from .choices import FiberCircuitStatusChoices
-        from .models import FiberCircuitNode
-
         fp_ids = set()
         for entry in plan.entries.all():
             fp_ids.add(entry.fiber_a_id)
@@ -624,8 +733,6 @@ class SplicePlanApplyView(LoginRequiredMixin, View):
                 )
                 return redirect(plan.get_absolute_url())
 
-        from .services import apply_diff
-
         try:
             result = apply_diff(plan)
             messages.success(
@@ -643,10 +750,7 @@ class SplicePlanExportDrawioView(LoginRequiredMixin, View):
     """Export splice plan as draw.io XML."""
 
     def get(self, request, pk):
-        from django.http import HttpResponse
-
-        from .export import generate_drawio
-
+        """Generate and return the draw.io XML file as a download."""
         plan = get_object_or_404(SplicePlan, pk=pk)
         xml_content = generate_drawio(plan)
         response = HttpResponse(xml_content, content_type="application/xml")
@@ -660,6 +764,8 @@ class SplicePlanExportDrawioView(LoginRequiredMixin, View):
 
 
 class ClosureCableEntryListView(generic.ObjectListView):
+    """List all closure cable entries."""
+
     queryset = ClosureCableEntry.objects.select_related("closure", "fiber_cable")
     table = ClosureCableEntryTable
     filterset = ClosureCableEntryFilterSet
@@ -667,13 +773,13 @@ class ClosureCableEntryListView(generic.ObjectListView):
 
 
 class ClosureCableEntryView(generic.ObjectView):
+    """Display a single closure cable entry with strand linkage info."""
+
     queryset = ClosureCableEntry.objects.all()
 
     def get_extra_context(self, request, instance):
         strand_info = None
         if instance.fiber_cable:
-            from django.db.models import Q
-
             total = instance.fiber_cable.fiber_strands.count()
             linked = instance.fiber_cable.fiber_strands.filter(
                 Q(front_port_a__device=instance.closure) | Q(front_port_b__device=instance.closure)
@@ -683,15 +789,21 @@ class ClosureCableEntryView(generic.ObjectView):
 
 
 class ClosureCableEntryEditView(generic.ObjectEditView):
+    """Handle closure cable entry creation and editing."""
+
     queryset = ClosureCableEntry.objects.all()
     form = ClosureCableEntryForm
 
 
 class ClosureCableEntryDeleteView(generic.ObjectDeleteView):
+    """Delete a closure cable entry."""
+
     queryset = ClosureCableEntry.objects.all()
 
 
 class ClosureCableEntryBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete closure cable entries."""
+
     queryset = ClosureCableEntry.objects.all()
     filterset = ClosureCableEntryFilterSet
     table = ClosureCableEntryTable
@@ -703,6 +815,8 @@ class ClosureCableEntryBulkDeleteView(generic.BulkDeleteView):
 
 
 class SplicePlanEntryListView(generic.ObjectListView):
+    """List all splice plan entries."""
+
     queryset = SplicePlanEntry.objects.all()
     table = SplicePlanEntryTable
     filterset = SplicePlanEntryFilterSet
@@ -710,19 +824,27 @@ class SplicePlanEntryListView(generic.ObjectListView):
 
 
 class SplicePlanEntryView(generic.ObjectView):
+    """Display a single splice plan entry."""
+
     queryset = SplicePlanEntry.objects.all()
 
 
 class SplicePlanEntryEditView(generic.ObjectEditView):
+    """Handle splice plan entry creation and editing."""
+
     queryset = SplicePlanEntry.objects.all()
     form = SplicePlanEntryForm
 
 
 class SplicePlanEntryDeleteView(generic.ObjectDeleteView):
+    """Delete a splice plan entry."""
+
     queryset = SplicePlanEntry.objects.all()
 
 
 class SplicePlanEntryBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete splice plan entries."""
+
     queryset = SplicePlanEntry.objects.all()
     filterset = SplicePlanEntryFilterSet
     table = SplicePlanEntryTable
@@ -734,6 +856,8 @@ class SplicePlanEntryBulkDeleteView(generic.BulkDeleteView):
 
 
 class SpliceProjectListView(generic.ObjectListView):
+    """List all splice projects."""
+
     queryset = SpliceProject.objects.annotate(plan_count=models.Count("plans"))
     table = SpliceProjectTable
     filterset = SpliceProjectFilterSet
@@ -741,6 +865,8 @@ class SpliceProjectListView(generic.ObjectListView):
 
 
 class SpliceProjectView(generic.ObjectView):
+    """Display a single splice project with its plans."""
+
     queryset = SpliceProject.objects.all()
 
     def get_extra_context(self, request, instance):
@@ -750,15 +876,21 @@ class SpliceProjectView(generic.ObjectView):
 
 
 class SpliceProjectEditView(generic.ObjectEditView):
+    """Handle splice project creation and editing."""
+
     queryset = SpliceProject.objects.all()
     form = SpliceProjectForm
 
 
 class SpliceProjectDeleteView(generic.ObjectDeleteView):
+    """Delete a splice project."""
+
     queryset = SpliceProject.objects.all()
 
 
 class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete splice projects."""
+
     queryset = SpliceProject.objects.all()
     filterset = SpliceProjectFilterSet
     table = SpliceProjectTable
@@ -770,6 +902,8 @@ class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
 
 
 class SlackLoopListView(generic.ObjectListView):
+    """List all slack loops."""
+
     queryset = SlackLoop.objects.prefetch_related("fiber_cable", "site", "location", "tags")
     table = SlackLoopTable
     filterset = SlackLoopFilterSet
@@ -778,24 +912,34 @@ class SlackLoopListView(generic.ObjectListView):
 
 @register_model_view(SlackLoop)
 class SlackLoopView(generic.ObjectView):
+    """Display a single slack loop."""
+
     queryset = SlackLoop.objects.all()
 
 
 class SlackLoopEditView(generic.ObjectEditView):
+    """Handle slack loop creation and editing."""
+
     queryset = SlackLoop.objects.all()
     form = SlackLoopForm
 
 
 class SlackLoopDeleteView(generic.ObjectDeleteView):
+    """Delete a slack loop."""
+
     queryset = SlackLoop.objects.all()
 
 
 class SlackLoopBulkImportView(generic.BulkImportView):
+    """Bulk import slack loops from CSV."""
+
     queryset = SlackLoop.objects.all()
     model_form = SlackLoopImportForm
 
 
 class SlackLoopBulkEditView(generic.BulkEditView):
+    """Bulk edit slack loops."""
+
     queryset = SlackLoop.objects.all()
     filterset = SlackLoopFilterSet
     table = SlackLoopTable
@@ -803,6 +947,8 @@ class SlackLoopBulkEditView(generic.BulkEditView):
 
 
 class SlackLoopBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete slack loops."""
+
     queryset = SlackLoop.objects.all()
     filterset = SlackLoopFilterSet
     table = SlackLoopTable
@@ -815,8 +961,6 @@ class SlackLoopBulkDeleteView(generic.BulkDeleteView):
 
 def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_side_rear_ports, express_strand_positions):
     """Split a cable at a slack loop location and connect both halves through a closure."""
-    from dcim.models import FrontPort as DcimFrontPort
-
     old_fiber_cable = slack_loop.fiber_cable
     old_cable = old_fiber_cable.cable
     fct = old_fiber_cable.fiber_cable_type
@@ -843,8 +987,6 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
         # Handle FiberCircuitNode references defensively
         rewiring_records = []
         try:
-            from .models import FiberCircuitNode
-
             nodes = FiberCircuitNode.objects.filter(
                 models.Q(cable=old_cable) | models.Q(fiber_strand__fiber_cable=old_fiber_cable)
             )
@@ -883,12 +1025,12 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
 
         # Find FrontPorts mapped to our RearPorts via PortMapping
         a_front_ports = list(
-            DcimFrontPort.objects.filter(mappings__rear_port__in=a_side_rear_ports).order_by(
+            FrontPort.objects.filter(mappings__rear_port__in=a_side_rear_ports).order_by(
                 "mappings__rear_port_position"
             )
         )
         b_front_ports = list(
-            DcimFrontPort.objects.filter(mappings__rear_port__in=b_side_rear_ports).order_by(
+            FrontPort.objects.filter(mappings__rear_port__in=b_side_rear_ports).order_by(
                 "mappings__rear_port_position"
             )
         )
@@ -917,8 +1059,6 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
         # Re-wire FiberCircuitNodes
         if rewiring_records:
             try:
-                from .models import FiberCircuitNode
-
                 for record in rewiring_records:
                     kwargs = {"path_id": record["path_id"], "position": record["position"]}
                     if record["field"] == "cable":
@@ -946,11 +1086,13 @@ class SlackLoopInsertView(LoginRequiredMixin, View):
     """Insert a slack loop into a splice closure by splitting the cable."""
 
     def get(self, request, pk):
+        """Render the slack loop insertion form."""
         slack_loop = get_object_or_404(SlackLoop, pk=pk)
         form = InsertSlackLoopForm()
         return render(request, "netbox_fms/slackloop_insert.html", {"object": slack_loop, "form": form})
 
     def post(self, request, pk):
+        """Process the slack loop insertion, splitting the cable at the closure."""
         slack_loop = get_object_or_404(SlackLoop, pk=pk)
         form = InsertSlackLoopForm(request.POST)
         if form.is_valid():
@@ -975,6 +1117,8 @@ class SlackLoopInsertView(LoginRequiredMixin, View):
 
 
 class FiberCircuitListView(generic.ObjectListView):
+    """List all fiber circuits."""
+
     queryset = FiberCircuit.objects.annotate(path_count=Count("paths"))
     table = FiberCircuitTable
     filterset = FiberCircuitFilterSet
@@ -982,6 +1126,8 @@ class FiberCircuitListView(generic.ObjectListView):
 
 
 class FiberCircuitView(generic.ObjectView):
+    """Display a single fiber circuit with its paths."""
+
     queryset = FiberCircuit.objects.all()
 
     def get_extra_context(self, request, instance):
@@ -989,20 +1135,28 @@ class FiberCircuitView(generic.ObjectView):
 
 
 class FiberCircuitEditView(generic.ObjectEditView):
+    """Handle fiber circuit creation and editing."""
+
     queryset = FiberCircuit.objects.all()
     form = FiberCircuitForm
 
 
 class FiberCircuitDeleteView(generic.ObjectDeleteView):
+    """Delete a fiber circuit."""
+
     queryset = FiberCircuit.objects.all()
 
 
 class FiberCircuitBulkImportView(generic.BulkImportView):
+    """Bulk import fiber circuits from CSV."""
+
     queryset = FiberCircuit.objects.all()
     model_form = FiberCircuitImportForm
 
 
 class FiberCircuitBulkEditView(generic.BulkEditView):
+    """Bulk edit fiber circuits."""
+
     queryset = FiberCircuit.objects.all()
     filterset = FiberCircuitFilterSet
     table = FiberCircuitTable
@@ -1010,6 +1164,8 @@ class FiberCircuitBulkEditView(generic.BulkEditView):
 
 
 class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete fiber circuits."""
+
     queryset = FiberCircuit.objects.all()
     filterset = FiberCircuitFilterSet
     table = FiberCircuitTable
@@ -1021,6 +1177,8 @@ class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
 
 
 class FiberCircuitPathListView(generic.ObjectListView):
+    """List all fiber circuit paths."""
+
     queryset = FiberCircuitPath.objects.select_related("circuit", "origin", "destination")
     table = FiberCircuitPathTable
     filterset = FiberCircuitPathFilterSet
@@ -1028,15 +1186,21 @@ class FiberCircuitPathListView(generic.ObjectListView):
 
 
 class FiberCircuitPathView(generic.ObjectView):
+    """Display a single fiber circuit path."""
+
     queryset = FiberCircuitPath.objects.select_related("circuit", "origin", "destination")
 
 
 class FiberCircuitPathEditView(generic.ObjectEditView):
+    """Handle fiber circuit path creation and editing."""
+
     queryset = FiberCircuitPath.objects.all()
     form = FiberCircuitPathForm
 
 
 class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
+    """Delete a fiber circuit path."""
+
     queryset = FiberCircuitPath.objects.all()
 
 
@@ -1051,8 +1215,6 @@ def provision_strands(fiber_cable, device, port_type, module=None):
     Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device.
     If module is provided, all ports are created on that module (in addition to device).
     """
-    from dcim.models import FrontPort, PortMapping, RearPort
-
     strands = fiber_cable.fiber_strands.select_related("buffer_tube").order_by("position")
     strand_count = strands.count()
     if strand_count == 0:
@@ -1099,10 +1261,12 @@ class ProvisionPortsView(LoginRequiredMixin, View):
     """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device."""
 
     def get(self, request):
+        """Render the port provisioning form."""
         form = ProvisionPortsForm(initial=request.GET)
         return render(request, "netbox_fms/provision_ports.html", {"form": form})
 
     def post(self, request):
+        """Create FrontPort/RearPort/PortMapping for the selected fiber cable and device."""
         form = ProvisionPortsForm(request.POST)
         if not form.is_valid():
             return render(request, "netbox_fms/provision_ports.html", {"form": form})
@@ -1144,6 +1308,7 @@ class SpliceEditorView(LoginRequiredMixin, View):
     """Visual splice editor for a SplicePlan."""
 
     def get(self, request, pk):
+        """Render the visual splice editor for the given plan."""
         plan = get_object_or_404(SplicePlan.objects.select_related("closure"), pk=pk)
         return render(
             request,
@@ -1164,8 +1329,6 @@ def _device_has_modules_or_fiber_cables(device):
     """Return True if device has modules (trays) or FiberCable terminations."""
     if device.modules.exists():
         return True
-    from dcim.models import CableTermination
-
     cable_ids = (
         CableTermination.objects.filter(_device_id=device.pk)
         .exclude(cable__isnull=True)
@@ -1177,11 +1340,6 @@ def _device_has_modules_or_fiber_cables(device):
 
 def _build_cable_rows(device):
     """Build context dicts for Fiber Overview, grouped by cable."""
-    from dcim.models import CableTermination
-    from django.db.models import Count, Q
-
-    from .models import FiberStrand
-
     cable_ids = (
         CableTermination.objects.filter(_device_id=device.pk)
         .exclude(cable__isnull=True)
@@ -1241,8 +1399,6 @@ def _device_has_splice_plan_or_fiber_cables(device):
     """Return True if this device has a splice plan or FiberCable terminations."""
     if SplicePlan.objects.filter(closure=device).exists():
         return True
-    from dcim.models import CableTermination
-
     cable_ids = (
         CableTermination.objects.filter(_device_id=device.pk)
         .exclude(cable__isnull=True)
@@ -1263,6 +1419,7 @@ class DeviceFiberOverviewView(View):
     )
 
     def get(self, request, pk):
+        """Render the fiber overview tab with cable rows and statistics."""
         device = get_object_or_404(Device, pk=pk)
         cable_rows = _build_cable_rows(device)
         plan = SplicePlan.objects.filter(closure=device).first()
@@ -1303,6 +1460,7 @@ class DeviceSpliceEditorView(View):
     )
 
     def get(self, request, pk):
+        """Render the splice editor tab for a device, creating a default plan if needed."""
         device = get_object_or_404(Device, pk=pk)
         plan = SplicePlan.objects.filter(closure=device).first()
         context_mode = "edit" if plan else "view"
@@ -1326,6 +1484,8 @@ class DeviceSpliceEditorView(View):
 
 
 class UpdateGlandLabelView(LoginRequiredMixin, View):
+    """Edit the entrance/gland label for a closure cable entry via HTMX modal."""
+
     def get(self, request, pk):
         if not request.user.has_perm("netbox_fms.change_closurecableentry") and not request.user.has_perm(
             "netbox_fms.add_closurecableentry"
@@ -1375,14 +1535,12 @@ class LinkTopologyView(LoginRequiredMixin, View):
     """Link a dcim.Cable to a FiberCableType — creates FiberCable and links strands."""
 
     def get(self, request, pk):
+        """Render the link topology modal for associating a cable with a fiber cable type."""
         if not request.user.has_perm("netbox_fms.add_fibercable"):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
         cable_id = request.GET.get("cable_id")
         cable = get_object_or_404(Cable, pk=cable_id)
-
-        from dcim.models import CableTermination, RearPort
-        from django.contrib.contenttypes.models import ContentType
 
         rp_ct = ContentType.objects.get_for_model(RearPort)
         has_existing = CableTermination.objects.filter(
@@ -1405,6 +1563,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
         )
 
     def post(self, request, pk):
+        """Create a FiberCable and link strands to ports, with optional mapping confirmation."""
         if not request.user.has_perm("netbox_fms.add_fibercable"):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
@@ -1444,8 +1603,6 @@ class LinkTopologyView(LoginRequiredMixin, View):
         try:
             fc, warnings = link_cable_topology(cable, fct, device, port_type=port_type)
         except NeedsMappingConfirmation as exc:
-            from dcim.models import FrontPort
-
             mapping_entries = []
             for pos in range(1, fct.strand_count + 1):
                 fp_id = exc.proposed_mapping.get(pos)
@@ -1482,6 +1639,7 @@ class TraceDetailView(LoginRequiredMixin, View):
     """HTMX partial view for trace sidebar detail panels."""
 
     def get(self, request, pk, node_type, object_id):
+        """Return an HTMX partial for the specified node type (device, cable, port, or splice)."""
         if not request.user.has_perm("netbox_fms.view_fibercircuitpath"):
             return HttpResponse("Permission denied", status=403)
 
