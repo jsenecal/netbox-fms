@@ -1562,6 +1562,37 @@ class WdmNode(NetBoxModel):
         """Return the detail URL for this WDM node."""
         return reverse("plugins:netbox_fms:wdmnode", args=[self.pk])
 
+    def save(self, *args, **kwargs):
+        """Save and auto-populate channels from device type profile on creation."""
+        is_new = self._state.adding
+        super().save(*args, **kwargs)
+        if is_new and self.node_type != WdmNodeTypeChoices.AMPLIFIER:
+            self._auto_populate_channels()
+
+    def _auto_populate_channels(self):
+        """Create WavelengthChannel rows from the device type's WDM profile templates."""
+        from dcim.models import FrontPort
+
+        try:
+            profile = self.device.device_type.wdm_profile
+        except WdmDeviceTypeProfile.DoesNotExist:
+            return
+        for ct in profile.channel_templates.all():
+            # Try to resolve front_port_template to actual FrontPort by name
+            front_port = None
+            if ct.front_port_template:
+                front_port = FrontPort.objects.filter(
+                    device=self.device,
+                    name=ct.front_port_template.name,
+                ).first()
+            WavelengthChannel.objects.create(
+                wdm_node=self,
+                grid_position=ct.grid_position,
+                wavelength_nm=ct.wavelength_nm,
+                label=ct.label,
+                front_port=front_port,
+            )
+
 
 class WdmTrunkPort(NetBoxModel):
     """Maps a RearPort on a WDM node to a directional trunk."""
@@ -1691,6 +1722,39 @@ class WavelengthService(NetBoxModel):
     def get_absolute_url(self):
         """Return the detail URL for this wavelength service."""
         return reverse("plugins:netbox_fms:wavelengthservice", args=[self.pk])
+
+    def save(self, *args, **kwargs):
+        """Save and handle lifecycle transitions (decommission releases channels)."""
+        is_new = self._state.adding
+        if not is_new:
+            old = WavelengthService.objects.filter(pk=self.pk).values("status").first()
+            old_status = old["status"] if old else None
+        else:
+            old_status = None
+
+        super().save(*args, **kwargs)
+
+        if not is_new and old_status != self.status:
+            if self.status == WavelengthServiceStatusChoices.DECOMMISSIONED:
+                # Release channels and delete nodes
+                self.nodes.all().delete()
+                channel_ids = self.channel_assignments.values_list("channel_id", flat=True)
+                WavelengthChannel.objects.filter(pk__in=channel_ids).update(
+                    status=WavelengthChannelStatusChoices.AVAILABLE
+                )
+            elif old_status == WavelengthServiceStatusChoices.DECOMMISSIONED:
+                # Rebuild nodes from M2M
+                self.rebuild_nodes()
+
+    def rebuild_nodes(self):
+        """Delete existing protection nodes and recreate from M2M assignments."""
+        self.nodes.all().delete()
+        for ca in self.channel_assignments.all():
+            if ca.channel_id:
+                WavelengthServiceNode.objects.create(service=self, channel=ca.channel)
+        for fc in self.circuit_assignments.all():
+            if fc.fiber_circuit_id:
+                WavelengthServiceNode.objects.create(service=self, fiber_circuit=fc.fiber_circuit)
 
 
 class WavelengthServiceCircuit(models.Model):
