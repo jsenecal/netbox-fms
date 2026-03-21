@@ -476,6 +476,27 @@ class FiberCableCableElementsView(FiberCableComponentsView):
     )
 
 
+@register_model_view(Cable, "fibercircuits", path="fiber-circuits")
+class CableFiberCircuitsView(generic.ObjectChildrenView):
+    queryset = Cable.objects.all()
+    child_model = FiberCircuitPath
+    table = FiberCircuitPathTable
+    filterset = FiberCircuitPathFilterSet
+    actions = ()
+    tab = ViewTab(
+        label=_("Fiber Circuits"),
+        badge=lambda obj: FiberCircuitPath.objects.filter(nodes__cable=obj).distinct().count(),
+        permission="netbox_fms.view_fibercircuitpath",
+        weight=600,
+        hide_if_empty=True,
+    )
+
+    def get_children(self, request, parent):
+        return FiberCircuitPath.objects.restrict(request.user, "view").filter(
+            nodes__cable=parent,
+        ).select_related("circuit", "origin", "destination").distinct()
+
+
 # ---------------------------------------------------------------------------
 # SplicePlan
 # ---------------------------------------------------------------------------

@@ -424,6 +424,10 @@ class FiberCircuitPathTable(NetBoxTable):
     origin = tables.Column(linkify=True)
     destination = tables.Column(linkify=True)
     is_complete = columns.BooleanColumn()
+    actions = columns.ActionsColumn(
+        extra_buttons='<a href="{{ record.get_absolute_url }}#trace" class="btn btn-sm btn-outline-primary" '
+        'title="Trace"><i class="mdi mdi-transit-connection-variant"></i></a> ',
+    )
 
     class Meta(NetBoxTable.Meta):
         model = FiberCircuitPath
