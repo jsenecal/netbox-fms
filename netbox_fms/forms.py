@@ -1,5 +1,16 @@
 from dcim.choices import CableLengthUnitChoices
-from dcim.models import Cable, Device, FrontPort, Location, Manufacturer, Module, RearPort, Site
+from dcim.models import (
+    Cable,
+    Device,
+    DeviceType,
+    FrontPort,
+    FrontPortTemplate,
+    Location,
+    Manufacturer,
+    Module,
+    RearPort,
+    Site,
+)
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
@@ -27,6 +38,10 @@ from .choices import (
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
+    WavelengthChannelStatusChoices,
+    WavelengthServiceStatusChoices,
+    WdmGridChoices,
+    WdmNodeTypeChoices,
 )
 from .models import (
     BufferTubeTemplate,
@@ -41,6 +56,12 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    WavelengthChannel,
+    WavelengthService,
+    WdmChannelTemplate,
+    WdmDeviceTypeProfile,
+    WdmNode,
+    WdmTrunkPort,
 )
 
 # ---------------------------------------------------------------------------
@@ -884,3 +905,266 @@ class InsertSlackLoopForm(forms.Form):
             return {int(x.strip()) for x in value.split(",") if x.strip()}
         except ValueError as err:
             raise forms.ValidationError(_("Enter comma-separated integers.")) from err
+
+
+# ---------------------------------------------------------------------------
+# WDM Device Type Profile
+# ---------------------------------------------------------------------------
+
+
+class WdmDeviceTypeProfileForm(NetBoxModelForm):
+    """Form for creating/editing a WdmDeviceTypeProfile."""
+
+    device_type = DynamicModelChoiceField(
+        queryset=DeviceType.objects.all(),
+        label=_("Device Type"),
+    )
+    comments = CommentField()
+
+    fieldsets = (
+        FieldSet("device_type", "node_type", "grid", name=_("WDM Profile")),
+        FieldSet("description", "tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = WdmDeviceTypeProfile
+        fields = ("device_type", "node_type", "grid", "description", "tags")
+
+
+class WdmDeviceTypeProfileFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for WdmDeviceTypeProfile."""
+
+    model = WdmDeviceTypeProfile
+
+    node_type = forms.MultipleChoiceField(choices=WdmNodeTypeChoices, required=False)
+    grid = forms.MultipleChoiceField(choices=WdmGridChoices, required=False)
+
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("node_type", "grid", name=_("Attributes")),
+    )
+
+
+class WdmDeviceTypeProfileImportForm(NetBoxModelImportForm):
+    """Import form for WdmDeviceTypeProfile."""
+
+    device_type = DynamicModelChoiceField(queryset=DeviceType.objects.all())
+    node_type = forms.ChoiceField(choices=WdmNodeTypeChoices)
+    grid = forms.ChoiceField(choices=WdmGridChoices)
+
+    class Meta:
+        model = WdmDeviceTypeProfile
+        fields = ("device_type", "node_type", "grid", "description")
+
+
+# ---------------------------------------------------------------------------
+# WDM Channel Template
+# ---------------------------------------------------------------------------
+
+
+class WdmChannelTemplateForm(NetBoxModelForm):
+    """Form for creating/editing a WdmChannelTemplate."""
+
+    profile = DynamicModelChoiceField(
+        queryset=WdmDeviceTypeProfile.objects.all(),
+        label=_("Profile"),
+    )
+    front_port_template = DynamicModelChoiceField(
+        queryset=FrontPortTemplate.objects.all(),
+        required=False,
+        label=_("Front Port Template"),
+    )
+
+    fieldsets = (
+        FieldSet(
+            "profile", "grid_position", "wavelength_nm", "label", "front_port_template", name=_("Channel Template")
+        ),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = WdmChannelTemplate
+        fields = ("profile", "grid_position", "wavelength_nm", "label", "front_port_template", "tags")
+
+
+# ---------------------------------------------------------------------------
+# WDM Node
+# ---------------------------------------------------------------------------
+
+
+class WdmNodeForm(NetBoxModelForm):
+    """Form for creating/editing a WdmNode."""
+
+    device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        label=_("Device"),
+    )
+    comments = CommentField()
+
+    fieldsets = (
+        FieldSet("device", "node_type", "grid", name=_("WDM Node")),
+        FieldSet("description", "tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = WdmNode
+        fields = ("device", "node_type", "grid", "description", "tags")
+
+
+class WdmNodeFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for WdmNode."""
+
+    model = WdmNode
+
+    node_type = forms.MultipleChoiceField(choices=WdmNodeTypeChoices, required=False)
+    grid = forms.MultipleChoiceField(choices=WdmGridChoices, required=False)
+
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("node_type", "grid", name=_("Attributes")),
+    )
+
+
+class WdmNodeImportForm(NetBoxModelImportForm):
+    """Import form for WdmNode."""
+
+    device = DynamicModelChoiceField(queryset=Device.objects.all())
+    node_type = forms.ChoiceField(choices=WdmNodeTypeChoices)
+    grid = forms.ChoiceField(choices=WdmGridChoices)
+
+    class Meta:
+        model = WdmNode
+        fields = ("device", "node_type", "grid", "description")
+
+
+# ---------------------------------------------------------------------------
+# WDM Trunk Port
+# ---------------------------------------------------------------------------
+
+
+class WdmTrunkPortForm(NetBoxModelForm):
+    """Form for creating/editing a WdmTrunkPort."""
+
+    wdm_node = DynamicModelChoiceField(
+        queryset=WdmNode.objects.all(),
+        label=_("WDM Node"),
+    )
+    rear_port = DynamicModelChoiceField(
+        queryset=RearPort.objects.all(),
+        label=_("Rear Port"),
+    )
+
+    fieldsets = (
+        FieldSet("wdm_node", "rear_port", "direction", "position", name=_("Trunk Port")),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = WdmTrunkPort
+        fields = ("wdm_node", "rear_port", "direction", "position", "tags")
+
+
+# ---------------------------------------------------------------------------
+# Wavelength Channel
+# ---------------------------------------------------------------------------
+
+
+class WavelengthChannelForm(NetBoxModelForm):
+    """Form for creating/editing a WavelengthChannel."""
+
+    wdm_node = DynamicModelChoiceField(
+        queryset=WdmNode.objects.all(),
+        label=_("WDM Node"),
+    )
+    front_port = DynamicModelChoiceField(
+        queryset=FrontPort.objects.all(),
+        required=False,
+        label=_("Front Port"),
+    )
+
+    fieldsets = (
+        FieldSet("wdm_node", "grid_position", "wavelength_nm", "label", "front_port", "status", name=_("Channel")),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = WavelengthChannel
+        fields = ("wdm_node", "grid_position", "wavelength_nm", "label", "front_port", "status", "tags")
+
+
+class WavelengthChannelBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for WavelengthChannel."""
+
+    model = WavelengthChannel
+
+    status = forms.ChoiceField(choices=WavelengthChannelStatusChoices, required=False)
+
+    fieldsets = (FieldSet("status"),)
+    nullable_fields = ()
+
+
+class WavelengthChannelFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for WavelengthChannel."""
+
+    model = WavelengthChannel
+
+    status = forms.MultipleChoiceField(choices=WavelengthChannelStatusChoices, required=False)
+    wdm_node_id = DynamicModelMultipleChoiceField(
+        queryset=WdmNode.objects.all(),
+        required=False,
+        label=_("WDM Node"),
+    )
+
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("wdm_node_id", "status", name=_("Attributes")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wavelength Service
+# ---------------------------------------------------------------------------
+
+
+class WavelengthServiceForm(NetBoxModelForm):
+    """Form for creating/editing a WavelengthService."""
+
+    tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
+    comments = CommentField()
+
+    fieldsets = (
+        FieldSet("name", "status", "wavelength_nm", "tenant", name=_("Service")),
+        FieldSet("description", "comments", "tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = WavelengthService
+        fields = ("name", "status", "wavelength_nm", "tenant", "description", "comments", "tags")
+
+
+class WavelengthServiceFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for WavelengthService."""
+
+    model = WavelengthService
+
+    status = forms.MultipleChoiceField(choices=WavelengthServiceStatusChoices, required=False)
+    tenant_id = DynamicModelMultipleChoiceField(
+        queryset=Tenant.objects.all(),
+        required=False,
+        label=_("Tenant"),
+    )
+
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("status", "tenant_id", name=_("Attributes")),
+    )
+
+
+class WavelengthServiceImportForm(NetBoxModelImportForm):
+    """Import form for WavelengthService."""
+
+    status = forms.ChoiceField(choices=WavelengthServiceStatusChoices)
+
+    class Meta:
+        model = WavelengthService
+        fields = ("name", "status", "wavelength_nm", "description", "comments")
