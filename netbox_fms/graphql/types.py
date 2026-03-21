@@ -23,6 +23,12 @@ from ..models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    WavelengthChannel,
+    WavelengthService,
+    WdmChannelTemplate,
+    WdmDeviceTypeProfile,
+    WdmNode,
+    WdmTrunkPort,
 )
 
 __all__ = (
@@ -42,6 +48,12 @@ __all__ = (
     "FiberCircuitType",
     "FiberCircuitPathType",
     "SlackLoopType",
+    "WdmDeviceTypeProfileType",
+    "WdmChannelTemplateType",
+    "WdmNodeInstanceType",
+    "WdmTrunkPortType",
+    "WavelengthChannelType",
+    "WavelengthServiceType",
 )
 
 
@@ -146,3 +158,38 @@ class FiberCircuitPathType(NetBoxObjectType):
 @strawberry_django.type(SlackLoop, fields="__all__")
 class SlackLoopType(NetBoxObjectType):
     """GraphQL type for SlackLoop."""
+
+
+@strawberry_django.type(WdmDeviceTypeProfile, fields="__all__")
+class WdmDeviceTypeProfileType(NetBoxObjectType):
+    """GraphQL type for WdmDeviceTypeProfile."""
+
+    channel_templates: list[Annotated["WdmChannelTemplateType", strawberry.lazy(".types")]]
+
+
+@strawberry_django.type(WdmChannelTemplate, fields="__all__")
+class WdmChannelTemplateType(NetBoxObjectType):
+    """GraphQL type for WdmChannelTemplate."""
+
+
+@strawberry_django.type(WdmNode, fields="__all__")
+class WdmNodeInstanceType(NetBoxObjectType):
+    """GraphQL type for WdmNode."""
+
+    trunk_ports: list[Annotated["WdmTrunkPortType", strawberry.lazy(".types")]]
+    channels: list[Annotated["WavelengthChannelType", strawberry.lazy(".types")]]
+
+
+@strawberry_django.type(WdmTrunkPort, fields="__all__")
+class WdmTrunkPortType(NetBoxObjectType):
+    """GraphQL type for WdmTrunkPort."""
+
+
+@strawberry_django.type(WavelengthChannel, fields="__all__")
+class WavelengthChannelType(NetBoxObjectType):
+    """GraphQL type for WavelengthChannel."""
+
+
+@strawberry_django.type(WavelengthService, fields="__all__")
+class WavelengthServiceType(NetBoxObjectType):
+    """GraphQL type for WavelengthService."""
