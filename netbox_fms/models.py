@@ -1783,6 +1783,37 @@ class WavelengthService(NetBoxModel):
                 # Rebuild nodes from M2M
                 self.rebuild_nodes()
 
+    def get_stitched_path(self):
+        """Return the stitched end-to-end path as an ordered list of hop dicts."""
+        hops = []
+        for ca in self.channel_assignments.select_related("channel__wdm_node__device").order_by("sequence"):
+            if ca.channel:
+                hops.append(
+                    {
+                        "type": "wdm_node",
+                        "sequence": ca.sequence,
+                        "node_id": ca.channel.wdm_node_id,
+                        "node_name": ca.channel.wdm_node.device.name,
+                        "channel_id": ca.channel_id,
+                        "channel_label": ca.channel.label,
+                        "wavelength_nm": float(ca.channel.wavelength_nm),
+                    }
+                )
+        for fc in self.circuit_assignments.select_related("fiber_circuit").order_by("sequence"):
+            if fc.fiber_circuit:
+                hops.append(
+                    {
+                        "type": "fiber_circuit",
+                        "sequence": fc.sequence,
+                        "circuit_id": fc.fiber_circuit_id,
+                        "circuit_name": fc.fiber_circuit.name,
+                    }
+                )
+        hops.sort(key=lambda h: h["sequence"])
+        for hop in hops:
+            del hop["sequence"]
+        return hops
+
     def rebuild_nodes(self):
         """Delete existing protection nodes and recreate from M2M assignments."""
         self.nodes.all().delete()
