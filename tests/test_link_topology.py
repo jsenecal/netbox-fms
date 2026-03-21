@@ -97,13 +97,21 @@ class TestGetCableProfile:
         )
         assert fct.get_cable_profile() == "single-1c48p"
 
-    def test_tight_buffer_6f_not_in_registry(self):
+    def test_tight_buffer_6f_uses_builtin_profile(self):
         mfr = Manufacturer.objects.create(name="TB6-Mfr", slug="tb6-mfr")
         fct = FiberCableType.objects.create(
             manufacturer=mfr, model="TB-6F", strand_count=6,
             fiber_type="smf_os2", construction="tight_buffer",
         )
-        assert fct.get_cable_profile() is None  # 6p not in plugin registry
+        assert fct.get_cable_profile() == "single-1c6p"  # built-in NetBox profile
+
+    def test_tight_buffer_5f_no_profile(self):
+        mfr = Manufacturer.objects.create(name="TB5-Mfr", slug="tb5-mfr")
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="TB-5F", strand_count=5,
+            fiber_type="smf_os2", construction="tight_buffer",
+        )
+        assert fct.get_cable_profile() is None  # no single-1c5p exists
 
     def test_loose_tube_12x12(self):
         mfr = Manufacturer.objects.create(name="LT12-Mfr", slug="lt12-mfr")
@@ -371,3 +379,140 @@ class TestLinkTopologyView:
         response = client.get(url)
         assert response.status_code == 200
         assert b"Link Cable Topology" in response.content
+
+
+class TestMonkeyPatchCableProfiles:
+    """Test that the monkey patch correctly extends NetBox's cable profile system."""
+
+    def test_custom_profiles_in_cable_profile_choices(self):
+        from dcim.choices import CableProfileChoices
+
+        # Flatten all choice values
+        values = set()
+        for group in CableProfileChoices.CHOICES:
+            for choice in group[1]:
+                if isinstance(choice, (list, tuple)):
+                    values.add(choice[0])
+        # Custom single profiles
+        assert "single-1c24p" in values
+        assert "single-1c48p" in values
+        assert "single-1c288p" in values
+        # Custom trunk profiles
+        assert "trunk-4c12p" in values
+        assert "trunk-24c12p" in values
+        # Built-in profiles still present
+        assert "single-1c1p" in values
+        assert "trunk-2c2p" in values
+
+    def test_cable_profile_class_returns_custom_profile(self):
+        from dcim.models import Cable
+
+        cable = Cable()
+        cable.profile = "trunk-24c12p"
+        cls = cable.profile_class
+        assert cls is not None
+        assert cls.a_connectors == dict.fromkeys(range(1, 25), 12)
+        assert cls.b_connectors == cls.a_connectors
+
+    def test_cable_profile_class_returns_builtin_profile(self):
+        from dcim.models import Cable
+
+        cable = Cable()
+        cable.profile = "single-1c1p"
+        cls = cable.profile_class
+        assert cls is not None
+        assert cls.a_connectors == {1: 1}
+
+    def test_cable_profile_field_accepts_custom_values(self):
+        from dcim.models import Cable
+
+        field = Cable._meta.get_field("profile")
+        choice_values = set()
+        for group in field.choices:
+            if isinstance(group[1], list):
+                for choice in group[1]:
+                    choice_values.add(choice[0])
+            elif isinstance(group[1], tuple):
+                for choice in group[1]:
+                    if isinstance(choice, (list, tuple)):
+                        choice_values.add(choice[0])
+        assert "trunk-24c12p" in choice_values
+        assert "single-1c288p" in choice_values
+
+
+@pytest.mark.django_db
+class TestCableTerminationConnectorPositions:
+    """Test that link_cable_topology sets connector/positions on CableTerminations."""
+
+    def _make_fixtures(self):
+        site = Site.objects.create(name="CT-Site", slug="ct-site")
+        mfr = Manufacturer.objects.create(name="CT-Mfr", slug="ct-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="CT-Closure", slug="ct-closure")
+        role = DeviceRole.objects.create(name="CT-Role", slug="ct-role")
+        device = Device.objects.create(name="CT-Closure", site=site, device_type=dt, role=role)
+        cable = Cable.objects.create()
+        return device, cable, mfr
+
+    def test_tube_based_sets_connector_per_tube(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="CT-48F", strand_count=48,
+            fiber_type="smf_os2", construction="loose_tube",
+        )
+        for i in range(1, 5):
+            BufferTubeTemplate.objects.create(
+                fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=12,
+            )
+        fc, warnings = link_cable_topology(cable, fct, device)
+
+        from dcim.models import CableTermination, RearPort
+        from django.contrib.contenttypes.models import ContentType
+
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        terms = CableTermination.objects.filter(
+            cable=cable, termination_type=rp_ct,
+        ).order_by("connector")
+        assert terms.count() == 4
+        for i, term in enumerate(terms, start=1):
+            assert term.connector == i
+            assert term.positions == list(range(1, 13))
+
+    def test_tight_buffer_sets_single_connector(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="CT-12F", strand_count=12,
+            fiber_type="smf_os2", construction="tight_buffer",
+        )
+        fc, warnings = link_cable_topology(cable, fct, device)
+
+        from dcim.models import CableTermination, RearPort
+        from django.contrib.contenttypes.models import ContentType
+
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        terms = CableTermination.objects.filter(
+            cable=cable, termination_type=rp_ct,
+        )
+        assert terms.count() == 1
+        term = terms.first()
+        assert term.connector == 1
+        assert term.positions == list(range(1, 13))
+
+    def test_rearport_syncs_cable_connector(self):
+        device, cable, mfr = self._make_fixtures()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="CT-24F", strand_count=24,
+            fiber_type="smf_os2", construction="loose_tube",
+        )
+        for i in range(1, 3):
+            BufferTubeTemplate.objects.create(
+                fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=12,
+            )
+        fc, warnings = link_cable_topology(cable, fct, device)
+
+        from dcim.models import RearPort
+
+        rps = RearPort.objects.filter(device=device).order_by("name")
+        for i, rp in enumerate(rps, start=1):
+            rp.refresh_from_db()
+            assert rp.cable_connector == i
+            assert rp.cable_positions == list(range(1, 13))

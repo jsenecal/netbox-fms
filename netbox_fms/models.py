@@ -192,20 +192,31 @@ class FiberCableType(NetBoxModel):
         return sum(btt.get_total_fiber_count() for btt in self.buffer_tube_templates.all())
 
     def get_cable_profile(self):
-        """Derive the cable profile key from template topology."""
-        from .cable_profiles import FIBER_CABLE_PROFILES
+        """Derive the cable profile key from template topology.
+
+        Checks both built-in NetBox profiles (CableProfileChoices) and custom
+        fiber profiles registered via monkey-patch (FIBER_CABLE_PROFILES).
+        """
+        from dcim.choices import CableProfileChoices
+
+        # Flatten all valid profile keys (built-in + monkey-patched custom)
+        valid = set()
+        for group in CableProfileChoices.CHOICES:
+            for choice in group[1]:
+                if isinstance(choice, (list, tuple)):
+                    valid.add(choice[0])
 
         tubes = list(self.buffer_tube_templates.all())
         if not tubes:
             key = f"single-1c{self.strand_count}p"
-            return key if key in FIBER_CABLE_PROFILES else None
+            return key if key in valid else None
 
         fiber_counts = [t.get_total_fiber_count() for t in tubes]
         if len(set(fiber_counts)) != 1:
             return None
 
         key = f"trunk-{len(tubes)}c{fiber_counts[0]}p"
-        return key if key in FIBER_CABLE_PROFILES else None
+        return key if key in valid else None
 
 
 class BufferTubeTemplate(TrackingModelMixin, NetBoxModel):

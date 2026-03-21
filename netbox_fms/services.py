@@ -126,7 +126,7 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
 
         if tubes:
             # One RearPort per tube
-            for tube in tubes:
+            for tube_idx, tube in enumerate(tubes, start=1):
                 tube_fiber_count = fc.fiber_strands.filter(buffer_tube=tube).count()
                 rp = RearPort.objects.create(
                     device=device,
@@ -135,11 +135,14 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                     positions=tube_fiber_count,
                 )
                 # Create CableTermination linking RearPort to cable
+                # connector/positions enable profile-based tracing
                 CableTermination.objects.create(
                     cable=cable,
                     cable_end=cable_end if cable_end != "AB" else "A",
                     termination_type=rp_ct,
                     termination_id=rp.pk,
+                    connector=tube_idx,
+                    positions=list(range(1, tube_fiber_count + 1)),
                 )
                 # Create FrontPorts + PortMappings for each fiber in this tube
                 tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
@@ -171,6 +174,8 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                 cable_end=cable_end if cable_end != "AB" else "A",
                 termination_type=rp_ct,
                 termination_id=rp.pk,
+                connector=1,
+                positions=list(range(1, fiber_cable_type.strand_count + 1)),
             )
             for i, strand in enumerate(strands, start=1):
                 fp = FrontPort.objects.create(
