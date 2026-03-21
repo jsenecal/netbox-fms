@@ -440,9 +440,7 @@ def _validate_mapping_changes(wdm_node, desired_mapping: dict[int, int | None]) 
         if ch is None:
             continue
         if ch.status in protected_statuses and ch.front_port_id != desired_fp_pk:
-            errors.append(
-                f"Channel {ch.label} (pk={ch.pk}) is {ch.get_status_display()} and cannot be remapped."
-            )
+            errors.append(f"Channel {ch.label} (pk={ch.pk}) is {ch.get_status_display()} and cannot be remapped.")
 
     # Check no two channels map to the same FrontPort
     port_usage = {}  # front_port_pk -> channel label
