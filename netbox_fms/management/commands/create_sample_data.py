@@ -483,21 +483,34 @@ class Command(BaseCommand):
 
     def _create_ports_and_link_strands(self, cable_info):
         """Create RearPorts, FrontPorts, PortMappings on both sides of a cable.
-        Link FiberStrands to their FrontPorts. Uses bulk_create for performance."""
+        Link FiberStrands to their FrontPorts. Set cable profile and terminations
+        so Cable.save() creates CableTerminations with proper connector/positions
+        for profile-based tracing."""
         cable = cable_info["cable"]
         fc = cable_info["fiber_cable"]
         if not fc:
             return
 
+        # Check idempotency: skip if both sides already have terminations
+        a_exists = CableTermination.objects.filter(
+            cable=cable, cable_end="A", termination_type=self.rp_ct
+        ).exists()
+        b_exists = CableTermination.objects.filter(
+            cable=cable, cable_end="B", termination_type=self.rp_ct
+        ).exists()
+        if a_exists and b_exists:
+            return
+        if a_exists or b_exists:
+            return  # Inconsistent state — skip
+
+        fct = fc.fiber_cable_type
+        profile_key = fct.get_cable_profile()
+        side_rps = {"A": [], "B": []}
+
         for device, cable_end, fk_field in [
             (cable_info["a_device"], "A", "front_port_a"),
             (cable_info["b_device"], "B", "front_port_b"),
         ]:
-            # Skip if terminations already exist
-            existing = CableTermination.objects.filter(cable=cable, cable_end=cable_end, termination_type=self.rp_ct)
-            if existing.exists():
-                continue
-
             tubes = list(fc.buffer_tubes.all().order_by("position"))
             strands = list(fc.fiber_strands.all().order_by("position"))
             trays = list(Module.objects.filter(device=device).order_by("module_bay__position"))
@@ -514,12 +527,7 @@ class Command(BaseCommand):
                         type="splice",
                         positions=len(tube_strands),
                     )
-                    CableTermination.objects.create(
-                        cable=cable,
-                        cable_end=cable_end,
-                        termination_type=self.rp_ct,
-                        termination_id=rp.pk,
-                    )
+                    side_rps[cable_end].append(rp)
 
                     fps_to_create = []
                     for pos_in_tube, strand in enumerate(tube_strands, 1):
@@ -559,12 +567,7 @@ class Command(BaseCommand):
                     type="splice",
                     positions=len(strands),
                 )
-                CableTermination.objects.create(
-                    cable=cable,
-                    cable_end=cable_end,
-                    termination_type=self.rp_ct,
-                    termination_id=rp.pk,
-                )
+                side_rps[cable_end].append(rp)
 
                 fps_to_create = []
                 for strand in strands:
@@ -593,6 +596,15 @@ class Command(BaseCommand):
 
                 PortMapping.objects.bulk_create(pms_to_create)
                 FiberStrand.objects.bulk_update(strands, [fk_field])
+
+        # Set cable profile and terminations — Cable.save() calls update_terminations()
+        # which creates CableTerminations with connector/positions for profile-based tracing
+        if side_rps["A"] and side_rps["B"]:
+            cable.a_terminations = side_rps["A"]
+            cable.b_terminations = side_rps["B"]
+            if profile_key:
+                cable.profile = profile_key
+            cable.save()
 
     # ------------------------------------------------------------------
     # Backbone
@@ -876,6 +888,7 @@ class Command(BaseCommand):
                 a_terminations=[intf],
                 b_terminations=[fp],
                 type=CableTypeChoices.TYPE_SMF_OS2,
+                profile="single-1c1p",
                 length=1,
                 length_unit="m",
                 label=f"Patch: {intf.device.name}:{intf.name}",
@@ -1037,9 +1050,11 @@ class Command(BaseCommand):
                 self._patched_fp_ids.add(entry.fiber_a_id)
                 self._patched_fp_ids.add(entry.fiber_b_id)
 
-            # Bulk create splice cables in batches
+            # Bulk create splice cables with profile and connector/positions
             if splice_pairs:
-                cables = Cable.objects.bulk_create([Cable(length=0, length_unit="m") for _ in splice_pairs])
+                cables = Cable.objects.bulk_create(
+                    [Cable(length=0, length_unit="m", profile="single-1c1p") for _ in splice_pairs]
+                )
                 terms = []
                 for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
                     terms.append(
@@ -1048,6 +1063,8 @@ class Command(BaseCommand):
                             cable_end="A",
                             termination_type=self.fp_ct,
                             termination_id=fp_a_id,
+                            connector=1,
+                            positions=[1],
                         )
                     )
                     terms.append(
@@ -1056,9 +1073,35 @@ class Command(BaseCommand):
                             cable_end="B",
                             termination_type=self.fp_ct,
                             termination_id=fp_b_id,
+                            connector=1,
+                            positions=[1],
                         )
                     )
                 CableTermination.objects.bulk_create(terms)
+
+                # Sync cable fields to FrontPorts (bulk_create skips CableTermination.save())
+                all_fp_ids = set()
+                for fp_a_id, fp_b_id in splice_pairs:
+                    all_fp_ids.add(fp_a_id)
+                    all_fp_ids.add(fp_b_id)
+                fp_map = {fp.pk: fp for fp in FrontPort.objects.filter(pk__in=all_fp_ids)}
+                fps_to_update = []
+                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
+                    fp_a = fp_map[fp_a_id]
+                    fp_a.cable = cable
+                    fp_a.cable_end = "A"
+                    fp_a.cable_connector = 1
+                    fp_a.cable_positions = [1]
+                    fps_to_update.append(fp_a)
+                    fp_b = fp_map[fp_b_id]
+                    fp_b.cable = cable
+                    fp_b.cable_end = "B"
+                    fp_b.cable_connector = 1
+                    fp_b.cable_positions = [1]
+                    fps_to_update.append(fp_b)
+                FrontPort.objects.bulk_update(
+                    fps_to_update, ["cable", "cable_end", "cable_connector", "cable_positions"]
+                )
             plans_created += 1
 
         self.stdout.write(f"  Created {plans_created} splice plans with splice cables")

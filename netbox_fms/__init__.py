@@ -16,8 +16,9 @@ class NetBoxFMSConfig(PluginConfig):
 
     def ready(self):
         super().ready()
-        # from netbox_fms.monkey_patches import patch_cable_profiles
-        # patch_cable_profiles()
+        from netbox_fms.monkey_patches import patch_cable_profiles
+
+        patch_cable_profiles()
         from .signals import connect_signals
 
         connect_signals()
