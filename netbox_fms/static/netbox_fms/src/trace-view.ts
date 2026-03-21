@@ -30,6 +30,7 @@ async function initTraceView(config: TraceConfig): Promise<void> {
   }
 
   async function loadAndRender(): Promise<void> {
+    const el = container!;
     try {
       const resp = await fetch(config.traceUrl, {
         headers: { 'Accept': 'application/json' },
@@ -38,8 +39,8 @@ async function initTraceView(config: TraceConfig): Promise<void> {
       const data: TraceResponse = await resp.json();
 
       // Clear loading spinner safely
-      while (container.firstChild) {
-        container.removeChild(container.firstChild);
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
       }
 
       if (data.hops.length === 0) {
@@ -49,15 +50,15 @@ async function initTraceView(config: TraceConfig): Promise<void> {
         p.className = 'text-muted';
         p.textContent = 'No trace data available';
         msg.appendChild(p);
-        container.appendChild(msg);
+        el.appendChild(msg);
         return;
       }
 
-      activeRenderer = new TraceRenderer(container, data, config);
+      activeRenderer = new TraceRenderer(el, data, config);
       activeRenderer.render();
     } catch (err) {
-      while (container.firstChild) {
-        container.removeChild(container.firstChild);
+      while (el.firstChild) {
+        el.removeChild(el.firstChild);
       }
       const msg = document.createElement('div');
       msg.className = 'trace-loading';
@@ -65,7 +66,7 @@ async function initTraceView(config: TraceConfig): Promise<void> {
       p.className = 'text-danger';
       p.textContent = 'Error: ' + (err as Error).message;
       msg.appendChild(p);
-      container.appendChild(msg);
+      el.appendChild(msg);
     }
   }
 }

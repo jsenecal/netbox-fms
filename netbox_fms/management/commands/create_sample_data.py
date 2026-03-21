@@ -492,12 +492,8 @@ class Command(BaseCommand):
             return
 
         # Check idempotency: skip if both sides already have terminations
-        a_exists = CableTermination.objects.filter(
-            cable=cable, cable_end="A", termination_type=self.rp_ct
-        ).exists()
-        b_exists = CableTermination.objects.filter(
-            cable=cable, cable_end="B", termination_type=self.rp_ct
-        ).exists()
+        a_exists = CableTermination.objects.filter(cable=cable, cable_end="A", termination_type=self.rp_ct).exists()
+        b_exists = CableTermination.objects.filter(cable=cable, cable_end="B", termination_type=self.rp_ct).exists()
         if a_exists and b_exists:
             return
         if a_exists or b_exists:

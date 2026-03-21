@@ -341,10 +341,10 @@ export class TraceRenderer {
       .attr('stroke-width', isSelected ? 2 : 1);
 
     // Hover effect
-    g.on('mouseover', function () {
+    g.on('mouseover', function (this: SVGGElement) {
       d3.select(this).select('rect').attr('stroke-width', isSelected ? 2.5 : 2);
     });
-    g.on('mouseout', function () {
+    g.on('mouseout', function (this: SVGGElement) {
       d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1);
     });
 
@@ -530,10 +530,10 @@ export class TraceRenderer {
       .attr('stroke-width', lineWidth);
 
     // Hover effect on line
-    g.on('mouseover', function () {
+    g.on('mouseover', function (this: SVGGElement) {
       d3.select(this).select('line').attr('stroke-width', lineWidth + 1);
     });
-    g.on('mouseout', function () {
+    g.on('mouseout', function (this: SVGGElement) {
       d3.select(this).select('line').attr('stroke-width', lineWidth);
     });
 
@@ -572,10 +572,10 @@ export class TraceRenderer {
       .attr('stroke-width', isSelected ? 1.5 : 0.5);
 
     // Hover effect on box
-    g.on('mouseover', function () {
+    g.on('mouseover', function (this: SVGGElement) {
       d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1.5);
     });
-    g.on('mouseout', function () {
+    g.on('mouseout', function (this: SVGGElement) {
       d3.select(this).select('rect').attr('stroke-width', isSelected ? 1.5 : 0.5);
     });
 
