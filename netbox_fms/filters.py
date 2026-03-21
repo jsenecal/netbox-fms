@@ -16,6 +16,10 @@ from .choices import (
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
+    WavelengthChannelStatusChoices,
+    WavelengthServiceStatusChoices,
+    WdmGridChoices,
+    WdmNodeTypeChoices,
 )
 from .models import (
     BufferTube,
@@ -34,6 +38,12 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    WavelengthChannel,
+    WavelengthService,
+    WdmChannelTemplate,
+    WdmDeviceTypeProfile,
+    WdmNode,
+    WdmTrunkPort,
 )
 
 
@@ -434,3 +444,124 @@ class FiberCircuitPathFilterSet(NetBoxModelFilterSet):
         if not value.strip():
             return queryset
         return queryset.filter(models.Q(circuit__name__icontains=value) | models.Q(circuit__cid__icontains=value))
+
+
+# ---------------------------------------------------------------------------
+# WDM Device Type Profile
+# ---------------------------------------------------------------------------
+
+
+class WdmDeviceTypeProfileFilterSet(NetBoxModelFilterSet):
+    """FilterSet for WdmDeviceTypeProfile model."""
+
+    node_type = django_filters.MultipleChoiceFilter(choices=WdmNodeTypeChoices)
+    grid = django_filters.MultipleChoiceFilter(choices=WdmGridChoices)
+
+    class Meta:
+        model = WdmDeviceTypeProfile
+        fields = ("id", "node_type", "grid")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(device_type__model__icontains=value))
+
+
+# ---------------------------------------------------------------------------
+# WDM Channel Template
+# ---------------------------------------------------------------------------
+
+
+class WdmChannelTemplateFilterSet(NetBoxModelFilterSet):
+    """FilterSet for WdmChannelTemplate model."""
+
+    profile_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=WdmDeviceTypeProfile.objects.all(),
+        field_name="profile",
+        label=_("Profile (ID)"),
+    )
+
+    class Meta:
+        model = WdmChannelTemplate
+        fields = ("id", "profile", "grid_position", "wavelength_nm", "label")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(label__icontains=value))
+
+
+# ---------------------------------------------------------------------------
+# WDM Node
+# ---------------------------------------------------------------------------
+
+
+class WdmNodeFilterSet(NetBoxModelFilterSet):
+    """FilterSet for WdmNode model."""
+
+    node_type = django_filters.MultipleChoiceFilter(choices=WdmNodeTypeChoices)
+    grid = django_filters.MultipleChoiceFilter(choices=WdmGridChoices)
+    device_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        field_name="device",
+        label=_("Device (ID)"),
+    )
+
+    class Meta:
+        model = WdmNode
+        fields = ("id", "node_type", "grid")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(device__name__icontains=value))
+
+
+# ---------------------------------------------------------------------------
+# Wavelength Channel
+# ---------------------------------------------------------------------------
+
+
+class WavelengthChannelFilterSet(NetBoxModelFilterSet):
+    """FilterSet for WavelengthChannel model."""
+
+    wdm_node_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=WdmNode.objects.all(),
+        field_name="wdm_node",
+        label=_("WDM Node (ID)"),
+    )
+    status = django_filters.MultipleChoiceFilter(choices=WavelengthChannelStatusChoices)
+
+    class Meta:
+        model = WavelengthChannel
+        fields = ("id", "wdm_node", "status", "grid_position", "wavelength_nm")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(label__icontains=value))
+
+
+# ---------------------------------------------------------------------------
+# Wavelength Service
+# ---------------------------------------------------------------------------
+
+
+class WavelengthServiceFilterSet(NetBoxModelFilterSet):
+    """FilterSet for WavelengthService model."""
+
+    status = django_filters.MultipleChoiceFilter(choices=WavelengthServiceStatusChoices)
+    tenant_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Tenant.objects.all(),
+        field_name="tenant",
+        label=_("Tenant (ID)"),
+    )
+
+    class Meta:
+        model = WavelengthService
+        fields = ("id", "name", "status", "wavelength_nm")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
