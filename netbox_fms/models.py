@@ -1723,6 +1723,43 @@ class WavelengthService(NetBoxModel):
         """Return the detail URL for this wavelength service."""
         return reverse("plugins:netbox_fms:wavelengthservice", args=[self.pk])
 
+    def clean(self):
+        """Validate channel consistency: same grid, matching wavelength."""
+        from decimal import Decimal
+
+        super().clean()
+
+        channel_assignments = self.channel_assignments.select_related("channel__wdm_node").all()
+        if not channel_assignments.exists():
+            return
+
+        grids = set()
+        svc_wl = Decimal(str(self.wavelength_nm))
+        for ca in channel_assignments:
+            if ca.channel:
+                grids.add(ca.channel.wdm_node.grid)
+
+        # Check grid consistency first
+        if len(grids) > 1:
+            raise ValidationError(
+                _("All WDM nodes in a wavelength service must use the same grid. Found: %(grids)s")
+                % {"grids": ", ".join(sorted(grids))}
+            )
+
+        # Then check wavelength consistency
+        for ca in channel_assignments:
+            if ca.channel:
+                ch_wl = Decimal(str(ca.channel.wavelength_nm))
+                if abs(ch_wl - svc_wl) > Decimal("0.01"):
+                    raise ValidationError(
+                        _("Channel %(label)s has wavelength %(ch_wl)s nm but service wavelength is %(svc_wl)s nm.")
+                        % {
+                            "label": ca.channel.label,
+                            "ch_wl": ca.channel.wavelength_nm,
+                            "svc_wl": self.wavelength_nm,
+                        }
+                    )
+
     def save(self, *args, **kwargs):
         """Save and handle lifecycle transitions (decommission releases channels)."""
         is_new = self._state.adding
