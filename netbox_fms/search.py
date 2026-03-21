@@ -1,6 +1,15 @@
 from netbox.search import SearchIndex, register_search
 
-from .models import FiberCable, FiberCableType, FiberCircuit, SlackLoop, SplicePlan, SpliceProject
+from .models import (
+    FiberCable,
+    FiberCableType,
+    FiberCircuit,
+    SlackLoop,
+    SplicePlan,
+    SpliceProject,
+    WavelengthService,
+    WdmNode,
+)
 
 
 @register_search
@@ -72,3 +81,24 @@ class SlackLoopIndex(SearchIndex):
     model = SlackLoop
     fields = (("notes", 5000),)
     display_attrs = ("fiber_cable", "site", "start_mark", "end_mark", "length_unit")
+
+
+@register_search
+class WdmNodeIndex(SearchIndex):
+    """Search index for WdmNode."""
+
+    model = WdmNode
+    fields = (("device__name", 100),)
+    display_attrs = ("device", "node_type", "grid")
+
+
+@register_search
+class WavelengthServiceIndex(SearchIndex):
+    """Search index for WavelengthService."""
+
+    model = WavelengthService
+    fields = (
+        ("name", 100),
+        ("description", 500),
+    )
+    display_attrs = ("status", "wavelength_nm", "tenant")
