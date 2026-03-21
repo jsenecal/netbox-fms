@@ -131,7 +131,7 @@ class TestWDMGridsDict:
         assert "cwdm" in WDM_GRIDS
 
     def test_wdm_grids_values(self):
-        from netbox_fms.wdm_constants import CWDM_CHANNELS, DWDM_100GHZ_CHANNELS, DWDM_50GHZ_CHANNELS, WDM_GRIDS
+        from netbox_fms.wdm_constants import CWDM_CHANNELS, DWDM_50GHZ_CHANNELS, DWDM_100GHZ_CHANNELS, WDM_GRIDS
 
         assert WDM_GRIDS["cwdm"] is CWDM_CHANNELS
         assert WDM_GRIDS["dwdm_100ghz"] is DWDM_100GHZ_CHANNELS
@@ -172,3 +172,265 @@ class TestWdmChoiceSets:
         assert "staged" in values
         assert "active" in values
         assert "decommissioned" in values
+
+
+# ---------------------------------------------------------------------------
+# Model tests (Task 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def wdm_fixtures():
+    """Create base DCIM objects needed by WDM models."""
+    from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+
+    site = Site.objects.create(name="WDM-Site", slug="wdm-site")
+    manufacturer = Manufacturer.objects.create(name="WDM-Mfg", slug="wdm-mfg")
+    role = DeviceRole.objects.create(name="WDM-Role", slug="wdm-role")
+    device_type = DeviceType.objects.create(manufacturer=manufacturer, model="WDM-DT", slug="wdm-dt")
+    device = Device.objects.create(name="WDM-Dev-1", site=site, device_type=device_type, role=role)
+    device2 = Device.objects.create(name="WDM-Dev-2", site=site, device_type=device_type, role=role)
+    return {
+        "site": site,
+        "manufacturer": manufacturer,
+        "role": role,
+        "device_type": device_type,
+        "device": device,
+        "device2": device2,
+    }
+
+
+@pytest.mark.django_db
+class TestWdmDeviceTypeProfile:
+    def test_create_profile(self, wdm_fixtures):
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmDeviceTypeProfile
+
+        profile = WdmDeviceTypeProfile.objects.create(
+            device_type=wdm_fixtures["device_type"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        assert str(profile) == f"WDM Profile: {wdm_fixtures['device_type']}"
+        assert profile.pk is not None
+
+    def test_one_to_one_constraint(self, wdm_fixtures):
+        from django.db import IntegrityError
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmDeviceTypeProfile
+
+        WdmDeviceTypeProfile.objects.create(
+            device_type=wdm_fixtures["device_type"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        with pytest.raises(IntegrityError):
+            WdmDeviceTypeProfile.objects.create(
+                device_type=wdm_fixtures["device_type"],
+                node_type=WdmNodeTypeChoices.OADM,
+                grid=WdmGridChoices.CWDM,
+            )
+
+
+@pytest.mark.django_db
+class TestWdmChannelTemplate:
+    def test_create_channel_template(self, wdm_fixtures):
+        from decimal import Decimal
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmChannelTemplate, WdmDeviceTypeProfile
+
+        profile = WdmDeviceTypeProfile.objects.create(
+            device_type=wdm_fixtures["device_type"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        ct = WdmChannelTemplate.objects.create(
+            profile=profile,
+            grid_position=1,
+            wavelength_nm=Decimal("1550.12"),
+            label="C21",
+        )
+        assert str(ct) == "C21 (1550.12nm)"
+        assert ct.pk is not None
+
+    def test_unique_grid_position(self, wdm_fixtures):
+        from decimal import Decimal
+
+        from django.db import IntegrityError
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmChannelTemplate, WdmDeviceTypeProfile
+
+        profile = WdmDeviceTypeProfile.objects.create(
+            device_type=wdm_fixtures["device_type"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        WdmChannelTemplate.objects.create(
+            profile=profile, grid_position=1, wavelength_nm=Decimal("1550.12"), label="C21"
+        )
+        with pytest.raises(IntegrityError):
+            WdmChannelTemplate.objects.create(
+                profile=profile, grid_position=1, wavelength_nm=Decimal("1551.00"), label="C22"
+            )
+
+
+@pytest.mark.django_db
+class TestWdmNode:
+    def test_create_node(self, wdm_fixtures):
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmNode
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type=WdmNodeTypeChoices.ROADM,
+            grid=WdmGridChoices.DWDM_50GHZ,
+        )
+        assert str(node) == f"WDM: {wdm_fixtures['device'].name}"
+        assert node.pk is not None
+
+    def test_one_to_one_constraint(self, wdm_fixtures):
+        from django.db import IntegrityError
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmNode
+
+        WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type=WdmNodeTypeChoices.ROADM,
+            grid=WdmGridChoices.DWDM_50GHZ,
+        )
+        with pytest.raises(IntegrityError):
+            WdmNode.objects.create(
+                device=wdm_fixtures["device"],
+                node_type=WdmNodeTypeChoices.AMPLIFIER,
+                grid=WdmGridChoices.CWDM,
+            )
+
+
+@pytest.mark.django_db
+class TestWdmTrunkPort:
+    def test_create_trunk_port(self, wdm_fixtures):
+        from dcim.models import RearPort
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmNode, WdmTrunkPort
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        rp = RearPort.objects.create(device=wdm_fixtures["device"], name="RP1", positions=1)
+        tp = WdmTrunkPort.objects.create(wdm_node=node, rear_port=rp, direction="east", position=1)
+        assert str(tp) == f"east: {rp}"
+        assert tp.pk is not None
+
+    def test_unique_rear_port(self, wdm_fixtures):
+        from dcim.models import RearPort
+        from django.db import IntegrityError
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmNode, WdmTrunkPort
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        rp = RearPort.objects.create(device=wdm_fixtures["device"], name="RP1", positions=1)
+        WdmTrunkPort.objects.create(wdm_node=node, rear_port=rp, direction="east", position=1)
+        with pytest.raises(IntegrityError):
+            WdmTrunkPort.objects.create(wdm_node=node, rear_port=rp, direction="west", position=2)
+
+    def test_unique_direction(self, wdm_fixtures):
+        from dcim.models import RearPort
+        from django.db import IntegrityError
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WdmNode, WdmTrunkPort
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        rp1 = RearPort.objects.create(device=wdm_fixtures["device"], name="RP1", positions=1)
+        rp2 = RearPort.objects.create(device=wdm_fixtures["device"], name="RP2", positions=1)
+        WdmTrunkPort.objects.create(wdm_node=node, rear_port=rp1, direction="east", position=1)
+        with pytest.raises(IntegrityError):
+            WdmTrunkPort.objects.create(wdm_node=node, rear_port=rp2, direction="east", position=2)
+
+
+@pytest.mark.django_db
+class TestWavelengthChannel:
+    def test_create_channel(self, wdm_fixtures):
+        from decimal import Decimal
+
+        from netbox_fms.choices import WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WavelengthChannel, WdmNode
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        ch = WavelengthChannel.objects.create(
+            wdm_node=node,
+            grid_position=1,
+            wavelength_nm=Decimal("1550.12"),
+            label="C21",
+        )
+        assert str(ch) == "C21 (1550.12nm)"
+        assert ch.pk is not None
+
+    def test_default_status_is_available(self, wdm_fixtures):
+        from decimal import Decimal
+
+        from netbox_fms.choices import WavelengthChannelStatusChoices, WdmGridChoices, WdmNodeTypeChoices
+        from netbox_fms.models import WavelengthChannel, WdmNode
+
+        node = WdmNode.objects.create(
+            device=wdm_fixtures["device"],
+            node_type=WdmNodeTypeChoices.TERMINAL_MUX,
+            grid=WdmGridChoices.DWDM_100GHZ,
+        )
+        ch = WavelengthChannel.objects.create(
+            wdm_node=node,
+            grid_position=1,
+            wavelength_nm=Decimal("1550.12"),
+            label="C21",
+        )
+        assert ch.status == WavelengthChannelStatusChoices.AVAILABLE
+
+
+@pytest.mark.django_db
+class TestWavelengthService:
+    def test_create_service(self, wdm_fixtures):
+        from decimal import Decimal
+
+        from netbox_fms.models import WavelengthService
+
+        svc = WavelengthService.objects.create(
+            name="Lambda-1",
+            wavelength_nm=Decimal("1550.12"),
+        )
+        assert str(svc) == "Lambda-1"
+        assert svc.pk is not None
+
+    def test_service_with_tenant(self, wdm_fixtures):
+        from decimal import Decimal
+
+        from tenancy.models import Tenant
+
+        from netbox_fms.models import WavelengthService
+
+        tenant = Tenant.objects.create(name="WDM-Tenant", slug="wdm-tenant")
+        svc = WavelengthService.objects.create(
+            name="Lambda-2",
+            wavelength_nm=Decimal("1550.12"),
+            tenant=tenant,
+        )
+        assert svc.tenant == tenant

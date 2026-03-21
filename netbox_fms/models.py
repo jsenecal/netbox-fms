@@ -18,6 +18,10 @@ from .choices import (
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
+    WavelengthChannelStatusChoices,
+    WavelengthServiceStatusChoices,
+    WdmGridChoices,
+    WdmNodeTypeChoices,
 )
 from .constants import get_eia598_color
 
@@ -39,6 +43,15 @@ __all__ = (
     "FiberCircuit",
     "FiberCircuitPath",
     "FiberCircuitNode",
+    "WdmDeviceTypeProfile",
+    "WdmChannelTemplate",
+    "WdmNode",
+    "WdmTrunkPort",
+    "WavelengthChannel",
+    "WavelengthService",
+    "WavelengthServiceCircuit",
+    "WavelengthServiceChannelAssignment",
+    "WavelengthServiceNode",
 )
 
 
@@ -1424,3 +1437,377 @@ class FiberCircuitNode(models.Model):
             if obj is not None:
                 return f"{field}: {obj}"
         return f"node #{self.position}"
+
+
+# ---------------------------------------------------------------------------
+# WDM (Wavelength-Division Multiplexing) Models
+# ---------------------------------------------------------------------------
+
+
+class WdmDeviceTypeProfile(NetBoxModel):
+    """WDM capability profile attached to a DeviceType."""
+
+    device_type = models.OneToOneField(
+        to="dcim.DeviceType",
+        on_delete=models.CASCADE,
+        related_name="wdm_profile",
+        verbose_name=_("device type"),
+    )
+    node_type = models.CharField(
+        max_length=50,
+        choices=WdmNodeTypeChoices,
+        verbose_name=_("node type"),
+    )
+    grid = models.CharField(
+        max_length=50,
+        choices=WdmGridChoices,
+        verbose_name=_("grid"),
+    )
+    description = models.TextField(blank=True, verbose_name=_("description"))
+
+    class Meta:
+        ordering = ("device_type",)
+        verbose_name = _("WDM device type profile")
+        verbose_name_plural = _("WDM device type profiles")
+
+    def __str__(self):
+        """Return a label identifying this WDM profile."""
+        return f"WDM Profile: {self.device_type}"
+
+    def get_absolute_url(self):
+        """Return the detail URL for this WDM device type profile."""
+        return reverse("plugins:netbox_fms:wdmdevicetypeprofile", args=[self.pk])
+
+
+class WdmChannelTemplate(NetBoxModel):
+    """Channel slot template on a WdmDeviceTypeProfile."""
+
+    profile = models.ForeignKey(
+        to="netbox_fms.WdmDeviceTypeProfile",
+        on_delete=models.CASCADE,
+        related_name="channel_templates",
+        verbose_name=_("profile"),
+    )
+    grid_position = models.PositiveIntegerField(verbose_name=_("grid position"))
+    wavelength_nm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        verbose_name=_("wavelength (nm)"),
+    )
+    label = models.CharField(max_length=20, verbose_name=_("label"))
+    front_port_template = models.ForeignKey(
+        to="dcim.FrontPortTemplate",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        verbose_name=_("front port template"),
+    )
+
+    class Meta:
+        ordering = ("profile", "grid_position")
+        unique_together = (
+            ("profile", "wavelength_nm"),
+            ("profile", "grid_position"),
+        )
+        verbose_name = _("WDM channel template")
+        verbose_name_plural = _("WDM channel templates")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["profile", "front_port_template"],
+                condition=models.Q(front_port_template__isnull=False),
+                name="unique_profile_fpt",
+            ),
+        ]
+
+    def __str__(self):
+        """Return label and wavelength."""
+        return f"{self.label} ({self.wavelength_nm}nm)"
+
+    def get_absolute_url(self):
+        """Return the detail URL for this WDM channel template."""
+        return reverse("plugins:netbox_fms:wdmchanneltemplate", args=[self.pk])
+
+
+class WdmNode(NetBoxModel):
+    """WDM node instance attached to a Device."""
+
+    device = models.OneToOneField(
+        to="dcim.Device",
+        on_delete=models.CASCADE,
+        related_name="wdm_node",
+        verbose_name=_("device"),
+    )
+    node_type = models.CharField(
+        max_length=50,
+        choices=WdmNodeTypeChoices,
+        verbose_name=_("node type"),
+    )
+    grid = models.CharField(
+        max_length=50,
+        choices=WdmGridChoices,
+        verbose_name=_("grid"),
+    )
+    description = models.TextField(blank=True, verbose_name=_("description"))
+
+    class Meta:
+        ordering = ("device",)
+        verbose_name = _("WDM node")
+        verbose_name_plural = _("WDM nodes")
+
+    def __str__(self):
+        """Return device name with WDM prefix."""
+        return f"WDM: {self.device.name}"
+
+    def get_absolute_url(self):
+        """Return the detail URL for this WDM node."""
+        return reverse("plugins:netbox_fms:wdmnode", args=[self.pk])
+
+
+class WdmTrunkPort(NetBoxModel):
+    """Maps a RearPort on a WDM node to a directional trunk."""
+
+    wdm_node = models.ForeignKey(
+        to="netbox_fms.WdmNode",
+        on_delete=models.CASCADE,
+        related_name="trunk_ports",
+        verbose_name=_("WDM node"),
+    )
+    rear_port = models.ForeignKey(
+        to="dcim.RearPort",
+        on_delete=models.PROTECT,
+        verbose_name=_("rear port"),
+    )
+    direction = models.CharField(max_length=50, verbose_name=_("direction"))
+    position = models.PositiveIntegerField(verbose_name=_("position"))
+
+    class Meta:
+        ordering = ("wdm_node", "position")
+        unique_together = (
+            ("wdm_node", "rear_port"),
+            ("wdm_node", "direction"),
+        )
+        verbose_name = _("WDM trunk port")
+        verbose_name_plural = _("WDM trunk ports")
+
+    def __str__(self):
+        """Return direction and rear port."""
+        return f"{self.direction}: {self.rear_port}"
+
+    def get_absolute_url(self):
+        """Return the detail URL for this WDM trunk port."""
+        return reverse("plugins:netbox_fms:wdmtrunkport", args=[self.pk])
+
+
+class WavelengthChannel(NetBoxModel):
+    """A wavelength channel instance on a WDM node."""
+
+    wdm_node = models.ForeignKey(
+        to="netbox_fms.WdmNode",
+        on_delete=models.CASCADE,
+        related_name="channels",
+        verbose_name=_("WDM node"),
+    )
+    grid_position = models.PositiveIntegerField(verbose_name=_("grid position"))
+    wavelength_nm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        verbose_name=_("wavelength (nm)"),
+    )
+    label = models.CharField(max_length=20, verbose_name=_("label"))
+    front_port = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        verbose_name=_("front port"),
+    )
+    status = models.CharField(
+        max_length=50,
+        choices=WavelengthChannelStatusChoices,
+        default=WavelengthChannelStatusChoices.AVAILABLE,
+        verbose_name=_("status"),
+    )
+
+    class Meta:
+        ordering = ("wdm_node", "grid_position")
+        unique_together = (
+            ("wdm_node", "wavelength_nm"),
+            ("wdm_node", "grid_position"),
+        )
+        verbose_name = _("wavelength channel")
+        verbose_name_plural = _("wavelength channels")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["wdm_node", "front_port"],
+                condition=models.Q(front_port__isnull=False),
+                name="unique_node_fp",
+            ),
+        ]
+
+    def __str__(self):
+        """Return label and wavelength."""
+        return f"{self.label} ({self.wavelength_nm}nm)"
+
+    def get_absolute_url(self):
+        """Return the detail URL for this wavelength channel."""
+        return reverse("plugins:netbox_fms:wavelengthchannel", args=[self.pk])
+
+
+class WavelengthService(NetBoxModel):
+    """An end-to-end wavelength service spanning one or more fiber circuits."""
+
+    name = models.CharField(max_length=200, verbose_name=_("name"))
+    status = models.CharField(
+        max_length=50,
+        choices=WavelengthServiceStatusChoices,
+        default=WavelengthServiceStatusChoices.PLANNED,
+        verbose_name=_("status"),
+    )
+    wavelength_nm = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        verbose_name=_("wavelength (nm)"),
+    )
+    tenant = models.ForeignKey(
+        to="tenancy.Tenant",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="wavelength_services",
+        verbose_name=_("tenant"),
+    )
+    description = models.TextField(blank=True, verbose_name=_("description"))
+    comments = models.TextField(blank=True, verbose_name=_("comments"))
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name = _("wavelength service")
+        verbose_name_plural = _("wavelength services")
+
+    def __str__(self):
+        """Return the service name."""
+        return self.name
+
+    def get_absolute_url(self):
+        """Return the detail URL for this wavelength service."""
+        return reverse("plugins:netbox_fms:wavelengthservice", args=[self.pk])
+
+
+class WavelengthServiceCircuit(models.Model):
+    """Through-model linking a WavelengthService to FiberCircuits in sequence."""
+
+    service = models.ForeignKey(
+        to="netbox_fms.WavelengthService",
+        on_delete=models.CASCADE,
+        related_name="circuit_assignments",
+        verbose_name=_("service"),
+    )
+    fiber_circuit = models.ForeignKey(
+        to="netbox_fms.FiberCircuit",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        verbose_name=_("fiber circuit"),
+    )
+    sequence = models.PositiveIntegerField(verbose_name=_("sequence"))
+
+    class Meta:
+        ordering = ("service", "sequence")
+        unique_together = (
+            ("service", "fiber_circuit"),
+            ("service", "sequence"),
+        )
+        verbose_name = _("wavelength service circuit")
+        verbose_name_plural = _("wavelength service circuits")
+
+    def __str__(self):
+        """Return service, sequence, and circuit."""
+        return f"{self.service} #{self.sequence}: {self.fiber_circuit}"
+
+
+class WavelengthServiceChannelAssignment(models.Model):
+    """Through-model linking a WavelengthService to WavelengthChannels in sequence."""
+
+    service = models.ForeignKey(
+        to="netbox_fms.WavelengthService",
+        on_delete=models.CASCADE,
+        related_name="channel_assignments",
+        verbose_name=_("service"),
+    )
+    channel = models.ForeignKey(
+        to="netbox_fms.WavelengthChannel",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        verbose_name=_("channel"),
+    )
+    sequence = models.PositiveIntegerField(verbose_name=_("sequence"))
+
+    class Meta:
+        ordering = ("service", "sequence")
+        unique_together = (
+            ("service", "channel"),
+            ("service", "sequence"),
+        )
+        verbose_name = _("wavelength service channel assignment")
+        verbose_name_plural = _("wavelength service channel assignments")
+
+    def __str__(self):
+        """Return service, sequence, and channel."""
+        return f"{self.service} #{self.sequence}: {self.channel}"
+
+
+class WavelengthServiceNode(models.Model):
+    """Relational index ensuring PROTECT-based deletion prevention for wavelength service references."""
+
+    service = models.ForeignKey(
+        to="netbox_fms.WavelengthService",
+        on_delete=models.CASCADE,
+        related_name="nodes",
+        verbose_name=_("service"),
+    )
+    fiber_circuit = models.ForeignKey(
+        to="netbox_fms.FiberCircuit",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        verbose_name=_("fiber circuit"),
+    )
+    channel = models.ForeignKey(
+        to="netbox_fms.WavelengthChannel",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        verbose_name=_("channel"),
+    )
+
+    class Meta:
+        verbose_name = _("wavelength service node")
+        verbose_name_plural = _("wavelength service nodes")
+        constraints = [
+            models.CheckConstraint(
+                name="wsn_exactly_one_ref",
+                condition=(
+                    models.Q(fiber_circuit__isnull=False, channel__isnull=True)
+                    | models.Q(fiber_circuit__isnull=True, channel__isnull=False)
+                ),
+            ),
+            models.UniqueConstraint(
+                fields=["service", "fiber_circuit"],
+                condition=models.Q(fiber_circuit__isnull=False),
+                name="unique_wsn_circuit",
+            ),
+            models.UniqueConstraint(
+                fields=["service", "channel"],
+                condition=models.Q(channel__isnull=False),
+                name="unique_wsn_channel",
+            ),
+        ]
+
+    def __str__(self):
+        """Return the populated reference."""
+        if self.fiber_circuit_id:
+            return f"circuit: {self.fiber_circuit}"
+        if self.channel_id:
+            return f"channel: {self.channel}"
+        return "empty node"
