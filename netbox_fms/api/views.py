@@ -32,6 +32,12 @@ from ..filters import (
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
     SpliceProjectFilterSet,
+    WavelengthChannelFilterSet,
+    WavelengthServiceFilterSet,
+    WdmChannelTemplateFilterSet,
+    WdmDeviceTypeProfileFilterSet,
+    WdmNodeFilterSet,
+    WdmTrunkPortFilterSet,
 )
 from ..models import (
     BufferTube,
@@ -51,6 +57,12 @@ from ..models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    WavelengthChannel,
+    WavelengthService,
+    WdmChannelTemplate,
+    WdmDeviceTypeProfile,
+    WdmNode,
+    WdmTrunkPort,
 )
 from ..services import apply_diff, get_or_recompute_diff, import_live_state
 from ..trace_hops import build_hops
@@ -73,6 +85,12 @@ from .serializers import (
     SplicePlanEntrySerializer,
     SplicePlanSerializer,
     SpliceProjectSerializer,
+    WavelengthChannelSerializer,
+    WavelengthServiceSerializer,
+    WdmChannelTemplateSerializer,
+    WdmDeviceTypeProfileSerializer,
+    WdmNodeSerializer,
+    WdmTrunkPortSerializer,
 )
 
 
@@ -379,6 +397,59 @@ class FiberCircuitNodeViewSet(ModelViewSet):
     queryset = FiberCircuitNode.objects.all()
     serializer_class = FiberCircuitNodeSerializer
     http_method_names = ["get", "head", "options"]
+
+
+# ---------------------------------------------------------------------------
+# WDM API views
+# ---------------------------------------------------------------------------
+
+
+class WdmDeviceTypeProfileViewSet(NetBoxModelViewSet):
+    """Manage WDM device type profiles (blueprint-level WDM capabilities)."""
+
+    queryset = WdmDeviceTypeProfile.objects.prefetch_related("device_type", "tags")
+    serializer_class = WdmDeviceTypeProfileSerializer
+    filterset_class = WdmDeviceTypeProfileFilterSet
+
+
+class WdmChannelTemplateViewSet(NetBoxModelViewSet):
+    """Manage WDM channel templates on device type profiles."""
+
+    queryset = WdmChannelTemplate.objects.prefetch_related("profile", "tags")
+    serializer_class = WdmChannelTemplateSerializer
+    filterset_class = WdmChannelTemplateFilterSet
+
+
+class WdmNodeViewSet(NetBoxModelViewSet):
+    """Manage WDM node instances attached to devices."""
+
+    queryset = WdmNode.objects.prefetch_related("device", "tags")
+    serializer_class = WdmNodeSerializer
+    filterset_class = WdmNodeFilterSet
+
+
+class WdmTrunkPortViewSet(NetBoxModelViewSet):
+    """Manage WDM trunk port mappings on WDM nodes."""
+
+    queryset = WdmTrunkPort.objects.prefetch_related("wdm_node", "rear_port", "tags")
+    serializer_class = WdmTrunkPortSerializer
+    filterset_class = WdmTrunkPortFilterSet
+
+
+class WavelengthChannelViewSet(NetBoxModelViewSet):
+    """Manage wavelength channel instances on WDM nodes."""
+
+    queryset = WavelengthChannel.objects.prefetch_related("wdm_node", "tags")
+    serializer_class = WavelengthChannelSerializer
+    filterset_class = WavelengthChannelFilterSet
+
+
+class WavelengthServiceViewSet(NetBoxModelViewSet):
+    """Manage end-to-end wavelength services spanning fiber circuits."""
+
+    queryset = WavelengthService.objects.prefetch_related("tenant", "tags")
+    serializer_class = WavelengthServiceSerializer
+    filterset_class = WavelengthServiceFilterSet
 
 
 class FiberCircuitProtectingAPIView(APIView):

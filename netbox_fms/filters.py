@@ -518,6 +518,30 @@ class WdmNodeFilterSet(NetBoxModelFilterSet):
 
 
 # ---------------------------------------------------------------------------
+# WDM Trunk Port
+# ---------------------------------------------------------------------------
+
+
+class WdmTrunkPortFilterSet(NetBoxModelFilterSet):
+    """FilterSet for WdmTrunkPort model."""
+
+    wdm_node_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=WdmNode.objects.all(),
+        field_name="wdm_node",
+        label=_("WDM Node (ID)"),
+    )
+
+    class Meta:
+        model = WdmTrunkPort
+        fields = ("id", "wdm_node", "direction", "position")
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        return queryset.filter(models.Q(direction__icontains=value))
+
+
+# ---------------------------------------------------------------------------
 # Wavelength Channel
 # ---------------------------------------------------------------------------
 
