@@ -110,6 +110,20 @@
         </div>
     </div>
 </div>
+{% if object.construction_image %}
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Construction Image" %}</h5>
+            <div class="card-body text-center">
+                <a href="{{ object.construction_image.url }}">
+                    <img src="{{ object.construction_image.url }}" alt="{% trans 'Construction diagram' %}" class="img-fluid" style="max-height: 400px;" />
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% if object.notes %}
 <div class="row mb-3">
     <div class="col col-md-12">

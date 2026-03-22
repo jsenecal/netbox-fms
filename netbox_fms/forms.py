@@ -85,7 +85,7 @@ class FiberCableTypeForm(NetBoxModelForm):
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
         FieldSet("deployment", "fire_rating", name=_("Deployment & Rating")),
-        FieldSet("notes", "tags", name=_("Additional")),
+        FieldSet("construction_image", "notes", "tags", name=_("Additional")),
     )
 
     class Meta:
@@ -103,6 +103,7 @@ class FiberCableTypeForm(NetBoxModelForm):
             "armor_type",
             "deployment",
             "fire_rating",
+            "construction_image",
             "notes",
             "tags",
         )

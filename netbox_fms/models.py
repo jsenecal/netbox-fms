@@ -136,6 +136,13 @@ class FiberCableType(NetBoxModel):
         blank=True,
     )
 
+    construction_image = models.ImageField(
+        upload_to="fibercabletype-images",
+        blank=True,
+        verbose_name=_("construction image"),
+        help_text=_("Cross-section or construction diagram of the cable."),
+    )
+
     notes = models.TextField(
         verbose_name=_("notes"),
         blank=True,
