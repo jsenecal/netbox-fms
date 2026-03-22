@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
-from ..choices import FiberCircuitStatusChoices, WavelengthChannelStatusChoices
+from ..choices import FiberCircuitStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -420,46 +420,6 @@ class WdmChannelTemplateViewSet(NetBoxModelViewSet):
     filterset_class = WdmChannelTemplateFilterSet
 
 
-def _validate_mapping_changes(wdm_node, desired_mapping: dict[int, int | None]) -> list[str]:
-    """Validate proposed channel-to-port mapping changes for a WDM node.
-
-    Args:
-        wdm_node: The WdmNode instance being modified.
-        desired_mapping: Dict of {channel_pk: front_port_pk or None}.
-
-    Returns:
-        List of error strings. Empty list means validation passed.
-    """
-    errors = []
-    channels = {ch.pk: ch for ch in wdm_node.channels.all()}
-
-    # Check protected channels are not being remapped
-    protected_statuses = {WavelengthChannelStatusChoices.LIT, WavelengthChannelStatusChoices.RESERVED}
-    for ch_pk, desired_fp_pk in desired_mapping.items():
-        ch = channels.get(ch_pk)
-        if ch is None:
-            continue
-        if ch.status in protected_statuses and ch.front_port_id != desired_fp_pk:
-            errors.append(f"Channel {ch.label} (pk={ch.pk}) is {ch.get_status_display()} and cannot be remapped.")
-
-    # Check no two channels map to the same FrontPort
-    port_usage = {}  # front_port_pk -> channel label
-    for ch_pk, desired_fp_pk in desired_mapping.items():
-        if desired_fp_pk is None:
-            continue
-        ch = channels.get(ch_pk)
-        label = ch.label if ch else f"pk={ch_pk}"
-        if desired_fp_pk in port_usage:
-            errors.append(
-                f"Port conflict: channels {port_usage[desired_fp_pk]} and {label} "
-                f"both map to FrontPort pk={desired_fp_pk}."
-            )
-        else:
-            port_usage[desired_fp_pk] = label
-
-    return errors
-
-
 def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
     """Apply channel-to-port mapping changes for a WDM node.
 
@@ -603,7 +563,7 @@ class WdmNodeViewSet(NetBoxModelViewSet):
         desired = request.data.get("mapping", {})
         desired = {int(k): (int(v) if v else None) for k, v in desired.items()}
 
-        errors = _validate_mapping_changes(node, desired)
+        errors = WdmNode.validate_channel_mapping(node, desired)
         if errors:
             return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
