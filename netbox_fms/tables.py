@@ -198,12 +198,37 @@ class FiberCableTable(NetBoxTable):
     fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Type"))
     serial_number = tables.Column(verbose_name=_("Serial Number"))
     install_date = tables.DateColumn(verbose_name=_("Install Date"))
+    strand_utilization = tables.Column(accessor="pk", orderable=False, verbose_name=_("Utilization"))
     actions = columns.ActionsColumn()
+
+    def render_strand_utilization(self, record):
+        total = record.fiber_strands.count()
+        if not total:
+            return "-"
+        active = record.fiber_strands.filter(fiber_circuit_nodes__isnull=False).distinct().count()
+        return f"{active}/{total}"
 
     class Meta(NetBoxTable.Meta):
         model = FiberCable
-        fields = ("pk", "id", "cable", "fiber_cable_type", "serial_number", "install_date", "actions")
-        default_columns = ("pk", "cable", "fiber_cable_type", "serial_number", "install_date", "actions")
+        fields = (
+            "pk",
+            "id",
+            "cable",
+            "fiber_cable_type",
+            "serial_number",
+            "install_date",
+            "strand_utilization",
+            "actions",
+        )
+        default_columns = (
+            "pk",
+            "cable",
+            "fiber_cable_type",
+            "serial_number",
+            "install_date",
+            "strand_utilization",
+            "actions",
+        )
 
 
 # ---------------------------------------------------------------------------
