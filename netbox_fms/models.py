@@ -1749,6 +1749,10 @@ class WavelengthService(NetBoxModel):
         """Return the detail URL for this wavelength service."""
         return reverse("plugins:netbox_fms:wavelengthservice", args=[self.pk])
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_status = self.status if self.pk else None
+
     def clean(self):
         """Validate channel consistency: same grid, matching wavelength."""
         from decimal import Decimal
@@ -1789,13 +1793,10 @@ class WavelengthService(NetBoxModel):
     def save(self, *args, **kwargs):
         """Save and handle lifecycle transitions (decommission releases channels)."""
         is_new = self._state.adding
-        if not is_new:
-            old = WavelengthService.objects.filter(pk=self.pk).values("status").first()
-            old_status = old["status"] if old else None
-        else:
-            old_status = None
+        old_status = self._original_status
 
         super().save(*args, **kwargs)
+        self._original_status = self.status
 
         if not is_new and old_status != self.status:
             if self.status == WavelengthServiceStatusChoices.DECOMMISSIONED:
