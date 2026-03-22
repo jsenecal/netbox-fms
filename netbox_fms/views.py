@@ -479,6 +479,26 @@ class FiberCableView(generic.ObjectView):
 
     queryset = FiberCable.objects.all()
 
+    def get_extra_context(self, request, instance):
+        total_strands = instance.fiber_strands.count()
+        active_strands = (
+            instance.fiber_strands.filter(
+                fiber_circuit_nodes__isnull=False,
+            )
+            .distinct()
+            .count()
+        )
+        available_strands = total_strands - active_strands
+        return {
+            "strand_stats": {
+                "total": total_strands,
+                "active": active_strands,
+                "available": available_strands,
+                "active_pct": round(active_strands / total_strands * 100) if total_strands else 0,
+                "available_pct": round(available_strands / total_strands * 100) if total_strands else 0,
+            }
+        }
+
 
 class FiberCableEditView(generic.ObjectEditView):
     """Handle fiber cable creation and editing."""
@@ -1464,6 +1484,16 @@ class DeviceFiberOverviewView(View):
             "strand_linked": sum(r["strand_info"]["linked"] for r in cable_rows if r["strand_info"]),
             "strand_total": sum(r["strand_info"]["total"] for r in cable_rows if r["strand_info"]),
         }
+        # Conditionally provide a "Show on Map" URL if netbox-pathways is installed
+        show_on_map_url = None
+        try:
+            import netbox_pathways  # noqa: F401
+
+            if device.site_id:
+                show_on_map_url = f"/plugins/pathways/map/#site={device.site_id}"
+        except ImportError:
+            pass
+
         return render(
             request,
             "netbox_fms/device_fiber_overview.html",
@@ -1473,6 +1503,7 @@ class DeviceFiberOverviewView(View):
                 "cable_rows": cable_rows,
                 "plan": plan,
                 "stats": stats,
+                "show_on_map_url": show_on_map_url,
                 "tab": self.tab,
             },
         )

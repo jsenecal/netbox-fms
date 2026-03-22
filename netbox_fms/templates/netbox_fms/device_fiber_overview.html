@@ -6,7 +6,14 @@
 <div class="row mb-3">
     <div class="col">
         <div class="card">
-            <h5 class="card-header">{% trans "Fiber Management Summary" %}</h5>
+            <h5 class="card-header">
+                {% trans "Fiber Management Summary" %}
+                {% if show_on_map_url %}
+                <a href="{{ show_on_map_url }}" class="btn btn-sm btn-outline-info float-end" title="{% trans 'Show on Map' %}">
+                    <i class="mdi mdi-map-marker"></i> {% trans "Show on Map" %}
+                </a>
+                {% endif %}
+            </h5>
             <div class="card-body">
                 {# Stats bar #}
                 <div class="row text-center mb-3">

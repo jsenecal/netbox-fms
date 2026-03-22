@@ -1,0 +1,10 @@
+{% load i18n %}
+<div class="card mb-3">
+    <h5 class="card-header">{% trans "Fiber Cable" %}</h5>
+    <div class="card-body text-center py-4">
+        <p class="text-muted mb-3">{% trans "No fiber cable linked to this cable." %}</p>
+        <a href="{% url 'plugins:netbox_fms:fibercable_add' %}?cable={{ cable.pk }}" class="btn btn-sm btn-primary">
+            <i class="mdi mdi-lan-connect"></i> {% trans "Link Fiber Cable" %}
+        </a>
+    </div>
+</div>
