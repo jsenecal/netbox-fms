@@ -1,6 +1,6 @@
 from netbox.plugins import PluginTemplateExtension
 
-from .models import FiberCable, WdmDeviceTypeProfile, WdmNode
+from .models import FiberCable, WdmNode
 
 
 class CableFiberCablePanel(PluginTemplateExtension):
@@ -39,13 +39,6 @@ class DeviceWdmNodePanel(PluginTemplateExtension):
             return self.render(
                 "netbox_fms/inc/device_wdm_panel.html",
                 extra_context={"wdm_node": wdm_node},
-            )
-        # Show create action — but only if the DeviceType has a WDM profile
-        has_profile = WdmDeviceTypeProfile.objects.filter(device_type=device.device_type).exists()
-        if has_profile:
-            return self.render(
-                "netbox_fms/inc/device_wdm_create_action.html",
-                extra_context={"device": device},
             )
         return ""
 
