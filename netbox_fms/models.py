@@ -1577,21 +1577,29 @@ class WdmNode(NetBoxModel):
             profile = self.device.device_type.wdm_profile
         except WdmDeviceTypeProfile.DoesNotExist:
             return
-        for ct in profile.channel_templates.all():
-            # Try to resolve front_port_template to actual FrontPort by name
+
+        templates = list(profile.channel_templates.select_related("front_port_template").all())
+        if not templates:
+            return
+
+        # Bulk-fetch all FrontPorts for this device, keyed by name
+        fp_by_name = {fp.name: fp for fp in FrontPort.objects.filter(device=self.device)}
+
+        channels = []
+        for ct in templates:
             front_port = None
             if ct.front_port_template:
-                front_port = FrontPort.objects.filter(
-                    device=self.device,
-                    name=ct.front_port_template.name,
-                ).first()
-            WavelengthChannel.objects.create(
-                wdm_node=self,
-                grid_position=ct.grid_position,
-                wavelength_nm=ct.wavelength_nm,
-                label=ct.label,
-                front_port=front_port,
+                front_port = fp_by_name.get(ct.front_port_template.name)
+            channels.append(
+                WavelengthChannel(
+                    wdm_node=self,
+                    grid_position=ct.grid_position,
+                    wavelength_nm=ct.wavelength_nm,
+                    label=ct.label,
+                    front_port=front_port,
+                )
             )
+        WavelengthChannel.objects.bulk_create(channels)
 
 
 class WdmTrunkPort(NetBoxModel):
