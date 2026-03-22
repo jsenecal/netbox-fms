@@ -1,4 +1,4 @@
-from dcim.choices import CableLengthUnitChoices
+from dcim.choices import CableLengthUnitChoices, PortTypeChoices
 from dcim.models import (
     Cable,
     Device,
@@ -35,7 +35,6 @@ from .choices import (
     FiberCircuitStatusChoices,
     FiberTypeChoices,
     FireRatingChoices,
-    PortTypeChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -704,9 +703,13 @@ class ProvisionPortsForm(forms.Form):
         choices=PortTypeChoices,
         label=_("Port Type"),
         initial="splice",
+        help_text=_("Defaults to Splice. Override for special cases like MPO cassettes."),
     )
 
-    fieldsets = (FieldSet("fiber_cable", "device", "port_type", name=_("Provision Ports")),)
+    fieldsets = (
+        FieldSet("fiber_cable", "device", name=_("Provision Ports")),
+        FieldSet("port_type", name=_("Advanced")),
+    )
 
 
 # ---------------------------------------------------------------------------
