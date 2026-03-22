@@ -1825,12 +1825,15 @@ class WavelengthService(NetBoxModel):
     def rebuild_nodes(self):
         """Delete existing protection nodes and recreate from M2M assignments."""
         self.nodes.all().delete()
+        nodes = []
         for ca in self.channel_assignments.all():
             if ca.channel_id:
-                WavelengthServiceNode.objects.create(service=self, channel=ca.channel)
+                nodes.append(WavelengthServiceNode(service=self, channel=ca.channel))
         for fc in self.circuit_assignments.all():
             if fc.fiber_circuit_id:
-                WavelengthServiceNode.objects.create(service=self, fiber_circuit=fc.fiber_circuit)
+                nodes.append(WavelengthServiceNode(service=self, fiber_circuit=fc.fiber_circuit))
+        if nodes:
+            WavelengthServiceNode.objects.bulk_create(nodes)
 
 
 class WavelengthServiceCircuit(models.Model):
