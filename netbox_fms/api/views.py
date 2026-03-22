@@ -4,7 +4,7 @@ from dcim.models import CableTermination, Device, FrontPort, PortMapping, RearPo
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
@@ -463,15 +463,7 @@ def _validate_mapping_changes(wdm_node, desired_mapping: dict[int, int | None]) 
 def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
     """Apply channel-to-port mapping changes for a WDM node.
 
-    Updates WavelengthChannel.front_port and manages PortMapping rows
-    for trunk ports on the node.
-
-    Args:
-        wdm_node: The WdmNode instance being modified.
-        desired_mapping: Dict of {channel_pk: front_port_pk or None}.
-
-    Returns:
-        Dict with counts: {"added": int, "removed": int, "changed": int}.
+    Uses bulk operations to avoid O(N*M) query counts.
     """
     channels = {ch.pk: ch for ch in wdm_node.channels.all()}
     trunk_ports = list(wdm_node.trunk_ports.select_related("rear_port").all())
@@ -481,6 +473,11 @@ def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
     changed = 0
     affected_channels = []
 
+    # Collect channels that actually changed
+    channels_to_update = []
+    old_fp_ids_to_delete = []  # (front_port_id, grid_position) pairs
+    new_mappings_to_create = []  # PortMapping instances
+
     for ch_pk, desired_fp_pk in desired_mapping.items():
         ch = channels.get(ch_pk)
         if ch is None:
@@ -488,37 +485,32 @@ def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
 
         current_fp_pk = ch.front_port_id
         if current_fp_pk == desired_fp_pk:
-            continue  # No change
+            continue
 
         affected_channels.append(ch)
 
-        # Update channel front_port
-        ch.front_port_id = desired_fp_pk
-        ch.save(update_fields=["front_port_id"])
+        # Track old mappings to delete
+        if current_fp_pk is not None:
+            old_fp_ids_to_delete.append((current_fp_pk, ch.grid_position))
 
-        # Manage PortMappings for each trunk port
-        for tp in trunk_ports:
-            rp = tp.rear_port
-
-            # Remove old mapping if there was a previous front_port
-            if current_fp_pk is not None:
-                PortMapping.objects.filter(
-                    front_port_id=current_fp_pk,
-                    rear_port=rp,
-                    rear_port_position=ch.grid_position,
-                ).delete()
-
-            # Create new mapping if there is a new front_port
-            if desired_fp_pk is not None:
-                PortMapping.objects.create(
-                    device=wdm_node.device,
-                    front_port_id=desired_fp_pk,
-                    rear_port=rp,
-                    front_port_position=1,
-                    rear_port_position=ch.grid_position,
+        # Track new mappings to create
+        if desired_fp_pk is not None:
+            for tp in trunk_ports:
+                new_mappings_to_create.append(
+                    PortMapping(
+                        device=wdm_node.device,
+                        front_port_id=desired_fp_pk,
+                        rear_port=tp.rear_port,
+                        front_port_position=1,
+                        rear_port_position=ch.grid_position,
+                    )
                 )
 
-        # Count changes
+        # Update channel FK
+        ch.front_port_id = desired_fp_pk
+        channels_to_update.append(ch)
+
+        # Count
         if current_fp_pk is None and desired_fp_pk is not None:
             added += 1
         elif current_fp_pk is not None and desired_fp_pk is None:
@@ -526,7 +518,28 @@ def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
         else:
             changed += 1
 
-    # Retrace affected FiberCircuitPaths that reference cables on this node's trunk ports
+    # Bulk update channels
+    if channels_to_update:
+        WavelengthChannel.objects.bulk_update(channels_to_update, ["front_port_id"])
+
+    # Bulk delete old PortMappings
+    if old_fp_ids_to_delete:
+        delete_q = Q()
+        for fp_id, grid_pos in old_fp_ids_to_delete:
+            for tp in trunk_ports:
+                delete_q |= Q(
+                    front_port_id=fp_id,
+                    rear_port=tp.rear_port,
+                    rear_port_position=grid_pos,
+                )
+        if delete_q:
+            PortMapping.objects.filter(delete_q).delete()
+
+    # Bulk create new PortMappings
+    if new_mappings_to_create:
+        PortMapping.objects.bulk_create(new_mappings_to_create)
+
+    # Retrace affected paths
     if affected_channels:
         _retrace_affected_paths(wdm_node, trunk_ports)
 
