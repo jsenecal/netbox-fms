@@ -1860,10 +1860,24 @@ class WdmNodeView(generic.ObjectView):
     queryset = WdmNode.objects.all()
 
     def get_extra_context(self, request, instance):
-        """Return channel and trunk port counts for the WDM node."""
+        """Return channel and trunk port counts and utilization stats for the WDM node."""
+        channels = instance.channels.all()
+        total = channels.count()
+        lit = channels.filter(status="lit").count()
+        reserved = channels.filter(status="reserved").count()
+        available = channels.filter(status="available").count()
         return {
-            "channel_count": instance.channels.count(),
+            "channel_count": total,
             "trunk_port_count": instance.trunk_ports.count(),
+            "channel_stats": {
+                "total": total,
+                "lit": lit,
+                "reserved": reserved,
+                "available": available,
+                "lit_pct": round(lit / total * 100) if total else 0,
+                "reserved_pct": round(reserved / total * 100) if total else 0,
+                "available_pct": round(available / total * 100) if total else 0,
+            },
         }
 
 

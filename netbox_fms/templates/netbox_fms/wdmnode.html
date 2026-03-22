@@ -33,6 +33,38 @@
         </div>
     </div>
     <div class="col col-md-6">
+        <div class="card mb-3">
+            <h5 class="card-header">{% trans "Channel Utilization" %}</h5>
+            <div class="card-body">
+                {% if channel_stats.total %}
+                <div class="progress mb-2" style="height: 24px;">
+                    {% if channel_stats.lit_pct %}
+                    <div class="progress-bar bg-success" role="progressbar" style="width: {{ channel_stats.lit_pct }}%" title="{{ channel_stats.lit }} Lit">
+                        {{ channel_stats.lit }}
+                    </div>
+                    {% endif %}
+                    {% if channel_stats.reserved_pct %}
+                    <div class="progress-bar bg-warning text-dark" role="progressbar" style="width: {{ channel_stats.reserved_pct }}%" title="{{ channel_stats.reserved }} Reserved">
+                        {{ channel_stats.reserved }}
+                    </div>
+                    {% endif %}
+                    {% if channel_stats.available_pct %}
+                    <div class="progress-bar bg-secondary" role="progressbar" style="width: {{ channel_stats.available_pct }}%" title="{{ channel_stats.available }} Available">
+                        {{ channel_stats.available }}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="d-flex justify-content-between">
+                    <small><span class="badge bg-success">{{ channel_stats.lit }}</span> {% trans "Lit" %}</small>
+                    <small><span class="badge bg-warning text-dark">{{ channel_stats.reserved }}</span> {% trans "Reserved" %}</small>
+                    <small><span class="badge bg-secondary">{{ channel_stats.available }}</span> {% trans "Available" %}</small>
+                    <small class="text-muted">{{ channel_stats.total }} {% trans "total" %}</small>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">{% trans "No channels configured." %}</p>
+                {% endif %}
+            </div>
+        </div>
         {% if object.description %}
         <div class="card">
             <h5 class="card-header">{% trans "Description" %}</h5>
