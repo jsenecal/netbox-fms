@@ -118,3 +118,37 @@ Used by the SlackLoop model to describe how excess fiber cable is stored.
 | in_tray | In Tray |
 | on_pole | On Pole |
 | in_vault | In Vault |
+
+## WdmNodeTypeChoices
+
+| Value | Label |
+|-------|-------|
+| terminal_mux | Terminal Mux |
+| oadm | OADM |
+| roadm | ROADM |
+| amplifier | Amplifier |
+
+## WdmGridChoices
+
+| Value | Label |
+|-------|-------|
+| dwdm_100ghz | DWDM 100 GHz |
+| dwdm_50ghz | DWDM 50 GHz |
+| cwdm | CWDM |
+
+## WavelengthChannelStatusChoices
+
+| Value | Label |
+|-------|-------|
+| available | Available |
+| reserved | Reserved |
+| lit | Lit |
+
+## WavelengthServiceStatusChoices
+
+| Value | Label |
+|-------|-------|
+| planned | Planned |
+| staged | Staged |
+| active | Active |
+| decommissioned | Decommissioned |
