@@ -330,3 +330,72 @@ class WavelengthServiceStatusChoices(ChoiceSet):
         (ACTIVE, "Active"),
         (DECOMMISSIONED, "Decommissioned"),
     )
+
+
+#
+# Port type choices (for provisioning forms)
+#
+
+
+class PortTypeChoices(ChoiceSet):
+    """Choice set for physical port/connector types."""
+
+    FC = "fc"
+    LC = "lc"
+    LC_PC = "lc-pc"
+    LC_UPC = "lc-upc"
+    LC_APC = "lc-apc"
+    LSH = "lsh"
+    LSH_PC = "lsh-pc"
+    LSH_UPC = "lsh-upc"
+    LSH_APC = "lsh-apc"
+    MPO = "mpo"
+    MTRJ = "mtrj"
+    SC = "sc"
+    SC_PC = "sc-pc"
+    SC_UPC = "sc-upc"
+    SC_APC = "sc-apc"
+    ST = "st"
+    CS = "cs"
+    SN = "sn"
+    SMA_905 = "sma-905"
+    SMA_906 = "sma-906"
+    SPLICE = "splice"
+    EIGHT_P8C = "8p8c"
+    PUNCH_110 = "110-punch"
+    BNC = "bnc"
+    F_TYPE = "f"
+    N_TYPE = "n"
+    MRJ21 = "mrj21"
+    OTHER = "other"
+
+    CHOICES = (
+        (EIGHT_P8C, "8P8C"),
+        (PUNCH_110, "110 Punch"),
+        (BNC, "BNC"),
+        (F_TYPE, "F Type"),
+        (N_TYPE, "N Type"),
+        (MRJ21, "MRJ21"),
+        (FC, "FC"),
+        (LC, "LC"),
+        (LC_PC, "LC/PC"),
+        (LC_UPC, "LC/UPC"),
+        (LC_APC, "LC/APC"),
+        (LSH, "LSH"),
+        (LSH_PC, "LSH/PC"),
+        (LSH_UPC, "LSH/UPC"),
+        (LSH_APC, "LSH/APC"),
+        (MPO, "MPO"),
+        (MTRJ, "MTRJ"),
+        (SC, "SC"),
+        (SC_PC, "SC/PC"),
+        (SC_UPC, "SC/UPC"),
+        (SC_APC, "SC/APC"),
+        (ST, "ST"),
+        (CS, "CS"),
+        (SN, "SN"),
+        (SMA_905, "SMA 905"),
+        (SMA_906, "SMA 906"),
+        (SPLICE, "Splice"),
+        (OTHER, "Other"),
+    )
