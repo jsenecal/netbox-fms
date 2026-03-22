@@ -491,6 +491,8 @@ class FiberCable(NetBoxModel):
         blank=True,
     )
 
+    clone_fields = ("fiber_cable_type",)
+
     class Meta:
         ordering = ("cable",)
         verbose_name = _("fiber cable")
@@ -833,6 +835,8 @@ class SpliceProject(NetBoxModel):
         blank=True,
     )
 
+    clone_fields = ("description",)
+
     class Meta:
         ordering = ("name",)
         verbose_name = _("splice project")
@@ -890,6 +894,8 @@ class SplicePlan(NetBoxModel):
         verbose_name=_("diff stale"),
         default=True,
     )
+
+    clone_fields = ("project", "closure", "status")
 
     class Meta:
         ordering = ("closure", "name")
@@ -1006,6 +1012,8 @@ class ClosureCableEntry(NetBoxModel):
         blank=True,
     )
 
+    clone_fields = ("closure",)
+
     class Meta:
         ordering = ("closure", "entrance_label")
         unique_together = (("closure", "fiber_cable"),)
@@ -1075,6 +1083,8 @@ class SlackLoop(NetBoxModel):
     )
     notes = models.TextField(verbose_name=_("notes"), blank=True)
 
+    clone_fields = ("fiber_cable", "site", "location", "length", "length_unit", "storage_method")
+
     class Meta:
         ordering = ("fiber_cable", "start_mark")
         unique_together = ("fiber_cable", "start_mark", "end_mark")
@@ -1141,6 +1151,8 @@ class FiberCircuit(NetBoxModel):
         verbose_name=_("tenant"),
     )
     comments = models.TextField(blank=True, verbose_name=_("comments"))
+
+    clone_fields = ("status", "strand_count", "tenant")
 
     class Meta:
         ordering = ("name",)
@@ -1465,6 +1477,8 @@ class WdmDeviceTypeProfile(NetBoxModel):
     )
     description = models.TextField(blank=True, verbose_name=_("description"))
 
+    clone_fields = ("node_type", "grid")
+
     class Meta:
         ordering = ("device_type",)
         verbose_name = _("WDM device type profile")
@@ -1548,6 +1562,8 @@ class WdmNode(NetBoxModel):
         verbose_name=_("grid"),
     )
     description = models.TextField(blank=True, verbose_name=_("description"))
+
+    clone_fields = ("node_type", "grid")
 
     class Meta:
         ordering = ("device",)
@@ -1717,6 +1733,8 @@ class WavelengthService(NetBoxModel):
     )
     description = models.TextField(blank=True, verbose_name=_("description"))
     comments = models.TextField(blank=True, verbose_name=_("comments"))
+
+    clone_fields = ("status", "wavelength_nm", "tenant")
 
     class Meta:
         ordering = ("name",)
