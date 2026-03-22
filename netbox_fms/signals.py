@@ -39,9 +39,29 @@ def _cable_pre_delete(sender, instance, **kwargs):
     _invalidate_plans_for_cable(instance)
 
 
+def _device_post_save(sender, instance, created, **kwargs):
+    """Auto-create WdmNode when a Device is created from a DeviceType with a WDM profile."""
+    if not created:
+        return
+
+    from .models import WdmDeviceTypeProfile, WdmNode
+
+    try:
+        profile = WdmDeviceTypeProfile.objects.get(device_type=instance.device_type)
+    except WdmDeviceTypeProfile.DoesNotExist:
+        return
+
+    WdmNode.objects.create(
+        device=instance,
+        node_type=profile.node_type,
+        grid=profile.grid,
+    )
+
+
 def connect_signals():
-    """Connect cable signals. Called from AppConfig.ready()."""
-    from dcim.models import Cable
+    """Connect cable and device signals. Called from AppConfig.ready()."""
+    from dcim.models import Cable, Device
 
     post_save.connect(_cable_post_save, sender=Cable, dispatch_uid="fms_cable_post_save")
     pre_delete.connect(_cable_pre_delete, sender=Cable, dispatch_uid="fms_cable_pre_delete")
+    post_save.connect(_device_post_save, sender=Device, dispatch_uid="fms_device_post_save")
