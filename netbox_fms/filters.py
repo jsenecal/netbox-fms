@@ -47,7 +47,26 @@ from .models import (
 )
 
 
-class FiberCableTypeFilterSet(NetBoxModelFilterSet):
+class SearchFieldsMixin:
+    """Mixin providing declarative search_fields for FilterSets.
+
+    Subclasses define ``search_fields`` as a tuple of field lookups
+    (e.g. ``("name__icontains", "description__icontains")``).
+    The mixin builds a Q-object OR across all of them.
+    """
+
+    search_fields: tuple[str, ...] = ()
+
+    def search(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+        q = models.Q()
+        for field in self.search_fields:
+            q |= models.Q(**{field: value})
+        return queryset.filter(q)
+
+
+class FiberCableTypeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for FiberCableType model."""
 
     manufacturer_id = django_filters.ModelMultipleChoiceFilter(
@@ -70,6 +89,8 @@ class FiberCableTypeFilterSet(NetBoxModelFilterSet):
     fire_rating = django_filters.MultipleChoiceFilter(choices=FireRatingChoices)
     strand_count = django_filters.NumberFilter()
 
+    search_fields = ("model__icontains", "part_number__icontains", "notes__icontains", "manufacturer__name__icontains")
+
     class Meta:
         model = FiberCableType
         fields = (
@@ -87,18 +108,8 @@ class FiberCableTypeFilterSet(NetBoxModelFilterSet):
             "fire_rating",
         )
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(
-            models.Q(model__icontains=value)
-            | models.Q(part_number__icontains=value)
-            | models.Q(notes__icontains=value)
-            | models.Q(manufacturer__name__icontains=value)
-        )
 
-
-class BufferTubeTemplateFilterSet(NetBoxModelFilterSet):
+class BufferTubeTemplateFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for BufferTubeTemplate model."""
 
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
@@ -107,17 +118,14 @@ class BufferTubeTemplateFilterSet(NetBoxModelFilterSet):
         label=_("Fiber Cable Type (ID)"),
     )
 
+    search_fields = ("name__icontains", "description__icontains")
+
     class Meta:
         model = BufferTubeTemplate
         fields = ("id", "fiber_cable_type_id", "name", "fiber_count")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
 
-
-class RibbonTemplateFilterSet(NetBoxModelFilterSet):
+class RibbonTemplateFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for RibbonTemplate model."""
 
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
@@ -131,17 +139,14 @@ class RibbonTemplateFilterSet(NetBoxModelFilterSet):
         label=_("Buffer Tube Template (ID)"),
     )
 
+    search_fields = ("name__icontains", "description__icontains")
+
     class Meta:
         model = RibbonTemplate
         fields = ("id", "fiber_cable_type_id", "buffer_tube_template_id", "name", "fiber_count")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
 
-
-class CableElementTemplateFilterSet(NetBoxModelFilterSet):
+class CableElementTemplateFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for CableElementTemplate model."""
 
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
@@ -150,17 +155,14 @@ class CableElementTemplateFilterSet(NetBoxModelFilterSet):
         label=_("Fiber Cable Type (ID)"),
     )
 
+    search_fields = ("name__icontains", "description__icontains")
+
     class Meta:
         model = CableElementTemplate
         fields = ("id", "fiber_cable_type_id", "name", "element_type")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
 
-
-class FiberCableFilterSet(NetBoxModelFilterSet):
+class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for FiberCable model."""
 
     fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
@@ -174,22 +176,19 @@ class FiberCableFilterSet(NetBoxModelFilterSet):
     )
     install_date = django_filters.DateFilter()
 
+    search_fields = (
+        "serial_number__icontains",
+        "notes__icontains",
+        "cable__label__icontains",
+        "fiber_cable_type__model__icontains",
+    )
+
     class Meta:
         model = FiberCable
         fields = ("id", "cable_id", "fiber_cable_type_id", "serial_number", "install_date")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(
-            models.Q(serial_number__icontains=value)
-            | models.Q(notes__icontains=value)
-            | models.Q(cable__label__icontains=value)
-            | models.Q(fiber_cable_type__model__icontains=value)
-        )
 
-
-class BufferTubeFilterSet(NetBoxModelFilterSet):
+class BufferTubeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for BufferTube model."""
 
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
@@ -198,17 +197,14 @@ class BufferTubeFilterSet(NetBoxModelFilterSet):
         label=_("Fiber Cable (ID)"),
     )
 
+    search_fields = ("name__icontains",)
+
     class Meta:
         model = BufferTube
         fields = ("id", "fiber_cable_id", "name", "position")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value))
 
-
-class RibbonFilterSet(NetBoxModelFilterSet):
+class RibbonFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for Ribbon model."""
 
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
@@ -222,17 +218,14 @@ class RibbonFilterSet(NetBoxModelFilterSet):
         label=_("Buffer Tube (ID)"),
     )
 
+    search_fields = ("name__icontains",)
+
     class Meta:
         model = Ribbon
         fields = ("id", "fiber_cable_id", "buffer_tube_id", "name", "position")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value))
 
-
-class FiberStrandFilterSet(NetBoxModelFilterSet):
+class FiberStrandFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for FiberStrand model."""
 
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
@@ -263,17 +256,14 @@ class FiberStrandFilterSet(NetBoxModelFilterSet):
         label=_("Has front port B"),
     )
 
+    search_fields = ("name__icontains",)
+
     class Meta:
         model = FiberStrand
         fields = ("id", "fiber_cable_id", "buffer_tube_id", "ribbon_id", "name", "position")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value))
 
-
-class CableElementFilterSet(NetBoxModelFilterSet):
+class CableElementFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for CableElement model."""
 
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
@@ -282,30 +272,24 @@ class CableElementFilterSet(NetBoxModelFilterSet):
         label=_("Fiber Cable (ID)"),
     )
 
+    search_fields = ("name__icontains",)
+
     class Meta:
         model = CableElement
         fields = ("id", "fiber_cable_id", "name", "element_type")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value))
 
-
-class SpliceProjectFilterSet(NetBoxModelFilterSet):
+class SpliceProjectFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for SpliceProject model."""
+
+    search_fields = ("name__icontains", "description__icontains")
 
     class Meta:
         model = SpliceProject
         fields = ("id", "name")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
 
-
-class SplicePlanFilterSet(NetBoxModelFilterSet):
+class SplicePlanFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for SplicePlan model."""
 
     closure_id = django_filters.ModelMultipleChoiceFilter(
@@ -320,17 +304,14 @@ class SplicePlanFilterSet(NetBoxModelFilterSet):
     )
     status = django_filters.MultipleChoiceFilter(choices=SplicePlanStatusChoices)
 
+    search_fields = ("name__icontains", "description__icontains")
+
     class Meta:
         model = SplicePlan
         fields = ("id", "closure_id", "project_id", "name", "status")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
 
-
-class SplicePlanEntryFilterSet(NetBoxModelFilterSet):
+class SplicePlanEntryFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for SplicePlanEntry model."""
 
     plan_id = django_filters.ModelMultipleChoiceFilter(
@@ -344,17 +325,14 @@ class SplicePlanEntryFilterSet(NetBoxModelFilterSet):
         label=_("Tray (ID)"),
     )
 
+    search_fields = ("plan__name__icontains",)
+
     class Meta:
         model = SplicePlanEntry
         fields = ("id", "plan_id", "tray_id", "fiber_a", "fiber_b")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(plan__name__icontains=value))
 
-
-class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
+class ClosureCableEntryFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for ClosureCableEntry model."""
 
     closure_id = django_filters.ModelMultipleChoiceFilter(
@@ -363,17 +341,14 @@ class ClosureCableEntryFilterSet(NetBoxModelFilterSet):
         label=_("Closure (ID)"),
     )
 
+    search_fields = ("entrance_label__icontains", "notes__icontains")
+
     class Meta:
         model = ClosureCableEntry
         fields = ("id", "closure_id", "fiber_cable", "entrance_label")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(entrance_label__icontains=value) | models.Q(notes__icontains=value))
 
-
-class SlackLoopFilterSet(NetBoxModelFilterSet):
+class SlackLoopFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for SlackLoop model."""
 
     fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
@@ -394,17 +369,14 @@ class SlackLoopFilterSet(NetBoxModelFilterSet):
     length_unit = django_filters.MultipleChoiceFilter(choices=CableLengthUnitChoices)
     storage_method = django_filters.MultipleChoiceFilter(choices=StorageMethodChoices)
 
+    search_fields = ("notes__icontains",)
+
     class Meta:
         model = SlackLoop
         fields = ("id", "fiber_cable_id", "site_id", "location_id", "length_unit", "storage_method")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(notes__icontains=value))
 
-
-class FiberCircuitFilterSet(NetBoxModelFilterSet):
+class FiberCircuitFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for FiberCircuit model."""
 
     status = django_filters.MultipleChoiceFilter(choices=FiberCircuitStatusChoices)
@@ -414,19 +386,14 @@ class FiberCircuitFilterSet(NetBoxModelFilterSet):
         label=_("Tenant (ID)"),
     )
 
+    search_fields = ("name__icontains", "cid__icontains", "description__icontains")
+
     class Meta:
         model = FiberCircuit
         fields = ("id", "name", "cid", "status", "strand_count", "tenant")
 
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(
-            models.Q(name__icontains=value) | models.Q(cid__icontains=value) | models.Q(description__icontains=value)
-        )
 
-
-class FiberCircuitPathFilterSet(NetBoxModelFilterSet):
+class FiberCircuitPathFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for FiberCircuitPath model."""
 
     circuit_id = django_filters.ModelMultipleChoiceFilter(
@@ -436,14 +403,11 @@ class FiberCircuitPathFilterSet(NetBoxModelFilterSet):
     )
     is_complete = django_filters.BooleanFilter()
 
+    search_fields = ("circuit__name__icontains", "circuit__cid__icontains")
+
     class Meta:
         model = FiberCircuitPath
         fields = ("id", "circuit", "position", "is_complete", "wavelength_nm")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(circuit__name__icontains=value) | models.Q(circuit__cid__icontains=value))
 
 
 # ---------------------------------------------------------------------------
@@ -451,20 +415,17 @@ class FiberCircuitPathFilterSet(NetBoxModelFilterSet):
 # ---------------------------------------------------------------------------
 
 
-class WdmDeviceTypeProfileFilterSet(NetBoxModelFilterSet):
+class WdmDeviceTypeProfileFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for WdmDeviceTypeProfile model."""
 
     node_type = django_filters.MultipleChoiceFilter(choices=WdmNodeTypeChoices)
     grid = django_filters.MultipleChoiceFilter(choices=WdmGridChoices)
 
+    search_fields = ("device_type__model__icontains",)
+
     class Meta:
         model = WdmDeviceTypeProfile
         fields = ("id", "node_type", "grid")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(device_type__model__icontains=value))
 
 
 # ---------------------------------------------------------------------------
@@ -472,7 +433,7 @@ class WdmDeviceTypeProfileFilterSet(NetBoxModelFilterSet):
 # ---------------------------------------------------------------------------
 
 
-class WdmChannelTemplateFilterSet(NetBoxModelFilterSet):
+class WdmChannelTemplateFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for WdmChannelTemplate model."""
 
     profile_id = django_filters.ModelMultipleChoiceFilter(
@@ -481,14 +442,11 @@ class WdmChannelTemplateFilterSet(NetBoxModelFilterSet):
         label=_("Profile (ID)"),
     )
 
+    search_fields = ("label__icontains",)
+
     class Meta:
         model = WdmChannelTemplate
         fields = ("id", "profile", "grid_position", "wavelength_nm", "label")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(label__icontains=value))
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +454,7 @@ class WdmChannelTemplateFilterSet(NetBoxModelFilterSet):
 # ---------------------------------------------------------------------------
 
 
-class WdmNodeFilterSet(NetBoxModelFilterSet):
+class WdmNodeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for WdmNode model."""
 
     node_type = django_filters.MultipleChoiceFilter(choices=WdmNodeTypeChoices)
@@ -507,14 +465,11 @@ class WdmNodeFilterSet(NetBoxModelFilterSet):
         label=_("Device (ID)"),
     )
 
+    search_fields = ("device__name__icontains",)
+
     class Meta:
         model = WdmNode
         fields = ("id", "node_type", "grid")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(device__name__icontains=value))
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +477,7 @@ class WdmNodeFilterSet(NetBoxModelFilterSet):
 # ---------------------------------------------------------------------------
 
 
-class WdmTrunkPortFilterSet(NetBoxModelFilterSet):
+class WdmTrunkPortFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for WdmTrunkPort model."""
 
     wdm_node_id = django_filters.ModelMultipleChoiceFilter(
@@ -531,14 +486,11 @@ class WdmTrunkPortFilterSet(NetBoxModelFilterSet):
         label=_("WDM Node (ID)"),
     )
 
+    search_fields = ("direction__icontains",)
+
     class Meta:
         model = WdmTrunkPort
         fields = ("id", "wdm_node", "direction", "position")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(direction__icontains=value))
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +498,7 @@ class WdmTrunkPortFilterSet(NetBoxModelFilterSet):
 # ---------------------------------------------------------------------------
 
 
-class WavelengthChannelFilterSet(NetBoxModelFilterSet):
+class WavelengthChannelFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for WavelengthChannel model."""
 
     wdm_node_id = django_filters.ModelMultipleChoiceFilter(
@@ -556,14 +508,11 @@ class WavelengthChannelFilterSet(NetBoxModelFilterSet):
     )
     status = django_filters.MultipleChoiceFilter(choices=WavelengthChannelStatusChoices)
 
+    search_fields = ("label__icontains",)
+
     class Meta:
         model = WavelengthChannel
         fields = ("id", "wdm_node", "status", "grid_position", "wavelength_nm")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(label__icontains=value))
 
 
 # ---------------------------------------------------------------------------
@@ -571,7 +520,7 @@ class WavelengthChannelFilterSet(NetBoxModelFilterSet):
 # ---------------------------------------------------------------------------
 
 
-class WavelengthServiceFilterSet(NetBoxModelFilterSet):
+class WavelengthServiceFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for WavelengthService model."""
 
     status = django_filters.MultipleChoiceFilter(choices=WavelengthServiceStatusChoices)
@@ -581,11 +530,8 @@ class WavelengthServiceFilterSet(NetBoxModelFilterSet):
         label=_("Tenant (ID)"),
     )
 
+    search_fields = ("name__icontains", "description__icontains")
+
     class Meta:
         model = WavelengthService
         fields = ("id", "name", "status", "wavelength_nm")
-
-    def search(self, queryset, name, value):
-        if not value.strip():
-            return queryset
-        return queryset.filter(models.Q(name__icontains=value) | models.Q(description__icontains=value))
