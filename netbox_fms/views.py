@@ -371,7 +371,7 @@ class CableElementTemplateBulkDeleteView(generic.BulkDeleteView):
 class BufferTubeTemplateListView(generic.ObjectListView):
     """List all buffer tube templates."""
 
-    queryset = BufferTubeTemplate.objects.all()
+    queryset = BufferTubeTemplate.objects.select_related("fiber_cable_type")
     table = BufferTubeTemplateTable
     filterset = BufferTubeTemplateFilterSet
 
@@ -435,7 +435,7 @@ class CableElementTemplateDeleteView(generic.ObjectDeleteView):
 class RibbonTemplateListView(generic.ObjectListView):
     """List all ribbon templates."""
 
-    queryset = RibbonTemplate.objects.all()
+    queryset = RibbonTemplate.objects.select_related("fiber_cable_type", "buffer_tube_template")
     table = RibbonTemplateTable
     filterset = RibbonTemplateFilterSet
 
@@ -643,7 +643,7 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
 class SplicePlanListView(generic.ObjectListView):
     """List all splice plans."""
 
-    queryset = SplicePlan.objects.annotate(entry_count=models.Count("entries"))
+    queryset = SplicePlan.objects.select_related("project", "closure").annotate(entry_count=models.Count("entries"))
     table = SplicePlanTable
     filterset = SplicePlanFilterSet
     filterset_form = SplicePlanFilterForm
@@ -855,7 +855,7 @@ class ClosureCableEntryBulkDeleteView(generic.BulkDeleteView):
 class SplicePlanEntryListView(generic.ObjectListView):
     """List all splice plan entries."""
 
-    queryset = SplicePlanEntry.objects.all()
+    queryset = SplicePlanEntry.objects.select_related("plan", "tray", "fiber_a", "fiber_b")
     table = SplicePlanEntryTable
     filterset = SplicePlanEntryFilterSet
     filterset_form = SplicePlanEntryFilterForm
@@ -896,7 +896,7 @@ class SplicePlanEntryBulkDeleteView(generic.BulkDeleteView):
 class SpliceProjectListView(generic.ObjectListView):
     """List all splice projects."""
 
-    queryset = SpliceProject.objects.annotate(plan_count=models.Count("plans"))
+    queryset = SpliceProject.objects.prefetch_related("tags").annotate(plan_count=models.Count("plans"))
     table = SpliceProjectTable
     filterset = SpliceProjectFilterSet
     filterset_form = SpliceProjectFilterForm
@@ -1153,7 +1153,7 @@ class SlackLoopInsertView(LoginRequiredMixin, View):
 class FiberCircuitListView(generic.ObjectListView):
     """List all fiber circuits."""
 
-    queryset = FiberCircuit.objects.annotate(path_count=Count("paths"))
+    queryset = FiberCircuit.objects.select_related("tenant").annotate(path_count=Count("paths"))
     table = FiberCircuitTable
     filterset = FiberCircuitFilterSet
     filterset_form = FiberCircuitFilterForm
@@ -2086,7 +2086,7 @@ class WavelengthChannelBulkDeleteView(generic.BulkDeleteView):
 class WavelengthServiceListView(generic.ObjectListView):
     """List all wavelength services."""
 
-    queryset = WavelengthService.objects.all()
+    queryset = WavelengthService.objects.select_related("tenant")
     table = WavelengthServiceTable
     filterset = WavelengthServiceFilterSet
     filterset_form = WavelengthServiceFilterForm
