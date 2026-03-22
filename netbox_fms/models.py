@@ -1578,6 +1578,44 @@ class WdmNode(NetBoxModel):
         """Return the detail URL for this WDM node."""
         return reverse("plugins:netbox_fms:wdmnode", args=[self.pk])
 
+    @staticmethod
+    def validate_channel_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> list[str]:
+        """Validate proposed channel-to-port mapping changes.
+
+        Args:
+            wdm_node: The WdmNode instance being modified.
+            desired_mapping: Dict of {channel_pk: front_port_pk or None}.
+
+        Returns:
+            List of error strings. Empty list means validation passed.
+        """
+        errors = []
+        channels = {ch.pk: ch for ch in wdm_node.channels.all()}
+
+        protected_statuses = {WavelengthChannelStatusChoices.LIT, WavelengthChannelStatusChoices.RESERVED}
+        for ch_pk, desired_fp_pk in desired_mapping.items():
+            ch = channels.get(ch_pk)
+            if ch is None:
+                continue
+            if ch.status in protected_statuses and ch.front_port_id != desired_fp_pk:
+                errors.append(f"Channel {ch.label} (pk={ch.pk}) is {ch.get_status_display()} and cannot be remapped.")
+
+        port_usage = {}
+        for ch_pk, desired_fp_pk in desired_mapping.items():
+            if desired_fp_pk is None:
+                continue
+            ch = channels.get(ch_pk)
+            label = ch.label if ch else f"pk={ch_pk}"
+            if desired_fp_pk in port_usage:
+                errors.append(
+                    f"Port conflict: channels {port_usage[desired_fp_pk]} and {label} "
+                    f"both map to FrontPort pk={desired_fp_pk}."
+                )
+            else:
+                port_usage[desired_fp_pk] = label
+
+        return errors
+
     def save(self, *args, **kwargs):
         """Save and auto-populate channels from device type profile on creation."""
         is_new = self._state.adding

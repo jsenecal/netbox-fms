@@ -33,9 +33,7 @@ def roadm_fixtures(db):
     wdm_node.save()
 
     # WdmTrunkPort (common direction)
-    trunk_port = WdmTrunkPort.objects.create(
-        wdm_node=wdm_node, rear_port=trunk_rp, direction="common", position=1
-    )
+    trunk_port = WdmTrunkPort.objects.create(wdm_node=wdm_node, rear_port=trunk_rp, direction="common", position=1)
 
     # 4 WavelengthChannels (available, no front_port)
     channels = []
@@ -60,7 +58,7 @@ def roadm_fixtures(db):
 
 
 class TestApplyMappingValidation(TestCase):
-    """Test _validate_mapping_changes helper."""
+    """Test WdmNode.validate_channel_mapping() helper."""
 
     @classmethod
     def setUpTestData(cls):
@@ -77,9 +75,7 @@ class TestApplyMappingValidation(TestCase):
             fp = FrontPort.objects.create(device=cls.device, name=f"ValClient-{i}", type="lc")
             cls.fps.append(fp)
 
-        cls.wdm_node = WdmNode(
-            device=cls.device, node_type=WdmNodeTypeChoices.ROADM, grid=WdmGridChoices.CWDM
-        )
+        cls.wdm_node = WdmNode(device=cls.device, node_type=WdmNodeTypeChoices.ROADM, grid=WdmGridChoices.CWDM)
         cls.wdm_node.save()
 
         cls.trunk_port = WdmTrunkPort.objects.create(
@@ -99,7 +95,6 @@ class TestApplyMappingValidation(TestCase):
 
     def test_rejects_protected_channel_remap(self):
         """Protected channels (lit/reserved) cannot be remapped."""
-        from netbox_fms.api.views import _validate_mapping_changes
 
         ch = self.channels[0]
         ch.status = WavelengthChannelStatusChoices.LIT
@@ -108,7 +103,7 @@ class TestApplyMappingValidation(TestCase):
 
         # Try to remap a lit channel to a different port
         desired = {ch.pk: self.fps[1].pk}
-        errors = _validate_mapping_changes(self.wdm_node, desired)
+        errors = WdmNode.validate_channel_mapping(self.wdm_node, desired)
         assert len(errors) > 0
         assert "protected" in errors[0].lower() or "lit" in errors[0].lower() or "reserved" in errors[0].lower()
 
@@ -119,25 +114,23 @@ class TestApplyMappingValidation(TestCase):
 
     def test_rejects_port_conflict(self):
         """Two channels cannot map to the same FrontPort."""
-        from netbox_fms.api.views import _validate_mapping_changes
 
         desired = {
             self.channels[0].pk: self.fps[0].pk,
             self.channels[1].pk: self.fps[0].pk,  # conflict!
         }
-        errors = _validate_mapping_changes(self.wdm_node, desired)
+        errors = WdmNode.validate_channel_mapping(self.wdm_node, desired)
         assert len(errors) > 0
         assert "conflict" in errors[0].lower() or "same" in errors[0].lower()
 
     def test_allows_available_channel_remap(self):
         """Available channels can be freely remapped."""
-        from netbox_fms.api.views import _validate_mapping_changes
 
         desired = {
             self.channels[0].pk: self.fps[0].pk,
             self.channels[1].pk: self.fps[1].pk,
         }
-        errors = _validate_mapping_changes(self.wdm_node, desired)
+        errors = WdmNode.validate_channel_mapping(self.wdm_node, desired)
         assert errors == []
 
 
@@ -159,9 +152,7 @@ class TestApplyMappingPortMappings(TestCase):
             fp = FrontPort.objects.create(device=cls.device, name=f"PMClient-{i}", type="lc")
             cls.fps.append(fp)
 
-        cls.wdm_node = WdmNode(
-            device=cls.device, node_type=WdmNodeTypeChoices.ROADM, grid=WdmGridChoices.CWDM
-        )
+        cls.wdm_node = WdmNode(device=cls.device, node_type=WdmNodeTypeChoices.ROADM, grid=WdmGridChoices.CWDM)
         cls.wdm_node.save()
 
         cls.trunk_port = WdmTrunkPort.objects.create(
@@ -241,9 +232,7 @@ class TestApplyMappingIntegration(TestCase):
             fp = FrontPort.objects.create(device=cls.device, name=f"IntClient-{i}", type="lc")
             cls.fps.append(fp)
 
-        cls.wdm_node = WdmNode(
-            device=cls.device, node_type=WdmNodeTypeChoices.ROADM, grid=WdmGridChoices.CWDM
-        )
+        cls.wdm_node = WdmNode(device=cls.device, node_type=WdmNodeTypeChoices.ROADM, grid=WdmGridChoices.CWDM)
         cls.wdm_node.save()
 
         cls.trunk_port = WdmTrunkPort.objects.create(
