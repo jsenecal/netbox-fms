@@ -35,6 +35,7 @@ from .choices import (
     FiberCircuitStatusChoices,
     FiberTypeChoices,
     FireRatingChoices,
+    PortTypeChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -686,38 +687,6 @@ class SlackLoopFilterForm(NetBoxModelFilterSetForm):
 # Provision Ports
 # ---------------------------------------------------------------------------
 
-PORT_TYPE_CHOICES = (
-    ("", "---------"),
-    ("8p8c", "8P8C"),
-    ("110-punch", "110 Punch"),
-    ("bnc", "BNC"),
-    ("f", "F Type"),
-    ("n", "N Type"),
-    ("mrj21", "MRJ21"),
-    ("fc", "FC"),
-    ("lc", "LC"),
-    ("lc-pc", "LC/PC"),
-    ("lc-upc", "LC/UPC"),
-    ("lc-apc", "LC/APC"),
-    ("lsh", "LSH"),
-    ("lsh-pc", "LSH/PC"),
-    ("lsh-upc", "LSH/UPC"),
-    ("lsh-apc", "LSH/APC"),
-    ("mpo", "MPO"),
-    ("mtrj", "MTRJ"),
-    ("sc", "SC"),
-    ("sc-pc", "SC/PC"),
-    ("sc-upc", "SC/UPC"),
-    ("sc-apc", "SC/APC"),
-    ("st", "ST"),
-    ("cs", "CS"),
-    ("sn", "SN"),
-    ("sma-905", "SMA 905"),
-    ("sma-906", "SMA 906"),
-    ("splice", "Splice"),
-    ("other", "Other"),
-)
-
 
 class ProvisionPortsForm(forms.Form):
     """Form for provisioning front/rear ports on a device for a fiber cable."""
@@ -732,7 +701,7 @@ class ProvisionPortsForm(forms.Form):
         help_text=_("The device (closure/panel) to provision ports on."),
     )
     port_type = forms.ChoiceField(
-        choices=PORT_TYPE_CHOICES,
+        choices=PortTypeChoices,
         label=_("Port Type"),
         initial="splice",
     )
@@ -859,7 +828,7 @@ class LinkTopologyForm(forms.Form):
         label=_("Fiber Cable Type"),
     )
     port_type = forms.ChoiceField(
-        choices=PORT_TYPE_CHOICES,
+        choices=PortTypeChoices,
         initial="splice",
         label=_("Port Type"),
         required=False,
