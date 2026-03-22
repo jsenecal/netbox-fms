@@ -545,6 +545,7 @@ class WdmChannelTemplateSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
         )
+        brief_fields = ("id", "url", "display", "label", "wavelength_nm")
 
 
 class WdmNodeSerializer(NetBoxModelSerializer):
@@ -586,6 +587,7 @@ class WdmTrunkPortSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
         )
+        brief_fields = ("id", "url", "display", "direction", "position")
 
 
 class WavelengthChannelSerializer(NetBoxModelSerializer):
@@ -608,6 +610,7 @@ class WavelengthChannelSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
         )
+        brief_fields = ("id", "url", "display", "label", "wavelength_nm", "status")
 
 
 class WavelengthServiceSerializer(NetBoxModelSerializer):
