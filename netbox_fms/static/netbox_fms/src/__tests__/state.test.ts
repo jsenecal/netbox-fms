@@ -37,6 +37,7 @@ function makeStrand(overrides: Partial<StrandData> & { id: number }): StrandData
 function makeCableGroup(overrides: Partial<CableGroupData> & { fiber_cable_id: number }): CableGroupData {
   return {
     cable_label: `Cable ${overrides.fiber_cable_id}`,
+    cable_url: `/plugins/fms/fiber-cables/${overrides.fiber_cable_id}/`,
     fiber_type: 'smf_os2',
     strand_count: 0,
     far_device_name: null,
@@ -773,7 +774,7 @@ describe('tray filter', () => {
         strand_count: 2,
         tubes: [{
           id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2,
-          tray_assignment: { tray_id: 100, tray_name: 'Tray 1' },
+          tray_assignment: { tray_id: 100, tray_name: 'Tray 1', tray_url: '/plugins/fms/tube-assignments/1/' },
           strands: [
             makeStrand({ id: 1, live_spliced_to: 5 }),
             makeStrand({ id: 2 }),
@@ -786,7 +787,7 @@ describe('tray filter', () => {
         strand_count: 2,
         tubes: [{
           id: 20, name: 'T2', color: 'ff0000', stripe_color: null, strand_count: 2,
-          tray_assignment: { tray_id: 200, tray_name: 'Tray 2' },
+          tray_assignment: { tray_id: 200, tray_name: 'Tray 2', tray_url: '/plugins/fms/tube-assignments/2/' },
           strands: [
             makeStrand({ id: 3 }),
             makeStrand({ id: 4 }),

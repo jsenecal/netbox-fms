@@ -695,6 +695,7 @@ class ClosureStrandsAPIView(APIView):
             tube_assignment_lookup[ta.buffer_tube_id] = {
                 "tray_id": ta.tray_id,
                 "tray_name": str(ta.tray),
+                "tray_url": ta.get_absolute_url(),
             }
 
         # Find all FiberCables whose dcim.Cable terminates at this device
@@ -847,6 +848,7 @@ class ClosureStrandsAPIView(APIView):
                 {
                     "fiber_cable_id": fc.pk,
                     "cable_label": str(fc.cable) if fc.cable else f"FiberCable-{fc.pk}",
+                    "cable_url": fc.get_absolute_url(),
                     "fiber_type": fc.fiber_cable_type.get_fiber_type_display(),
                     "strand_count": fc.fiber_cable_type.strand_count,
                     "far_device_name": far_end["name"] if far_end else None,

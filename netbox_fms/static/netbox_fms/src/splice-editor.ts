@@ -296,8 +296,69 @@ async function init(config: EditorConfig): Promise<void> {
     detailPanel.show('Strand Details', cards);
   }
 
+  /** Build full detail cards for a single splice entry (splice info + source/target context with links). */
+  function buildSpliceCards(entry: SpliceEntry): DetailCard[] {
+    const sourceStrand = state.getStrand(entry.sourceId);
+    const targetStrand = state.getStrand(entry.targetId);
+    if (!sourceStrand || !targetStrand) return [];
+
+    const cards: DetailCard[] = [];
+
+    // Splice info card
+    const infoRows: DetailCard['rows'] = [
+      { label: 'Source', value: sourceStrand.name, color: `#${sourceStrand.color}` },
+      { label: 'Target', value: targetStrand.name, color: `#${targetStrand.color}` },
+    ];
+    if (entry.isLive) infoRows.push({ label: 'Status', value: 'Live', badge: 'live' });
+    if (entry.isPlan && !entry.isLive) infoRows.push({ label: 'Status', value: 'Planned', badge: 'planned' });
+    if (entry.isLive && entry.isPlan) infoRows.push({ label: 'Status', value: 'Live + Planned', badge: 'live' });
+    if (state.isSplicePendingDelete(entry.sourceId, entry.targetId)) {
+      infoRows.push({ label: 'Pending', value: 'Delete', badge: 'protected' });
+    }
+    cards.push({ heading: 'Splice', rows: infoRows });
+
+    // Source context card
+    const srcCtx = state.findStrandContext(entry.sourceId);
+    if (srcCtx) {
+      const srcRows: DetailCard['rows'] = [
+        { label: 'Cable', value: srcCtx.cable.cable_label, link: srcCtx.cable.cable_url },
+      ];
+      srcRows.push({ label: 'Tube', value: sourceStrand.tube_name || 'Loose', color: sourceStrand.tube_color ? `#${sourceStrand.tube_color}` : undefined });
+      if (srcCtx.tube?.tray_assignment) {
+        srcRows.push({ label: 'Tray', value: srcCtx.tube.tray_assignment.tray_name, link: srcCtx.tube.tray_assignment.tray_url });
+      }
+      if (sourceStrand.circuit_name) {
+        srcRows.push({ label: 'Circuit', value: sourceStrand.circuit_name, link: sourceStrand.circuit_url || undefined });
+      }
+      if (srcCtx.cable.far_device_name) {
+        srcRows.push({ label: 'Far end', value: srcCtx.cable.far_device_name, link: srcCtx.cable.far_device_url || undefined });
+      }
+      cards.push({ heading: `Source: ${sourceStrand.name}`, rows: srcRows });
+    }
+
+    // Target context card
+    const tgtCtx = state.findStrandContext(entry.targetId);
+    if (tgtCtx) {
+      const tgtRows: DetailCard['rows'] = [
+        { label: 'Cable', value: tgtCtx.cable.cable_label, link: tgtCtx.cable.cable_url },
+      ];
+      tgtRows.push({ label: 'Tube', value: targetStrand.tube_name || 'Loose', color: targetStrand.tube_color ? `#${targetStrand.tube_color}` : undefined });
+      if (tgtCtx.tube?.tray_assignment) {
+        tgtRows.push({ label: 'Tray', value: tgtCtx.tube.tray_assignment.tray_name, link: tgtCtx.tube.tray_assignment.tray_url });
+      }
+      if (targetStrand.circuit_name) {
+        tgtRows.push({ label: 'Circuit', value: targetStrand.circuit_name, link: targetStrand.circuit_url || undefined });
+      }
+      if (tgtCtx.cable.far_device_name) {
+        tgtRows.push({ label: 'Far end', value: tgtCtx.cable.far_device_name, link: tgtCtx.cable.far_device_url || undefined });
+      }
+      cards.push({ heading: `Target: ${targetStrand.name}`, rows: tgtRows });
+    }
+
+    return cards;
+  }
+
   function showSelectedSplicesDetail(): void {
-    // Gather selected splice entries, deduplicated by strand pair
     const seenKeys = new Set<string>();
     const selectedEntries: SpliceEntry[] = [];
     for (const e of state.spliceEntries) {
@@ -312,97 +373,14 @@ async function init(config: EditorConfig): Promise<void> {
       detailPanel.hide();
       return;
     }
-    if (selectedEntries.length === 1) {
-      showSpliceDetail(selectedEntries[0]);
-      return;
-    }
 
-    // Multiple selected — one card per splice with separators
+    // Build full split detail cards for every selected splice
     const allCards: DetailCard[] = [];
     for (const entry of selectedEntries) {
-      const sourceStrand = state.getStrand(entry.sourceId);
-      const targetStrand = state.getStrand(entry.targetId);
-      if (!sourceStrand || !targetStrand) continue;
-
-      // Merge live+plan status for this pair
-      const pairEntries = state.spliceEntries.filter(
-        (e) => state.spliceKey(e.sourceId, e.targetId) === state.spliceKey(entry.sourceId, entry.targetId),
-      );
-      const isLive = pairEntries.some((e) => e.isLive);
-      const isPlan = pairEntries.some((e) => e.isPlan);
-
-      const rows: DetailCard['rows'] = [
-        { label: 'Source', value: sourceStrand.name, color: sourceStrand.color ? `#${sourceStrand.color}` : undefined },
-        { label: 'Target', value: targetStrand.name, color: targetStrand.color ? `#${targetStrand.color}` : undefined },
-      ];
-      if (isLive) rows.push({ label: 'Status', value: 'Live', badge: 'live' });
-      if (isPlan) rows.push({ label: 'Status', value: 'Planned', badge: 'planned' });
-
-      const srcCtx = state.findStrandContext(entry.sourceId);
-      const tgtCtx = state.findStrandContext(entry.targetId);
-      if (srcCtx) rows.push({ label: 'Cable A', value: srcCtx.cable.cable_label });
-      if (tgtCtx) rows.push({ label: 'Cable B', value: tgtCtx.cable.cable_label });
-
-      allCards.push({ heading: `${sourceStrand.name} \u2194 ${targetStrand.name}`, rows });
+      allCards.push(...buildSpliceCards(entry));
     }
-    detailPanel.show(`${selectedEntries.length} Splices Selected`, allCards);
-  }
-
-  function showSpliceDetail(entry: SpliceEntry): void {
-    const sourceStrand = state.getStrand(entry.sourceId);
-    const targetStrand = state.getStrand(entry.targetId);
-    if (!sourceStrand || !targetStrand) return;
-
-    const cards: DetailCard[] = [];
-
-    const infoRows: DetailCard['rows'] = [
-      { label: 'Source', value: sourceStrand.name, color: `#${sourceStrand.color}` },
-      { label: 'Target', value: targetStrand.name, color: `#${targetStrand.color}` },
-    ];
-    if (entry.isLive) {
-      infoRows.push({ label: 'Status', value: 'Live', badge: 'active' });
-    }
-    if (entry.isPlan) {
-      infoRows.push({ label: 'Status', value: 'Planned', badge: 'info' });
-    }
-    if (state.isSplicePendingDelete(entry.sourceId, entry.targetId)) {
-      infoRows.push({ label: 'Pending', value: 'Delete', badge: 'danger' });
-    }
-    cards.push({ heading: 'Splice', rows: infoRows });
-
-    // Source strand context
-    const srcCtx = state.findStrandContext(entry.sourceId);
-    if (srcCtx) {
-      const srcRows: DetailCard['rows'] = [
-        { label: 'Cable', value: srcCtx.cable.cable_label },
-        { label: 'Tube', value: sourceStrand.tube_name || 'Loose', color: sourceStrand.tube_color ? `#${sourceStrand.tube_color}` : undefined },
-      ];
-      if (srcCtx.tube?.tray_assignment) {
-        srcRows.push({ label: 'Tray', value: srcCtx.tube.tray_assignment.tray_name });
-      }
-      if (sourceStrand.circuit_name) {
-        srcRows.push({ label: 'Circuit', value: sourceStrand.circuit_name, link: sourceStrand.circuit_url || undefined });
-      }
-      cards.push({ heading: `Source: ${sourceStrand.name}`, rows: srcRows });
-    }
-
-    // Target strand context
-    const tgtCtx = state.findStrandContext(entry.targetId);
-    if (tgtCtx) {
-      const tgtRows: DetailCard['rows'] = [
-        { label: 'Cable', value: tgtCtx.cable.cable_label },
-        { label: 'Tube', value: targetStrand.tube_name || 'Loose', color: targetStrand.tube_color ? `#${targetStrand.tube_color}` : undefined },
-      ];
-      if (tgtCtx.tube?.tray_assignment) {
-        tgtRows.push({ label: 'Tray', value: tgtCtx.tube.tray_assignment.tray_name });
-      }
-      if (targetStrand.circuit_name) {
-        tgtRows.push({ label: 'Circuit', value: targetStrand.circuit_name, link: targetStrand.circuit_url || undefined });
-      }
-      cards.push({ heading: `Target: ${targetStrand.name}`, rows: tgtRows });
-    }
-
-    detailPanel.show('Splice Details', cards);
+    const title = selectedEntries.length === 1 ? 'Splice Details' : `${selectedEntries.length} Splices Selected`;
+    detailPanel.show(title, allCards);
   }
 
   async function loadData(): Promise<void> {

@@ -48,6 +48,7 @@ export interface TrayData {
 export interface TrayAssignment {
   tray_id: number;
   tray_name: string;
+  tray_url: string;
 }
 
 /** A tube group as returned by the API. */
@@ -65,6 +66,7 @@ export interface TubeData {
 export interface CableGroupData {
   fiber_cable_id: number;
   cable_label: string;
+  cable_url: string;
   fiber_type: string;
   strand_count: number;
   far_device_name: string | null;
