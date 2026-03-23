@@ -202,11 +202,6 @@ body[data-bs-theme="dark"] .strand-node.spliced .strand-name {
     stroke-dasharray: 4, 4;
 }
 
-/* Toolbar */
-.splice-toolbar .btn.active {
-    font-weight: 600;
-}
-
 /* Pending splice states */
 .splice-link.pending-add {
     stroke-width: 2.5;
