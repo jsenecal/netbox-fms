@@ -1,0 +1,25 @@
+{% load i18n %}
+<div class="modal-header">
+    <h5 class="modal-title">{% trans "Assign Tube to Tray" %}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form method="post" action="{{ post_url }}">
+    {% csrf_token %}
+    <div class="modal-body">
+        <input type="hidden" name="tube_id" value="{{ tube.pk }}">
+        <p>{% trans "Assign" %} <strong>{{ tube.name }}</strong> ({{ tube.fiber_cable }}) {% trans "to a tray:" %}</p>
+        <div class="mb-3">
+            <label class="form-label" for="tray_id">{% trans "Tray" %}</label>
+            <select class="form-select" name="tray_id" id="tray_id" required>
+                <option value="">---------</option>
+                {% for tray in available_trays %}
+                <option value="{{ tray.pk }}">{{ tray }} ({{ tray.module_type }})</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="submit" class="btn btn-primary">{% trans "Assign" %}</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+    </div>
+</form>

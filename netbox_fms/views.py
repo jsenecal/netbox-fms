@@ -1,4 +1,4 @@
-from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
+from dcim.models import Cable, CableTermination, Device, FrontPort, Module, PortMapping, RearPort
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
@@ -14,7 +14,7 @@ from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
-from .choices import FiberCircuitStatusChoices
+from .choices import FiberCircuitStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
     BufferTubeFilterSet,
@@ -1593,6 +1593,60 @@ def _device_has_splice_plan_or_fiber_cables(device):
 
 
 @register_model_view(Device, "fiber_overview", path="fiber-overview")
+def _build_tray_assignment_data(device):
+    """Build tray assignment context for the Fiber Overview tab."""
+    modules = Module.objects.filter(device=device).select_related("module_type__tray_profile")
+    tube_assignments = TubeAssignment.objects.filter(closure=device).select_related(
+        "tray", "buffer_tube__fiber_cable__fiber_cable_type"
+    )
+
+    assignment_map = {}
+    for ta in tube_assignments:
+        assignment_map.setdefault(ta.tray_id, []).append(ta)
+
+    splice_trays = []
+    express_baskets = []
+
+    for module in modules:
+        profile = getattr(module.module_type, "tray_profile", None)
+        if not profile:
+            continue
+
+        front_port_count = FrontPort.objects.filter(module=module).count()
+        assigned_tubes = assignment_map.get(module.pk, [])
+        fiber_count = sum(t.buffer_tube.fiber_strands.count() for t in assigned_tubes)
+
+        entry = {
+            "module": module,
+            "profile": profile,
+            "assigned_tubes": assigned_tubes,
+            "fiber_count": fiber_count,
+            "capacity": front_port_count,
+        }
+
+        if profile.tray_role == TrayRoleChoices.SPLICE_TRAY:
+            splice_trays.append(entry)
+        else:
+            express_baskets.append(entry)
+
+    assigned_tube_ids = set(tube_assignments.values_list("buffer_tube_id", flat=True))
+    cable_entry_fc_ids = ClosureCableEntry.objects.filter(closure=device).values_list("fiber_cable_id", flat=True)
+    unassigned_tubes = (
+        BufferTube.objects.filter(
+            fiber_cable_id__in=cable_entry_fc_ids,
+        )
+        .exclude(pk__in=assigned_tube_ids)
+        .select_related("fiber_cable__fiber_cable_type")
+    )
+
+    return {
+        "splice_trays": splice_trays,
+        "express_baskets": express_baskets,
+        "unassigned_tubes": list(unassigned_tubes),
+        "has_trays": bool(splice_trays or express_baskets),
+    }
+
+
 class DeviceFiberOverviewView(View):
     """Fiber Overview tab on a dcim.Device detail page."""
 
@@ -1624,6 +1678,8 @@ class DeviceFiberOverviewView(View):
         except ImportError:
             pass
 
+        tray_data = _build_tray_assignment_data(device)
+
         return render(
             request,
             "netbox_fms/device_fiber_overview.html",
@@ -1634,6 +1690,7 @@ class DeviceFiberOverviewView(View):
                 "plan": plan,
                 "stats": stats,
                 "show_on_map_url": show_on_map_url,
+                "tray_data": tray_data,
                 "tab": self.tab,
             },
         )
@@ -2320,3 +2377,113 @@ class WavelengthServiceBulkDeleteView(generic.BulkDeleteView):
     queryset = WavelengthService.objects.all()
     filterset = WavelengthServiceFilterSet
     table = WavelengthServiceTable
+
+
+# ---------------------------------------------------------------------------
+# Tray Assignment HTMX views
+# ---------------------------------------------------------------------------
+
+
+class AssignTubeView(LoginRequiredMixin, View):
+    """HTMX modal for assigning a buffer tube to a tray."""
+
+    def get(self, request, pk):
+        if not request.user.has_perm("netbox_fms.add_tubeassignment"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        tube_id = request.GET.get("tube_id")
+        tube = get_object_or_404(BufferTube, pk=tube_id)
+
+        available_trays = Module.objects.filter(
+            device=device,
+            module_type__tray_profile__tray_role=TrayRoleChoices.SPLICE_TRAY,
+        ).select_related("module_type")
+
+        return render(
+            request,
+            "netbox_fms/htmx/assign_tube_modal.html",
+            {
+                "device": device,
+                "tube": tube,
+                "available_trays": available_trays,
+                "post_url": reverse("plugins:netbox_fms:fiber_overview_assign_tube", kwargs={"pk": pk}),
+            },
+        )
+
+    def post(self, request, pk):
+        if not request.user.has_perm("netbox_fms.add_tubeassignment"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        tube_id = request.POST.get("tube_id")
+        tray_id = request.POST.get("tray_id")
+        tube = get_object_or_404(BufferTube, pk=tube_id)
+        tray = get_object_or_404(Module, pk=tray_id)
+
+        ta = TubeAssignment(closure=device, tray=tray, buffer_tube=tube)
+        ta.full_clean()
+        ta.save()
+
+        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = redirect_url
+        return response
+
+
+class UnassignTubeView(LoginRequiredMixin, View):
+    """Remove a tube assignment via HTMX POST."""
+
+    def post(self, request, pk):
+        if not request.user.has_perm("netbox_fms.delete_tubeassignment"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        tube_id = request.POST.get("tube_id")
+        TubeAssignment.objects.filter(closure=device, buffer_tube_id=tube_id).delete()
+
+        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = redirect_url
+        return response
+
+
+class AutoAssignTubesView(LoginRequiredMixin, View):
+    """Auto-assign unassigned tubes to splice trays by first-fit."""
+
+    def post(self, request, pk):
+        if not request.user.has_perm("netbox_fms.add_tubeassignment"):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+
+        trays = Module.objects.filter(
+            device=device,
+            module_type__tray_profile__tray_role=TrayRoleChoices.SPLICE_TRAY,
+        ).select_related("module_type")
+
+        tray_capacity = {}
+        for tray in trays:
+            total_ports = FrontPort.objects.filter(module=tray).count()
+            used = sum(
+                ta.buffer_tube.fiber_strands.count()
+                for ta in TubeAssignment.objects.filter(tray=tray).select_related("buffer_tube")
+            )
+            tray_capacity[tray.pk] = {"tray": tray, "remaining": total_ports - used}
+
+        assigned_tube_ids = TubeAssignment.objects.filter(closure=device).values_list("buffer_tube_id", flat=True)
+        cable_fc_ids = ClosureCableEntry.objects.filter(closure=device).values_list("fiber_cable_id", flat=True)
+        unassigned_tubes = (
+            BufferTube.objects.filter(
+                fiber_cable_id__in=cable_fc_ids,
+            )
+            .exclude(pk__in=assigned_tube_ids)
+            .order_by("fiber_cable__pk", "position")
+        )
+
+        for tube in unassigned_tubes:
+            fiber_count = tube.fiber_strands.count()
+            for _tray_pk, info in tray_capacity.items():
+                if info["remaining"] >= fiber_count:
+                    TubeAssignment.objects.create(closure=device, tray=info["tray"], buffer_tube=tube)
+                    info["remaining"] -= fiber_count
+                    break
+
+        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+        return redirect(redirect_url)

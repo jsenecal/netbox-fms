@@ -1,0 +1,85 @@
+{% load helpers %}
+{% load i18n %}
+
+<div id="tray-assignments-section">
+{% if tray_data.has_trays or tray_data.unassigned_tubes %}
+
+    {% for tray in tray_data.splice_trays %}
+    <div class="card mb-2">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+            <span>
+                <i class="mdi mdi-tray-full"></i>
+                {{ tray.module|linkify }}
+                <span class="badge bg-primary">{% trans "Splice Tray" %}</span>
+            </span>
+            <span class="text-muted">{{ tray.fiber_count }}/{{ tray.capacity }} {% trans "fibers" %}</span>
+        </div>
+        {% if tray.assigned_tubes %}
+        <ul class="list-group list-group-flush">
+            {% for ta in tray.assigned_tubes %}
+            <li class="list-group-item d-flex justify-content-between align-items-center py-1">
+                <span>
+                    {% if ta.buffer_tube.color %}
+                    <span class="color-label" style="background-color: #{{ ta.buffer_tube.color }}">&nbsp;</span>
+                    {% endif %}
+                    {{ ta.buffer_tube.name }} &mdash; {{ ta.buffer_tube.fiber_cable }}
+                </span>
+                <span class="text-muted">{{ ta.buffer_tube.fiber_strands.count }} {% trans "fibers" %}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="card-body text-muted py-2">{% trans "No tubes assigned" %}</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    {% for basket in tray_data.express_baskets %}
+    <div class="card mb-2">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+            <span>
+                <i class="mdi mdi-arrow-right-bold"></i>
+                {{ basket.module|linkify }}
+                <span class="badge bg-secondary">{% trans "Express Basket" %}</span>
+            </span>
+            <span class="text-muted">{{ basket.capacity }} {% trans "positions" %}</span>
+        </div>
+        <div class="card-body text-muted py-2">
+            {% trans "Pass-through tubes — no splicing" %}
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if tray_data.unassigned_tubes %}
+    <div class="card mb-2">
+        <div class="card-header py-2">
+            <i class="mdi mdi-help-circle-outline"></i> {% trans "Unassigned Tubes" %}
+        </div>
+        <ul class="list-group list-group-flush">
+            {% for tube in tray_data.unassigned_tubes %}
+            <li class="list-group-item d-flex justify-content-between align-items-center py-1">
+                <span>
+                    {% if tube.color %}
+                    <span class="color-label" style="background-color: #{{ tube.color }}">&nbsp;</span>
+                    {% endif %}
+                    {{ tube.name }} &mdash; {{ tube.fiber_cable }}
+                </span>
+                <button class="btn btn-sm btn-outline-primary"
+                        hx-get="{% url 'plugins:netbox_fms:fiber_overview_assign_tube' pk=device.pk %}?tube_id={{ tube.pk }}"
+                        hx-target="#htmx-modal .modal-content"
+                        data-bs-toggle="modal"
+                        data-bs-target="#htmx-modal">
+                    <i class="mdi mdi-tray-arrow-down"></i> {% trans "Assign" %}
+                </button>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+{% else %}
+    <div class="text-muted text-center py-3">
+        {% trans "No tray profiles found. Define Module Types as splice trays to enable tube assignment." %}
+    </div>
+{% endif %}
+</div>

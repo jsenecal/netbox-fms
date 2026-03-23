@@ -73,6 +73,28 @@
     </div>
 </div>
 
+{# Tray Assignments section #}
+<div class="row mb-3">
+    <div class="col">
+        <div class="card">
+            <h5 class="card-header d-flex justify-content-between align-items-center">
+                {% trans "Tray Assignments" %}
+                {% if tray_data.unassigned_tubes and tray_data.has_trays %}
+                <form method="post" action="{% url 'plugins:netbox_fms:fiber_overview_auto_assign' pk=device.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-success">
+                        <i class="mdi mdi-auto-fix"></i> {% trans "Auto-Assign" %}
+                    </button>
+                </form>
+                {% endif %}
+            </h5>
+            <div class="card-body">
+                {% include "netbox_fms/htmx/tray_assignments_section.html" %}
+            </div>
+        </div>
+    </div>
+</div>
+
 {# Splice Plan section #}
 <div class="row mb-3">
     <div class="col">

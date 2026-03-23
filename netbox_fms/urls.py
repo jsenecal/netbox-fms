@@ -220,6 +220,21 @@ urlpatterns = [
         views.LinkTopologyView.as_view(),
         name="fiber_overview_link_topology",
     ),
+    path(
+        "fiber-overview/<int:pk>/assign-tube/",
+        views.AssignTubeView.as_view(),
+        name="fiber_overview_assign_tube",
+    ),
+    path(
+        "fiber-overview/<int:pk>/unassign-tube/",
+        views.UnassignTubeView.as_view(),
+        name="fiber_overview_unassign_tube",
+    ),
+    path(
+        "fiber-overview/<int:pk>/auto-assign/",
+        views.AutoAssignTubesView.as_view(),
+        name="fiber_overview_auto_assign",
+    ),
     # Trace detail HTMX
     path(
         "fiber-circuit-paths/<int:pk>/trace-detail/<str:node_type>/<int:object_id>/",
