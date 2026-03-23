@@ -138,10 +138,22 @@ async function init(config: EditorConfig): Promise<void> {
 
   const interactions = new Interactions(state, renderer, config, handleSave);
 
-  // Wire detail panel close to re-render so canvas fills available width
+  // Wire detail panel close
   detailPanel.setOnClose(() => {
-    renderer.render();
+    // ResizeObserver handles the re-render
   });
+
+  // Use ResizeObserver on the canvas container to smoothly re-render
+  // when the detail panel opens/closes (animating via CSS transition).
+  let resizeRafId: ReturnType<typeof requestAnimationFrame> | null = null;
+  const resizeObserver = new ResizeObserver(() => {
+    if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
+    resizeRafId = requestAnimationFrame(() => {
+      renderer.render();
+      resizeRafId = null;
+    });
+  });
+  resizeObserver.observe(canvasContainer);
 
   // Cable move callback with fade animation
   renderer.setOnCableMove((cableId: number) => {
@@ -161,11 +173,11 @@ async function init(config: EditorConfig): Promise<void> {
     }
   });
 
-  // Override interactions.setStatus to also flash the stats bar
+  // Override interactions.setStatus to show messages in the stats bar right section
   const origSetStatus = interactions.setStatus.bind(interactions);
   interactions.setStatus = (msg: string) => {
     origSetStatus(msg);
-    statsBar?.flash(msg);
+    statsBar?.setMessage(msg, 3000);
   };
 
   // Load initial data

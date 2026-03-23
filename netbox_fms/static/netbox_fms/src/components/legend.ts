@@ -14,11 +14,13 @@ export class FmsLegend {
     header.className = 'fms-legend__header';
 
     const title = document.createElement('span');
+    title.className = 'fms-legend__title';
     title.textContent = 'Legend';
     header.appendChild(title);
 
     this.toggleBtn = document.createElement('button');
     this.toggleBtn.type = 'button';
+    this.toggleBtn.className = 'fms-legend__toggle';
     this.toggleBtn.textContent = '\u25BC'; // down arrow (click to collapse)
     header.appendChild(this.toggleBtn);
 

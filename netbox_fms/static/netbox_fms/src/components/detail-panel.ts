@@ -6,7 +6,6 @@ export class FmsDetailPanel {
   private titleEl: HTMLSpanElement;
   private body: HTMLElement;
   private onCloseFn: (() => void) | null = null;
-  private onResizeFn: (() => void) | null = null;
   private keyHandler: (e: KeyboardEvent) => void;
 
   constructor(parent: HTMLElement) {
@@ -41,16 +40,10 @@ export class FmsDetailPanel {
       }
     };
     document.addEventListener('keydown', this.keyHandler);
-
-    // Re-render canvas after panel transition completes (open or close)
-    this.container.addEventListener('transitionend', () => {
-      if (this.onResizeFn) this.onResizeFn();
-    });
   }
 
   setOnClose(fn: () => void): void {
     this.onCloseFn = fn;
-    this.onResizeFn = fn;
   }
 
   show(title: string, cards: DetailCard[]): void {

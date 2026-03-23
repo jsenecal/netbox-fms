@@ -152,11 +152,82 @@ export class EditorState {
   rebuildLayout(): void {
     const leftCables = this.cableGroups.filter((cg) => this.sideAssignment.get(cg.fiber_cable_id) === 'left');
     const rightCables = this.cableGroups.filter((cg) => this.sideAssignment.get(cg.fiber_cable_id) !== 'left');
-    this.leftNodes = this.layoutColumn(leftCables);
-    this.rightNodes = this.layoutColumn(rightCables);
+
+    // When a tray filter is active, compute visible tube IDs that include
+    // splice-adjacent tubes (tubes containing partner strands).
+    let visibleTubeIds: Set<number> | null = null;
+    if (this.activeTrayFilter !== null) {
+      visibleTubeIds = this.computeVisibleTubeIds(this.activeTrayFilter);
+    }
+
+    this.leftNodes = this.layoutColumn(leftCables, visibleTubeIds);
+    this.rightNodes = this.layoutColumn(rightCables, visibleTubeIds);
     this.collectSpliceEntries();
     this.leftOffset = 0;
     this.rightOffset = 0;
+  }
+
+  /** Compute tube IDs visible for a given tray filter, including splice-adjacent tubes. */
+  private computeVisibleTubeIds(trayId: number): Set<number> {
+    // Step 1: find all strand IDs in tubes assigned to the selected tray
+    const selectedStrandIds = new Set<number>();
+    const directTubeIds = new Set<number>();
+    for (const cg of this.cableGroups) {
+      for (const tube of cg.tubes) {
+        if (tube.tray_assignment?.tray_id === trayId) {
+          directTubeIds.add(tube.id);
+          for (const s of tube.strands) {
+            selectedStrandIds.add(s.id);
+          }
+        }
+      }
+    }
+
+    // Step 2: find splice partners of selected strands
+    const partnerStrandIds = new Set<number>();
+    for (const cg of this.cableGroups) {
+      const allStrands: StrandData[] = [];
+      for (const t of cg.tubes) allStrands.push(...t.strands);
+      allStrands.push(...cg.loose_strands);
+
+      for (const s of allStrands) {
+        if (selectedStrandIds.has(s.id)) {
+          if (s.live_spliced_to) partnerStrandIds.add(s.live_spliced_to);
+          if (s.plan_spliced_to) partnerStrandIds.add(s.plan_spliced_to);
+        }
+        // Also check the reverse: if this strand is spliced to a selected strand
+        if (s.live_spliced_to && selectedStrandIds.has(s.live_spliced_to)) {
+          partnerStrandIds.add(s.id);
+        }
+        if (s.plan_spliced_to && selectedStrandIds.has(s.plan_spliced_to)) {
+          partnerStrandIds.add(s.id);
+        }
+      }
+    }
+
+    // Also check pending changes for partners
+    for (const p of this.pendingChanges) {
+      if (p.action === 'add') {
+        if (selectedStrandIds.has(p.fiberA)) partnerStrandIds.add(p.fiberB);
+        if (selectedStrandIds.has(p.fiberB)) partnerStrandIds.add(p.fiberA);
+      }
+    }
+
+    // Step 3: find tubes containing partner strands
+    const visibleTubeIds = new Set(directTubeIds);
+    for (const cg of this.cableGroups) {
+      for (const tube of cg.tubes) {
+        if (visibleTubeIds.has(tube.id)) continue;
+        for (const s of tube.strands) {
+          if (partnerStrandIds.has(s.id)) {
+            visibleTubeIds.add(tube.id);
+            break;
+          }
+        }
+      }
+    }
+
+    return visibleTubeIds;
   }
 
   /** Move a cable to the other side and rebuild layout. */
@@ -415,13 +486,15 @@ export class EditorState {
       sections.push({ title: 'Splices', items: spliceItems });
     }
 
-    // Tube colors section — collect unique visible tube colors
+    // Tube colors section — collect unique tube colors from all cable groups
+    // (not just layout nodes, which may be filtered by tray)
     const tubeColors = new Map<string, string>();
-    for (const n of [...this.leftNodes, ...this.rightNodes]) {
-      if (n.type === 'tube' && n.color && n.label) {
-        const key = n.color;
-        if (!tubeColors.has(key)) {
-          tubeColors.set(key, n.label);
+    for (const cg of this.cableGroups) {
+      for (const tube of cg.tubes) {
+        if (tube.color && tube.name) {
+          if (!tubeColors.has(tube.color)) {
+            tubeColors.set(tube.color, tube.name);
+          }
         }
       }
     }
@@ -433,6 +506,23 @@ export class EditorState {
       sections.push({ title: 'Tubes', items: tubeItems });
     }
 
+    // Fiber strand colors — collect unique strand colors from layout nodes
+    const strandColors = new Map<string, string>();
+    for (const n of [...this.leftNodes, ...this.rightNodes]) {
+      if (n.type === 'strand' && n.color && n.label && !n.tubeId) {
+        if (!strandColors.has(n.color)) {
+          strandColors.set(n.color, n.label);
+        }
+      }
+    }
+    if (strandColors.size > 0) {
+      const fiberItems: LegendSection['items'] = [];
+      for (const [color, label] of strandColors) {
+        fiberItems.push({ type: 'dot', color: `#${color}`, label });
+      }
+      sections.push({ title: 'Fiber Colors', items: fiberItems });
+    }
+
     return sections;
   }
 
@@ -440,7 +530,7 @@ export class EditorState {
   // Layout helpers
   // -------------------------------------------------------------------
 
-  private layoutColumn(cables: CableGroupData[]): LayoutNode[] {
+  private layoutColumn(cables: CableGroupData[], visibleTubeIds: Set<number> | null = null): LayoutNode[] {
     const nodes: LayoutNode[] = [];
     let y = TOP_PAD;
     const trayFilter = this.activeTrayFilter;
@@ -460,10 +550,9 @@ export class EditorState {
       y += CABLE_ROW_H;
 
       for (const tube of cg.tubes) {
-        // When a tray filter is active, skip tubes that don't match
-        if (trayFilter !== null) {
-          const tubeTrayId = tube.tray_assignment?.tray_id ?? null;
-          if (tubeTrayId !== trayFilter) continue;
+        // When a tray filter is active, skip tubes not in the visible set
+        if (trayFilter !== null && visibleTubeIds !== null) {
+          if (!visibleTubeIds.has(tube.id)) continue;
         }
 
         const tubeNode: LayoutNode = {

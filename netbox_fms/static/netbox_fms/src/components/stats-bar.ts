@@ -5,7 +5,9 @@ export class FmsStatsBar {
   private container: HTMLElement;
   private left: HTMLElement;
   private right: HTMLElement;
-  private flashTimer: ReturnType<typeof setTimeout> | null = null;
+  private messageEl: HTMLSpanElement;
+  private planSection: HTMLSpanElement;
+  private messageTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement) {
     this.container = document.createElement('div');
@@ -17,6 +19,20 @@ export class FmsStatsBar {
     this.right = document.createElement('div');
     this.right.className = 'fms-stats-bar__right';
 
+    // Message element sits in the right section, before the plan badge
+    this.messageEl = document.createElement('span');
+    this.messageEl.className = 'fms-stats-bar__message';
+    this.messageEl.style.marginRight = '6px';
+
+    // Plan section holds badge + plan name
+    this.planSection = document.createElement('span');
+    this.planSection.style.display = 'inline-flex';
+    this.planSection.style.alignItems = 'center';
+    this.planSection.style.gap = '6px';
+
+    this.right.appendChild(this.messageEl);
+    this.right.appendChild(this.planSection);
+
     this.container.appendChild(this.left);
     this.container.appendChild(this.right);
     parent.appendChild(this.container);
@@ -26,10 +42,6 @@ export class FmsStatsBar {
     // Clear left
     while (this.left.firstChild) {
       this.left.removeChild(this.left.firstChild);
-    }
-    // Clear right
-    while (this.right.firstChild) {
-      this.right.removeChild(this.right.firstChild);
     }
 
     const statItems: Array<{ label: string; value: string; color?: string; essential?: boolean }> = [
@@ -69,47 +81,44 @@ export class FmsStatsBar {
       this.left.appendChild(stat);
     });
 
-    // Right side: plan status badge + plan name
+    // Plan section in right side
+    while (this.planSection.firstChild) {
+      this.planSection.removeChild(this.planSection.firstChild);
+    }
     if (stats.planStatus) {
-      this.right.appendChild(createBadge(stats.planStatus, stats.planStatus));
+      this.planSection.appendChild(createBadge(stats.planStatus, stats.planStatus));
     }
     if (stats.planName) {
       const name = document.createElement('span');
       name.textContent = stats.planName;
-      this.right.appendChild(name);
+      this.planSection.appendChild(name);
     }
   }
 
+  /** Show a message on the right side of the stats bar (e.g. selection info).
+   *  Pass null to clear. Optionally auto-clear after durationMs. */
+  setMessage(message: string | null, durationMs?: number): void {
+    if (this.messageTimer !== null) {
+      clearTimeout(this.messageTimer);
+      this.messageTimer = null;
+    }
+    this.messageEl.textContent = message || '';
+    if (message && durationMs) {
+      this.messageTimer = setTimeout(() => {
+        this.messageEl.textContent = '';
+        this.messageTimer = null;
+      }, durationMs);
+    }
+  }
+
+  /** @deprecated Use setMessage() instead. Temporarily replaces left content. */
   flash(message: string, durationMs = 2000): void {
-    // Save current left children
-    const savedNodes: Node[] = [];
-    while (this.left.firstChild) {
-      savedNodes.push(this.left.removeChild(this.left.firstChild));
-    }
-
-    const msg = document.createElement('span');
-    msg.className = 'fms-stats-bar__flash';
-    msg.textContent = message;
-    this.left.appendChild(msg);
-
-    if (this.flashTimer !== null) {
-      clearTimeout(this.flashTimer);
-    }
-
-    this.flashTimer = setTimeout(() => {
-      while (this.left.firstChild) {
-        this.left.removeChild(this.left.firstChild);
-      }
-      for (const node of savedNodes) {
-        this.left.appendChild(node);
-      }
-      this.flashTimer = null;
-    }, durationMs);
+    this.setMessage(message, durationMs);
   }
 
   destroy(): void {
-    if (this.flashTimer !== null) {
-      clearTimeout(this.flashTimer);
+    if (this.messageTimer !== null) {
+      clearTimeout(this.messageTimer);
     }
     this.container.parentNode?.removeChild(this.container);
   }
