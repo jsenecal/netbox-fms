@@ -143,6 +143,8 @@ class TestGraphQLTypeImports:
             "WdmTrunkPortType",
             "WavelengthChannelType",
             "WavelengthServiceType",
+            "TrayProfileType",
+            "TubeAssignmentType",
         }
         assert set(types.__all__) == expected
 
@@ -251,6 +253,8 @@ class TestGraphQLFilterImports:
             "WdmNodeFilter",
             "WavelengthChannelFilter",
             "WavelengthServiceFilter",
+            "TrayProfileFilter",
+            "TubeAssignmentFilter",
         }
         assert set(filters.__all__) == expected
 
@@ -389,7 +393,7 @@ class TestGraphQLSchema:
     def test_query_field_count(self):
         """Verify the query class has the expected number of field pairs (22 models x 2)."""
         fields = self._get_strawberry_field_names()
-        assert len(fields) == 44  # 22 models x (single + list)
+        assert len(fields) == 48  # 24 models x (single + list)
 
 
 @pytest.mark.django_db
