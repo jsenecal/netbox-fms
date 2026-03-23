@@ -10,12 +10,12 @@ export class Interactions {
   private mode: ActionMode = 'single';
   private selected: { id: number; side: 'left' | 'right'; portId: number } | null = null;
   private sequentialCount = 12;
-  private statusEl: HTMLElement | null;
   private saveBtn: HTMLButtonElement | null = null;
   private deleteBtn: HTMLButtonElement | null = null;
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
   private countContainer: HTMLElement | null = null;
+  private _statusMessage = '';
 
   constructor(
     state: EditorState,
@@ -27,35 +27,19 @@ export class Interactions {
     this.renderer = renderer;
     this.config = config;
     this.onSave = onSave;
-    this.statusEl = document.getElementById('splice-status');
 
     this.setupToolbar();
     this.setupBeforeUnload();
   }
 
   private setupToolbar(): void {
-    const toolbar = document.getElementById('splice-toolbar');
-    if (!toolbar) return;
-
-    // Mode buttons
-    toolbar.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        toolbar.querySelectorAll('[data-mode]').forEach((b) => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.mode = btn.dataset.mode as ActionMode;
-        this.clearSelection();
-        this.setStatus(`Mode: ${this.mode}`);
-        this.updateCountSelector();
-      });
-    });
-
-    // Save button (already in HTML)
+    // Save button (created by splice-editor.ts)
     this.saveBtn = document.getElementById('splice-save-btn') as HTMLButtonElement | null;
     if (this.saveBtn) {
       this.saveBtn.addEventListener('click', () => this.onSave());
     }
 
-    // Undo / Redo buttons (already in HTML)
+    // Undo / Redo buttons (created by splice-editor.ts)
     this.undoBtn = document.getElementById('splice-undo-btn') as HTMLButtonElement | null;
     this.redoBtn = document.getElementById('splice-redo-btn') as HTMLButtonElement | null;
     if (this.undoBtn) {
@@ -110,7 +94,7 @@ export class Interactions {
       }
     });
 
-    // Sequential count selector (injected dynamically after the mode btn-group)
+    // Sequential count selector (injected dynamically next to delete button)
     this.countContainer = document.createElement('span');
     this.countContainer.id = 'sequential-count';
     this.countContainer.className = 'ms-2 d-none align-items-center';
@@ -179,6 +163,14 @@ export class Interactions {
         e.preventDefault();
       }
     });
+  }
+
+  /** Set the splice mode (called from pill group in splice-editor.ts). */
+  setMode(mode: ActionMode): void {
+    this.mode = mode;
+    this.clearSelection();
+    this.setStatus(`Mode: ${this.mode}`);
+    this.updateCountSelector();
   }
 
   handleStrandClick(node: LayoutNode, side: 'left' | 'right'): void {
@@ -289,12 +281,6 @@ export class Interactions {
     }
   }
 
-  private findStrandNode(strandId: number): LayoutNode | undefined {
-    return [...this.state.leftNodes, ...this.state.rightNodes].find(
-      (n) => n.type === 'strand' && n.id === strandId,
-    );
-  }
-
   updateSaveButton(): void {
     this.updateToolbarState();
   }
@@ -313,7 +299,8 @@ export class Interactions {
   }
 
   setStatus(msg: string): void {
-    if (this.statusEl) this.statusEl.textContent = msg;
+    this._statusMessage = msg;
+    // The stats bar flash is handled by the splice-editor.ts override
   }
 
   clearSelection(): void {

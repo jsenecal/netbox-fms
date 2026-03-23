@@ -1,8 +1,10 @@
 import type {
   CableGroupData,
   LayoutNode,
+  LegendSection,
   PendingChange,
   SpliceEntry,
+  StatsData,
   StrandData,
   TrayData,
 } from './types';
@@ -333,6 +335,86 @@ export class EditorState {
         ((p.fiberA === strandA && p.fiberB === strandB) ||
          (p.fiberA === strandB && p.fiberB === strandA)),
     );
+  }
+
+  // -------------------------------------------------------------------
+  // Component data builders
+  // -------------------------------------------------------------------
+
+  /** Compute aggregate stats for the stats bar. */
+  computeStats(): StatsData {
+    let liveSpliceCount = 0;
+    let plannedSpliceCount = 0;
+    for (const entry of this.spliceEntries) {
+      if (entry.isLive) liveSpliceCount++;
+      if (entry.isPlan && !entry.isLive) plannedSpliceCount++;
+    }
+    const strandCount = [...this.leftNodes, ...this.rightNodes].filter(
+      (n) => n.type === 'strand',
+    ).length;
+    return {
+      cableCount: this.cableGroups.length,
+      strandCount,
+      liveSpliceCount,
+      plannedSpliceCount,
+      pendingCount: this.pendingChanges.length,
+      planName: null,
+      planStatus: null,
+    };
+  }
+
+  /** Build legend sections based on current visible state. */
+  buildLegendSections(): LegendSection[] {
+    const sections: LegendSection[] = [];
+
+    // Splice types section
+    const hasLive = this.spliceEntries.some((e) => e.isLive);
+    const hasPlan = this.spliceEntries.some((e) => e.isPlan && !e.isLive);
+    const hasPendingAdd = this.pendingChanges.some((p) => p.action === 'add');
+    const hasPendingRemove = this.pendingChanges.some((p) => p.action === 'remove');
+    const hasProtected = [...this.leftNodes, ...this.rightNodes].some(
+      (n) => n.type === 'strand' && n.isProtected,
+    );
+
+    const spliceItems: LegendSection['items'] = [];
+    if (hasLive) {
+      spliceItems.push({ type: 'line', color: '#28a745', label: 'Live splice' });
+    }
+    if (hasPlan) {
+      spliceItems.push({ type: 'line', color: '#17a2b8', dashed: true, label: 'Planned splice' });
+    }
+    if (hasPendingAdd) {
+      spliceItems.push({ type: 'line', color: '#ffc107', dashed: true, label: 'Pending add' });
+    }
+    if (hasPendingRemove) {
+      spliceItems.push({ type: 'line', color: '#dc3545', dashed: true, label: 'Pending delete' });
+    }
+    if (hasProtected) {
+      spliceItems.push({ type: 'icon', icon: '\uD83D\uDD12', label: 'Protected (circuit)' });
+    }
+    if (spliceItems.length > 0) {
+      sections.push({ title: 'Splices', items: spliceItems });
+    }
+
+    // Tube colors section — collect unique visible tube colors
+    const tubeColors = new Map<string, string>();
+    for (const n of [...this.leftNodes, ...this.rightNodes]) {
+      if (n.type === 'tube' && n.color && n.label) {
+        const key = n.color;
+        if (!tubeColors.has(key)) {
+          tubeColors.set(key, n.label);
+        }
+      }
+    }
+    if (tubeColors.size > 0) {
+      const tubeItems: LegendSection['items'] = [];
+      for (const [color, label] of tubeColors) {
+        tubeItems.push({ type: 'dot', color: `#${color}`, label });
+      }
+      sections.push({ title: 'Tubes', items: tubeItems });
+    }
+
+    return sections;
   }
 
   // -------------------------------------------------------------------

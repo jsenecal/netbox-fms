@@ -4,52 +4,23 @@
 {# Shared splice editor widget — included by both splice_editor.html and device_splice_editor.html #}
 {# Expects context: back_url (optional), back_label (optional) #}
 
-<!-- Toolbar -->
-<div class="splice-toolbar p-2 border-bottom d-flex justify-content-between align-items-center" id="splice-toolbar">
-    <div class="d-flex align-items-center">
-        <div class="btn-group me-2" role="group">
-            <button type="button" class="btn btn-sm btn-outline-primary active" data-mode="single" title="{% trans 'Single splice mode' %}">
-                <i class="mdi mdi-ray-start-end"></i> {% trans "Single" %}
-            </button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-mode="sequential" title="{% trans 'Sequential bulk splice mode' %}">
-                <i class="mdi mdi-format-list-numbered"></i> {% trans "Sequential" %}
-            </button>
-        </div>
-        <button type="button" class="btn btn-sm btn-outline-danger me-2" id="splice-delete-btn" disabled title="{% trans 'Delete selected splices' %}">
-            <i class="mdi mdi-delete"></i> {% trans "Delete" %}
-        </button>
-        <span class="text-muted small">{% trans "Click strands to splice." %}</span>
-    </div>
-    <div class="d-flex align-items-center" id="splice-toolbar-right">
-        <button type="button" class="btn btn-sm btn-outline-secondary me-1" id="splice-undo-btn" disabled title="{% trans 'Undo' %}">
-            <i class="mdi mdi-undo"></i>
-        </button>
-        <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="splice-redo-btn" disabled title="{% trans 'Redo' %}">
-            <i class="mdi mdi-redo"></i>
-        </button>
-        <button type="button" class="btn btn-sm btn-success me-2 d-none" id="splice-save-btn">
-            <i class="mdi mdi-content-save"></i> {% trans "Save" %}
-        </button>
-        {% if back_url %}
-        <a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary">
-            <i class="mdi mdi-arrow-left"></i> {{ back_label|default:"Back" }}
-        </a>
-        {% endif %}
-    </div>
-</div>
+<link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
 
-<!-- Tray filter -->
-<div class="mb-2 p-2" id="tray-filter-container" style="display:none;">
-    <label class="form-label me-2">{% trans "Filter by Tray:" %}</label>
-    <select id="tray-filter" class="form-select form-select-sm" style="width: auto; display: inline-block;">
-        <option value="all">{% trans "All Trays" %}</option>
-    </select>
-</div>
+<div class="splice-editor-container fms-component">
+  {# Toolbar — built dynamically by JS #}
+  <div id="fms-toolbar" class="fms-toolbar">
+    {% if back_url %}
+    <a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary" id="splice-back-btn">
+      <i class="mdi mdi-arrow-left"></i> {{ back_label|default:"Back" }}
+    </a>
+    {% endif %}
+  </div>
 
-<!-- D3 splice canvas -->
-<div class="splice-editor-container" id="splice-canvas-container"></div>
+  {# Canvas area with detail panel overlay #}
+  <div style="display:flex;position:relative;flex:1;overflow:hidden;">
+    <div id="splice-canvas-container" style="flex:1;position:relative;overflow:hidden;"></div>
+  </div>
 
-<!-- Status bar -->
-<div class="p-2 border-top text-muted small" id="splice-status">
-    {% trans "Loading strands..." %}
+  {# Stats bar — built dynamically by JS #}
+  <div id="fms-stats-bar"></div>
 </div>
