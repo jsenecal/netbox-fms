@@ -19,6 +19,8 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WdmChannelTemplate,
@@ -408,6 +410,37 @@ class ClosureCableEntryTable(NetBoxTable):
         model = ClosureCableEntry
         fields = ("pk", "id", "closure", "fiber_cable", "entrance_label", "notes", "actions")
         default_columns = ("pk", "closure", "fiber_cable", "entrance_label", "actions")
+
+
+# ---------------------------------------------------------------------------
+# TrayProfile / TubeAssignment
+# ---------------------------------------------------------------------------
+
+
+class TrayProfileTable(NetBoxTable):
+    """Table for displaying TrayProfile objects."""
+
+    module_type = tables.Column(linkify=True)
+    tray_role = tables.Column()
+
+    class Meta(NetBoxTable.Meta):
+        model = TrayProfile
+        fields = ("pk", "id", "module_type", "tray_role", "description", "actions")
+        default_columns = ("module_type", "tray_role", "description")
+
+
+class TubeAssignmentTable(NetBoxTable):
+    """Table for displaying TubeAssignment objects."""
+
+    closure = tables.Column(linkify=True)
+    tray = tables.Column(linkify=True)
+    buffer_tube = tables.Column(linkify=True)
+    position = tables.Column()
+
+    class Meta(NetBoxTable.Meta):
+        model = TubeAssignment
+        fields = ("pk", "id", "closure", "tray", "buffer_tube", "position", "actions")
+        default_columns = ("closure", "tray", "buffer_tube", "position")
 
 
 # ---------------------------------------------------------------------------

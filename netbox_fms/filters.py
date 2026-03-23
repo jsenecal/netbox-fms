@@ -16,6 +16,7 @@ from .choices import (
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
+    TrayRoleChoices,
     WavelengthChannelStatusChoices,
     WavelengthServiceStatusChoices,
     WdmGridChoices,
@@ -38,6 +39,8 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WdmChannelTemplate,
@@ -346,6 +349,39 @@ class ClosureCableEntryFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     class Meta:
         model = ClosureCableEntry
         fields = ("id", "closure_id", "fiber_cable", "entrance_label")
+
+
+class TrayProfileFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
+    """FilterSet for TrayProfile model."""
+
+    tray_role = django_filters.MultipleChoiceFilter(choices=TrayRoleChoices)
+
+    search_fields = ("description__icontains",)
+
+    class Meta:
+        model = TrayProfile
+        fields = ("id", "module_type", "tray_role")
+
+
+class TubeAssignmentFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
+    """FilterSet for TubeAssignment model."""
+
+    closure_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        field_name="closure",
+        label=_("Closure"),
+    )
+    tray_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Module.objects.all(),
+        field_name="tray",
+        label=_("Tray"),
+    )
+
+    search_fields = ("notes__icontains",)
+
+    class Meta:
+        model = TubeAssignment
+        fields = ("id", "closure", "tray", "buffer_tube")
 
 
 class SlackLoopFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):

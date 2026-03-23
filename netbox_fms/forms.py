@@ -8,6 +8,7 @@ from dcim.models import (
     Location,
     Manufacturer,
     Module,
+    ModuleType,
     RearPort,
     Site,
 )
@@ -38,12 +39,14 @@ from .choices import (
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
+    TrayRoleChoices,
     WavelengthChannelStatusChoices,
     WavelengthServiceStatusChoices,
     WdmGridChoices,
     WdmNodeTypeChoices,
 )
 from .models import (
+    BufferTube,
     BufferTubeTemplate,
     CableElementTemplate,
     ClosureCableEntry,
@@ -56,6 +59,8 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WdmChannelTemplate,
@@ -1141,3 +1146,91 @@ class WavelengthServiceImportForm(NetBoxModelImportForm):
     class Meta:
         model = WavelengthService
         fields = ("name", "status", "wavelength_nm", "description", "comments")
+
+
+# ---------------------------------------------------------------------------
+# TrayProfile
+# ---------------------------------------------------------------------------
+
+
+class TrayProfileForm(NetBoxModelForm):
+    """Form for creating/editing a TrayProfile."""
+
+    module_type = DynamicModelChoiceField(queryset=ModuleType.objects.all(), label=_("Module Type"))
+
+    fieldsets = (FieldSet("module_type", "tray_role", "description", "tags", name=_("Tray Profile")),)
+
+    class Meta:
+        model = TrayProfile
+        fields = ("module_type", "tray_role", "description", "tags")
+
+
+class TrayProfileImportForm(NetBoxModelImportForm):
+    """Import form for TrayProfile."""
+
+    class Meta:
+        model = TrayProfile
+        fields = ("module_type", "tray_role", "description", "tags")
+
+
+class TrayProfileBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for TrayProfile."""
+
+    model = TrayProfile
+    tray_role = forms.ChoiceField(choices=TrayRoleChoices, required=False, label=_("Tray Role"))
+    description = forms.CharField(required=False, label=_("Description"))
+
+
+class TrayProfileFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for TrayProfile."""
+
+    model = TrayProfile
+    tray_role = forms.MultipleChoiceField(choices=TrayRoleChoices, required=False, label=_("Tray Role"))
+
+    fieldsets = (FieldSet("q", "tray_role", "tag", name=_("Filters")),)
+
+
+# ---------------------------------------------------------------------------
+# TubeAssignment
+# ---------------------------------------------------------------------------
+
+
+class TubeAssignmentForm(NetBoxModelForm):
+    """Form for creating/editing a TubeAssignment."""
+
+    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
+    tray = DynamicModelChoiceField(
+        queryset=Module.objects.all(), label=_("Tray"), query_params={"device_id": "$closure"}
+    )
+    buffer_tube = DynamicModelChoiceField(queryset=BufferTube.objects.all(), label=_("Buffer Tube"))
+
+    fieldsets = (FieldSet("closure", "tray", "buffer_tube", "position", "notes", "tags", name=_("Tube Assignment")),)
+
+    class Meta:
+        model = TubeAssignment
+        fields = ("closure", "tray", "buffer_tube", "position", "notes", "tags")
+
+
+class TubeAssignmentImportForm(NetBoxModelImportForm):
+    """Import form for TubeAssignment."""
+
+    class Meta:
+        model = TubeAssignment
+        fields = ("closure", "tray", "buffer_tube", "position", "notes", "tags")
+
+
+class TubeAssignmentBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for TubeAssignment."""
+
+    model = TubeAssignment
+    tray = DynamicModelChoiceField(queryset=Module.objects.all(), required=False, label=_("Tray"))
+    position = forms.IntegerField(required=False, label=_("Position"))
+
+
+class TubeAssignmentFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for TubeAssignment."""
+
+    model = TubeAssignment
+    closure_id = DynamicModelChoiceField(queryset=Device.objects.all(), required=False, label=_("Closure"))
+
+    fieldsets = (FieldSet("q", "closure_id", "tag", name=_("Filters")),)
