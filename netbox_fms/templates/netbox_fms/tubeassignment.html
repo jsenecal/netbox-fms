@@ -1,0 +1,36 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Tube Assignment" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Closure" %}</th>
+                    <td>{{ object.closure|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Tray" %}</th>
+                    <td>{{ object.tray|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Buffer Tube" %}</th>
+                    <td>{{ object.buffer_tube|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Position" %}</th>
+                    <td>{{ object.position|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Notes" %}</th>
+                    <td>{{ object.notes|placeholder }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock content %}

@@ -112,6 +112,7 @@ from .models import (
     SplicePlanEntry,
     SpliceProject,
     TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WavelengthServiceChannelAssignment,
@@ -965,6 +966,12 @@ class TrayProfileView(generic.ObjectView):
     """Display a single tray profile."""
 
     queryset = TrayProfile.objects.all()
+
+
+class TubeAssignmentView(generic.ObjectView):
+    """Display a single tube assignment."""
+
+    queryset = TubeAssignment.objects.all()
 
 
 # ---------------------------------------------------------------------------

@@ -158,6 +158,9 @@ urlpatterns = [
     # TrayProfile (stub — full CRUD in Task 6)
     path("tray-profiles/<int:pk>/", include(get_model_urls("netbox_fms", "trayprofile"))),
     path("tray-profiles/<int:pk>/", views.TrayProfileView.as_view(), name="trayprofile"),
+    # TubeAssignment (stub — full CRUD in Task 6)
+    path("tube-assignments/<int:pk>/", include(get_model_urls("netbox_fms", "tubeassignment"))),
+    path("tube-assignments/<int:pk>/", views.TubeAssignmentView.as_view(), name="tubeassignment"),
     # SlackLoop
     path("slack-loops/", views.SlackLoopListView.as_view(), name="slackloop_list"),
     path("slack-loops/add/", views.SlackLoopEditView.as_view(), name="slackloop_add"),

@@ -41,6 +41,7 @@ __all__ = (
     "SplicePlanEntry",
     "ClosureCableEntry",
     "TrayProfile",
+    "TubeAssignment",
     "SlackLoop",
     "FiberCircuit",
     "FiberCircuitPath",
@@ -1072,6 +1073,76 @@ class TrayProfile(NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:trayprofile", args=[self.pk])
+
+
+class TubeAssignment(NetBoxModel):
+    """Links a BufferTube to a splice tray (dcim.Module) on a closure device.
+
+    The closure FK is an intentional denormalization (derivable from tray.device)
+    kept to enable the unique_together constraint on (closure, buffer_tube).
+    """
+
+    closure = models.ForeignKey(
+        to="dcim.Device",
+        on_delete=models.CASCADE,
+        related_name="tube_assignments",
+        verbose_name=_("closure"),
+    )
+    tray = models.ForeignKey(
+        to="dcim.Module",
+        on_delete=models.CASCADE,
+        related_name="tube_assignments",
+        verbose_name=_("tray"),
+    )
+    buffer_tube = models.ForeignKey(
+        to="netbox_fms.BufferTube",
+        on_delete=models.CASCADE,
+        related_name="tray_assignments",
+        verbose_name=_("buffer tube"),
+    )
+    position = models.PositiveIntegerField(
+        verbose_name=_("position"),
+        blank=True,
+        null=True,
+        help_text=_("Display order of this tube within the tray."),
+    )
+    notes = models.TextField(blank=True, verbose_name=_("notes"))
+
+    clone_fields = ("closure", "tray")
+
+    class Meta:
+        ordering = ("closure", "tray", "position")
+        unique_together = (("closure", "buffer_tube"),)
+        verbose_name = _("tube assignment")
+        verbose_name_plural = _("tube assignments")
+
+    def __str__(self):
+        return f"{self.buffer_tube} → {self.tray}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:tubeassignment", args=[self.pk])
+
+    def clean(self):
+        super().clean()
+        from django.core.exceptions import ValidationError
+
+        if self.tray_id and self.closure_id and self.tray.device_id != self.closure_id:
+            raise ValidationError({"tray": _("Tray must belong to the closure device.")})
+
+        if self.tray_id:
+            if not hasattr(self.tray.module_type, "tray_profile"):
+                raise ValidationError({"tray": _("The selected module's type does not have a Tray Profile.")})
+            if self.tray.module_type.tray_profile.tray_role != TrayRoleChoices.SPLICE_TRAY:
+                raise ValidationError({"tray": _("Tubes can only be assigned to splice trays, not express baskets.")})
+
+        if self.buffer_tube_id and self.closure_id:
+            if not ClosureCableEntry.objects.filter(
+                closure_id=self.closure_id,
+                fiber_cable_id=self.buffer_tube.fiber_cable_id,
+            ).exists():
+                raise ValidationError(
+                    {"buffer_tube": _("The tube's fiber cable must have a ClosureCableEntry on this closure.")}
+                )
 
 
 # ---------------------------------------------------------------------------
