@@ -118,12 +118,21 @@ export class EditorState {
       }
       for (const s of cg.loose_strands) this.strandMap.set(s.id, s);
     }
-    // Initialize side assignments if not already set
+    // Initialize side assignments if not already set — balance by strand count
     if (this.sideAssignment.size === 0) {
-      const mid = Math.ceil(groups.length / 2);
-      groups.forEach((cg, i) => {
-        this.sideAssignment.set(cg.fiber_cable_id, i < mid ? 'left' : 'right');
-      });
+      // Sort cables largest-first for greedy bin packing
+      const sorted = [...groups].sort((a, b) => b.strand_count - a.strand_count);
+      let leftCount = 0;
+      let rightCount = 0;
+      for (const cg of sorted) {
+        if (leftCount <= rightCount) {
+          this.sideAssignment.set(cg.fiber_cable_id, 'left');
+          leftCount += cg.strand_count || 1;
+        } else {
+          this.sideAssignment.set(cg.fiber_cable_id, 'right');
+          rightCount += cg.strand_count || 1;
+        }
+      }
     }
     this.rebuildLayout();
   }

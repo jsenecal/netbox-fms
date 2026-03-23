@@ -483,6 +483,48 @@ describe('splice entries', () => {
 // moveCable
 // ---------------------------------------------------------------------------
 
+describe('cable side assignment balancing', () => {
+  it('balances by strand count, not cable count', () => {
+    const s = new EditorState();
+    // 2x 144F cables + 1x 48F cable
+    s.loadCableGroups([
+      makeCableGroup({ fiber_cable_id: 1, strand_count: 144 }),
+      makeCableGroup({ fiber_cable_id: 2, strand_count: 144 }),
+      makeCableGroup({ fiber_cable_id: 3, strand_count: 48 }),
+    ]);
+
+    const leftCables = s.leftNodes.filter(n => n.type === 'cable');
+    const rightCables = s.rightNodes.filter(n => n.type === 'cable');
+
+    // Greedy: 144(id1) -> left (0<=0), 144(id2) -> right (144>0), 48(id3) -> left (144<=144)
+    // Result: 2 cables left (144+48=192F), 1 cable right (144F)
+    // Much better than naive split: 2 left (288F) + 1 right (48F)
+    expect(leftCables).toHaveLength(2);
+    expect(rightCables).toHaveLength(1);
+  });
+
+  it('puts single cable on left', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({ fiber_cable_id: 1, strand_count: 12 }),
+    ]);
+    const leftCables = s.leftNodes.filter(n => n.type === 'cable');
+    expect(leftCables).toHaveLength(1);
+  });
+
+  it('splits two equal cables evenly', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({ fiber_cable_id: 1, strand_count: 24 }),
+      makeCableGroup({ fiber_cable_id: 2, strand_count: 24 }),
+    ]);
+    const leftCables = s.leftNodes.filter(n => n.type === 'cable');
+    const rightCables = s.rightNodes.filter(n => n.type === 'cable');
+    expect(leftCables).toHaveLength(1);
+    expect(rightCables).toHaveLength(1);
+  });
+});
+
 describe('moveCable', () => {
   it('moves a cable to the other side', () => {
     const s = new EditorState();
