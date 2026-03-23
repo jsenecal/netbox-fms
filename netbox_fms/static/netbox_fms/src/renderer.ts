@@ -547,6 +547,17 @@ export class SpliceRenderer {
       }
     }
 
+    // Track strands that have a plan splice to a DIFFERENT target than their live splice.
+    // A live-only splice is superseded if one of its strands has a plan entry elsewhere.
+    const planReplacedStrands = new Set<number>();
+    for (const entry of this.state.spliceEntries) {
+      if (entry.isPlan && !entry.isLive) {
+        // This is a plan-only entry — the strands involved may supersede a live splice
+        planReplacedStrands.add(entry.sourceId);
+        planReplacedStrands.add(entry.targetId);
+      }
+    }
+
     // --- Existing splice entries (live first so plan-only renders on top) ---
     const sortedEntries = [...this.state.spliceEntries].sort((a, b) => {
       const aOrder = (a.isLive && !a.isPlan) ? 0 : (a.isLive && a.isPlan) ? 1 : 2;
@@ -563,9 +574,13 @@ export class SpliceRenderer {
       const entryKey =
         Math.min(entry.sourceId, entry.targetId) + '-' + Math.max(entry.sourceId, entry.targetId);
       const isReSpliceOld = reSpliceOldPairs.has(entryKey);
-      // If either strand is being spliced elsewhere, dim this line
-      const isSuperseded = !isPendingDelete && !isReSpliceOld &&
+      // If either strand is being spliced elsewhere (pending or plan), dim this line
+      const isSupersededByPending = !isPendingDelete && !isReSpliceOld &&
         (pendingAddStrands.has(entry.sourceId) || pendingAddStrands.has(entry.targetId));
+      // A live-only splice is superseded if one of its strands has a different plan splice
+      const isSupersededByPlan = entry.isLive && !entry.isPlan &&
+        (planReplacedStrands.has(entry.sourceId) || planReplacedStrands.has(entry.targetId));
+      const isSuperseded = isSupersededByPending || isSupersededByPlan;
 
       const gradId = `link-grad-${entry.sourceId}-${entry.targetId}`;
       const gradUrl = this.createLinkGradient(a, b, gradId);
