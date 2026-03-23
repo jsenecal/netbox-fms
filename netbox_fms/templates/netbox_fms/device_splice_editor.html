@@ -11,26 +11,12 @@
 {% endblock %}
 
 {% block content %}
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header d-flex justify-content-between align-items-center">
-                <span>
-                    {% trans "Splice Editor" %}{% if plan %} &mdash; {{ plan.name }}{% endif %}
-                </span>
-                {% if plan %}
-                {% include "netbox_fms/inc/splice_plan_status_badge.html" with status=plan.status %}
-                {% endif %}
-            </h5>
-            <div class="card-body p-0">
-                {% if plan %}
-                    {% include "netbox_fms/inc/splice_editor_widget.html" with back_url=plan.get_absolute_url back_label="Plan Details" %}
-                {% else %}
-                    {% include "netbox_fms/inc/splice_editor_widget.html" %}
-                {% endif %}
-            </div>
-        </div>
-    </div>
+<div class="m-n3" style="margin-top: -1.25rem;">
+{% if plan %}
+    {% include "netbox_fms/inc/splice_editor_widget.html" with back_url=plan.get_absolute_url back_label="Plan Details" %}
+{% else %}
+    {% include "netbox_fms/inc/splice_editor_widget.html" %}
+{% endif %}
 </div>
 <script>
     window.SPLICE_EDITOR_CONFIG = {

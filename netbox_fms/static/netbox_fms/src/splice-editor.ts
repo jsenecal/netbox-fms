@@ -297,10 +297,17 @@ async function init(config: EditorConfig): Promise<void> {
   }
 
   function showSelectedSplicesDetail(): void {
-    // Gather all selected splice entries
-    const selectedEntries = state.spliceEntries.filter(
-      (e) => state.isSpliceSelected(e.sourceId, e.targetId),
-    );
+    // Gather selected splice entries, deduplicated by strand pair
+    const seenKeys = new Set<string>();
+    const selectedEntries: SpliceEntry[] = [];
+    for (const e of state.spliceEntries) {
+      if (!state.isSpliceSelected(e.sourceId, e.targetId)) continue;
+      const key = state.spliceKey(e.sourceId, e.targetId);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      selectedEntries.push(e);
+    }
+
     if (selectedEntries.length === 0) {
       detailPanel.hide();
       return;
@@ -309,26 +316,34 @@ async function init(config: EditorConfig): Promise<void> {
       showSpliceDetail(selectedEntries[0]);
       return;
     }
-    // Multiple selected — show all stacked
+
+    // Multiple selected — one card per splice with separators
     const allCards: DetailCard[] = [];
     for (const entry of selectedEntries) {
       const sourceStrand = state.getStrand(entry.sourceId);
       const targetStrand = state.getStrand(entry.targetId);
       if (!sourceStrand || !targetStrand) continue;
 
+      // Merge live+plan status for this pair
+      const pairEntries = state.spliceEntries.filter(
+        (e) => state.spliceKey(e.sourceId, e.targetId) === state.spliceKey(entry.sourceId, entry.targetId),
+      );
+      const isLive = pairEntries.some((e) => e.isLive);
+      const isPlan = pairEntries.some((e) => e.isPlan);
+
       const rows: DetailCard['rows'] = [
         { label: 'Source', value: sourceStrand.name, color: sourceStrand.color ? `#${sourceStrand.color}` : undefined },
         { label: 'Target', value: targetStrand.name, color: targetStrand.color ? `#${targetStrand.color}` : undefined },
       ];
-      if (entry.isLive) rows.push({ label: 'Status', value: 'Live', badge: 'live' });
-      if (entry.isPlan) rows.push({ label: 'Status', value: 'Planned', badge: 'planned' });
+      if (isLive) rows.push({ label: 'Status', value: 'Live', badge: 'live' });
+      if (isPlan) rows.push({ label: 'Status', value: 'Planned', badge: 'planned' });
 
       const srcCtx = state.findStrandContext(entry.sourceId);
       const tgtCtx = state.findStrandContext(entry.targetId);
       if (srcCtx) rows.push({ label: 'Cable A', value: srcCtx.cable.cable_label });
       if (tgtCtx) rows.push({ label: 'Cable B', value: tgtCtx.cable.cable_label });
 
-      allCards.push({ heading: `${sourceStrand.name} ↔ ${targetStrand.name}`, rows });
+      allCards.push({ heading: `${sourceStrand.name} \u2194 ${targetStrand.name}`, rows });
     }
     detailPanel.show(`${selectedEntries.length} Splices Selected`, allCards);
   }

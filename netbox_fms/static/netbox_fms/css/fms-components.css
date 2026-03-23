@@ -334,6 +334,13 @@
 .fms-detail-card:last-child {
   margin-bottom: 0;
 }
+.fms-detail-card + .fms-detail-card {
+  margin-top: 12px;
+  padding-top: 4px;
+  border-top: 2px solid var(--fms-border);
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
 
 .fms-detail-card__heading {
   font-size: 10px;

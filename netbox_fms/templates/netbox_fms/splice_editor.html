@@ -11,18 +11,8 @@
 {% endblock %}
 
 {% block content %}
-<div class="row mb-3">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header d-flex justify-content-between align-items-center">
-                <span>{% trans "Splice Editor" %} &mdash; {{ object.name }}</span>
-                <span class="badge bg-{{ object.status }}">{{ object.get_status_display }}</span>
-            </h5>
-            <div class="card-body p-0">
-                {% include "netbox_fms/inc/splice_editor_widget.html" %}
-            </div>
-        </div>
-    </div>
+<div class="m-n3" style="margin-top: -1.25rem;">
+{% include "netbox_fms/inc/splice_editor_widget.html" %}
 </div>
 <script>
     window.SPLICE_EDITOR_CONFIG = {
