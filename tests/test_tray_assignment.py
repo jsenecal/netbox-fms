@@ -171,3 +171,40 @@ class TestTubeAssignment(TestCase):
         ta = TubeAssignment(closure=self.closure, tray=self.tray, buffer_tube=tube2)
         with self.assertRaises(ValidationError):
             ta.full_clean()
+
+
+class TestClosureCableEntryCascade(TestCase):
+    """Deleting a ClosureCableEntry should clean up TubeAssignments for that cable's tubes."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="Cascade Site", slug="cascade-site")
+        manufacturer = Manufacturer.objects.create(name="Cascade Mfr", slug="cascade-mfr")
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="Closure C", slug="closure-c")
+        role = DeviceRole.objects.create(name="Closure C", slug="closure-c")
+        cls.closure = Device.objects.create(name="Closure-C", site=site, device_type=device_type, role=role)
+
+        from dcim.models import ModuleBay
+        module_type = ModuleType.objects.create(manufacturer=manufacturer, model="Tray C")
+        TrayProfile.objects.create(module_type=module_type, tray_role=TrayRoleChoices.SPLICE_TRAY)
+        bay = ModuleBay.objects.create(device=cls.closure, name="Bay C")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=module_type)
+
+        fct = FiberCableType.objects.create(
+            manufacturer=manufacturer, model="Cable C", construction="loose_tube",
+            fiber_type="smf_os2", strand_count=12,
+        )
+        from dcim.models import Cable
+        cable = Cable.objects.create()
+        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        cls.tube = BufferTube.objects.create(fiber_cable=cls.fiber_cable, name="Tube C1", position=1)
+
+    def test_deleting_cable_entry_removes_tube_assignments(self):
+        entry = ClosureCableEntry.objects.create(
+            closure=self.closure, fiber_cable=self.fiber_cable, entrance_label="G1"
+        )
+        TubeAssignment.objects.create(closure=self.closure, tray=self.tray, buffer_tube=self.tube)
+        assert TubeAssignment.objects.filter(closure=self.closure, buffer_tube=self.tube).exists()
+
+        entry.delete()
+        assert not TubeAssignment.objects.filter(closure=self.closure, buffer_tube=self.tube).exists()

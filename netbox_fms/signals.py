@@ -1,6 +1,6 @@
 """Signal handlers for splice plan diff cache invalidation."""
 
-from django.db.models.signals import post_save, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete
 
 
 def _invalidate_plans_for_cable(cable):
@@ -58,6 +58,16 @@ def _device_post_save(sender, instance, created, **kwargs):
     )
 
 
+def _closure_cable_entry_post_delete(sender, instance, **kwargs):
+    """Clean up TubeAssignments when a ClosureCableEntry is deleted."""
+    from .models import TubeAssignment
+
+    TubeAssignment.objects.filter(
+        closure_id=instance.closure_id,
+        buffer_tube__fiber_cable_id=instance.fiber_cable_id,
+    ).delete()
+
+
 def connect_signals():
     """Connect cable and device signals. Called from AppConfig.ready()."""
     from dcim.models import Cable, Device
@@ -65,3 +75,11 @@ def connect_signals():
     post_save.connect(_cable_post_save, sender=Cable, dispatch_uid="fms_cable_post_save")
     pre_delete.connect(_cable_pre_delete, sender=Cable, dispatch_uid="fms_cable_pre_delete")
     post_save.connect(_device_post_save, sender=Device, dispatch_uid="fms_device_post_save")
+
+    from .models import ClosureCableEntry
+
+    post_delete.connect(
+        _closure_cable_entry_post_delete,
+        sender=ClosureCableEntry,
+        dispatch_uid="fms_closure_cable_entry_post_delete",
+    )
