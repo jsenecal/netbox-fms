@@ -252,11 +252,12 @@ export class SpliceRenderer {
         .text(arrow + node.farDeviceName);
     }
 
-    // Move-to-other-side button
+    // Move-to-other-side arrow — on the subtitle line, opposite end
     if (this.onCableMove && node.cableId) {
-      const label = side === 'left' ? 'move right \u25b6' : '\u25c0 move left';
+      const arrow = side === 'left' ? '\u25b6' : '\u25c0';
       const btnX = xOffset + (side === 'left' ? COLUMN_WIDTH - 12 : 12);
       const btnAnchor = side === 'left' ? 'end' : 'start';
+      const btnY = node.y + 14; // same line as subtitle
 
       const mutedColor = getComputedStyle(document.body).getPropertyValue('--bs-secondary-color').trim() || '#6c757d';
       const hoverColor = getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
@@ -264,12 +265,14 @@ export class SpliceRenderer {
       const btn = cg.append('text')
         .attr('class', 'cable-move-btn')
         .attr('x', btnX)
-        .attr('y', node.y + 4)
+        .attr('y', btnY)
         .attr('text-anchor', btnAnchor)
-        .attr('font-size', '9px')
+        .attr('font-size', '12px')
         .attr('fill', mutedColor)
         .attr('cursor', 'pointer')
-        .text(label);
+        .text(arrow);
+
+      btn.append('title').text(side === 'left' ? 'Move to right column' : 'Move to left column');
 
       btn.on('click', () => {
         this.onCableMove!(node.cableId!);
