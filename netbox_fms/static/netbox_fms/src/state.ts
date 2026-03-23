@@ -641,7 +641,7 @@ export class EditorState {
 
   private collectSpliceEntries(): void {
     this.spliceEntries = [];
-    const seen = new Set<string>();
+    const entryMap = new Map<string, SpliceEntry>();
 
     for (const cg of this.cableGroups) {
       const allStrands: StrandData[] = [];
@@ -651,34 +651,43 @@ export class EditorState {
       for (const s of allStrands) {
         // Live splices
         if (s.live_spliced_to) {
-          const key = `live-${Math.min(s.id, s.live_spliced_to)}-${Math.max(s.id, s.live_spliced_to)}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            this.spliceEntries.push({
+          const key = this.spliceKey(s.id, s.live_spliced_to);
+          const existing = entryMap.get(key);
+          if (existing) {
+            existing.isLive = true;
+          } else {
+            const entry: SpliceEntry = {
               sourceId: s.id,
               targetId: s.live_spliced_to,
               entryId: null,
               isLive: true,
               isPlan: false,
-            });
+            };
+            entryMap.set(key, entry);
           }
         }
         // Plan splices
         if (s.plan_entry_id && s.plan_spliced_to) {
-          const key = `plan-${Math.min(s.id, s.plan_spliced_to)}-${Math.max(s.id, s.plan_spliced_to)}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            this.spliceEntries.push({
+          const key = this.spliceKey(s.id, s.plan_spliced_to);
+          const existing = entryMap.get(key);
+          if (existing) {
+            existing.isPlan = true;
+            if (!existing.entryId) existing.entryId = s.plan_entry_id;
+          } else {
+            const entry: SpliceEntry = {
               sourceId: s.id,
               targetId: s.plan_spliced_to,
               entryId: s.plan_entry_id,
               isLive: false,
               isPlan: true,
-            });
+            };
+            entryMap.set(key, entry);
           }
         }
       }
     }
+
+    this.spliceEntries = Array.from(entryMap.values());
   }
 
   /** Recalculate y-positions respecting collapsed tubes. */
