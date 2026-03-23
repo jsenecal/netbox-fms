@@ -4,6 +4,7 @@ from dcim.api.serializers import (
     FrontPortSerializer,
     ManufacturerSerializer,
     ModuleSerializer,
+    ModuleTypeSerializer,
 )
 from netbox.api.serializers import NetBoxModelSerializer
 from rest_framework import serializers
@@ -26,6 +27,8 @@ from ..models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WdmChannelTemplate,
@@ -390,6 +393,54 @@ class SlackLoopSerializer(NetBoxModelSerializer):
             "last_updated",
         )
         brief_fields = ("id", "url", "display", "fiber_cable", "start_mark", "end_mark")
+
+
+class TrayProfileSerializer(NetBoxModelSerializer):
+    """Serializer for TrayProfile model."""
+
+    module_type = ModuleTypeSerializer(nested=True)
+
+    class Meta:
+        model = TrayProfile
+        fields = (
+            "id",
+            "url",
+            "display",
+            "module_type",
+            "tray_role",
+            "description",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "module_type", "tray_role")
+
+
+class TubeAssignmentSerializer(NetBoxModelSerializer):
+    """Serializer for TubeAssignment model."""
+
+    closure = DeviceSerializer(nested=True)
+    tray = ModuleSerializer(nested=True)
+    buffer_tube = BufferTubeSerializer(nested=True)
+
+    class Meta:
+        model = TubeAssignment
+        fields = (
+            "id",
+            "url",
+            "display",
+            "closure",
+            "tray",
+            "buffer_tube",
+            "position",
+            "notes",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "closure", "tray", "buffer_tube")
 
 
 # ---------------------------------------------------------------------------

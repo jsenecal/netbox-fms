@@ -190,6 +190,32 @@ menu = PluginMenu(
                         ),
                     ),
                 ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:trayprofile_list",
+                    link_text="Tray Profiles",
+                    permissions=["netbox_fms.view_trayprofile"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:trayprofile_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_trayprofile"],
+                        ),
+                    ),
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:tubeassignment_list",
+                    link_text="Tube Assignments",
+                    permissions=["netbox_fms.view_tubeassignment"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:tubeassignment_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_tubeassignment"],
+                        ),
+                    ),
+                ),
             ),
         ),
         (

@@ -20,6 +20,8 @@ from .types import (
     SplicePlanEntryType,
     SplicePlanType,
     SpliceProjectType,
+    TrayProfileType,
+    TubeAssignmentType,
     WavelengthChannelType,
     WavelengthServiceType,
     WdmChannelTemplateType,
@@ -80,6 +82,12 @@ class NetBoxFMSQuery:
 
     slack_loop: SlackLoopType = strawberry_django.field()
     slack_loop_list: list[SlackLoopType] = strawberry_django.field()
+
+    tray_profile: TrayProfileType = strawberry_django.field()
+    tray_profile_list: list[TrayProfileType] = strawberry_django.field()
+
+    tube_assignment: TubeAssignmentType = strawberry_django.field()
+    tube_assignment_list: list[TubeAssignmentType] = strawberry_django.field()
 
     wdm_device_type_profile: WdmDeviceTypeProfileType = strawberry_django.field()
     wdm_device_type_profile_list: list[WdmDeviceTypeProfileType] = strawberry_django.field()

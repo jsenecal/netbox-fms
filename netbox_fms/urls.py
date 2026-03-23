@@ -155,12 +155,26 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
-    # TrayProfile (stub — full CRUD in Task 6)
+    # TrayProfile
+    path("tray-profiles/", views.TrayProfileListView.as_view(), name="trayprofile_list"),
+    path("tray-profiles/add/", views.TrayProfileEditView.as_view(), name="trayprofile_add"),
+    path("tray-profiles/import/", views.TrayProfileBulkImportView.as_view(), name="trayprofile_import"),
+    path("tray-profiles/edit/", views.TrayProfileBulkEditView.as_view(), name="trayprofile_bulk_edit"),
+    path("tray-profiles/delete/", views.TrayProfileBulkDeleteView.as_view(), name="trayprofile_bulk_delete"),
     path("tray-profiles/<int:pk>/", include(get_model_urls("netbox_fms", "trayprofile"))),
     path("tray-profiles/<int:pk>/", views.TrayProfileView.as_view(), name="trayprofile"),
-    # TubeAssignment (stub — full CRUD in Task 6)
+    path("tray-profiles/<int:pk>/edit/", views.TrayProfileEditView.as_view(), name="trayprofile_edit"),
+    path("tray-profiles/<int:pk>/delete/", views.TrayProfileDeleteView.as_view(), name="trayprofile_delete"),
+    # TubeAssignment
+    path("tube-assignments/", views.TubeAssignmentListView.as_view(), name="tubeassignment_list"),
+    path("tube-assignments/add/", views.TubeAssignmentEditView.as_view(), name="tubeassignment_add"),
+    path("tube-assignments/import/", views.TubeAssignmentBulkImportView.as_view(), name="tubeassignment_import"),
+    path("tube-assignments/edit/", views.TubeAssignmentBulkEditView.as_view(), name="tubeassignment_bulk_edit"),
+    path("tube-assignments/delete/", views.TubeAssignmentBulkDeleteView.as_view(), name="tubeassignment_bulk_delete"),
     path("tube-assignments/<int:pk>/", include(get_model_urls("netbox_fms", "tubeassignment"))),
     path("tube-assignments/<int:pk>/", views.TubeAssignmentView.as_view(), name="tubeassignment"),
+    path("tube-assignments/<int:pk>/edit/", views.TubeAssignmentEditView.as_view(), name="tubeassignment_edit"),
+    path("tube-assignments/<int:pk>/delete/", views.TubeAssignmentDeleteView.as_view(), name="tubeassignment_delete"),
     # SlackLoop
     path("slack-loops/", views.SlackLoopListView.as_view(), name="slackloop_list"),
     path("slack-loops/add/", views.SlackLoopEditView.as_view(), name="slackloop_add"),

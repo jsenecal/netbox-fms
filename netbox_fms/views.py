@@ -33,6 +33,8 @@ from .filters import (
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
     SpliceProjectFilterSet,
+    TrayProfileFilterSet,
+    TubeAssignmentFilterSet,
     WavelengthChannelFilterSet,
     WavelengthServiceFilterSet,
     WdmChannelTemplateFilterSet,
@@ -78,6 +80,14 @@ from .forms import (
     SplicePlanImportForm,
     SpliceProjectFilterForm,
     SpliceProjectForm,
+    TrayProfileBulkEditForm,
+    TrayProfileFilterForm,
+    TrayProfileForm,
+    TrayProfileImportForm,
+    TubeAssignmentBulkEditForm,
+    TubeAssignmentFilterForm,
+    TubeAssignmentForm,
+    TubeAssignmentImportForm,
     WavelengthChannelBulkEditForm,
     WavelengthChannelFilterForm,
     WavelengthChannelForm,
@@ -145,6 +155,8 @@ from .tables import (
     SplicePlanEntryTable,
     SplicePlanTable,
     SpliceProjectTable,
+    TrayProfileTable,
+    TubeAssignmentTable,
     WavelengthChannelTable,
     WavelengthServiceTable,
     WdmChannelTemplateTable,
@@ -957,21 +969,119 @@ class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
 
 
 # ---------------------------------------------------------------------------
-# TrayProfile (stub — full CRUD in Task 6)
+# TrayProfile
 # ---------------------------------------------------------------------------
+
+
+class TrayProfileListView(generic.ObjectListView):
+    """List all tray profiles."""
+
+    queryset = TrayProfile.objects.select_related("module_type")
+    table = TrayProfileTable
+    filterset = TrayProfileFilterSet
+    filterset_form = TrayProfileFilterForm
 
 
 @register_model_view(TrayProfile)
 class TrayProfileView(generic.ObjectView):
     """Display a single tray profile."""
 
+    queryset = TrayProfile.objects.select_related("module_type")
+
+
+class TrayProfileEditView(generic.ObjectEditView):
+    """Handle tray profile creation and editing."""
+
+    queryset = TrayProfile.objects.all()
+    form = TrayProfileForm
+
+
+class TrayProfileDeleteView(generic.ObjectDeleteView):
+    """Handle tray profile deletion."""
+
     queryset = TrayProfile.objects.all()
 
 
+class TrayProfileBulkImportView(generic.BulkImportView):
+    """Handle bulk import of tray profiles."""
+
+    queryset = TrayProfile.objects.all()
+    model_form = TrayProfileImportForm
+
+
+class TrayProfileBulkEditView(generic.BulkEditView):
+    """Handle bulk editing of tray profiles."""
+
+    queryset = TrayProfile.objects.select_related("module_type")
+    filterset = TrayProfileFilterSet
+    table = TrayProfileTable
+    form = TrayProfileBulkEditForm
+
+
+class TrayProfileBulkDeleteView(generic.BulkDeleteView):
+    """Handle bulk deletion of tray profiles."""
+
+    queryset = TrayProfile.objects.select_related("module_type")
+    filterset = TrayProfileFilterSet
+    table = TrayProfileTable
+
+
+# ---------------------------------------------------------------------------
+# TubeAssignment
+# ---------------------------------------------------------------------------
+
+
+class TubeAssignmentListView(generic.ObjectListView):
+    """List all tube assignments."""
+
+    queryset = TubeAssignment.objects.select_related("closure", "tray", "buffer_tube")
+    table = TubeAssignmentTable
+    filterset = TubeAssignmentFilterSet
+    filterset_form = TubeAssignmentFilterForm
+
+
+@register_model_view(TubeAssignment)
 class TubeAssignmentView(generic.ObjectView):
     """Display a single tube assignment."""
 
+    queryset = TubeAssignment.objects.select_related("closure", "tray", "buffer_tube")
+
+
+class TubeAssignmentEditView(generic.ObjectEditView):
+    """Handle tube assignment creation and editing."""
+
     queryset = TubeAssignment.objects.all()
+    form = TubeAssignmentForm
+
+
+class TubeAssignmentDeleteView(generic.ObjectDeleteView):
+    """Handle tube assignment deletion."""
+
+    queryset = TubeAssignment.objects.all()
+
+
+class TubeAssignmentBulkImportView(generic.BulkImportView):
+    """Handle bulk import of tube assignments."""
+
+    queryset = TubeAssignment.objects.all()
+    model_form = TubeAssignmentImportForm
+
+
+class TubeAssignmentBulkEditView(generic.BulkEditView):
+    """Handle bulk editing of tube assignments."""
+
+    queryset = TubeAssignment.objects.select_related("closure", "tray", "buffer_tube")
+    filterset = TubeAssignmentFilterSet
+    table = TubeAssignmentTable
+    form = TubeAssignmentBulkEditForm
+
+
+class TubeAssignmentBulkDeleteView(generic.BulkDeleteView):
+    """Handle bulk deletion of tube assignments."""
+
+    queryset = TubeAssignment.objects.select_related("closure", "tray", "buffer_tube")
+    filterset = TubeAssignmentFilterSet
+    table = TubeAssignmentTable
 
 
 # ---------------------------------------------------------------------------

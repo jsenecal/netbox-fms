@@ -15,6 +15,8 @@ from ..models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WdmDeviceTypeProfile,
@@ -34,6 +36,8 @@ __all__ = (
     "FiberCircuitFilter",
     "FiberCircuitPathFilter",
     "SlackLoopFilter",
+    "TrayProfileFilter",
+    "TubeAssignmentFilter",
     "WdmDeviceTypeProfileFilter",
     "WdmNodeFilter",
     "WavelengthChannelFilter",
@@ -157,6 +161,23 @@ class SlackLoopFilter:
     location_id: int | None
     storage_method: str | None
     length_unit: str | None
+
+
+@strawberry_django.filters.filter(TrayProfile)
+class TrayProfileFilter:
+    """GraphQL filter for TrayProfile."""
+
+    id: int | None
+    tray_role: str | None
+
+
+@strawberry_django.filters.filter(TubeAssignment)
+class TubeAssignmentFilter:
+    """GraphQL filter for TubeAssignment."""
+
+    id: int | None
+    closure_id: int | None
+    tray_id: int | None
 
 
 @strawberry_django.filters.filter(WdmDeviceTypeProfile)

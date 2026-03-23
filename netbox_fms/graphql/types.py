@@ -23,6 +23,8 @@ from ..models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WdmChannelTemplate,
@@ -53,6 +55,8 @@ __all__ = (
     "WdmNodeInstanceType",
     "WdmTrunkPortType",
     "WavelengthChannelType",
+    "TrayProfileType",
+    "TubeAssignmentType",
     "WavelengthServiceType",
 )
 
@@ -158,6 +162,22 @@ class FiberCircuitPathType(NetBoxObjectType):
 @strawberry_django.type(SlackLoop, fields="__all__")
 class SlackLoopType(NetBoxObjectType):
     """GraphQL type for SlackLoop."""
+
+
+@strawberry_django.type(TrayProfile, fields="__all__")
+class TrayProfileType(NetBoxObjectType):
+    """GraphQL type for TrayProfile."""
+
+    module_type: Annotated["ModuleTypeType", strawberry.lazy("dcim.graphql.types")] | None  # noqa: F821
+
+
+@strawberry_django.type(TubeAssignment, fields="__all__")
+class TubeAssignmentType(NetBoxObjectType):
+    """GraphQL type for TubeAssignment."""
+
+    closure: Annotated["DeviceType", strawberry.lazy("dcim.graphql.types")] | None  # noqa: F821
+    tray: Annotated["ModuleType", strawberry.lazy("dcim.graphql.types")] | None  # noqa: F821
+    buffer_tube: Annotated["BufferTubeType", strawberry.lazy(".types")] | None
 
 
 @strawberry_django.type(WdmDeviceTypeProfile, fields="__all__")

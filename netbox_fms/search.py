@@ -7,6 +7,7 @@ from .models import (
     SlackLoop,
     SplicePlan,
     SpliceProject,
+    TrayProfile,
     WavelengthService,
     WdmNode,
 )
@@ -81,6 +82,15 @@ class SlackLoopIndex(SearchIndex):
     model = SlackLoop
     fields = (("notes", 5000),)
     display_attrs = ("fiber_cable", "site", "start_mark", "end_mark", "length_unit")
+
+
+@register_search
+class TrayProfileIndex(SearchIndex):
+    """Search index for TrayProfile."""
+
+    model = TrayProfile
+    fields = (("description", 500),)
+    display_attrs = ("module_type", "tray_role")
 
 
 @register_search

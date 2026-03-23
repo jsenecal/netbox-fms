@@ -32,6 +32,8 @@ from ..filters import (
     SplicePlanEntryFilterSet,
     SplicePlanFilterSet,
     SpliceProjectFilterSet,
+    TrayProfileFilterSet,
+    TubeAssignmentFilterSet,
     WavelengthChannelFilterSet,
     WavelengthServiceFilterSet,
     WdmChannelTemplateFilterSet,
@@ -57,6 +59,8 @@ from ..models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
+    TubeAssignment,
     WavelengthChannel,
     WavelengthService,
     WdmChannelTemplate,
@@ -85,6 +89,8 @@ from .serializers import (
     SplicePlanEntrySerializer,
     SplicePlanSerializer,
     SpliceProjectSerializer,
+    TrayProfileSerializer,
+    TubeAssignmentSerializer,
     WavelengthChannelSerializer,
     WavelengthServiceSerializer,
     WdmChannelTemplateSerializer,
@@ -198,6 +204,22 @@ class ClosureCableEntryViewSet(NetBoxModelViewSet):
     queryset = ClosureCableEntry.objects.prefetch_related("closure", "fiber_cable", "tags")
     serializer_class = ClosureCableEntrySerializer
     filterset_class = ClosureCableEntryFilterSet
+
+
+class TrayProfileViewSet(NetBoxModelViewSet):
+    """Manage tray profiles for splice closure module types."""
+
+    queryset = TrayProfile.objects.select_related("module_type")
+    serializer_class = TrayProfileSerializer
+    filterset_class = TrayProfileFilterSet
+
+
+class TubeAssignmentViewSet(NetBoxModelViewSet):
+    """Manage tube-to-tray assignments within closures."""
+
+    queryset = TubeAssignment.objects.select_related("closure", "tray", "buffer_tube")
+    serializer_class = TubeAssignmentSerializer
+    filterset_class = TubeAssignmentFilterSet
 
 
 class SplicePlanViewSet(NetBoxModelViewSet):
