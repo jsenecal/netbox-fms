@@ -1592,7 +1592,6 @@ def _device_has_splice_plan_or_fiber_cables(device):
     return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
 
 
-@register_model_view(Device, "fiber_overview", path="fiber-overview")
 def _build_tray_assignment_data(device):
     """Build tray assignment context for the Fiber Overview tab."""
     modules = Module.objects.filter(device=device).select_related("module_type__tray_profile")
@@ -1647,6 +1646,7 @@ def _build_tray_assignment_data(device):
     }
 
 
+@register_model_view(Device, "fiber_overview", path="fiber-overview")
 class DeviceFiberOverviewView(View):
     """Fiber Overview tab on a dcim.Device detail page."""
 
