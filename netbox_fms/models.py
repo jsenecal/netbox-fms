@@ -668,8 +668,8 @@ class BufferTube(NetBoxModel):
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
-        """Return the detail URL for this buffer tube."""
-        return reverse("plugins:netbox_fms:buffertube", args=[self.pk])
+        """Return the detail URL for the parent fiber cable."""
+        return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
 
 
 class Ribbon(NetBoxModel):
@@ -717,8 +717,8 @@ class Ribbon(NetBoxModel):
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
-        """Return the detail URL for this ribbon."""
-        return reverse("plugins:netbox_fms:ribbon", args=[self.pk])
+        """Return the detail URL for the parent fiber cable."""
+        return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
 
 
 class FiberStrand(NetBoxModel):
@@ -788,8 +788,8 @@ class FiberStrand(NetBoxModel):
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
-        """Return the detail URL for this fiber strand."""
-        return reverse("plugins:netbox_fms:fiberstrand", args=[self.pk])
+        """Return the detail URL for the parent fiber cable."""
+        return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
 
 
 class CableElement(NetBoxModel):
@@ -824,8 +824,8 @@ class CableElement(NetBoxModel):
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
-        """Return the detail URL for this cable element."""
-        return reverse("plugins:netbox_fms:cableelement", args=[self.pk])
+        """Return the detail URL for the parent fiber cable."""
+        return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
 
 
 # ---------------------------------------------------------------------------
