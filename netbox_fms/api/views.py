@@ -3,7 +3,7 @@ from collections import OrderedDict
 from dcim.models import CableTermination, Device, FrontPort, Module, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
@@ -292,13 +292,32 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         adds = request.data.get("add", [])
         removes = request.data.get("remove", [])
 
-        remove_port_ids = set()
+        # Validate payload structure
+        for label, items in [("add", adds), ("remove", removes)]:
+            if not isinstance(items, list):
+                return Response(
+                    {"error": f"'{label}' must be a list"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            for i, item in enumerate(items):
+                if not isinstance(item, dict) or "fiber_a" not in item or "fiber_b" not in item:
+                    return Response(
+                        {"error": f"'{label}[{i}]' must have 'fiber_a' and 'fiber_b' keys"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+        # Check protection on both removes AND adds (re-splicing a protected fiber)
+        all_port_ids = set()
         for item in removes:
-            remove_port_ids.add(item["fiber_a"])
-            remove_port_ids.add(item["fiber_b"])
-        if remove_port_ids:
+            all_port_ids.add(item["fiber_a"])
+            all_port_ids.add(item["fiber_b"])
+        for item in adds:
+            all_port_ids.add(item["fiber_a"])
+            all_port_ids.add(item["fiber_b"])
+
+        if all_port_ids:
             protected_nodes = (
-                FiberCircuitNode.objects.filter(front_port_id__in=remove_port_ids)
+                FiberCircuitNode.objects.filter(front_port_id__in=all_port_ids)
                 .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
                 .select_related("path__circuit")
             )
@@ -308,6 +327,16 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 return Response(
                     {"error": f"Cannot modify protected splices (circuit(s): {names})"},
                     status=status.HTTP_409_CONFLICT,
+                )
+
+        # Validate FrontPorts exist before starting the transaction
+        if all_port_ids:
+            existing_ids = set(FrontPort.objects.filter(pk__in=all_port_ids).values_list("pk", flat=True))
+            missing = all_port_ids - existing_ids
+            if missing:
+                return Response(
+                    {"error": f"FrontPort(s) not found: {sorted(missing)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
         try:
@@ -334,7 +363,10 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                     fa = FrontPort.objects.get(pk=fa_id)
                     tray = fa.module
                     if tray is None:
-                        raise ValueError(f"FrontPort {fa_id} has no module (tray)")
+                        return Response(
+                            {"error": f"FrontPort {fa_id} has no module (tray). Assign it to a tray first."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     SplicePlanEntry.objects.create(
                         plan=plan,
                         tray=tray,
@@ -345,6 +377,11 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 plan.diff_stale = True
                 plan.save(update_fields=["diff_stale"])
 
+        except IntegrityError as e:
+            return Response(
+                {"error": f"Database constraint violation: {e}"},
+                status=status.HTTP_409_CONFLICT,
+            )
         except (FrontPort.DoesNotExist, ValueError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
