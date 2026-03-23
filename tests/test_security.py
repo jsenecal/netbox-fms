@@ -160,7 +160,6 @@ class TestHiddenFieldTampering(TestCase):
 
     def test_link_topology_requires_permission(self):
         """Link topology view requires add_fibercable permission."""
-        from django.contrib.auth.models import Permission
 
         unprivileged = User.objects.create_user(username="unpriv_user", password="testpass")
         self.client.force_login(unprivileged)

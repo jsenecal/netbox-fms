@@ -1,11 +1,11 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from django.db import IntegrityError
 
 from netbox_fms.models import (
     BufferTube,
     BufferTubeTemplate,
-    CableElement,
     FiberCable,
     FiberCableType,
     FiberStrand,
@@ -146,6 +146,7 @@ class TestBufferTubeTemplateValidation:
 
     def test_fiber_count_and_ribbons_raises(self):
         from django.core.exceptions import ValidationError
+
         from netbox_fms.models import RibbonTemplate
 
         fct = self._make_type()
@@ -185,8 +186,9 @@ class TestImportLiveStateValidation:
 
     def test_import_empty_returns_zero(self):
         from unittest.mock import patch
-        from netbox_fms.services import import_live_state
+
         from netbox_fms.models import SplicePlan
+        from netbox_fms.services import import_live_state
 
         plan = MagicMock(spec=SplicePlan)
         plan.pk = 999
@@ -203,6 +205,7 @@ class TestRibbonTemplateUniqueness:
 
     def test_duplicate_central_ribbon_name_rejected(self):
         from dcim.models import Manufacturer
+
         from netbox_fms.models import RibbonTemplate
 
         mfr = Manufacturer.objects.create(name="TestMfr-rt", slug="testmfr-rt")

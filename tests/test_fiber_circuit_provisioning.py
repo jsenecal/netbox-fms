@@ -19,7 +19,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
 from netbox_fms.choices import FiberCircuitStatusChoices
-from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath
+from netbox_fms.models import FiberCircuit
 
 
 def _setup_linear_network(site, mfr, num_closures, strands_per_cable=4):

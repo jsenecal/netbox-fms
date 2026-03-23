@@ -17,14 +17,12 @@ from dcim.models import (
     RearPort,
     Site,
 )
-from django.db import connection
 
 from netbox_fms.models import (
     ClosureCableEntry,
     FiberCable,
     FiberCableType,
     SlackLoop,
-    SplicePlan,
     SplicePlanEntry,
 )
 

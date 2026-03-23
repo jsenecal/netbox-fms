@@ -37,9 +37,17 @@ class TestSplicePlanEntryIsExpress:
 
     @pytest.fixture
     def setup_data(self):
-        from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType
-        from django.contrib.contenttypes.models import ContentType
-        from dcim.models import Site
+        from dcim.models import (
+            Device,
+            DeviceRole,
+            DeviceType,
+            FrontPort,
+            Manufacturer,
+            Module,
+            ModuleBay,
+            ModuleType,
+            Site,
+        )
 
         site = Site.objects.create(name="SL Test Site", slug="sl-test-site")
         mfr = Manufacturer.objects.create(name="SL Test Mfr", slug="sl-test-mfr")
@@ -92,7 +100,8 @@ class TestSlackLoopModel:
 
     @pytest.fixture(autouse=True)
     def setup_data(self):
-        from dcim.models import Cable, Manufacturer, Site, Location
+        from dcim.models import Cable, Location, Manufacturer, Site
+
         from netbox_fms.models import FiberCable, FiberCableType
 
         site = Site.objects.create(name="SLM-Site", slug="slm-site")
@@ -158,6 +167,7 @@ class TestSlackLoopModel:
 
     def test_negative_marks_rejected(self):
         from django.core.exceptions import ValidationError
+
         from netbox_fms.models import SlackLoop
 
         sl = SlackLoop(
@@ -244,6 +254,7 @@ class TestSlackLoopModel:
 
     def test_cascade_delete_with_fiber_cable(self):
         from dcim.models import Cable, Manufacturer
+
         from netbox_fms.models import FiberCable, FiberCableType, SlackLoop
 
         # Use dedicated objects for cascade test

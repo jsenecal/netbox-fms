@@ -793,7 +793,6 @@ class TestWavelengthServiceChannelTracking:
     def test_decommission_releases_all_channels(self, two_node_topology):
         """Decommissioning a service should release all channels at all nodes."""
         from netbox_fms.models import (
-            WavelengthChannel,
             WavelengthService,
             WavelengthServiceChannelAssignment,
             WavelengthServiceCircuit,
@@ -969,7 +968,6 @@ class TestChannelGridPositionConsistency:
 
     def test_unique_channel_per_service(self, two_node_topology):
         """A channel can only be assigned to one service at a time (unique constraint)."""
-        from django.db import IntegrityError
 
         from netbox_fms.models import (
             WavelengthService,
