@@ -8,7 +8,7 @@ import {
   TOP_PAD,
   MIN_HEIGHT,
 } from '../state';
-import type { CableGroupData, StrandData } from '../types';
+import type { CableGroupData, StrandData, TubeData } from '../types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -643,5 +643,322 @@ describe('deleteSelectedSplices', () => {
     expect(s.pendingChanges).toHaveLength(1);
     expect(s.pendingChanges[0].action).toBe('remove');
     expect(s.selectedSpliceKeys.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collectSpliceEntries: live+plan merge
+// ---------------------------------------------------------------------------
+
+describe('splice entry merging', () => {
+  it('merges live and plan for same strand pair into one entry', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1,
+        tubes: [{
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 1, live_spliced_to: 3, plan_entry_id: 50, plan_spliced_to: 3 })],
+        }],
+      }),
+      makeCableGroup({
+        fiber_cable_id: 2,
+        tubes: [{
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 3, live_spliced_to: 1, plan_entry_id: 50, plan_spliced_to: 1 })],
+        }],
+      }),
+    ]);
+
+    // Should be ONE entry, not two
+    expect(s.spliceEntries).toHaveLength(1);
+    expect(s.spliceEntries[0].isLive).toBe(true);
+    expect(s.spliceEntries[0].isPlan).toBe(true);
+    expect(s.spliceEntries[0].entryId).toBe(50);
+  });
+
+  it('keeps separate entries for different strand pairs', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1,
+        tubes: [{
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2, tray_assignment: null,
+          strands: [
+            makeStrand({ id: 1, live_spliced_to: 3 }),
+            makeStrand({ id: 2, plan_entry_id: 60, plan_spliced_to: 4 }),
+          ],
+        }],
+      }),
+      makeCableGroup({
+        fiber_cable_id: 2,
+        tubes: [{
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 2, tray_assignment: null,
+          strands: [
+            makeStrand({ id: 3, live_spliced_to: 1 }),
+            makeStrand({ id: 4, plan_entry_id: 60, plan_spliced_to: 2 }),
+          ],
+        }],
+      }),
+    ]);
+
+    expect(s.spliceEntries).toHaveLength(2);
+    const liveEntry = s.spliceEntries.find(e => e.isLive);
+    const planEntry = s.spliceEntries.find(e => e.isPlan && !e.isLive);
+    expect(liveEntry).toBeDefined();
+    expect(planEntry).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeStats
+// ---------------------------------------------------------------------------
+
+describe('computeStats', () => {
+  it('counts live and planned splices correctly (no double-counting)', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1,
+        tubes: [{
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2, tray_assignment: null,
+          strands: [
+            // Strand 1: both live AND planned to strand 3 — should count as 1 live, not also 1 planned
+            makeStrand({ id: 1, live_spliced_to: 3, plan_entry_id: 50, plan_spliced_to: 3 }),
+            // Strand 2: only planned to strand 4
+            makeStrand({ id: 2, plan_entry_id: 60, plan_spliced_to: 4 }),
+          ],
+        }],
+      }),
+      makeCableGroup({
+        fiber_cable_id: 2,
+        tubes: [{
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 2, tray_assignment: null,
+          strands: [
+            makeStrand({ id: 3, live_spliced_to: 1, plan_entry_id: 50, plan_spliced_to: 1 }),
+            makeStrand({ id: 4, plan_entry_id: 60, plan_spliced_to: 2 }),
+          ],
+        }],
+      }),
+    ]);
+
+    const stats = s.computeStats();
+    expect(stats.liveSpliceCount).toBe(1);
+    expect(stats.plannedSpliceCount).toBe(1); // only the plan-only one
+    expect(stats.cableCount).toBe(2);
+    expect(stats.strandCount).toBe(4);
+    expect(stats.pendingCount).toBe(0);
+  });
+
+  it('counts pending changes', () => {
+    const s = new EditorState();
+    s.loadCableGroups(twoTubeCables());
+    s.addPendingSplice(1, 3, 100, 300);
+    s.addPendingSplice(2, 4, 200, 400);
+
+    const stats = s.computeStats();
+    expect(stats.pendingCount).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tray filter: computeVisibleIds + layoutColumn
+// ---------------------------------------------------------------------------
+
+describe('tray filter', () => {
+  function trayFilterCables(): CableGroupData[] {
+    return [
+      makeCableGroup({
+        fiber_cable_id: 1,
+        strand_count: 2,
+        tubes: [{
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2,
+          tray_assignment: { tray_id: 100, tray_name: 'Tray 1' },
+          strands: [
+            makeStrand({ id: 1, live_spliced_to: 5 }),
+            makeStrand({ id: 2 }),
+          ],
+        }],
+      }),
+      // Cable 2: tube with different tray
+      makeCableGroup({
+        fiber_cable_id: 2,
+        strand_count: 2,
+        tubes: [{
+          id: 20, name: 'T2', color: 'ff0000', stripe_color: null, strand_count: 2,
+          tray_assignment: { tray_id: 200, tray_name: 'Tray 2' },
+          strands: [
+            makeStrand({ id: 3 }),
+            makeStrand({ id: 4 }),
+          ],
+        }],
+      }),
+      // Cable 3: loose strands (tight-buffer), strand 5 is splice partner of strand 1
+      makeCableGroup({
+        fiber_cable_id: 3,
+        strand_count: 2,
+        loose_strands: [
+          makeStrand({ id: 5, live_spliced_to: 1 }),
+          makeStrand({ id: 6 }),
+        ],
+      }),
+    ];
+  }
+
+  it('shows all tubes and loose strands when no filter', () => {
+    const s = new EditorState();
+    s.loadCableGroups(trayFilterCables());
+
+    const allStrands = [...s.leftNodes, ...s.rightNodes].filter(n => n.type === 'strand');
+    expect(allStrands).toHaveLength(6);
+  });
+
+  it('filters to tray 100 and includes splice-adjacent loose strands', () => {
+    const s = new EditorState();
+    s.loadCableGroups(trayFilterCables());
+    s.setTrayFilter(100);
+
+    const allStrands = [...s.leftNodes, ...s.rightNodes].filter(n => n.type === 'strand');
+    const strandIds = allStrands.map(n => n.id).sort();
+
+    // Tray 100 has strands 1,2 in tube 10
+    // Strand 1 is spliced to strand 5 (loose) — should be included
+    // Strand 6 (loose, not a partner) should NOT be included
+    // Tray 200 strands (3,4) should NOT be included
+    expect(strandIds).toContain(1);
+    expect(strandIds).toContain(2);
+    expect(strandIds).toContain(5); // splice partner
+    expect(strandIds).not.toContain(3);
+    expect(strandIds).not.toContain(4);
+    expect(strandIds).not.toContain(6);
+  });
+
+  it('filters to tray 200 excludes tray 100 strands', () => {
+    const s = new EditorState();
+    s.loadCableGroups(trayFilterCables());
+    s.setTrayFilter(200);
+
+    const allStrands = [...s.leftNodes, ...s.rightNodes].filter(n => n.type === 'strand');
+    const strandIds = allStrands.map(n => n.id).sort();
+
+    expect(strandIds).toContain(3);
+    expect(strandIds).toContain(4);
+    expect(strandIds).not.toContain(1);
+    expect(strandIds).not.toContain(2);
+  });
+
+  it('clearing filter shows all strands again', () => {
+    const s = new EditorState();
+    s.loadCableGroups(trayFilterCables());
+    s.setTrayFilter(100);
+    s.setTrayFilter(null);
+
+    const allStrands = [...s.leftNodes, ...s.rightNodes].filter(n => n.type === 'strand');
+    expect(allStrands).toHaveLength(6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildLegendSections
+// ---------------------------------------------------------------------------
+
+describe('buildLegendSections', () => {
+  it('returns empty when no splices or tubes', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1,
+        loose_strands: [makeStrand({ id: 1 })],
+      }),
+    ]);
+
+    const sections = s.buildLegendSections();
+    // May have fiber colors section but no splice states
+    const spliceSection = sections.find(s => s.title === 'Splices');
+    expect(spliceSection).toBeUndefined();
+  });
+
+  it('includes Live when live splices exist', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1,
+        tubes: [{
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 1, live_spliced_to: 3 })],
+        }],
+      }),
+      makeCableGroup({
+        fiber_cable_id: 2,
+        tubes: [{
+          id: 20, name: 'T2', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 3, live_spliced_to: 1 })],
+        }],
+      }),
+    ]);
+
+    const sections = s.buildLegendSections();
+    const spliceSection = sections.find(s => s.title === 'Splices');
+    expect(spliceSection).toBeDefined();
+    expect(spliceSection!.items.some(i => i.label === 'Live splice')).toBe(true);
+  });
+
+  it('includes Pending Add when pending add exists', () => {
+    const s = new EditorState();
+    s.loadCableGroups(twoTubeCables());
+    s.addPendingSplice(1, 3, 100, 300);
+
+    const sections = s.buildLegendSections();
+    const spliceSection = sections.find(s => s.title === 'Splices');
+    expect(spliceSection).toBeDefined();
+    expect(spliceSection!.items.some(i => i.label === 'Pending add')).toBe(true);
+  });
+
+  it('includes tube colors', () => {
+    const s = new EditorState();
+    s.loadCableGroups(twoTubeCables());
+
+    const sections = s.buildLegendSections();
+    const tubeSection = sections.find(s => s.title === 'Tubes');
+    expect(tubeSection).toBeDefined();
+    expect(tubeSection!.items).toHaveLength(2); // blue + red tubes
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findStrandContext
+// ---------------------------------------------------------------------------
+
+describe('findStrandContext', () => {
+  it('finds strand in a tube', () => {
+    const s = new EditorState();
+    s.loadCableGroups(twoTubeCables());
+
+    const ctx = s.findStrandContext(1);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.cable.fiber_cable_id).toBe(1);
+    expect(ctx!.tube).not.toBeNull();
+    expect(ctx!.tube!.id).toBe(10);
+  });
+
+  it('finds loose strand', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1,
+        loose_strands: [makeStrand({ id: 1 })],
+      }),
+    ]);
+
+    const ctx = s.findStrandContext(1);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.cable.fiber_cable_id).toBe(1);
+    expect(ctx!.tube).toBeNull();
+  });
+
+  it('returns null for unknown strand', () => {
+    const s = new EditorState();
+    s.loadCableGroups(twoTubeCables());
+    expect(s.findStrandContext(999)).toBeNull();
   });
 });
