@@ -547,14 +547,15 @@ export class SpliceRenderer {
       }
     }
 
-    // Track strands that have a plan splice to a DIFFERENT target than their live splice.
-    // A live-only splice is superseded if one of its strands has a plan entry elsewhere.
-    const planReplacedStrands = new Set<number>();
+    // Build map: strand ID -> set of plan partner strand IDs
+    // Used to detect live splices superseded by different plan splices.
+    const planPartners = new Map<number, Set<number>>();
     for (const entry of this.state.spliceEntries) {
-      if (entry.isPlan && !entry.isLive) {
-        // This is a plan-only entry — the strands involved may supersede a live splice
-        planReplacedStrands.add(entry.sourceId);
-        planReplacedStrands.add(entry.targetId);
+      if (entry.isPlan) {
+        if (!planPartners.has(entry.sourceId)) planPartners.set(entry.sourceId, new Set());
+        planPartners.get(entry.sourceId)!.add(entry.targetId);
+        if (!planPartners.has(entry.targetId)) planPartners.set(entry.targetId, new Set());
+        planPartners.get(entry.targetId)!.add(entry.sourceId);
       }
     }
 
@@ -574,12 +575,21 @@ export class SpliceRenderer {
       const entryKey =
         Math.min(entry.sourceId, entry.targetId) + '-' + Math.max(entry.sourceId, entry.targetId);
       const isReSpliceOld = reSpliceOldPairs.has(entryKey);
-      // If either strand is being spliced elsewhere (pending or plan), dim this line
+      // If either strand is being spliced elsewhere (pending), dim this line
       const isSupersededByPending = !isPendingDelete && !isReSpliceOld &&
         (pendingAddStrands.has(entry.sourceId) || pendingAddStrands.has(entry.targetId));
-      // A live-only splice is superseded if one of its strands has a different plan splice
-      const isSupersededByPlan = entry.isLive && !entry.isPlan &&
-        (planReplacedStrands.has(entry.sourceId) || planReplacedStrands.has(entry.targetId));
+      // A live-only splice (A↔B) is superseded if either strand has a plan splice
+      // to a DIFFERENT partner. Check both sides:
+      //   - Does A have a plan partner that isn't B?
+      //   - Does B have a plan partner that isn't A?
+      let isSupersededByPlan = false;
+      if (entry.isLive && !entry.isPlan) {
+        const sourceHasDifferentPlan = planPartners.has(entry.sourceId) &&
+          !planPartners.get(entry.sourceId)!.has(entry.targetId);
+        const targetHasDifferentPlan = planPartners.has(entry.targetId) &&
+          !planPartners.get(entry.targetId)!.has(entry.sourceId);
+        isSupersededByPlan = sourceHasDifferentPlan || targetHasDifferentPlan;
+      }
       const isSuperseded = isSupersededByPending || isSupersededByPlan;
 
       const gradId = `link-grad-${entry.sourceId}-${entry.targetId}`;
