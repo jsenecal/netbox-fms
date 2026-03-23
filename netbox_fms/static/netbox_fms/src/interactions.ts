@@ -10,6 +10,7 @@ export class Interactions {
   private mode: ActionMode = 'single';
   private selected: { id: number; side: 'left' | 'right'; portId: number } | null = null;
   private sequentialCount = 12;
+  private lastClickedSpliceIndex: number | null = null;
   private saveBtn: HTMLButtonElement | null = null;
   private deleteBtn: HTMLButtonElement | null = null;
   private undoBtn: HTMLButtonElement | null = null;
@@ -132,10 +133,15 @@ export class Interactions {
     this.countContainer.appendChild(countInput);
     this.countContainer.appendChild(plusBtn);
 
-    // Insert after the delete button so they don't overlap
-    const deleteEl = document.getElementById('splice-delete-btn');
-    if (deleteEl && deleteEl.parentNode) {
-      deleteEl.parentNode.insertBefore(this.countContainer, deleteEl.nextSibling);
+    // Insert after the first separator (right after the mode pill group)
+    const toolbar = document.getElementById('fms-toolbar');
+    if (toolbar) {
+      const firstSep = toolbar.querySelector('.fms-separator');
+      if (firstSep && firstSep.nextSibling) {
+        toolbar.insertBefore(this.countContainer, firstSep.nextSibling);
+      } else {
+        toolbar.insertBefore(this.countContainer, toolbar.firstChild?.nextSibling || null);
+      }
     }
   }
 
@@ -270,8 +276,23 @@ export class Interactions {
 
   handleSpliceClick(entry: SpliceEntry, event?: MouseEvent): void {
     const isCtrl = event ? (event.ctrlKey || event.metaKey) : false;
+    const isShift = event ? event.shiftKey : false;
 
-    if (isCtrl) {
+    const currentIndex = this.state.spliceEntries.findIndex(
+      (e) => this.state.spliceKey(e.sourceId, e.targetId) === this.state.spliceKey(entry.sourceId, entry.targetId),
+    );
+
+    if (isShift && this.lastClickedSpliceIndex !== null) {
+      // Shift+Click: range selection between last-clicked and current
+      const from = Math.min(this.lastClickedSpliceIndex, currentIndex);
+      const to = Math.max(this.lastClickedSpliceIndex, currentIndex);
+      for (let i = from; i <= to; i++) {
+        const e = this.state.spliceEntries[i];
+        if (e && !this.state.isSpliceSelected(e.sourceId, e.targetId)) {
+          this.state.toggleSpliceSelection(e.sourceId, e.targetId);
+        }
+      }
+    } else if (isCtrl) {
       // Ctrl+Click: toggle this splice without clearing others
       this.state.toggleSpliceSelection(entry.sourceId, entry.targetId);
     } else {
@@ -282,6 +303,8 @@ export class Interactions {
         this.state.toggleSpliceSelection(entry.sourceId, entry.targetId);
       }
     }
+
+    this.lastClickedSpliceIndex = currentIndex;
 
     const selCount = this.state.selectedSpliceKeys.size;
     this.updateToolbarState();

@@ -6,6 +6,7 @@ export class FmsDetailPanel {
   private titleEl: HTMLSpanElement;
   private body: HTMLElement;
   private onCloseFn: (() => void) | null = null;
+  private onResizeFn: (() => void) | null = null;
   private keyHandler: (e: KeyboardEvent) => void;
 
   constructor(parent: HTMLElement) {
@@ -40,10 +41,16 @@ export class FmsDetailPanel {
       }
     };
     document.addEventListener('keydown', this.keyHandler);
+
+    // Re-render canvas after panel transition completes (open or close)
+    this.container.addEventListener('transitionend', () => {
+      if (this.onResizeFn) this.onResizeFn();
+    });
   }
 
   setOnClose(fn: () => void): void {
     this.onCloseFn = fn;
+    this.onResizeFn = fn;
   }
 
   show(title: string, cards: DetailCard[]): void {
@@ -76,7 +83,7 @@ export class FmsDetailPanel {
 
         if (row.link) {
           const anchor = document.createElement('a');
-          anchor.className = 'fms-link';
+          anchor.className = 'fms-link fms-detail-card__value';
           anchor.href = row.link;
           anchor.target = '_blank';
           anchor.textContent = `${row.value} \u2197`; // ↗
@@ -84,16 +91,25 @@ export class FmsDetailPanel {
         } else if (row.badge) {
           rowEl.appendChild(createBadge(row.badge, row.value));
         } else if (row.color) {
+          const valueWrap = document.createElement('span');
+          valueWrap.className = 'fms-detail-card__value';
+          valueWrap.style.display = 'inline-flex';
+          valueWrap.style.alignItems = 'center';
+          valueWrap.style.gap = '4px';
+
           const dot = document.createElement('span');
           dot.className = 'fms-legend__dot';
           dot.style.backgroundColor = row.color;
-          rowEl.appendChild(dot);
+          valueWrap.appendChild(dot);
 
           const text = document.createElement('span');
           text.textContent = row.value;
-          rowEl.appendChild(text);
+          valueWrap.appendChild(text);
+
+          rowEl.appendChild(valueWrap);
         } else {
           const text = document.createElement('span');
+          text.className = 'fms-detail-card__value';
           text.textContent = row.value;
           rowEl.appendChild(text);
         }

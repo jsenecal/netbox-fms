@@ -358,9 +358,7 @@ async function init(config: EditorConfig): Promise<void> {
         const trayItems = [
           { id: 'all', label: 'All', active: true },
           ...response.trays.map((t) => {
-            // Use short label: just the tray name (e.g. "Tray 1")
-            const shortName = t.name.length > 16 ? t.name.slice(0, 16) + '\u2026' : t.name;
-            return { id: String(t.id), label: shortName };
+            return { id: String(t.id), label: t.name };
           }),
         ];
         const trayPills = createTrayPillGroup(trayItems, (id) => {

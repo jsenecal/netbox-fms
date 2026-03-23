@@ -443,6 +443,7 @@ export class EditorState {
   private layoutColumn(cables: CableGroupData[]): LayoutNode[] {
     const nodes: LayoutNode[] = [];
     let y = TOP_PAD;
+    const trayFilter = this.activeTrayFilter;
 
     for (const cg of cables) {
       nodes.push({
@@ -459,6 +460,12 @@ export class EditorState {
       y += CABLE_ROW_H;
 
       for (const tube of cg.tubes) {
+        // When a tray filter is active, skip tubes that don't match
+        if (trayFilter !== null) {
+          const tubeTrayId = tube.tray_assignment?.tray_id ?? null;
+          if (tubeTrayId !== trayFilter) continue;
+        }
+
         const tubeNode: LayoutNode = {
           type: 'tube',
           label: tube.name,
@@ -500,29 +507,32 @@ export class EditorState {
         y += GROUP_PAD;
       }
 
-      for (const s of cg.loose_strands) {
-        nodes.push({
-          type: 'strand',
-          id: s.id,
-          label: s.name,
-          color: s.color,
-          tubeColor: null,
-          tubeName: null,
-          ribbonName: s.ribbon_name,
-          ribbonColor: s.ribbon_color,
-          y,
-          hidden: false,
-          frontPortId: s.front_port_a_id,
-          liveSplicedTo: s.live_spliced_to,
-          planEntryId: s.plan_entry_id,
-          planSplicedTo: s.plan_spliced_to,
-          isProtected: s.protected,
-          circuitName: s.circuit_name,
-          circuitUrl: s.circuit_url,
-          tubeId: undefined,
-          parentTubeNode: undefined,
-        });
-        y += STRAND_HEIGHT;
+      // Loose strands: only shown when no tray filter is active
+      if (trayFilter === null) {
+        for (const s of cg.loose_strands) {
+          nodes.push({
+            type: 'strand',
+            id: s.id,
+            label: s.name,
+            color: s.color,
+            tubeColor: null,
+            tubeName: null,
+            ribbonName: s.ribbon_name,
+            ribbonColor: s.ribbon_color,
+            y,
+            hidden: false,
+            frontPortId: s.front_port_a_id,
+            liveSplicedTo: s.live_spliced_to,
+            planEntryId: s.plan_entry_id,
+            planSplicedTo: s.plan_spliced_to,
+            isProtected: s.protected,
+            circuitName: s.circuit_name,
+            circuitUrl: s.circuit_url,
+            tubeId: undefined,
+            parentTubeNode: undefined,
+          });
+          y += STRAND_HEIGHT;
+        }
       }
       y += GROUP_PAD;
     }
