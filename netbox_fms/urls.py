@@ -98,7 +98,6 @@ urlpatterns = [
     path("splice-plans/<int:pk>/", views.SplicePlanView.as_view(), name="spliceplan"),
     path("splice-plans/<int:pk>/edit/", views.SplicePlanEditView.as_view(), name="spliceplan_edit"),
     path("splice-plans/<int:pk>/delete/", views.SplicePlanDeleteView.as_view(), name="spliceplan_delete"),
-    path("splice-plans/<int:pk>/editor/", views.SpliceEditorView.as_view(), name="spliceplan_editor"),
     # SplicePlanEntry
     path("splice-plan-entries/", views.SplicePlanEntryListView.as_view(), name="spliceplanentry_list"),
     path("splice-plan-entries/add/", views.SplicePlanEntryEditView.as_view(), name="spliceplanentry_add"),

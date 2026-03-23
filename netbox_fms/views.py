@@ -1488,20 +1488,25 @@ class ProvisionPortsView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 
-class SpliceEditorView(LoginRequiredMixin, View):
-    """Visual splice editor for a SplicePlan."""
+@register_model_view(SplicePlan, "splice_editor", path="editor")
+class SpliceEditorView(generic.ObjectView):
+    """Visual splice editor tab on a SplicePlan detail page."""
 
-    def get(self, request, pk):
-        """Render the visual splice editor for the given plan."""
-        plan = get_object_or_404(SplicePlan.objects.select_related("closure"), pk=pk)
-        return render(
-            request,
-            "netbox_fms/splice_editor.html",
-            {
-                "object": plan,
-                "context_mode": "plan-edit",
-            },
-        )
+    queryset = SplicePlan.objects.all()
+    tab = ViewTab(
+        label=_("Visual Editor"),
+        weight=500,
+    )
+
+    def get_template_name(self):
+        """Return the splice editor template."""
+        return "netbox_fms/splice_editor.html"
+
+    def get_extra_context(self, request, instance):
+        """Return context for the splice editor."""
+        return {
+            "context_mode": "plan-edit",
+        }
 
 
 # ---------------------------------------------------------------------------

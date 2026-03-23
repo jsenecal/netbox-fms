@@ -81,8 +81,12 @@ superuser: ## Create superuser admin:admin (skip if exists)
 	@cd $(NETBOX_DIR) && DJANGO_SETTINGS_MODULE=netbox.settings python -c "import django; django.setup(); from django.contrib.auth import get_user_model; User = get_user_model(); print('admin user already exists') if User.objects.filter(username='admin').exists() else (User.objects.create_superuser('admin', 'admin@example.com', 'admin'), print('created superuser admin:admin'))"
 
 .PHONY: sample-data
-sample-data: ## Load sample FMS data (use FLUSH=1 to reset first)
+sample-data: ## Load full ISP-scale sample data (use FLUSH=1 to reset first)
 	$(MANAGE) create_sample_data $(if $(FLUSH),--flush)
+
+.PHONY: sample-data-simple
+sample-data-simple: ## Load small sample data (1 CO, 1 hub, 1 spur, no WDM)
+	$(MANAGE) create_sample_data --simple
 
 .PHONY: collectstatic
 collectstatic: ## Collect static files

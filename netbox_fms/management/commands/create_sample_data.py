@@ -31,7 +31,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from netbox_fms.choices import StorageMethodChoices
+from netbox_fms.choices import StorageMethodChoices, TrayRoleChoices
 from netbox_fms.models import (
     BufferTubeTemplate,
     CableElementTemplate,
@@ -45,6 +45,8 @@ from netbox_fms.models import (
     SlackLoop,
     SplicePlan,
     SplicePlanEntry,
+    TrayProfile,
+    TubeAssignment,
 )
 
 # EIA/TIA-598 colors (12 standard)
@@ -79,7 +81,7 @@ BACKBONE_PAIRS = [
 
 
 class Command(BaseCommand):
-    help = "Create massive ISP-scale sample data"
+    help = "Create sample data (use --simple for a smaller dataset)"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -97,11 +99,21 @@ class Command(BaseCommand):
         self.tray_module_type = None
         self.cables_by_segment = {}  # label -> {cable, fiber_cable, a_device, b_device}
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--simple",
+            action="store_true",
+            help="Create a smaller dataset: 1 CO, 1 hub, backbone with closures, 1 spur. No WDM.",
+        )
+
     @transaction.atomic
     def handle(self, *args, **options):
         self.rp_ct = ContentType.objects.get_for_model(RearPort)
         self.fp_ct = ContentType.objects.get_for_model(FrontPort)
         self.intf_ct = ContentType.objects.get_for_model(Interface)
+
+        if options.get("simple"):
+            return self._handle_simple()
 
         self._ensure_admin_user()
         self._create_manufacturer()
@@ -116,8 +128,9 @@ class Command(BaseCommand):
         self._build_edge_devices()
 
         self._create_slack_loops()
-        self._create_splice_plans()
         self._create_closure_cable_entries()
+        self._create_tube_assignments()
+        self._create_splice_plans()
         self._create_fiber_circuits()
 
         self.stdout.write(
@@ -128,6 +141,466 @@ class Command(BaseCommand):
                 f"{FiberCircuit.objects.count()} fiber circuits"
             )
         )
+
+    # ------------------------------------------------------------------
+    # Simple mode: small dataset for quick demos
+    # ------------------------------------------------------------------
+    # Topology:
+    #   CO-Main (ODF-96) ──96F──> CL-01 ──96F──> CL-02 ──96F──> CL-03 ──96F──> Hub-East (ODF-96)
+    #                                              │
+    #                                         (junction: 3 cables)
+    #                                              │
+    #                                            48F spur
+    #                                              │
+    #                              CL-04 ──48F──> CL-05 ──48F──> CL-06 ──12F drop──> Bldg-Elm
+    #
+    # 7 sites: Main, Hub-East, Elm-St, Oak-Ave, Maple-Dr, Pine-Rd, Cedar-Ln
+    # CL-01 at Oak-Ave, CL-02 at Maple-Dr, CL-03 at Pine-Rd
+    # CL-04 at Cedar-Ln, CL-05 at Elm-St, CL-06 at Elm-St, Bldg-Elm at Elm-St
+
+    def _handle_simple(self):
+        self.stdout.write(self.style.MIGRATE_HEADING("Creating simple sample data..."))
+
+        self._ensure_admin_user()
+        self._create_manufacturer()
+
+        # --- Cable types: 96F loose tube, 48F loose tube, 12F tight buffer ---
+        self.stdout.write("Creating cable types...")
+        self._simple_create_cable_type(
+            "96f",
+            model="ALTOS 096TCF-14180D20",
+            part="096TCF-14180D20",
+            construction="loose_tube",
+            strand_count=96,
+            tubes=8,
+            fibers_per_tube=12,
+            jacket_color="000000",
+            deployment="duct",
+        )
+        self._simple_create_cable_type(
+            "48f",
+            model="ALTOS 048TCF-14180D20",
+            part="048TCF-14180D20",
+            construction="loose_tube",
+            strand_count=48,
+            tubes=4,
+            fibers_per_tube=12,
+            jacket_color="000000",
+            deployment="duct",
+        )
+        self._simple_create_cable_type(
+            "12f",
+            model="MIC 012TCF-14190D20",
+            part="012TCF-14190D20",
+            construction="tight_buffer",
+            strand_count=12,
+            tubes=0,
+            fibers_per_tube=0,
+            jacket_color="ffff00",
+            deployment="indoor",
+            sheath="lszh",
+        )
+        self.stdout.write(f"  {len(self.cable_types)} cable types")
+
+        # --- Device types and roles ---
+        self.stdout.write("Creating device types and roles...")
+        self.device_types["odf_96"], _ = DeviceType.objects.get_or_create(
+            manufacturer=self.mfr, model="ODF-96", defaults={"slug": "odf-96"}
+        )
+        self.device_types["fosc_450d"], _ = DeviceType.objects.get_or_create(
+            manufacturer=self.mfr, model="FOSC-450D", defaults={"slug": "fosc-450d"}
+        )
+        self.device_types["fosc_200b"], _ = DeviceType.objects.get_or_create(
+            manufacturer=self.mfr, model="FOSC-200B", defaults={"slug": "fosc-200b"}
+        )
+        self.device_types["wall_box"], _ = DeviceType.objects.get_or_create(
+            manufacturer=self.mfr, model="Wall-Box-24", defaults={"slug": "wall-box-24"}
+        )
+        self.device_types["router"], _ = DeviceType.objects.get_or_create(
+            manufacturer=self.mfr_generic, model="Generic Router", defaults={"slug": "generic-router"}
+        )
+        self.device_types["switch"], _ = DeviceType.objects.get_or_create(
+            manufacturer=self.mfr_generic, model="Generic Switch", defaults={"slug": "generic-switch"}
+        )
+        self.device_types["cpe"], _ = DeviceType.objects.get_or_create(
+            manufacturer=self.mfr_generic, model="CPE Router", defaults={"slug": "cpe-router"}
+        )
+        for key, name, slug in [
+            ("co", "Central Office", "central-office"),
+            ("hub", "Distribution Hub", "distribution-hub"),
+            ("closure", "Splice Closure", "splice-closure"),
+            ("panel", "Patch Panel", "patch-panel"),
+            ("router", "Router", "router"),
+            ("switch", "Switch", "switch"),
+            ("cpe", "CPE", "cpe"),
+        ]:
+            self.roles[key], _ = DeviceRole.objects.get_or_create(name=name, defaults={"slug": slug})
+        self.tray_module_type, _ = ModuleType.objects.get_or_create(
+            manufacturer=self.mfr, model="24F Splice Tray", defaults={}
+        )
+        TrayProfile.objects.get_or_create(
+            module_type=self.tray_module_type,
+            defaults={"tray_role": TrayRoleChoices.SPLICE_TRAY},
+        )
+
+        # --- 7 Sites ---
+        self.stdout.write("Creating sites...")
+        for name, slug in [
+            ("Main", "main"),
+            ("Hub East", "hub-east"),
+            ("Oak Ave", "oak-ave"),
+            ("Maple Dr", "maple-dr"),
+            ("Pine Rd", "pine-rd"),
+            ("Cedar Ln", "cedar-ln"),
+            ("Elm St", "elm-st"),
+        ]:
+            self.sites[slug], _ = Site.objects.get_or_create(name=name, defaults={"slug": slug})
+        self.stdout.write(f"  {len(self.sites)} sites")
+
+        # --- Devices ---
+        self.stdout.write("Creating devices...")
+        co = self._get_or_create_device("CO-Main", "main", "co", "odf_96")
+        self._create_tray_modules(co, 8)
+
+        hub = self._get_or_create_device("Hub-East", "hub-east", "hub", "odf_96")
+        self._create_tray_modules(hub, 8)
+
+        # Backbone closures: CL-01 through CL-03
+        cl01 = self._get_or_create_device("CL-01", "oak-ave", "closure", "fosc_450d")
+        self._create_tray_modules(cl01, 8)
+        cl02 = self._get_or_create_device("CL-02", "maple-dr", "closure", "fosc_450d")
+        self._create_tray_modules(cl02, 8)  # Junction — will see 3 cables
+        cl03 = self._get_or_create_device("CL-03", "pine-rd", "closure", "fosc_450d")
+        self._create_tray_modules(cl03, 8)
+
+        # Spur closures: CL-04 through CL-06
+        cl04 = self._get_or_create_device("CL-04", "cedar-ln", "closure", "fosc_200b")
+        self._create_tray_modules(cl04, 4)
+        cl05 = self._get_or_create_device("CL-05", "elm-st", "closure", "fosc_200b")
+        self._create_tray_modules(cl05, 4)
+        cl06 = self._get_or_create_device("CL-06", "elm-st", "closure", "fosc_200b")
+        self._create_tray_modules(cl06, 4)
+
+        # Building endpoint
+        bldg = self._get_or_create_device("Bldg-Elm", "elm-st", "panel", "wall_box")
+
+        # --- Backbone cables (96F): CO → CL-01 → CL-02 → CL-03 → Hub ---
+        self.stdout.write("Building backbone...")
+        backbone_chain = [co, cl01, cl02, cl03, hub]
+        for i in range(len(backbone_chain) - 1):
+            a, b = backbone_chain[i], backbone_chain[i + 1]
+            label = f"{a.name} → {b.name}"
+            length = 500 + i * 300  # 500m, 800m, 1100m, 1400m
+            info = self._create_cable_segment(label, a, b, "96f", length)
+            self._create_ports_and_link_strands(info)
+        self.stdout.write("  4 backbone segments")
+
+        # --- Spur cables (48F): CL-02 → CL-04 → CL-05 → CL-06 ---
+        # CL-02 is the junction (3 cables: backbone-in, backbone-out, spur-out)
+        self.stdout.write("Building spur...")
+        spur_chain = [cl02, cl04, cl05, cl06]
+        for i in range(len(spur_chain) - 1):
+            a, b = spur_chain[i], spur_chain[i + 1]
+            label = f"{a.name} → {b.name}"
+            length = 200 + i * 150
+            info = self._create_cable_segment(label, a, b, "48f", length)
+            self._create_ports_and_link_strands(info)
+
+        # Drop cable (12F): CL-06 → Bldg-Elm
+        drop_label = f"{cl06.name} → {bldg.name}"
+        info = self._create_cable_segment(drop_label, cl06, bldg, "12f", 50)
+        self._create_ports_and_link_strands(info)
+        self.stdout.write("  3 spur segments + 1 drop")
+
+        # --- Edge devices ---
+        self.stdout.write("Creating edge devices...")
+        router = self._get_or_create_device("CO-Main-Router", "main", "router", "router")
+        intfs = self._create_interfaces(router, 24, "xe-0/0/")
+        self._patch_interfaces_to_odf(co, intfs[:6])
+
+        sw = self._get_or_create_device("Hub-East-Switch", "hub-east", "switch", "switch")
+        intfs = self._create_interfaces(sw, 12, "ge-0/0/")
+        self._patch_interfaces_to_odf(hub, intfs[:4])
+
+        cpe = self._get_or_create_device("CPE-Elm", "elm-st", "cpe", "cpe")
+        intfs = self._create_interfaces(cpe, 2, "eth")
+        self._patch_interfaces_to_odf(bldg, intfs[:1])
+        self.stdout.write("  3 edge devices")
+
+        # --- Slack loops (on every other fiber cable) ---
+        self.stdout.write("Creating slack loops...")
+        storage_cycle = [
+            StorageMethodChoices.COIL,
+            StorageMethodChoices.IN_VAULT,
+            StorageMethodChoices.FIGURE_8,
+        ]
+        loops = []
+        for i, (_label, info) in enumerate(self.cables_by_segment.items()):
+            fc = info["fiber_cable"]
+            if not fc or i % 2 != 0:
+                continue
+            if SlackLoop.objects.filter(fiber_cable=fc).exists():
+                continue
+            loops.append(
+                SlackLoop(
+                    fiber_cable=fc,
+                    site=info["a_device"].site,
+                    start_mark=Decimal(str(100 + i * 50)),
+                    end_mark=Decimal(str(115 + i * 50)),
+                    length_unit=CableLengthUnitChoices.UNIT_METER,
+                    storage_method=storage_cycle[len(loops) % len(storage_cycle)],
+                )
+            )
+        SlackLoop.objects.bulk_create(loops, ignore_conflicts=True)
+        self.stdout.write(f"  {len(loops)} slack loops")
+
+        # --- Closure cable entries (for all CL-* closures) ---
+        self.stdout.write("Creating closure cable entries...")
+        closures = {n: d for n, d in self.devices.items() if n.startswith("CL-")}
+        cce_entries = []
+        seen = set()
+        for info in self.cables_by_segment.values():
+            fc = info["fiber_cable"]
+            if not fc:
+                continue
+            for device in [info["a_device"], info["b_device"]]:
+                if device.name in closures:
+                    key = (device.pk, fc.pk)
+                    if key not in seen:
+                        seen.add(key)
+                        if not ClosureCableEntry.objects.filter(closure=device, fiber_cable=fc).exists():
+                            cce_entries.append(
+                                ClosureCableEntry(
+                                    closure=device,
+                                    fiber_cable=fc,
+                                    entrance_label=f"Port {len(cce_entries) % 8 + 1}",
+                                )
+                            )
+        ClosureCableEntry.objects.bulk_create(cce_entries, ignore_conflicts=True)
+        self.stdout.write(f"  {len(cce_entries)} closure cable entries")
+
+        # --- Tube assignments (assign each buffer tube to a tray on its closure) ---
+        self.stdout.write("Creating tube assignments...")
+        from netbox_fms.models import BufferTube
+
+        ta_entries = []
+        for _closure_name, closure_dev in closures.items():
+            trays = list(Module.objects.filter(device=closure_dev).order_by("module_bay__position"))
+            if not trays:
+                continue
+            # Find all buffer tubes on fiber cables entering this closure
+            cce_fc_ids = ClosureCableEntry.objects.filter(closure=closure_dev).values_list("fiber_cable_id", flat=True)
+            tubes = list(
+                BufferTube.objects.filter(fiber_cable_id__in=cce_fc_ids).order_by("fiber_cable_id", "position")
+            )
+            for i, tube in enumerate(tubes):
+                if TubeAssignment.objects.filter(closure=closure_dev, buffer_tube=tube).exists():
+                    continue
+                tray = trays[i % len(trays)]
+                ta_entries.append(
+                    TubeAssignment(
+                        closure=closure_dev,
+                        tray=tray,
+                        buffer_tube=tube,
+                        position=i + 1,
+                    )
+                )
+        TubeAssignment.objects.bulk_create(ta_entries, ignore_conflicts=True)
+        self.stdout.write(f"  {len(ta_entries)} tube assignments")
+
+        # --- Splice plans (for all CL-* closures) ---
+        self.stdout.write("Creating splice plans...")
+        self._patched_fp_ids = set(
+            CableTermination.objects.filter(termination_type=self.fp_ct).values_list("termination_id", flat=True)
+        )
+        plans_created = 0
+        for name, closure in closures.items():
+            if SplicePlan.objects.filter(closure=closure).exists():
+                continue
+
+            plan = SplicePlan.objects.create(
+                closure=closure,
+                name=f"{name} Plan",
+                description=f"Splice plan for {name}",
+                status="applied",
+            )
+
+            # Group FrontPorts by cable
+            fps_by_cable = {}
+            for fp in FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"):
+                if fp.name.startswith("#"):
+                    try:
+                        cable_pk = int(fp.name.split(":")[0][1:])
+                        fps_by_cable.setdefault(cable_pk, []).append(fp)
+                    except (ValueError, IndexError):
+                        pass
+
+            cable_pks = sorted(fps_by_cable.keys())
+            if len(cable_pks) < 2:
+                continue
+
+            entries = []
+            cable_a_fps = fps_by_cable[cable_pks[0]]
+            cable_b_fps = fps_by_cable[cable_pks[1]]
+
+            # Splice tube-for-tube between first two cables
+            for fp_a, fp_b in zip(cable_a_fps[:48], cable_b_fps[:48], strict=False):
+                tray = fp_a.module
+                if tray:
+                    entries.append(SplicePlanEntry(plan=plan, tray=tray, fiber_a=fp_a, fiber_b=fp_b))
+
+            # Third cable if present (junction closure like CL-02)
+            if len(cable_pks) >= 3:
+                cable_c_fps = fps_by_cable[cable_pks[2]]
+                remaining_b = cable_b_fps[48:] if len(cable_b_fps) > 48 else cable_b_fps[12:]
+                for fp_c, fp_b in zip(cable_c_fps[:12], remaining_b[:12], strict=False):
+                    tray = fp_c.module
+                    if tray:
+                        entries.append(SplicePlanEntry(plan=plan, tray=tray, fiber_a=fp_c, fiber_b=fp_b))
+
+            SplicePlanEntry.objects.bulk_create(entries, ignore_conflicts=True)
+
+            # Create FP-to-FP splice cables so the trace engine can traverse closures
+            splice_pairs = []
+            for entry in entries:
+                if entry.fiber_a_id in self._patched_fp_ids or entry.fiber_b_id in self._patched_fp_ids:
+                    continue
+                splice_pairs.append((entry.fiber_a_id, entry.fiber_b_id))
+                self._patched_fp_ids.add(entry.fiber_a_id)
+                self._patched_fp_ids.add(entry.fiber_b_id)
+
+            if splice_pairs:
+                cables = Cable.objects.bulk_create(
+                    [Cable(length=0, length_unit="m", profile="single-1c1p") for _ in splice_pairs]
+                )
+                terms = []
+                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
+                    terms.append(
+                        CableTermination(
+                            cable=cable,
+                            cable_end="A",
+                            termination_type=self.fp_ct,
+                            termination_id=fp_a_id,
+                            connector=1,
+                            positions=[1],
+                        )
+                    )
+                    terms.append(
+                        CableTermination(
+                            cable=cable,
+                            cable_end="B",
+                            termination_type=self.fp_ct,
+                            termination_id=fp_b_id,
+                            connector=1,
+                            positions=[1],
+                        )
+                    )
+                CableTermination.objects.bulk_create(terms)
+
+                all_fp_ids = set()
+                for fp_a_id, fp_b_id in splice_pairs:
+                    all_fp_ids.add(fp_a_id)
+                    all_fp_ids.add(fp_b_id)
+                fp_map = {fp.pk: fp for fp in FrontPort.objects.filter(pk__in=all_fp_ids)}
+                fps_to_update = []
+                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
+                    fp_a = fp_map[fp_a_id]
+                    fp_a.cable = cable
+                    fp_a.cable_end = "A"
+                    fp_a.cable_connector = 1
+                    fp_a.cable_positions = [1]
+                    fps_to_update.append(fp_a)
+                    fp_b = fp_map[fp_b_id]
+                    fp_b.cable = cable
+                    fp_b.cable_end = "B"
+                    fp_b.cable_connector = 1
+                    fp_b.cable_positions = [1]
+                    fps_to_update.append(fp_b)
+                FrontPort.objects.bulk_update(
+                    fps_to_update, ["cable", "cable_end", "cable_connector", "cable_positions"]
+                )
+            plans_created += 1
+        self.stdout.write(f"  {plans_created} splice plans with splice cables")
+
+        # --- Fiber circuit ---
+        self.stdout.write("Creating fiber circuit...")
+        if not FiberCircuit.objects.exists():
+            circuit = FiberCircuit.objects.create(
+                name="Main → Elm St",
+                cid="SIMPLE-001",
+                strand_count=2,
+                status="active",
+                description="Simple demo circuit from CO-Main through backbone and spur to Bldg-Elm",
+            )
+            origin_fps = list(FrontPort.objects.filter(device=co).order_by("name")[:2])
+            paths_created = 0
+            for pos, fp in enumerate(origin_fps, 1):
+                try:
+                    path = FiberCircuitPath.from_origin(fp)
+                    path.circuit = circuit
+                    path.position = pos
+                    path.save()
+                    path.rebuild_nodes()
+                    paths_created += 1
+                except Exception as e:
+                    self.stdout.write(f"    Trace from {fp} failed: {e}")
+            self.stdout.write(f"  1 circuit ({paths_created} paths)")
+        else:
+            self.stdout.write("  Skipping -- circuits already exist")
+
+        # --- Summary ---
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"\nSimple sample data created: {Device.objects.count()} devices, "
+                f"{Cable.objects.count()} cables, "
+                f"{SlackLoop.objects.count()} slack loops, "
+                f"{FiberCircuit.objects.count()} fiber circuits"
+            )
+        )
+
+    def _simple_create_cable_type(
+        self,
+        key,
+        *,
+        model,
+        part,
+        construction,
+        strand_count,
+        tubes,
+        fibers_per_tube,
+        jacket_color,
+        deployment,
+        sheath="pe",
+    ):
+        fct, created = FiberCableType.objects.get_or_create(
+            manufacturer=self.mfr,
+            model=model,
+            defaults={
+                "part_number": part,
+                "construction": construction,
+                "fiber_type": "smf_os2",
+                "strand_count": strand_count,
+                "sheath_material": sheath,
+                "jacket_color": jacket_color,
+                "deployment": deployment,
+            },
+        )
+        if created:
+            if tubes > 0:
+                for t in range(1, tubes + 1):
+                    BufferTubeTemplate.objects.create(
+                        fiber_cable_type=fct,
+                        name=f"T{t}",
+                        position=t,
+                        color=EIA_COLORS[((t - 1) % 12) + 1],
+                        fiber_count=fibers_per_tube,
+                    )
+            CableElementTemplate.objects.create(
+                fiber_cable_type=fct,
+                name="Central Strength Member" if tubes > 0 else "Ripcord",
+                element_type="central_member" if tubes > 0 else "ripcord",
+            )
+        self.cable_types[key] = fct
 
     # ------------------------------------------------------------------
     # Setup: users, manufacturers, types
@@ -351,6 +824,10 @@ class Command(BaseCommand):
         # Tray module type
         self.tray_module_type, _ = ModuleType.objects.get_or_create(
             manufacturer=self.mfr, model="24F Splice Tray", defaults={}
+        )
+        TrayProfile.objects.get_or_create(
+            module_type=self.tray_module_type,
+            defaults={"tray_role": TrayRoleChoices.SPLICE_TRAY},
         )
 
     def _create_sites(self):
@@ -973,7 +1450,7 @@ class Command(BaseCommand):
                 closure=closure,
                 name=f"{name} Plan",
                 description=f"Splice plan for {name}",
-                status="draft",
+                status="applied",
             )
 
             # Group FrontPorts by cable
@@ -1132,6 +1609,41 @@ class Command(BaseCommand):
                         )
         ClosureCableEntry.objects.bulk_create(entries, ignore_conflicts=True)
         self.stdout.write(f"  Created {len(entries)} closure cable entries")
+
+    # ------------------------------------------------------------------
+    # Tube assignments
+    # ------------------------------------------------------------------
+
+    def _create_tube_assignments(self):
+        self.stdout.write("Creating tube assignments...")
+        if TubeAssignment.objects.exists():
+            self.stdout.write("  Skipping -- tube assignments already exist")
+            return
+
+        from netbox_fms.models import BufferTube
+
+        closures = {n: d for n, d in self.devices.items() if n.startswith(("BB-", "MR-", "BS-", "RS-"))}
+        ta_entries = []
+        for _name, closure in closures.items():
+            trays = list(Module.objects.filter(device=closure).order_by("module_bay__position"))
+            if not trays:
+                continue
+            cce_fc_ids = ClosureCableEntry.objects.filter(closure=closure).values_list("fiber_cable_id", flat=True)
+            tubes = list(
+                BufferTube.objects.filter(fiber_cable_id__in=cce_fc_ids).order_by("fiber_cable_id", "position")
+            )
+            for i, tube in enumerate(tubes):
+                tray = trays[i % len(trays)]
+                ta_entries.append(
+                    TubeAssignment(
+                        closure=closure,
+                        tray=tray,
+                        buffer_tube=tube,
+                        position=i + 1,
+                    )
+                )
+        TubeAssignment.objects.bulk_create(ta_entries, ignore_conflicts=True)
+        self.stdout.write(f"  Created {len(ta_entries)} tube assignments")
 
     # ------------------------------------------------------------------
     # Fiber circuits

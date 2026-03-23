@@ -5,9 +5,6 @@
 {% load i18n %}
 
 {% block extra_controls %}
-    <a href="{% url 'plugins:netbox_fms:spliceplan_editor' pk=object.pk %}" class="btn btn-info">
-        <i class="mdi mdi-pencil"></i> {% trans "Visual Editor" %}
-    </a>
     <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_import_device' pk=object.pk %}" class="d-inline">
         {% csrf_token %}
         <button type="submit" class="btn btn-warning">

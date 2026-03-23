@@ -3,7 +3,7 @@
 {% load helpers %}
 {% load i18n %}
 
-{% block title %}{% trans "Splice Editor" %}: {{ object }}{% endblock %}
+{% block title %}{% trans "Visual Editor" %}: {{ object }}{% endblock %}
 
 {% block head %}
 {{ block.super }}
@@ -19,7 +19,7 @@
                 <span class="badge bg-{{ object.status }}">{{ object.get_status_display }}</span>
             </h5>
             <div class="card-body p-0">
-                {% include "netbox_fms/inc/splice_editor_widget.html" with back_url=object.get_absolute_url back_label="Back to Plan" %}
+                {% include "netbox_fms/inc/splice_editor_widget.html" %}
             </div>
         </div>
     </div>

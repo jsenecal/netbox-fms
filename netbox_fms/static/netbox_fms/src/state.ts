@@ -153,22 +153,26 @@ export class EditorState {
     const leftCables = this.cableGroups.filter((cg) => this.sideAssignment.get(cg.fiber_cable_id) === 'left');
     const rightCables = this.cableGroups.filter((cg) => this.sideAssignment.get(cg.fiber_cable_id) !== 'left');
 
-    // When a tray filter is active, compute visible tube IDs that include
-    // splice-adjacent tubes (tubes containing partner strands).
+    // When a tray filter is active, compute visible tube IDs and loose strand IDs
+    // that include splice-adjacent tubes/strands (partner strands).
     let visibleTubeIds: Set<number> | null = null;
+    let visibleLooseStrandIds: Set<number> | null = null;
     if (this.activeTrayFilter !== null) {
-      visibleTubeIds = this.computeVisibleTubeIds(this.activeTrayFilter);
+      const visible = this.computeVisibleIds(this.activeTrayFilter);
+      visibleTubeIds = visible.tubeIds;
+      visibleLooseStrandIds = visible.looseStrandIds;
     }
 
-    this.leftNodes = this.layoutColumn(leftCables, visibleTubeIds);
-    this.rightNodes = this.layoutColumn(rightCables, visibleTubeIds);
+    this.leftNodes = this.layoutColumn(leftCables, visibleTubeIds, visibleLooseStrandIds);
+    this.rightNodes = this.layoutColumn(rightCables, visibleTubeIds, visibleLooseStrandIds);
     this.collectSpliceEntries();
     this.leftOffset = 0;
     this.rightOffset = 0;
   }
 
-  /** Compute tube IDs visible for a given tray filter, including splice-adjacent tubes. */
-  private computeVisibleTubeIds(trayId: number): Set<number> {
+  /** Compute visible tube IDs and loose strand IDs for a given tray filter,
+   *  including splice-adjacent tubes and loose strands. */
+  private computeVisibleIds(trayId: number): { tubeIds: Set<number>; looseStrandIds: Set<number> } {
     // Step 1: find all strand IDs in tubes assigned to the selected tray
     const selectedStrandIds = new Set<number>();
     const directTubeIds = new Set<number>();
@@ -195,7 +199,6 @@ export class EditorState {
           if (s.live_spliced_to) partnerStrandIds.add(s.live_spliced_to);
           if (s.plan_spliced_to) partnerStrandIds.add(s.plan_spliced_to);
         }
-        // Also check the reverse: if this strand is spliced to a selected strand
         if (s.live_spliced_to && selectedStrandIds.has(s.live_spliced_to)) {
           partnerStrandIds.add(s.id);
         }
@@ -213,8 +216,9 @@ export class EditorState {
       }
     }
 
-    // Step 3: find tubes containing partner strands
+    // Step 3: find tubes and loose strands containing partner strands
     const visibleTubeIds = new Set(directTubeIds);
+    const visibleLooseStrandIds = new Set<number>();
     for (const cg of this.cableGroups) {
       for (const tube of cg.tubes) {
         if (visibleTubeIds.has(tube.id)) continue;
@@ -225,9 +229,15 @@ export class EditorState {
           }
         }
       }
+      // Check loose strands for partners
+      for (const s of cg.loose_strands) {
+        if (partnerStrandIds.has(s.id)) {
+          visibleLooseStrandIds.add(s.id);
+        }
+      }
     }
 
-    return visibleTubeIds;
+    return { tubeIds: visibleTubeIds, looseStrandIds: visibleLooseStrandIds };
   }
 
   /** Move a cable to the other side and rebuild layout. */
@@ -530,7 +540,7 @@ export class EditorState {
   // Layout helpers
   // -------------------------------------------------------------------
 
-  private layoutColumn(cables: CableGroupData[], visibleTubeIds: Set<number> | null = null): LayoutNode[] {
+  private layoutColumn(cables: CableGroupData[], visibleTubeIds: Set<number> | null = null, visibleLooseStrandIds: Set<number> | null = null): LayoutNode[] {
     const nodes: LayoutNode[] = [];
     let y = TOP_PAD;
     const trayFilter = this.activeTrayFilter;
@@ -596,32 +606,32 @@ export class EditorState {
         y += GROUP_PAD;
       }
 
-      // Loose strands: only shown when no tray filter is active
-      if (trayFilter === null) {
-        for (const s of cg.loose_strands) {
-          nodes.push({
-            type: 'strand',
-            id: s.id,
-            label: s.name,
-            color: s.color,
-            tubeColor: null,
-            tubeName: null,
-            ribbonName: s.ribbon_name,
-            ribbonColor: s.ribbon_color,
-            y,
-            hidden: false,
-            frontPortId: s.front_port_a_id,
-            liveSplicedTo: s.live_spliced_to,
-            planEntryId: s.plan_entry_id,
-            planSplicedTo: s.plan_spliced_to,
-            isProtected: s.protected,
-            circuitName: s.circuit_name,
-            circuitUrl: s.circuit_url,
-            tubeId: undefined,
-            parentTubeNode: undefined,
-          });
-          y += STRAND_HEIGHT;
-        }
+      // Loose strands: shown when no tray filter, or when they are splice partners
+      const showAllLoose = trayFilter === null;
+      for (const s of cg.loose_strands) {
+        if (!showAllLoose && (visibleLooseStrandIds === null || !visibleLooseStrandIds.has(s.id))) continue;
+        nodes.push({
+          type: 'strand',
+          id: s.id,
+          label: s.name,
+          color: s.color,
+          tubeColor: null,
+          tubeName: null,
+          ribbonName: s.ribbon_name,
+          ribbonColor: s.ribbon_color,
+          y,
+          hidden: false,
+          frontPortId: s.front_port_a_id,
+          liveSplicedTo: s.live_spliced_to,
+          planEntryId: s.plan_entry_id,
+          planSplicedTo: s.plan_spliced_to,
+          isProtected: s.protected,
+          circuitName: s.circuit_name,
+          circuitUrl: s.circuit_url,
+          tubeId: undefined,
+          parentTubeNode: undefined,
+        });
+        y += STRAND_HEIGHT;
       }
       y += GROUP_PAD;
     }
