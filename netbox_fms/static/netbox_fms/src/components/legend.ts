@@ -19,7 +19,7 @@ export class FmsLegend {
 
     this.toggleBtn = document.createElement('button');
     this.toggleBtn.type = 'button';
-    this.toggleBtn.textContent = '\u2212'; // minus sign
+    this.toggleBtn.textContent = '\u25BC'; // down arrow (click to collapse)
     header.appendChild(this.toggleBtn);
 
     header.addEventListener('click', () => this.toggle());
@@ -35,7 +35,7 @@ export class FmsLegend {
   toggle(): void {
     const collapsed = this.container.dataset.collapsed === 'true';
     this.container.dataset.collapsed = collapsed ? 'false' : 'true';
-    this.toggleBtn.textContent = collapsed ? '\u2212' : '\u25B2';
+    this.toggleBtn.textContent = collapsed ? '\u25BC' : '\u25B2';
   }
 
   update(sections: LegendSection[]): void {

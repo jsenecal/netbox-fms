@@ -268,9 +268,21 @@ export class Interactions {
     }
   }
 
-  handleSpliceClick(entry: SpliceEntry): void {
-    // Toggle selection on the clicked line
-    this.state.toggleSpliceSelection(entry.sourceId, entry.targetId);
+  handleSpliceClick(entry: SpliceEntry, event?: MouseEvent): void {
+    const isCtrl = event ? (event.ctrlKey || event.metaKey) : false;
+
+    if (isCtrl) {
+      // Ctrl+Click: toggle this splice without clearing others
+      this.state.toggleSpliceSelection(entry.sourceId, entry.targetId);
+    } else {
+      // Plain click: clear previous selection, select this one
+      const wasSelected = this.state.isSpliceSelected(entry.sourceId, entry.targetId);
+      this.state.clearSpliceSelection();
+      if (!wasSelected) {
+        this.state.toggleSpliceSelection(entry.sourceId, entry.targetId);
+      }
+    }
+
     const selCount = this.state.selectedSpliceKeys.size;
     this.updateToolbarState();
     this.renderer.render();

@@ -35,7 +35,7 @@ export class SpliceRenderer {
   private state: EditorState;
   private containerEl: HTMLElement;
   private onStrandClick: (node: LayoutNode, side: 'left' | 'right') => void;
-  private onSpliceClick: (entry: SpliceEntry) => void;
+  private onSpliceClick: (entry: SpliceEntry, event: MouseEvent) => void;
   private onTubeToggle: (node: LayoutNode, nodes: LayoutNode[]) => void;
   private onCableMove: ((cableId: number) => void) | null = null;
 
@@ -61,7 +61,7 @@ export class SpliceRenderer {
     state: EditorState,
     containerEl: HTMLElement,
     onStrandClick: (node: LayoutNode, side: 'left' | 'right') => void,
-    onSpliceClick: (entry: SpliceEntry) => void,
+    onSpliceClick: (entry: SpliceEntry, event: MouseEvent) => void,
     onTubeToggle: (node: LayoutNode, nodes: LayoutNode[]) => void,
   ) {
     this.state = state;
@@ -138,6 +138,11 @@ export class SpliceRenderer {
 
   /** Full re-render of the SVG contents. */
   render(): void {
+    // Recalculate container width on every render so the SVG adapts when
+    // the detail panel opens/closes or the window is resized.
+    this.containerWidth = this.containerEl.clientWidth || 900;
+    this.svg.attr('width', this.containerWidth);
+
     const leftHeight = this.state.columnHeight(this.state.leftNodes);
     const rightHeight = this.state.columnHeight(this.state.rightNodes);
     const svgHeight = Math.max(leftHeight, rightHeight, MIN_HEIGHT) + HEADER_HEIGHT;
@@ -591,8 +596,8 @@ export class SpliceRenderer {
           .attr('fill', 'none')
           .attr('cursor', 'pointer')
           .style('pointer-events', 'stroke')
-          .on('click', () => {
-            this.onSpliceClick(hitEntry);
+          .on('click', (event: MouseEvent) => {
+            this.onSpliceClick(hitEntry, event);
           });
 
         const sameSide = Math.abs(a.x - b.x) < 10;

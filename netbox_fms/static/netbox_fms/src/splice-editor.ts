@@ -1,5 +1,5 @@
 import { bulkUpdatePlan, fetchStrands } from './api';
-import { FmsLegend, FmsDetailPanel, FmsStatsBar, createPillGroup, createSeparator, createSpacer } from './components';
+import { FmsLegend, FmsDetailPanel, FmsStatsBar, createPillGroup, createPillFilter, createSeparator, createSpacer } from './components';
 import { Interactions } from './interactions';
 import { showQuickAddModal } from './modal';
 import { SpliceRenderer } from './renderer';
@@ -65,6 +65,29 @@ async function init(config: EditorConfig): Promise<void> {
     // Action buttons — create with IDs that interactions.ts expects
     const backBtn = toolbarEl.querySelector('#splice-back-btn');
 
+    // Splice visibility filter pills
+    const visFilterSep = createSeparator();
+    toolbarEl.insertBefore(visFilterSep, backBtn);
+
+    const visFilterPills = createPillFilter(
+      [
+        { id: 'live', label: 'Live', color: 'var(--fms-live)', on: true },
+        { id: 'planned', label: 'Planned', color: 'var(--fms-planned)', on: true },
+        { id: 'unspliced', label: 'Unspliced', color: 'var(--fms-muted)', on: true },
+      ],
+      (id, on) => {
+        if (id === 'live') state.showLive = on;
+        else if (id === 'planned') state.showPlanned = on;
+        else if (id === 'unspliced') state.showUnspliced = on;
+        renderer.render();
+        updateAfterRender();
+      },
+    );
+    toolbarEl.insertBefore(visFilterPills, backBtn);
+
+    const deleteSep = createSeparator();
+    toolbarEl.insertBefore(deleteSep, backBtn);
+
     const deleteBtn = createIconButton('splice-delete-btn', 'mdi mdi-delete', 'Delete', 'btn btn-sm btn-outline-danger');
     deleteBtn.disabled = true;
     deleteBtn.title = 'Delete selected splices';
@@ -101,8 +124,8 @@ async function init(config: EditorConfig): Promise<void> {
       interactions.handleStrandClick(node, side);
       showStrandDetail(node);
     },
-    (entry: SpliceEntry) => {
-      interactions.handleSpliceClick(entry);
+    (entry: SpliceEntry, event: MouseEvent) => {
+      interactions.handleSpliceClick(entry, event);
       showSpliceDetail(entry);
     },
     (node: LayoutNode, nodes: LayoutNode[]) => {
@@ -115,9 +138,9 @@ async function init(config: EditorConfig): Promise<void> {
 
   const interactions = new Interactions(state, renderer, config, handleSave);
 
-  // Wire detail panel close to clear selection highlight
+  // Wire detail panel close to re-render so canvas fills available width
   detailPanel.setOnClose(() => {
-    // No-op — selection is managed by interactions
+    renderer.render();
   });
 
   // Cable move callback with fade animation
@@ -177,6 +200,7 @@ async function init(config: EditorConfig): Promise<void> {
       const stats = state.computeStats();
       // Overlay plan info from config
       if (config.planId) {
+        stats.planName = config.planId ? 'Splice Plan' : null;
         stats.planStatus = config.planStatus || null;
       }
       statsBar.update(stats);
@@ -189,6 +213,7 @@ async function init(config: EditorConfig): Promise<void> {
     if (!strand) return;
 
     const cards: DetailCard[] = [];
+    const ctx = state.findStrandContext(node.id);
 
     // Properties card
     const propRows: DetailCard['rows'] = [
@@ -203,6 +228,29 @@ async function init(config: EditorConfig): Promise<void> {
       propRows.push({ label: 'Front Port', value: `FP-${strand.front_port_a_id}` });
     }
     cards.push({ heading: 'Properties', rows: propRows });
+
+    // Cable info card
+    if (ctx) {
+      const cableRows: DetailCard['rows'] = [
+        { label: 'Cable', value: ctx.cable.cable_label },
+      ];
+      if (ctx.cable.far_device_name) {
+        cableRows.push({
+          label: 'Far End',
+          value: ctx.cable.far_device_name,
+          link: ctx.cable.far_device_url || undefined,
+        });
+      }
+      cards.push({ heading: 'Cable', rows: cableRows });
+    }
+
+    // Tray info card
+    if (ctx?.tube?.tray_assignment) {
+      const trayRows: DetailCard['rows'] = [
+        { label: 'Tray', value: ctx.tube.tray_assignment.tray_name },
+      ];
+      cards.push({ heading: 'Tray', rows: trayRows });
+    }
 
     // Splice info card
     const spliceRows: DetailCard['rows'] = [];
@@ -223,11 +271,13 @@ async function init(config: EditorConfig): Promise<void> {
     }
 
     // Circuit info card
-    if (strand.protected && strand.circuit_name) {
+    if (strand.circuit_name) {
       const circuitRows: DetailCard['rows'] = [
         { label: 'Circuit', value: strand.circuit_name, link: strand.circuit_url || undefined },
-        { label: 'Protected', value: 'Yes', badge: 'danger' },
       ];
+      if (strand.protected) {
+        circuitRows.push({ label: 'Protected', value: 'Yes', badge: 'danger' });
+      }
       cards.push({ heading: 'Circuit', rows: circuitRows });
     }
 
@@ -256,6 +306,38 @@ async function init(config: EditorConfig): Promise<void> {
     }
     cards.push({ heading: 'Splice', rows: infoRows });
 
+    // Source strand context
+    const srcCtx = state.findStrandContext(entry.sourceId);
+    if (srcCtx) {
+      const srcRows: DetailCard['rows'] = [
+        { label: 'Cable', value: srcCtx.cable.cable_label },
+        { label: 'Tube', value: sourceStrand.tube_name || 'Loose', color: sourceStrand.tube_color ? `#${sourceStrand.tube_color}` : undefined },
+      ];
+      if (srcCtx.tube?.tray_assignment) {
+        srcRows.push({ label: 'Tray', value: srcCtx.tube.tray_assignment.tray_name });
+      }
+      if (sourceStrand.circuit_name) {
+        srcRows.push({ label: 'Circuit', value: sourceStrand.circuit_name, link: sourceStrand.circuit_url || undefined });
+      }
+      cards.push({ heading: `Source: ${sourceStrand.name}`, rows: srcRows });
+    }
+
+    // Target strand context
+    const tgtCtx = state.findStrandContext(entry.targetId);
+    if (tgtCtx) {
+      const tgtRows: DetailCard['rows'] = [
+        { label: 'Cable', value: tgtCtx.cable.cable_label },
+        { label: 'Tube', value: targetStrand.tube_name || 'Loose', color: targetStrand.tube_color ? `#${targetStrand.tube_color}` : undefined },
+      ];
+      if (tgtCtx.tube?.tray_assignment) {
+        tgtRows.push({ label: 'Tray', value: tgtCtx.tube.tray_assignment.tray_name });
+      }
+      if (targetStrand.circuit_name) {
+        tgtRows.push({ label: 'Circuit', value: targetStrand.circuit_name, link: targetStrand.circuit_url || undefined });
+      }
+      cards.push({ heading: `Target: ${targetStrand.name}`, rows: tgtRows });
+    }
+
     detailPanel.show('Splice Details', cards);
   }
 
@@ -268,31 +350,29 @@ async function init(config: EditorConfig): Promise<void> {
 
       // Build tray filter pills in toolbar if trays exist
       if (toolbarEl && response.trays.length > 0) {
-        // Remove existing tray filter if any
-        const existingFilter = toolbarEl.querySelector('.fms-pill-filter');
+        // Remove existing tray pill group if any
+        const existingFilter = toolbarEl.querySelector('.fms-pill-group.fms-tray-pills');
         if (existingFilter) existingFilter.remove();
 
-        const { createPillFilter } = await import('./components');
-        const allItems = [
-          { id: 'all', label: 'All Trays', color: '#6c757d', on: true },
-          ...response.trays.map((t) => ({
-            id: String(t.id),
-            label: `${t.name}`,
-            color: t.role === 'splice_tray' ? '#0d6efd' : '#6c757d',
-            on: false,
-          })),
+        const { createPillGroup: createTrayPillGroup } = await import('./components');
+        const trayItems = [
+          { id: 'all', label: 'All', active: true },
+          ...response.trays.map((t) => {
+            // Use short label: just the tray name (e.g. "Tray 1")
+            const shortName = t.name.length > 16 ? t.name.slice(0, 16) + '\u2026' : t.name;
+            return { id: String(t.id), label: shortName };
+          }),
         ];
-        const trayPills = createPillFilter(allItems, (id, on) => {
+        const trayPills = createTrayPillGroup(trayItems, (id) => {
           if (id === 'all') {
             state.setTrayFilter(null);
-          } else if (on) {
-            state.setTrayFilter(parseInt(id));
           } else {
-            state.setTrayFilter(null);
+            state.setTrayFilter(parseInt(id));
           }
           renderer.render();
           updateAfterRender();
         });
+        trayPills.classList.add('fms-tray-pills');
         // Insert after the first separator
         const sep = toolbarEl.querySelector('.fms-separator');
         if (sep && sep.nextSibling) {

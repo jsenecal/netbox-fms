@@ -7,6 +7,7 @@ import type {
   StatsData,
   StrandData,
   TrayData,
+  TubeData,
 } from './types';
 
 // -----------------------------------------------------------------------
@@ -39,6 +40,9 @@ export class EditorState {
   rightOffset = 0;
   selectedStrandId: number | null = null;
   selectedSpliceKeys: Set<string> = new Set();
+  showLive = true;
+  showPlanned = true;
+  showUnspliced = true;
 
   /** Key for a splice entry (order-independent). */
   spliceKey(a: number, b: number): string {
@@ -127,6 +131,21 @@ export class EditorState {
   /** Get strand data by ID. */
   getStrand(id: number): StrandData | undefined {
     return this.strandMap.get(id);
+  }
+
+  /** Find the cable group and tube containing a strand. */
+  findStrandContext(strandId: number): { cable: CableGroupData; tube: TubeData | null } | null {
+    for (const cable of this.cableGroups) {
+      for (const tube of cable.tubes) {
+        if (tube.strands.some(s => s.id === strandId)) {
+          return { cable, tube };
+        }
+      }
+      if (cable.loose_strands.some(s => s.id === strandId)) {
+        return { cable, tube: null };
+      }
+    }
+    return null;
   }
 
   /** Rebuild column layouts and collect splice entries. */

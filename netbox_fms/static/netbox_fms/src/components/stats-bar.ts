@@ -33,11 +33,11 @@ export class FmsStatsBar {
     }
 
     const statItems: Array<{ label: string; value: string; color?: string; essential?: boolean }> = [
-      { label: 'Cables', value: String(stats.cableCount) },
-      { label: 'Strands', value: String(stats.strandCount) },
-      { label: 'Splices', value: String(stats.liveSpliceCount), color: '#28a745', essential: true },
-      { label: 'Planned', value: String(stats.plannedSpliceCount), color: '#17a2b8' },
-      { label: 'Pending', value: String(stats.pendingCount), color: '#ffc107', essential: true },
+      { label: 'Cables:', value: String(stats.cableCount) },
+      { label: 'Strands:', value: String(stats.strandCount) },
+      { label: 'Splices:', value: `${stats.liveSpliceCount} live`, color: '#28a745', essential: true },
+      { label: '', value: `${stats.plannedSpliceCount} planned`, color: '#17a2b8' },
+      { label: 'Pending:', value: `${stats.pendingCount} changes`, color: stats.pendingCount > 0 ? '#ffc107' : undefined, essential: true },
     ];
 
     statItems.forEach((item, index) => {
