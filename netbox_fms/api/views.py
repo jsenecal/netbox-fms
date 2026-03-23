@@ -844,8 +844,13 @@ class ClosureStrandsAPIView(APIView):
             tubes_dict = OrderedDict()
             loose = []
             for s in strands:
-                # Use whichever front_port FK is set for this closure
-                local_fp_id = s.front_port_a_id or s.front_port_b_id
+                # Use the front_port that belongs to this closure's tray modules
+                if s.front_port_a_id and s.front_port_a_id in tray_front_port_ids:
+                    local_fp_id = s.front_port_a_id
+                elif s.front_port_b_id and s.front_port_b_id in tray_front_port_ids:
+                    local_fp_id = s.front_port_b_id
+                else:
+                    local_fp_id = s.front_port_a_id or s.front_port_b_id
                 live_fp = live_lookup.get(local_fp_id)
                 live_strand = fp_to_strand.get(live_fp) if live_fp else None
                 plan_info = plan_lookup.get(local_fp_id, (None, None))

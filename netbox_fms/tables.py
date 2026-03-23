@@ -381,7 +381,17 @@ class SplicePlanTable(NetBoxTable):
             "description",
             "actions",
         )
-        default_columns = ("pk", "name", "project", "closure", "status", "cable_count", "tray_count", "entry_count", "actions")
+        default_columns = (
+            "pk",
+            "name",
+            "project",
+            "closure",
+            "status",
+            "cable_count",
+            "tray_count",
+            "entry_count",
+            "actions",
+        )
 
 
 class SplicePlanEntryTable(NetBoxTable):

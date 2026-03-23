@@ -778,11 +778,85 @@ class SplicePlanApplyView(LoginRequiredMixin, View):
     def get(self, request, pk):
         """Display the diff preview before applying the splice plan."""
         plan = get_object_or_404(SplicePlan, pk=pk)
-        diff = get_or_recompute_diff(plan)
+        raw_diff = get_or_recompute_diff(plan)
+
+        # Collect all FP IDs and tray (module) IDs for resolution
+        all_fp_ids = set()
+        tray_ids = set()
+        for tray_id, tray_diff in raw_diff.items():
+            tray_ids.add(tray_id)
+            for pair in tray_diff.get("add", []) + tray_diff.get("remove", []) + tray_diff.get("unchanged", []):
+                all_fp_ids.update(pair)
+
+        # Build FP name lookup
+        fp_lookup = {}
+        if all_fp_ids:
+            for fp in FrontPort.objects.filter(pk__in=all_fp_ids).select_related("module"):
+                fp_lookup[fp.pk] = str(fp)
+
+        # Build tray name lookup
+        tray_lookup = {}
+        if tray_ids:
+            for m in Module.objects.filter(pk__in=tray_ids).select_related("module_type"):
+                tray_lookup[m.pk] = str(m)
+
+        # Enrich diff with readable names
+        diff = []
+        total_add = 0
+        total_remove = 0
+        total_unchanged = 0
+        for tray_id, tray_diff in raw_diff.items():
+            adds = [
+                {
+                    "fp_a": p[0],
+                    "fp_b": p[1],
+                    "name_a": fp_lookup.get(p[0], str(p[0])),
+                    "name_b": fp_lookup.get(p[1], str(p[1])),
+                }
+                for p in tray_diff.get("add", [])
+            ]
+            removes = [
+                {
+                    "fp_a": p[0],
+                    "fp_b": p[1],
+                    "name_a": fp_lookup.get(p[0], str(p[0])),
+                    "name_b": fp_lookup.get(p[1], str(p[1])),
+                }
+                for p in tray_diff.get("remove", [])
+            ]
+            unchanged = [
+                {
+                    "fp_a": p[0],
+                    "fp_b": p[1],
+                    "name_a": fp_lookup.get(p[0], str(p[0])),
+                    "name_b": fp_lookup.get(p[1], str(p[1])),
+                }
+                for p in tray_diff.get("unchanged", [])
+            ]
+            total_add += len(adds)
+            total_remove += len(removes)
+            total_unchanged += len(unchanged)
+            if adds or removes or unchanged:
+                diff.append(
+                    {
+                        "tray_id": tray_id,
+                        "tray_name": tray_lookup.get(tray_id, f"Tray #{tray_id}"),
+                        "add": adds,
+                        "remove": removes,
+                        "unchanged": unchanged,
+                    }
+                )
+
         return render(
             request,
             "netbox_fms/spliceplan_apply_confirm.html",
-            {"object": plan, "diff": diff},
+            {
+                "object": plan,
+                "diff": diff,
+                "total_add": total_add,
+                "total_remove": total_remove,
+                "total_unchanged": total_unchanged,
+            },
         )
 
     @transaction.atomic
