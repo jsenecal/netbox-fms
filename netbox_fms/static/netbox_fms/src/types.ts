@@ -194,6 +194,8 @@ export interface DetailRow {
 export interface DetailCard {
   heading: string;
   rows: DetailRow[];
+  /** If true, render a horizontal separator before this card (for grouping). */
+  separator?: boolean;
 }
 
 /** Stats for the stats bar. */

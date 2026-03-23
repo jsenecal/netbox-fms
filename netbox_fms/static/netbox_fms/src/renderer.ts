@@ -545,8 +545,13 @@ export class SpliceRenderer {
       }
     }
 
-    // --- Existing splice entries ---
-    for (const entry of this.state.spliceEntries) {
+    // --- Existing splice entries (live first so plan-only renders on top) ---
+    const sortedEntries = [...this.state.spliceEntries].sort((a, b) => {
+      const aOrder = (a.isLive && !a.isPlan) ? 0 : (a.isLive && a.isPlan) ? 1 : 2;
+      const bOrder = (b.isLive && !b.isPlan) ? 0 : (b.isLive && b.isPlan) ? 1 : 2;
+      return aOrder - bOrder;
+    });
+    for (const entry of sortedEntries) {
       const a = nodeMap.get(entry.sourceId);
       const b = nodeMap.get(entry.targetId);
       if (!a || !b) continue;
@@ -631,14 +636,20 @@ export class SpliceRenderer {
         }
 
         // Normal splice link with gradient
+        const isPlanOnly = entry.isPlan && !entry.isLive;
         const path = this.linksGroup
           .append('path')
           .attr('class', 'splice-link')
           .classed('same-side', sameSide)
+          .classed('plan-only', isPlanOnly)
           .attr('d', pathD)
           .attr('stroke', gradUrl)
           .attr('pointer-events', 'none')
           .datum(entry);
+
+        if (isPlanOnly) {
+          path.attr('stroke-dasharray', '8,4').attr('opacity', 0.7);
+        }
 
         if (a.hidden || b.hidden) {
           path.attr('opacity', 0.2).attr('stroke-dasharray', '3,3');

@@ -677,7 +677,11 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
 class SplicePlanListView(generic.ObjectListView):
     """List all splice plans."""
 
-    queryset = SplicePlan.objects.select_related("project", "closure").annotate(entry_count=models.Count("entries"))
+    queryset = SplicePlan.objects.select_related("project", "closure").annotate(
+        entry_count=models.Count("entries"),
+        tray_count=models.Count("entries__tray", distinct=True),
+        cable_count=models.Count("closure__cable_entries", distinct=True),
+    )
     table = SplicePlanTable
     filterset = SplicePlanFilterSet
     filterset_form = SplicePlanFilterForm

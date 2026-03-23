@@ -55,6 +55,12 @@ export class FmsDetailPanel {
     }
 
     for (const card of cards) {
+      if (card.separator) {
+        const sep = document.createElement('hr');
+        sep.className = 'fms-detail-separator';
+        this.body.appendChild(sep);
+      }
+
       const cardEl = document.createElement('div');
       cardEl.className = 'fms-detail-card';
 

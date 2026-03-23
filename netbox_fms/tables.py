@@ -362,6 +362,8 @@ class SplicePlanTable(NetBoxTable):
         url_params={"plan_id": "pk"},
         verbose_name=_("Entries"),
     )
+    cable_count = tables.Column(verbose_name=_("Cables"), accessor="cable_count")
+    tray_count = tables.Column(verbose_name=_("Trays"), accessor="tray_count")
     actions = columns.ActionsColumn()
 
     class Meta(NetBoxTable.Meta):
@@ -373,11 +375,13 @@ class SplicePlanTable(NetBoxTable):
             "project",
             "closure",
             "status",
+            "cable_count",
+            "tray_count",
             "entry_count",
             "description",
             "actions",
         )
-        default_columns = ("pk", "name", "project", "closure", "status", "entry_count", "actions")
+        default_columns = ("pk", "name", "project", "closure", "status", "cable_count", "tray_count", "entry_count", "actions")
 
 
 class SplicePlanEntryTable(NetBoxTable):

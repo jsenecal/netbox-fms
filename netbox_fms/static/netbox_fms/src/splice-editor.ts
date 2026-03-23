@@ -210,12 +210,20 @@ async function init(config: EditorConfig): Promise<void> {
     legend.update(state.buildLegendSections());
     if (statsBar) {
       const stats = state.computeStats();
-      // Overlay plan info from config
       if (config.planId) {
         stats.planName = config.planId ? 'Splice Plan' : null;
         stats.planStatus = config.planStatus || null;
       }
       statsBar.update(stats);
+    }
+    // Constrain the editor row height to the SVG canvas height
+    const editorRow = document.getElementById('splice-editor-row');
+    const svg = canvasContainer!.querySelector('svg');
+    if (editorRow && svg) {
+      const svgHeight = svg.getAttribute('height');
+      if (svgHeight) {
+        editorRow.style.height = svgHeight + 'px';
+      }
     }
   }
 
@@ -374,10 +382,14 @@ async function init(config: EditorConfig): Promise<void> {
       return;
     }
 
-    // Build full split detail cards for every selected splice
+    // Build full split detail cards for every selected splice, with separators between groups
     const allCards: DetailCard[] = [];
-    for (const entry of selectedEntries) {
-      allCards.push(...buildSpliceCards(entry));
+    for (let i = 0; i < selectedEntries.length; i++) {
+      const cards = buildSpliceCards(selectedEntries[i]);
+      if (i > 0 && cards.length > 0) {
+        cards[0].separator = true;
+      }
+      allCards.push(...cards);
     }
     const title = selectedEntries.length === 1 ? 'Splice Details' : `${selectedEntries.length} Splices Selected`;
     detailPanel.show(title, allCards);
