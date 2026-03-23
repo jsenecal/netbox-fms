@@ -158,3 +158,49 @@ export interface QuickAddResponse {
   name: string;
   url: string;
 }
+
+/* -------------------------------------------------------------------------
+   Visual Component Types
+   ------------------------------------------------------------------------- */
+
+/** A single item in a legend section. */
+export interface LegendItem {
+  type: 'dot' | 'line' | 'icon';
+  color?: string;
+  dashed?: boolean;
+  dashColor?: string;
+  icon?: string;
+  label: string;
+}
+
+/** A section in the legend. */
+export interface LegendSection {
+  title: string;
+  items: LegendItem[];
+}
+
+/** A row in a detail card. */
+export interface DetailRow {
+  label: string;
+  value: string;
+  link?: string;
+  badge?: string;
+  color?: string;
+}
+
+/** A card in the detail panel. */
+export interface DetailCard {
+  heading: string;
+  rows: DetailRow[];
+}
+
+/** Stats for the stats bar. */
+export interface StatsData {
+  cableCount: number;
+  strandCount: number;
+  liveSpliceCount: number;
+  plannedSpliceCount: number;
+  pendingCount: number;
+  planName: string | null;
+  planStatus: string | null;
+}
