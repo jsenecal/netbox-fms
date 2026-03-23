@@ -344,6 +344,7 @@ export class SpliceRenderer {
     const isSpliced = !!(node.liveSplicedTo || node.planSplicedTo);
     const isSelected = this.state.selectedStrandId === node.id;
     const isPendingAdd = node.id !== undefined && this.state.isStrandPendingAdd(node.id);
+    const isPendingDelete = node.id !== undefined && this.state.getStrandPendingState(node.id) === 'remove';
     const isProtected = !!node.isProtected;
     const sg = g
       .append('g')
@@ -351,6 +352,7 @@ export class SpliceRenderer {
       .classed('spliced', isSpliced)
       .classed('selected', isSelected)
       .classed('pending-taken', isPendingAdd)
+      .classed('pending-delete', isPendingDelete)
       .classed('protected', isProtected)
       .datum(node);
 

@@ -112,6 +112,23 @@
     cursor: not-allowed;
 }
 
+/* Strand pending deletion — red strikethrough effect */
+.strand-node.pending-delete {
+    opacity: 0.5;
+}
+
+.strand-node.pending-delete .strand-dot {
+    stroke: var(--bs-danger);
+    stroke-width: 2;
+    stroke-dasharray: 2, 2;
+}
+
+.strand-node.pending-delete .strand-name {
+    fill: var(--bs-danger);
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
 /* Protected strand — dimmed and non-interactive */
 .strand-node.protected {
     opacity: 0.7;
