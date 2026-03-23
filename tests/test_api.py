@@ -379,7 +379,9 @@ class TestClosureStrandsAPI(TestCase):
         url = f"/api/plugins/fms/closure-strands/{self.device.pk}/"
         resp = self.client.get(url)
         assert resp.status_code == 200, resp.content
-        assert resp.json() == []
+        data = resp.json()
+        assert data["cables"] == []
+        assert isinstance(data["trays"], list)
 
 
 # ---------------------------------------------------------------------------
