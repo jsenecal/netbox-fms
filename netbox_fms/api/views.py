@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from dcim.models import CableTermination, Device, FrontPort, PortMapping, RearPort
+from dcim.models import CableTermination, Device, FrontPort, Module, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -689,6 +689,14 @@ class ClosureStrandsAPIView(APIView):
 
     def get(self, request, device_id):
         """Return strands grouped by cable and tube for the given closure device."""
+        # Build tube assignment lookup: buffer_tube_id -> {tray_id, tray_name}
+        tube_assignment_lookup = {}
+        for ta in TubeAssignment.objects.filter(closure_id=device_id).select_related("tray"):
+            tube_assignment_lookup[ta.buffer_tube_id] = {
+                "tray_id": ta.tray_id,
+                "tray_name": str(ta.tray),
+            }
+
         # Find all FiberCables whose dcim.Cable terminates at this device
         # Get all cables connected to this device
         cable_ids = (
@@ -827,6 +835,7 @@ class ClosureStrandsAPIView(APIView):
                             "stripe_color": s.buffer_tube.stripe_color,
                             "strand_count": 0,
                             "strands": [],
+                            "tray_assignment": tube_assignment_lookup.get(s.buffer_tube.pk),
                         }
                     tubes_dict[tube_id]["strand_count"] += 1
                     tubes_dict[tube_id]["strands"].append(strand_data)
@@ -847,7 +856,21 @@ class ClosureStrandsAPIView(APIView):
                 }
             )
 
-        return Response(cable_groups)
+        # Build trays list
+        trays = []
+        for m in Module.objects.filter(device_id=device_id).select_related("module_type"):
+            profile = getattr(m.module_type, "tray_profile", None)
+            if profile:
+                trays.append(
+                    {
+                        "id": m.pk,
+                        "name": str(m),
+                        "role": profile.tray_role,
+                        "capacity": FrontPort.objects.filter(module=m).count(),
+                    }
+                )
+
+        return Response({"cables": cable_groups, "trays": trays})
 
 
 class ProvisionPortsAPIView(APIView):

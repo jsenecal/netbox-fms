@@ -71,11 +71,37 @@ async function init(config: EditorConfig): Promise<void> {
 
   async function loadData(): Promise<void> {
     try {
-      const groups = await fetchStrands(config);
-      state.loadCableGroups(groups);
+      const response = await fetchStrands(config);
+      state.loadCableGroups(response.cables, response.trays);
       renderer.render();
+
+      // Populate tray filter dropdown
+      const filterContainer = document.getElementById('tray-filter-container');
+      const filterSelect = document.getElementById('tray-filter') as HTMLSelectElement | null;
+      if (filterContainer && filterSelect && response.trays.length > 0) {
+        filterContainer.style.display = 'block';
+        // Clear existing options except "All Trays"
+        while (filterSelect.options.length > 1) {
+          filterSelect.remove(1);
+        }
+        for (const tray of response.trays) {
+          const opt = document.createElement('option');
+          opt.value = String(tray.id);
+          opt.textContent = `${tray.name} (${tray.role === 'splice_tray' ? 'Splice' : 'Express'})`;
+          filterSelect.appendChild(opt);
+        }
+        if (!filterSelect.dataset.listenerAdded) {
+          filterSelect.addEventListener('change', () => {
+            const val = filterSelect.value;
+            state.setTrayFilter(val === 'all' ? null : parseInt(val));
+            renderer.render();
+          });
+          filterSelect.dataset.listenerAdded = 'true';
+        }
+      }
+
       interactions.setStatus(
-        `Loaded ${groups.length} cable(s). Click strands to splice.`,
+        `Loaded ${response.cables.length} cable(s). Click strands to splice.`,
       );
     } catch (err) {
       interactions.setStatus(`Error: ${(err as Error).message}`);

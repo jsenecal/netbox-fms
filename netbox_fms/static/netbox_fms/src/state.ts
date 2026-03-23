@@ -4,6 +4,7 @@ import type {
   PendingChange,
   SpliceEntry,
   StrandData,
+  TrayData,
 } from './types';
 
 // -----------------------------------------------------------------------
@@ -26,6 +27,8 @@ export const MIN_HEIGHT = 500;
 // -----------------------------------------------------------------------
 export class EditorState {
   cableGroups: CableGroupData[] = [];
+  trays: TrayData[] = [];
+  activeTrayFilter: number | null = null;
   leftNodes: LayoutNode[] = [];
   rightNodes: LayoutNode[] = [];
   spliceEntries: SpliceEntry[] = [];
@@ -92,9 +95,16 @@ export class EditorState {
   /** Build a lookup map: strand ID -> StrandData. */
   private strandMap: Map<number, StrandData> = new Map();
 
+  /** Set tray filter and rebuild layout. */
+  setTrayFilter(trayId: number | null): void {
+    this.activeTrayFilter = trayId;
+    this.rebuildLayout();
+  }
+
   /** Load cable groups from API and rebuild layout. */
-  loadCableGroups(groups: CableGroupData[]): void {
+  loadCableGroups(groups: CableGroupData[], trays?: TrayData[]): void {
     this.cableGroups = groups;
+    if (trays) this.trays = trays;
     this.strandMap.clear();
     for (const cg of groups) {
       for (const tube of cg.tubes) {

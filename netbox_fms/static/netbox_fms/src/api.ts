@@ -1,14 +1,14 @@
 import type {
   BulkUpdatePayload,
-  CableGroupData,
   EditorConfig,
   QuickAddResponse,
+  StrandsApiResponse,
 } from './types';
 
 /** Fetch strand data for a device from ClosureStrandsAPIView. */
 export async function fetchStrands(
   config: EditorConfig,
-): Promise<CableGroupData[]> {
+): Promise<StrandsApiResponse> {
   let url = config.strandsUrl;
   if (config.planId !== null) {
     const sep = url.includes('?') ? '&' : '?';

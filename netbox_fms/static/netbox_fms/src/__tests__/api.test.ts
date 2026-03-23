@@ -48,7 +48,7 @@ beforeEach(() => {
 
 describe('fetchStrands', () => {
   it('fetches from strandsUrl', async () => {
-    const data = [{ fiber_cable_id: 1 }];
+    const data = { cables: [{ fiber_cable_id: 1 }], trays: [] };
     vi.stubGlobal('fetch', mockFetchOk(data));
 
     const result = await fetchStrands(makeConfig());
@@ -57,14 +57,14 @@ describe('fetchStrands', () => {
   });
 
   it('appends plan_id when set', async () => {
-    vi.stubGlobal('fetch', mockFetchOk([]));
+    vi.stubGlobal('fetch', mockFetchOk({ cables: [], trays: [] }));
 
     await fetchStrands(makeConfig({ planId: 42 }));
     expect(fetch).toHaveBeenCalledWith('/api/fms/strands/1/?plan_id=42');
   });
 
   it('uses & separator when URL already has query params', async () => {
-    vi.stubGlobal('fetch', mockFetchOk([]));
+    vi.stubGlobal('fetch', mockFetchOk({ cables: [], trays: [] }));
 
     await fetchStrands(makeConfig({
       strandsUrl: '/api/fms/strands/1/?foo=bar',

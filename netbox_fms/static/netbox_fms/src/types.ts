@@ -36,6 +36,20 @@ export interface StrandData {
   circuit_url: string | null;
 }
 
+/** Tray info from the API. */
+export interface TrayData {
+  id: number;
+  name: string;
+  role: 'splice_tray' | 'express_basket';
+  capacity: number;
+}
+
+/** Tray assignment on a tube. */
+export interface TrayAssignment {
+  tray_id: number;
+  tray_name: string;
+}
+
 /** A tube group as returned by the API. */
 export interface TubeData {
   id: number;
@@ -44,6 +58,7 @@ export interface TubeData {
   stripe_color: string | null;
   strand_count: number;
   strands: StrandData[];
+  tray_assignment: TrayAssignment | null;
 }
 
 /** A cable group as returned by the API. */
@@ -56,6 +71,12 @@ export interface CableGroupData {
   far_device_url: string | null;
   tubes: TubeData[];
   loose_strands: StrandData[];
+}
+
+/** Full API response from ClosureStrandsAPIView. */
+export interface StrandsApiResponse {
+  cables: CableGroupData[];
+  trays: TrayData[];
 }
 
 /** Layout node types for the column renderer. */

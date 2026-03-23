@@ -55,7 +55,7 @@ function twoTubeCables(): CableGroupData[] {
       strand_count: 2,
       tubes: [
         {
-          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2,
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2, tray_assignment: null,
           strands: [makeStrand({ id: 1 }), makeStrand({ id: 2 })],
         },
       ],
@@ -65,7 +65,7 @@ function twoTubeCables(): CableGroupData[] {
       strand_count: 2,
       tubes: [
         {
-          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 2,
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 2, tray_assignment: null,
           strands: [makeStrand({ id: 3 }), makeStrand({ id: 4 })],
         },
       ],
@@ -337,14 +337,14 @@ describe('getPendingPayload', () => {
       makeCableGroup({
         fiber_cable_id: 1,
         tubes: [{
-          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1,
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 1, live_spliced_to: 3 })],
         }],
       }),
       makeCableGroup({
         fiber_cable_id: 2,
         tubes: [{
-          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1,
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 3, live_spliced_to: 1 })],
         }],
       }),
@@ -434,14 +434,14 @@ describe('splice entries', () => {
       makeCableGroup({
         fiber_cable_id: 1,
         tubes: [{
-          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1,
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 1, live_spliced_to: 3 })],
         }],
       }),
       makeCableGroup({
         fiber_cable_id: 2,
         tubes: [{
-          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1,
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 3, live_spliced_to: 1 })],
         }],
       }),
@@ -459,14 +459,14 @@ describe('splice entries', () => {
       makeCableGroup({
         fiber_cable_id: 1,
         tubes: [{
-          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1,
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 1, plan_entry_id: 99, plan_spliced_to: 3 })],
         }],
       }),
       makeCableGroup({
         fiber_cable_id: 2,
         tubes: [{
-          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1,
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 3, plan_entry_id: 99, plan_spliced_to: 1 })],
         }],
       }),
@@ -574,11 +574,11 @@ describe('getVisibleStrandsInTubeFrom', () => {
         fiber_cable_id: 1,
         tubes: [
           {
-            id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2,
+            id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 2, tray_assignment: null,
             strands: [makeStrand({ id: 1 }), makeStrand({ id: 2 })],
           },
           {
-            id: 11, name: 'T2', color: '00ff00', stripe_color: null, strand_count: 2,
+            id: 11, name: 'T2', color: '00ff00', stripe_color: null, strand_count: 2, tray_assignment: null,
             strands: [makeStrand({ id: 3 }), makeStrand({ id: 4 })],
           },
         ],
@@ -623,14 +623,14 @@ describe('deleteSelectedSplices', () => {
       makeCableGroup({
         fiber_cable_id: 1,
         tubes: [{
-          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1,
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 1, live_spliced_to: 3 })],
         }],
       }),
       makeCableGroup({
         fiber_cable_id: 2,
         tubes: [{
-          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1,
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
           strands: [makeStrand({ id: 3, live_spliced_to: 1 })],
         }],
       }),
