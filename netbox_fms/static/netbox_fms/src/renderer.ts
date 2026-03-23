@@ -223,7 +223,8 @@ export class SpliceRenderer {
       .attr('text-anchor', anchor)
       .text(node.label ?? '');
 
-    // Subtitle: fiber type + strand count
+    // Subtitle: fiber type + strand count + move arrow on the same line
+    let subtitleY = node.y + 18;
     if (node.fiberType || node.strandCount) {
       const sub: string[] = [];
       if (node.fiberType) sub.push(node.fiberType);
@@ -231,7 +232,7 @@ export class SpliceRenderer {
       cg.append('text')
         .attr('class', 'cable-subtitle')
         .attr('x', textX)
-        .attr('y', node.y + 14)
+        .attr('y', subtitleY)
         .attr('text-anchor', anchor)
         .text(sub.join(' \u2022 '));
     }
@@ -240,7 +241,7 @@ export class SpliceRenderer {
     if (node.farDeviceName && node.farDeviceUrl) {
       const arrow = side === 'left' ? '\u2192 ' : '\u2190 ';
       const linkX = textX;
-      const linkY = node.y + (node.fiberType || node.strandCount ? 23 : 14);
+      const linkY = subtitleY + 12;
       const linkEl = cg.append('a')
         .attr('href', node.farDeviceUrl + 'splice-editor/')
         .attr('target', '_self');
@@ -257,7 +258,7 @@ export class SpliceRenderer {
       const arrow = side === 'left' ? '\u25b6' : '\u25c0';
       const btnX = xOffset + (side === 'left' ? COLUMN_WIDTH - 12 : 12);
       const btnAnchor = side === 'left' ? 'end' : 'start';
-      const btnY = node.y + 14; // same line as subtitle
+      const btnY = subtitleY;
 
       const mutedColor = getComputedStyle(document.body).getPropertyValue('--bs-secondary-color').trim() || '#6c757d';
       const hoverColor = getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
