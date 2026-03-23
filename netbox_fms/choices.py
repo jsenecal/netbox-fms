@@ -267,6 +267,18 @@ class SplicePlanStatusChoices(ChoiceSet):
     )
 
 
+class TrayRoleChoices(ChoiceSet):
+    """Choice set for tray/express basket role."""
+
+    SPLICE_TRAY = "splice_tray"
+    EXPRESS_BASKET = "express_basket"
+
+    CHOICES = (
+        (SPLICE_TRAY, _("Splice Tray")),
+        (EXPRESS_BASKET, _("Express Basket")),
+    )
+
+
 #
 # WDM choices
 #

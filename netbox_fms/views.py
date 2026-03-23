@@ -111,6 +111,7 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
     SpliceProject,
+    TrayProfile,
     WavelengthChannel,
     WavelengthService,
     WavelengthServiceChannelAssignment,
@@ -952,6 +953,18 @@ class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
     queryset = SpliceProject.objects.all()
     filterset = SpliceProjectFilterSet
     table = SpliceProjectTable
+
+
+# ---------------------------------------------------------------------------
+# TrayProfile (stub — full CRUD in Task 6)
+# ---------------------------------------------------------------------------
+
+
+@register_model_view(TrayProfile)
+class TrayProfileView(generic.ObjectView):
+    """Display a single tray profile."""
+
+    queryset = TrayProfile.objects.all()
 
 
 # ---------------------------------------------------------------------------

@@ -155,6 +155,9 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
+    # TrayProfile (stub — full CRUD in Task 6)
+    path("tray-profiles/<int:pk>/", include(get_model_urls("netbox_fms", "trayprofile"))),
+    path("tray-profiles/<int:pk>/", views.TrayProfileView.as_view(), name="trayprofile"),
     # SlackLoop
     path("slack-loops/", views.SlackLoopListView.as_view(), name="slackloop_list"),
     path("slack-loops/add/", views.SlackLoopEditView.as_view(), name="slackloop_add"),

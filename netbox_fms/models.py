@@ -18,6 +18,7 @@ from .choices import (
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
+    TrayRoleChoices,
     WavelengthChannelStatusChoices,
     WavelengthServiceStatusChoices,
     WdmGridChoices,
@@ -39,6 +40,7 @@ __all__ = (
     "SplicePlan",
     "SplicePlanEntry",
     "ClosureCableEntry",
+    "TrayProfile",
     "SlackLoop",
     "FiberCircuit",
     "FiberCircuitPath",
@@ -1035,6 +1037,41 @@ class ClosureCableEntry(NetBoxModel):
     def get_absolute_url(self):
         """Return the detail URL for this closure cable entry."""
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])
+
+
+# ---------------------------------------------------------------------------
+# Tray Profiles & Tube Assignments
+# ---------------------------------------------------------------------------
+
+
+class TrayProfile(NetBoxModel):
+    """Overlay on dcim.ModuleType declaring it as a splice tray or express basket."""
+
+    module_type = models.OneToOneField(
+        to="dcim.ModuleType",
+        on_delete=models.CASCADE,
+        related_name="tray_profile",
+        verbose_name=_("module type"),
+    )
+    tray_role = models.CharField(
+        max_length=50,
+        choices=TrayRoleChoices,
+        verbose_name=_("tray role"),
+    )
+    description = models.TextField(blank=True, verbose_name=_("description"))
+
+    clone_fields = ("tray_role",)
+
+    class Meta:
+        ordering = ("module_type",)
+        verbose_name = _("tray profile")
+        verbose_name_plural = _("tray profiles")
+
+    def __str__(self):
+        return f"{self.module_type} ({self.get_tray_role_display()})"
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:trayprofile", args=[self.pk])
 
 
 # ---------------------------------------------------------------------------
