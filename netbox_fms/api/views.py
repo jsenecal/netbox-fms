@@ -321,9 +321,16 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                         models.Q(fiber_a_id=fa_id, fiber_b_id=fb_id) | models.Q(fiber_a_id=fb_id, fiber_b_id=fa_id)
                     ).delete()
 
-                # Process adds
+                # Process adds — remove any conflicting entries first (re-splice case)
                 for item in adds:
                     fa_id, fb_id = item["fiber_a"], item["fiber_b"]
+                    # Clear any existing entries that use either fiber to avoid unique constraint violations
+                    SplicePlanEntry.objects.filter(plan=plan).filter(
+                        models.Q(fiber_a_id=fa_id)
+                        | models.Q(fiber_b_id=fa_id)
+                        | models.Q(fiber_a_id=fb_id)
+                        | models.Q(fiber_b_id=fb_id)
+                    ).delete()
                     fa = FrontPort.objects.get(pk=fa_id)
                     tray = fa.module
                     if tray is None:
