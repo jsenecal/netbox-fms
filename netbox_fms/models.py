@@ -1179,6 +1179,62 @@ class SplicePlanEntry(NetBoxModel):
         if self.fiber_a.module_id != self.tray_id:
             raise ValidationError({"tray": _("Tray must match fiber_a's parent module.")})
 
+        # Fiber exclusivity: check that fiber_a and fiber_b aren't claimed
+        # by another non-archived plan on the same closure
+        if not self.plan_id:
+            return
+
+        active_statuses = [
+            SplicePlanStatusChoices.DRAFT,
+            SplicePlanStatusChoices.PENDING_APPROVAL,
+            SplicePlanStatusChoices.APPROVED,
+        ]
+
+        # Get all non-archived plans on the same closure, excluding this entry's plan
+        other_plan_ids = (
+            SplicePlan.objects.filter(
+                closure_id=self.plan.closure_id,
+                status__in=active_statuses,
+            )
+            .exclude(pk=self.plan_id)
+            .values_list("pk", flat=True)
+        )
+
+        if not other_plan_ids:
+            return
+
+        # Check fiber_a
+        if self.fiber_a_id:
+            conflict = (
+                SplicePlanEntry.objects.filter(
+                    plan_id__in=other_plan_ids,
+                )
+                .filter(models.Q(fiber_a_id=self.fiber_a_id) | models.Q(fiber_b_id=self.fiber_a_id))
+                .select_related("plan")
+                .first()
+            )
+
+            if conflict:
+                raise ValidationError(
+                    {"fiber_a": f"Fiber {self.fiber_a} is already claimed by plan '{conflict.plan.name}'."}
+                )
+
+        # Check fiber_b
+        if self.fiber_b_id:
+            conflict = (
+                SplicePlanEntry.objects.filter(
+                    plan_id__in=other_plan_ids,
+                )
+                .filter(models.Q(fiber_a_id=self.fiber_b_id) | models.Q(fiber_b_id=self.fiber_b_id))
+                .select_related("plan")
+                .first()
+            )
+
+            if conflict:
+                raise ValidationError(
+                    {"fiber_b": f"Fiber {self.fiber_b} is already claimed by plan '{conflict.plan.name}'."}
+                )
+
 
 class ClosureCableEntry(NetBoxModel):
     """Tracks which port/gland on a closure each cable enters through."""

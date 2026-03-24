@@ -345,6 +345,42 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        # Fiber exclusivity check: ensure no fibers are claimed by other plans
+        active_statuses = [
+            SplicePlanStatusChoices.DRAFT,
+            SplicePlanStatusChoices.PENDING_APPROVAL,
+            SplicePlanStatusChoices.APPROVED,
+        ]
+        other_plan_ids = list(
+            SplicePlan.objects.filter(
+                closure_id=plan.closure_id,
+                status__in=active_statuses,
+            )
+            .exclude(pk=plan.pk)
+            .values_list("pk", flat=True)
+        )
+
+        if other_plan_ids and adds:
+            add_port_ids = set()
+            for item in adds:
+                add_port_ids.add(item["fiber_a"])
+                add_port_ids.add(item["fiber_b"])
+
+            claimed = (
+                SplicePlanEntry.objects.filter(
+                    plan_id__in=other_plan_ids,
+                )
+                .filter(models.Q(fiber_a_id__in=add_port_ids) | models.Q(fiber_b_id__in=add_port_ids))
+                .select_related("plan")
+                .first()
+            )
+
+            if claimed:
+                return Response(
+                    {"error": f"Fiber exclusivity conflict: a fiber is already claimed by plan '{claimed.plan.name}'."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
         try:
             with transaction.atomic():
                 # Process removes
