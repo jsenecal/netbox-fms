@@ -98,8 +98,10 @@ async function init(config: EditorConfig): Promise<void> {
         if (id === 'live') state.showLive = on;
         else if (id === 'planned') state.showPlanned = on;
         else if (id === 'unspliced') state.showUnspliced = on;
-        renderer.render();
-        updateAfterRender();
+        fadeTransition(() => {
+          renderer.render();
+          updateAfterRender();
+        });
       },
     );
     toolbarEl.insertBefore(visFilterPills, backBtn);
@@ -207,22 +209,27 @@ async function init(config: EditorConfig): Promise<void> {
   });
   resizeObserver.observe(canvasContainer);
 
-  // Cable move callback with fade animation
-  renderer.setOnCableMove((cableId: number) => {
-    const svg = canvasContainer.querySelector('svg');
+  /** Fade out the SVG, run a callback that re-renders, then fade back in. */
+  function fadeTransition(fn: () => void): void {
+    const svg = canvasContainer!.querySelector('svg');
     if (svg) {
-      d3.select(svg).transition().duration(150).style('opacity', 0.3)
+      d3.select(svg).transition().duration(120).style('opacity', 0.3)
         .on('end', () => {
-          state.moveCable(cableId);
-          renderer.render();
-          updateAfterRender();
-          d3.select(svg).transition().duration(200).style('opacity', 1);
+          fn();
+          d3.select(svg).transition().duration(180).style('opacity', 1);
         });
     } else {
+      fn();
+    }
+  }
+
+  // Cable move callback with fade animation
+  renderer.setOnCableMove((cableId: number) => {
+    fadeTransition(() => {
       state.moveCable(cableId);
       renderer.render();
       updateAfterRender();
-    }
+    });
   });
 
   // Override interactions.setStatus to show messages in the stats bar right section
@@ -482,10 +489,22 @@ async function init(config: EditorConfig): Promise<void> {
         if (existingFilter) existingFilter.remove();
 
         const { createPillGroup: createTrayPillGroup } = await import('./components');
+        // Disambiguate trays with duplicate names by appending an index
+        const nameCounts = new Map<string, number>();
+        for (const t of response.trays) {
+          nameCounts.set(t.name, (nameCounts.get(t.name) || 0) + 1);
+        }
+        const nameCounters = new Map<string, number>();
         const trayItems = [
           { id: 'all', label: 'All', active: true },
           ...response.trays.map((t) => {
-            return { id: String(t.id), label: t.name };
+            let label = t.name;
+            if ((nameCounts.get(t.name) || 0) > 1) {
+              const idx = (nameCounters.get(t.name) || 0) + 1;
+              nameCounters.set(t.name, idx);
+              label = `${t.name} #${idx}`;
+            }
+            return { id: String(t.id), label };
           }),
         ];
         const trayPills = createTrayPillGroup(trayItems, (id) => {
@@ -494,8 +513,10 @@ async function init(config: EditorConfig): Promise<void> {
           } else {
             state.setTrayFilter(parseInt(id));
           }
-          renderer.render();
-          updateAfterRender();
+          fadeTransition(() => {
+            renderer.render();
+            updateAfterRender();
+          });
         });
         trayPills.classList.add('fms-tray-pills');
         // Insert after the first separator
@@ -517,6 +538,88 @@ async function init(config: EditorConfig): Promise<void> {
     }
   }
 
+  // Save confirmation modal logic
+  let pendingApply = false;
+
+  function populateSaveModal(): void {
+    const summaryEl = document.getElementById('splice-save-summary');
+    if (summaryEl) {
+      const payload = state.getPendingPayload();
+      const addCount = payload.add?.length || 0;
+      const removeCount = payload.remove?.length || 0;
+      summaryEl.textContent = '';
+      const addSpan = document.createElement('span');
+      addSpan.className = 'text-success';
+      addSpan.textContent = `${addCount} splice(s) to add`;
+      const removeSpan = document.createElement('span');
+      removeSpan.className = 'text-danger';
+      removeSpan.textContent = `${removeCount} splice(s) to remove`;
+      summaryEl.appendChild(addSpan);
+      summaryEl.appendChild(document.createTextNode(', '));
+      summaryEl.appendChild(removeSpan);
+    }
+
+    // Show/hide the Save & Apply button
+    const saveApplyConfirmBtn = document.getElementById('splice-save-apply-confirm-btn');
+    if (saveApplyConfirmBtn) {
+      saveApplyConfirmBtn.classList.toggle('d-none', !pendingApply);
+    }
+    const confirmBtn = document.getElementById('splice-save-confirm-btn');
+    if (confirmBtn) {
+      confirmBtn.classList.toggle('d-none', pendingApply);
+    }
+
+    // Clear previous message
+    const msgInput = document.getElementById('splice-changelog-message') as HTMLInputElement;
+    if (msgInput) msgInput.value = '';
+  }
+
+  function showSaveModal(andApply = false): void {
+    const modalEl = document.getElementById('splice-save-modal');
+    if (!modalEl) {
+      // Fallback: save without modal if template is missing
+      savePendingChanges(andApply);
+      return;
+    }
+
+    pendingApply = andApply;
+    populateSaveModal();
+
+    // Use Bootstrap's data-api to toggle the modal via click simulation
+    const trigger = document.createElement('button');
+    trigger.setAttribute('data-bs-toggle', 'modal');
+    trigger.setAttribute('data-bs-target', '#splice-save-modal');
+    trigger.style.display = 'none';
+    document.body.appendChild(trigger);
+    trigger.click();
+    trigger.remove();
+  }
+
+  function hideModal(): void {
+    const modalEl = document.getElementById('splice-save-modal');
+    if (modalEl) {
+      // Use the close button to dismiss via Bootstrap's data-api
+      const closeBtn = modalEl.querySelector('[data-bs-dismiss="modal"]') as HTMLElement;
+      if (closeBtn) closeBtn.click();
+    }
+  }
+
+  // Wire modal confirm buttons
+  const saveConfirmBtn = document.getElementById('splice-save-confirm-btn');
+  if (saveConfirmBtn) {
+    saveConfirmBtn.addEventListener('click', async () => {
+      hideModal();
+      await savePendingChanges(false);
+    });
+  }
+  const saveApplyConfirmBtn = document.getElementById('splice-save-apply-confirm-btn');
+  if (saveApplyConfirmBtn) {
+    saveApplyConfirmBtn.addEventListener('click', async () => {
+      hideModal();
+      await savePendingChanges(true);
+    });
+  }
+
   async function handleSave(): Promise<void> {
     if (!state.hasPendingChanges()) return;
 
@@ -531,17 +634,23 @@ async function init(config: EditorConfig): Promise<void> {
         `${result.id}/bulk-update/`,
       );
 
-      await savePendingChanges();
+      showSaveModal();
     } else {
-      await savePendingChanges();
+      showSaveModal();
     }
+  }
+
+  function getChangelogMessage(): string {
+    const msgInput = document.getElementById('splice-changelog-message') as HTMLInputElement;
+    return msgInput?.value?.trim() || '';
   }
 
   async function savePendingChanges(andApply = false): Promise<void> {
     try {
       const payload = state.getPendingPayload();
       payload.plan_version = planVersion;
-      const result = await bulkUpdatePlan(config, payload);
+      const changelogMessage = getChangelogMessage();
+      const result = await bulkUpdatePlan(config, payload, changelogMessage);
       planVersion = result.plan_version;
       state.clearPending();
       interactions.updateSaveButton();
@@ -570,13 +679,13 @@ async function init(config: EditorConfig): Promise<void> {
     }
   }
 
-  // Wire Save & Apply button
+  // Wire Save & Apply button (dropdown item)
   const saveApplyBtn = document.getElementById('splice-save-apply-btn');
   if (saveApplyBtn) {
     saveApplyBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       if (!state.hasPendingChanges()) return;
-      await savePendingChanges(true);
+      showSaveModal(true);
     });
   }
 }

@@ -632,6 +632,14 @@ export class EditorState {
     const trayFilter = this.activeTrayFilter;
 
     for (const cg of cables) {
+      // When a tray filter is active, skip cables that have no visible content
+      if (trayFilter !== null && visibleTubeIds !== null) {
+        const hasVisibleTube = cg.tubes.some((t) => visibleTubeIds.has(t.id));
+        const hasVisibleLoose = visibleLooseStrandIds !== null &&
+          cg.loose_strands.some((s) => visibleLooseStrandIds.has(s.id));
+        if (!hasVisibleTube && !hasVisibleLoose) continue;
+      }
+
       nodes.push({
         type: 'cable',
         label: cg.cable_label,
@@ -655,7 +663,9 @@ export class EditorState {
           type: 'tube',
           label: tube.name,
           color: tube.color,
-          stripeColor: tube.stripe_color,
+          markerCount: tube.marker_count,
+          markerColor: tube.marker_color,
+          markerType: tube.marker_type,
           strandCount: tube.strand_count,
           y,
           hidden: false,

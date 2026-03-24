@@ -194,14 +194,69 @@ export class SpliceRenderer {
     group.selectAll('*').remove();
     const g = group.append('g').attr('transform', `translate(0,${HEADER_HEIGHT})`);
 
+    // Pre-pass: determine which strands pass the visibility filter so we can
+    // hide empty tubes/cables, dim filtered-out strands, and recalc y-positions.
+    const activeStrands = new Set<number>();
+    const anyFilterOff = !this.state.showLive || !this.state.showPlanned || !this.state.showUnspliced;
+    if (anyFilterOff) {
+      for (const node of nodes) {
+        if (node.type !== 'strand' || node.hidden || node.id === undefined) continue;
+        const hasLive = !!node.liveSplicedTo;
+        const hasPlanOnly = !!node.planSplicedTo && !hasLive;
+        const isUnspliced = !hasLive && !node.planSplicedTo;
+        const isPendingAdd = this.state.isStrandPendingAdd(node.id);
+        if (isPendingAdd) { activeStrands.add(node.id); continue; }
+        if (isUnspliced && this.state.showUnspliced) activeStrands.add(node.id);
+        if (hasLive && this.state.showLive) activeStrands.add(node.id);
+        if (hasPlanOnly && this.state.showPlanned) activeStrands.add(node.id);
+      }
+    }
+
+    // Build sets of tubes/cables that have at least one active strand
+    const activeTubes = new Set<number>();
+    const activeCables = new Set<number>();
+    if (anyFilterOff) {
+      let currentCableId: number | undefined;
+      for (const node of nodes) {
+        if (node.type === 'cable') currentCableId = node.cableId;
+        if (node.type === 'strand' && node.id !== undefined && activeStrands.has(node.id)) {
+          if (node.tubeId !== undefined) activeTubes.add(node.tubeId);
+          if (currentCableId !== undefined) activeCables.add(currentCableId);
+        }
+      }
+    }
+
+    // Render pass: skip hidden nodes, recalculate y-positions to close gaps.
+    // Track current cable to skip loose strands belonging to hidden cables.
+    let y = TOP_PAD;
+    let currentCableVisible = true;
     for (const node of nodes) {
       if (node.hidden) continue;
+
       if (node.type === 'cable') {
+        if (anyFilterOff && node.cableId !== undefined && !activeCables.has(node.cableId)) {
+          currentCableVisible = false;
+          continue;
+        }
+        currentCableVisible = true;
+        node.y = y;
         this.renderCableNode(g, node, side, xOffset);
+        y += CABLE_ROW_H;
       } else if (node.type === 'tube') {
+        if (anyFilterOff && node.tubeId !== undefined && !activeTubes.has(node.tubeId)) continue;
+        node.y = y;
         this.renderTubeNode(g, node, side, xOffset, nodes);
+        y += TUBE_ROW_H;
       } else if (node.type === 'strand') {
-        this.renderStrandNode(g, node, side, xOffset);
+        // Skip strands in hidden tubes or hidden cables (loose strands)
+        if (anyFilterOff) {
+          if (node.tubeId !== undefined && !activeTubes.has(node.tubeId)) continue;
+          if (node.tubeId === undefined && !currentCableVisible) continue;
+        }
+        const dimmed = anyFilterOff && node.id !== undefined && !activeStrands.has(node.id);
+        node.y = y;
+        this.renderStrandNode(g, node, side, xOffset, dimmed);
+        y += STRAND_HEIGHT;
       }
     }
   }
@@ -309,14 +364,17 @@ export class SpliceRenderer {
       .attr('fill', '#' + (node.color || 'ccc'));
 
     // Stripe indicator
-    if (node.stripeColor) {
-      tg.append('circle')
-        .attr('cx', dotX + (side === 'left' ? -3 : 3))
-        .attr('cy', node.y - 3)
-        .attr('r', 2)
-        .attr('fill', '#' + node.stripeColor)
-        .attr('stroke', '#dee2e6')
-        .attr('stroke-width', 0.5);
+    if (node.markerCount && node.markerCount > 0) {
+      const fill = node.markerColor ? '#' + node.markerColor : '#666';
+      for (let m = 0; m < node.markerCount; m++) {
+        tg.append('circle')
+          .attr('cx', dotX + (side === 'left' ? -3 - m * 4 : 3 + m * 4))
+          .attr('cy', node.y - 3)
+          .attr('r', 2)
+          .attr('fill', fill)
+          .attr('stroke', '#dee2e6')
+          .attr('stroke-width', 0.5);
+      }
     }
 
     // Label with strand count and collapse indicator
@@ -339,6 +397,7 @@ export class SpliceRenderer {
     node: LayoutNode,
     side: 'left' | 'right',
     xOffset: number,
+    dimmed = false,
   ): void {
     const dotX = side === 'left' ? xOffset + COLUMN_WIDTH - 14 : xOffset + 14;
     const indent = node.tubeId !== undefined ? TUBE_INDENT + 10 : 8;
@@ -487,8 +546,11 @@ export class SpliceRenderer {
     if (isProtected && node.circuitName) title += ' | Protected by: ' + node.circuitName;
     sg.append('title').text(title);
 
-    // Protected strands are non-interactive
-    if (isProtected) {
+    // Dimmed strands (filtered out by visibility toggles) — non-interactive
+    if (dimmed) {
+      sg.style('opacity', '0.25').style('pointer-events', 'none');
+    } else if (isProtected) {
+      // Protected strands are non-interactive
       sg.style('opacity', '0.7').style('cursor', 'not-allowed');
     } else {
       sg.on('click', (event: Event) => {
@@ -573,6 +635,12 @@ export class SpliceRenderer {
       const a = nodeMap.get(entry.sourceId);
       const b = nodeMap.get(entry.targetId);
       if (!a || !b) continue;
+
+      // Visibility filter: skip links based on showLive / showPlanned toggles.
+      // Live splices (including live+planned) belong to the Live group only.
+      // Only plan-only splices belong to the Planned group.
+      if (entry.isLive && !this.state.showLive) continue;
+      if (!entry.isLive && entry.isPlan && !this.state.showPlanned) continue;
 
       const pathD = this.buildLinkPath(a, b);
       const isPendingDelete = this.state.isSplicePendingDelete(entry.sourceId, entry.targetId);

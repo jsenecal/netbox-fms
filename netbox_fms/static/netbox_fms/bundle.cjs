@@ -29,6 +29,11 @@ const entries = [
     globalName: 'WavelengthEditor',
     outfile: path.join(__dirname, 'dist', 'wavelength-editor.min.js'),
   },
+  {
+    entryPoints: [path.join(__dirname, 'src', 'fms-htmx.ts')],
+    globalName: 'FmsHtmx',
+    outfile: path.join(__dirname, 'dist', 'fms-htmx.min.js'),
+  },
 ];
 
 async function main() {

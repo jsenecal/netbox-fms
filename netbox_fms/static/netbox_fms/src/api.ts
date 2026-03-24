@@ -45,16 +45,21 @@ export async function quickAddPlan(
 export async function bulkUpdatePlan(
   config: EditorConfig,
   payload: BulkUpdatePayload,
+  changelogMessage?: string,
 ): Promise<BulkUpdateResponse> {
   if (!config.bulkUpdateUrl) {
     throw new Error('No bulk update URL — plan may not exist yet');
   }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-CSRFToken': config.csrfToken,
+  };
+  if (changelogMessage) {
+    headers['X-Changelog-Message'] = changelogMessage;
+  }
   const resp = await fetch(config.bulkUpdateUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': config.csrfToken,
-    },
+    headers,
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {

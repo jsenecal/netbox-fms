@@ -57,7 +57,9 @@ export interface TubeData {
   id: number;
   name: string;
   color: string;
-  stripe_color: string | null;
+  marker_count: number;
+  marker_color: string | null;
+  marker_type: string;
   strand_count: number;
   strands: StrandData[];
   tray_assignment: TrayAssignment | null;
@@ -109,7 +111,9 @@ export interface LayoutNode {
   // Tube fields
   tubeId?: number;
   color?: string;
-  stripeColor?: string | null;
+  markerCount?: number;
+  markerColor?: string | null;
+  markerType?: string;
   collapsed?: boolean;
 
   // Strand fields
