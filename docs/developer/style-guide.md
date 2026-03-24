@@ -26,7 +26,7 @@ Load the stylesheet in your template:
 
 ```html
 {% load static %}
-<link rel="stylesheet" href="{% static 'netbox_fms/dist/fms-components.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
 ```
 
 The component root reads `data-bs-theme` from a parent element to switch between dark and light palettes automatically — no extra JS needed.
@@ -83,19 +83,38 @@ Do not use badges for counts or non-status information — use plain text for th
 
 ## 5. Legend (`.fms-legend`)
 
-The legend is an absolutely-positioned overlay for canvas views. It collapses on click.
+The legend is an absolutely-positioned overlay anchored to the **bottom-left** of the canvas container. It collapses **downward** — the bottom edge stays fixed and the content shrinks into a small pill-shaped bar at the bottom corner.
 
 **Rules:**
-- Only include items that are currently visible on the canvas. If a filter hides all spliced strands, remove the "Spliced" entry from the legend.
+- Only include items that are currently visible on the canvas. If a filter hides all spliced strands, remove the "Spliced" entry from the legend. Rebuild on every render.
 - Group related items under `fms-legend__section` with a section title.
 - Section ordering convention: **status items first** (live, planned, pending), then **structural items** (tubes, ribbons), then **interaction hints** (selected, hover).
 
 **JS API:**
 
-```js
-FmsLegend.update(containerId, sections);
-// sections: Array<{ title?: string, items: Array<{ type, color?, label }> }>
-// item types: 'dot', 'line', 'line-dashed', 'swatches'
+```typescript
+import { FmsLegend } from './components';
+
+const legend = new FmsLegend(canvasContainer);
+
+// Update with current visible items (call after each render)
+legend.update([
+  { title: 'Splices', items: [
+    { type: 'dot', color: '#00cc66', label: 'Live splice' },
+    { type: 'line', dashed: true, dashColor: '#ffaa00', label: 'Planned splice' },
+    { type: 'icon', icon: '\uD83D\uDD12', label: 'Protected' },
+  ]},
+  { title: 'Tubes', items: [
+    { type: 'dot', color: '#0000ff', label: 'Blue' },
+    { type: 'dot', color: '#ff8800', label: 'Orange' },
+  ]},
+]);
+
+// Toggle collapse
+legend.toggle();
+
+// Remove from DOM
+legend.destroy();
 ```
 
 ```html
@@ -103,7 +122,7 @@ FmsLegend.update(containerId, sections);
   <div class="fms-legend" id="my-legend">
     <div class="fms-legend__header">
       <span class="fms-legend__title">Legend</span>
-      <button class="fms-legend__toggle" aria-label="Toggle legend">▾</button>
+      <button class="fms-legend__toggle" aria-label="Toggle legend">▼</button>
     </div>
     <div class="fms-legend__body">
       <div class="fms-legend__section">
@@ -122,7 +141,7 @@ FmsLegend.update(containerId, sections);
 </div>
 ```
 
-The `data-collapsed="true"` attribute is toggled by the header click handler (included in `fms-components.js` if present, or wire it manually).
+The `data-collapsed` attribute is managed by `FmsLegend.toggle()`. When collapsed, the legend shrinks to a 24px pill showing "Legend ▲". When expanded, content grows upward from the bottom edge, toggle shows "▼".
 
 ---
 
@@ -175,17 +194,40 @@ A slide-in panel anchored to the right edge of the canvas container. On mobile i
 
 **JS API:**
 
-```js
-// Open panel (sets data-open="true", triggers CSS transition)
-panel.dataset.open = 'true';
+```typescript
+import { FmsDetailPanel } from './components';
 
-// Close panel
-panel.dataset.open = 'false';
-// or
-delete panel.dataset.open;
+const panel = new FmsDetailPanel(canvasContainer.parentElement!);
+
+// Show with title and card data
+panel.show('Strand Details', [
+  { heading: 'Properties', rows: [
+    { label: 'Name', value: 'Strand 5' },
+    { label: 'Cable', value: 'Cable #142', link: '/plugins/fms/fiber-cables/142/' },
+    { label: 'Tube', value: 'Tube 1 (Blue)', color: '#0000ff' },
+    { label: 'Status', value: 'Live', badge: 'live' },
+  ]},
+  { heading: 'Circuit', rows: [
+    { label: 'Name', value: 'FC-WEST-001', link: '/plugins/fms/fiber-circuits/1/' },
+  ]},
+]);
+
+// Close
+panel.hide();
+
+// Callback on close (e.g., to re-render canvas)
+panel.setOnClose(() => renderer.render());
+
+// Remove from DOM
+panel.destroy();
 ```
 
-**Escape key behavior:** Wire a `keydown` listener on `document` to close the panel when `key === 'Escape'` and the panel is open. Return focus to the element that triggered the open.
+**Multi-select:** When showing multiple items, use the `separator` flag on the first card of each group to render a horizontal divider:
+```typescript
+cards[0].separator = true; // adds <hr> before this card
+```
+
+**Escape key** and close button are wired automatically by the constructor.
 
 ---
 
@@ -263,7 +305,29 @@ Mark the most important stats with `fms-stat--essential` — these remain visibl
 </div>
 ```
 
-**Flash messages:** Insert a temporary message into `fms-stats-bar__right` using JS, then clear it after 3 seconds. Do not use alerts or toasts for minor status updates from canvas actions.
+**JS API:**
+
+```typescript
+import { FmsStatsBar } from './components';
+
+const statsBar = new FmsStatsBar(document.getElementById('fms-stats-bar')!);
+
+// Update counts
+statsBar.update({
+  cableCount: 4,
+  strandCount: 48,
+  liveSpliceCount: 18,
+  plannedSpliceCount: 6,
+  pendingCount: 3,
+  planName: 'Main Splice Plan',
+  planStatus: 'draft',
+});
+
+// Show a temporary message on the right side (auto-clears after duration)
+statsBar.setMessage('Changes saved.', 3000);
+```
+
+**Messages:** Use `setMessage()` for status updates — they appear on the right side alongside the plan badge and auto-clear. The left side (counts) is never replaced. Do not use alerts or toasts for minor status updates from canvas actions.
 
 ---
 
@@ -360,3 +424,37 @@ Every interactive element must have a visible focus ring. The library provides `
 - **Escape** — close the open detail panel.
 - **Tab** — move through toolbar controls, close button, and panel rows in DOM order.
 - Pill groups should support **Left/Right arrow** keys to move between pills in the group (implement with a `keydown` handler; the CSS does not do this automatically).
+
+---
+
+## 12. TypeScript Component Structure
+
+All components live in `netbox_fms/static/netbox_fms/src/components/`:
+
+| File | Export | Purpose |
+|---|---|---|
+| `badge.ts` | `createBadge(variant, text)` | Creates a badge `<span>` element |
+| `legend.ts` | `FmsLegend` class | Collapsible legend overlay |
+| `detail-panel.ts` | `FmsDetailPanel` class | Slide-in detail panel |
+| `stats-bar.ts` | `FmsStatsBar` class | Bottom stats bar |
+| `toolbar.ts` | `createPillGroup`, `createPillFilter`, `createSeparator`, `createSearch`, `createSpacer` | Toolbar building blocks |
+| `index.ts` | All of the above | Barrel export |
+
+Import via the barrel:
+```typescript
+import { FmsLegend, FmsDetailPanel, FmsStatsBar, createPillGroup } from './components';
+```
+
+---
+
+## 13. Debug Mode
+
+When Django runs with `DEBUG=True`, the templates pass `debug: true` in the editor config. All editor JavaScript uses a `dbg()` helper that logs to `console.log` with a `[SpliceEditor]` prefix only when debug is enabled.
+
+```typescript
+// Automatically available in splice-editor.ts
+dbg('loadData() response:', { cables: response.cables.length });
+// Outputs: [SpliceEditor] loadData() response: {cables: 2}
+```
+
+Debug logging covers: config load, DOM element discovery, API fetch/response, state after load, and errors. In production (`DEBUG=False`), no console output is produced.
