@@ -10,9 +10,8 @@ def migrate_stripe_to_marker(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('netbox_fms', '0027_rename_stripe_color_buffertube_marker_color_and_more'),
+        ("netbox_fms", "0027_rename_stripe_color_buffertube_marker_color_and_more"),
     ]
 
     operations = [
