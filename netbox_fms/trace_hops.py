@@ -170,24 +170,6 @@ def _make_device_hop(device):
     }
 
 
-def get_wavelength_service_annotations(fiber_circuit):
-    """Return wavelength service annotations for a fiber circuit."""
-    from .models import WavelengthServiceCircuit
-
-    assignments = WavelengthServiceCircuit.objects.filter(
-        fiber_circuit=fiber_circuit,
-    ).select_related("service")
-    return [
-        {
-            "service_id": a.service_id,
-            "service_name": a.service.name,
-            "wavelength_nm": float(a.service.wavelength_nm),
-            "status": a.service.status,
-        }
-        for a in assignments
-    ]
-
-
 def _get_last_front_port_id(hops):
     """Return the last FrontPort ID found in the hop list, or None."""
     for h in reversed(hops):

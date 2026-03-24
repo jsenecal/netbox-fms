@@ -17,10 +17,6 @@ from ..models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
-    WavelengthChannel,
-    WavelengthService,
-    WdmDeviceTypeProfile,
-    WdmNode,
 )
 
 __all__ = (
@@ -38,10 +34,6 @@ __all__ = (
     "SlackLoopFilter",
     "TrayProfileFilter",
     "TubeAssignmentFilter",
-    "WdmDeviceTypeProfileFilter",
-    "WdmNodeFilter",
-    "WavelengthChannelFilter",
-    "WavelengthServiceFilter",
 )
 
 
@@ -178,41 +170,3 @@ class TubeAssignmentFilter:
     id: int | None
     closure_id: int | None
     tray_id: int | None
-
-
-@strawberry_django.filters.filter(WdmDeviceTypeProfile)
-class WdmDeviceTypeProfileFilter:
-    """GraphQL filter for WdmDeviceTypeProfile."""
-
-    id: int | None
-    node_type: str | None
-    grid: str | None
-
-
-@strawberry_django.filters.filter(WdmNode)
-class WdmNodeFilter:
-    """GraphQL filter for WdmNode."""
-
-    id: int | None
-    node_type: str | None
-    grid: str | None
-    device_id: int | None
-
-
-@strawberry_django.filters.filter(WavelengthChannel)
-class WavelengthChannelFilter:
-    """GraphQL filter for WavelengthChannel."""
-
-    id: int | None
-    wdm_node_id: int | None
-    status: str | None
-    grid_position: int | None
-
-
-@strawberry_django.filters.filter(WavelengthService)
-class WavelengthServiceFilter:
-    """GraphQL filter for WavelengthService."""
-
-    id: int | None
-    name: str | None
-    status: str | None

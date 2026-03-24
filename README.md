@@ -1,6 +1,6 @@
 # NetBox FMS -- Fiber Management System
 
-A [NetBox](https://github.com/netbox-community/netbox) plugin for fiber cable management, splice planning, circuit provisioning, and WDM wavelength management.
+A [NetBox](https://github.com/netbox-community/netbox) plugin for fiber cable management, splice planning, and circuit provisioning.
 
 Define fiber cable construction as reusable blueprints, auto-instantiate components on cable creation, plan splices with diff computation and draw.io export, and provision end-to-end fiber circuits with DAG-based pathfinding -- all within NetBox's native UI and API.
 
@@ -12,10 +12,6 @@ Define fiber cable construction as reusable blueprints, auto-instantiate compone
 - **Fiber circuit provisioning** -- End-to-end fiber circuit provisioning with DAG-based pathfinding and multi-hop tracing.
 - **Device fiber overview** -- Per-device fiber connection view, splice closure management with tray and group organization.
 - **Slack loop tracking** -- Record slack loop locations and storage methods at splice closures, with insert-into-closure workflows.
-- **WDM wavelength management** -- Model terminal MUX, OADM, ROADM, and amplifier devices with WDM overlays on NetBox's native device types.
-- **ITU grid channel plans** -- Built-in DWDM C-band (100GHz/50GHz) and CWDM grid presets with auto-population of channels from device type profiles.
-- **Wavelength service tracking** -- End-to-end lambda service provisioning across WDM nodes and fiber circuits, with protection lifecycle and path stitching.
-- **ROADM live channel editor** -- Interactive wavelength editor with undo/redo and atomic save for ROADM port mapping changes.
 - **Full REST API and GraphQL** -- All models exposed via NetBox's standard API framework.
 
 ## Compatibility

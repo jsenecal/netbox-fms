@@ -8,8 +8,6 @@ from .models import (
     SplicePlan,
     SpliceProject,
     TrayProfile,
-    WavelengthService,
-    WdmNode,
 )
 
 
@@ -91,24 +89,3 @@ class TrayProfileIndex(SearchIndex):
     model = TrayProfile
     fields = (("description", 500),)
     display_attrs = ("module_type", "tray_role")
-
-
-@register_search
-class WdmNodeIndex(SearchIndex):
-    """Search index for WdmNode."""
-
-    model = WdmNode
-    fields = (("description", 500),)
-    display_attrs = ("device", "node_type", "grid")
-
-
-@register_search
-class WavelengthServiceIndex(SearchIndex):
-    """Search index for WavelengthService."""
-
-    model = WavelengthService
-    fields = (
-        ("name", 100),
-        ("description", 500),
-    )
-    display_attrs = ("status", "wavelength_nm", "tenant")

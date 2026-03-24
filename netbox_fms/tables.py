@@ -21,12 +21,6 @@ from .models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
-    WavelengthChannel,
-    WavelengthService,
-    WdmChannelTemplate,
-    WdmDeviceTypeProfile,
-    WdmNode,
-    WdmTrunkPort,
 )
 
 # ---------------------------------------------------------------------------
@@ -374,6 +368,7 @@ class SplicePlanTable(NetBoxTable):
     project = tables.Column(linkify=True, verbose_name=_("Project"))
     closure = tables.Column(linkify=True, verbose_name=_("Closure"))
     status = tables.Column(verbose_name=_("Status"))
+    submitted_by = tables.Column(verbose_name=_("Submitted By"), linkify=False)
     entry_count = columns.LinkedCountColumn(
         viewname="plugins:netbox_fms:spliceplanentry_list",
         url_params={"plan_id": "pk"},
@@ -392,6 +387,7 @@ class SplicePlanTable(NetBoxTable):
             "project",
             "closure",
             "status",
+            "submitted_by",
             "cable_count",
             "tray_count",
             "entry_count",
@@ -404,6 +400,7 @@ class SplicePlanTable(NetBoxTable):
             "project",
             "closure",
             "status",
+            "submitted_by",
             "cable_count",
             "tray_count",
             "entry_count",
@@ -420,6 +417,7 @@ class SplicePlanEntryTable(NetBoxTable):
     fiber_a = tables.Column(linkify=True, verbose_name=_("Fiber A"))
     fiber_b = tables.Column(linkify=True, verbose_name=_("Fiber B"))
     is_express = columns.BooleanColumn(verbose_name=_("Express"))
+    change_note = tables.Column(verbose_name=_("Change Note"))
     actions = columns.ActionsColumn()
 
     @staticmethod
@@ -439,8 +437,8 @@ class SplicePlanEntryTable(NetBoxTable):
 
     class Meta(NetBoxTable.Meta):
         model = SplicePlanEntry
-        fields = ("pk", "id", "plan", "tray", "fiber_a", "fiber_b", "is_express", "notes", "actions")
-        default_columns = ("pk", "plan", "tray", "fiber_a", "fiber_b", "is_express", "actions")
+        fields = ("pk", "id", "plan", "tray", "fiber_a", "fiber_b", "is_express", "change_note", "notes", "actions")
+        default_columns = ("pk", "plan", "tray", "fiber_a", "fiber_b", "is_express", "change_note", "actions")
 
 
 class ClosureCableEntryTable(NetBoxTable):
@@ -586,120 +584,3 @@ class FiberCircuitPathTable(NetBoxTable):
             "wavelength_nm",
         )
         default_columns = ("circuit", "position", "origin", "destination", "is_complete")
-
-
-# ---------------------------------------------------------------------------
-# WDM Device Type Profile
-# ---------------------------------------------------------------------------
-
-
-class WdmDeviceTypeProfileTable(NetBoxTable):
-    """Table for displaying WdmDeviceTypeProfile objects."""
-
-    pk = columns.ToggleColumn()
-    device_type = tables.Column(linkify=True, verbose_name=_("Device Type"))
-    node_type = tables.Column(verbose_name=_("Node Type"))
-    grid = tables.Column(verbose_name=_("Grid"))
-    actions = columns.ActionsColumn()
-
-    class Meta(NetBoxTable.Meta):
-        model = WdmDeviceTypeProfile
-        fields = ("pk", "id", "device_type", "node_type", "grid", "description", "actions")
-        default_columns = ("pk", "device_type", "node_type", "grid", "actions")
-
-
-class WdmChannelTemplateTable(NetBoxTable):
-    """Table for displaying WdmChannelTemplate objects."""
-
-    pk = columns.ToggleColumn()
-    profile = tables.Column(linkify=True, verbose_name=_("Profile"))
-    grid_position = tables.Column(verbose_name=_("Grid Position"))
-    label = tables.Column(verbose_name=_("Label"))
-    wavelength_nm = tables.Column(verbose_name=_("Wavelength (nm)"))
-    front_port_template = tables.Column(linkify=True, verbose_name=_("Front Port Template"))
-    actions = columns.ActionsColumn()
-
-    class Meta(NetBoxTable.Meta):
-        model = WdmChannelTemplate
-        fields = ("pk", "id", "profile", "grid_position", "label", "wavelength_nm", "front_port_template", "actions")
-        default_columns = ("pk", "profile", "grid_position", "label", "wavelength_nm", "front_port_template", "actions")
-
-
-# ---------------------------------------------------------------------------
-# WDM Node
-# ---------------------------------------------------------------------------
-
-
-class WdmNodeTable(NetBoxTable):
-    """Table for displaying WdmNode objects."""
-
-    pk = columns.ToggleColumn()
-    device = tables.Column(linkify=True, verbose_name=_("Device"))
-    node_type = tables.Column(verbose_name=_("Node Type"))
-    grid = tables.Column(verbose_name=_("Grid"))
-    actions = columns.ActionsColumn()
-
-    class Meta(NetBoxTable.Meta):
-        model = WdmNode
-        fields = ("pk", "id", "device", "node_type", "grid", "description", "actions")
-        default_columns = ("pk", "device", "node_type", "grid", "actions")
-
-
-class WdmTrunkPortTable(NetBoxTable):
-    """Table for displaying WdmTrunkPort objects."""
-
-    pk = columns.ToggleColumn()
-    wdm_node = tables.Column(linkify=True, verbose_name=_("WDM Node"))
-    rear_port = tables.Column(linkify=True, verbose_name=_("Rear Port"))
-    direction = tables.Column(verbose_name=_("Direction"))
-    position = tables.Column(verbose_name=_("Position"))
-    actions = columns.ActionsColumn()
-
-    class Meta(NetBoxTable.Meta):
-        model = WdmTrunkPort
-        fields = ("pk", "id", "wdm_node", "rear_port", "direction", "position", "actions")
-        default_columns = ("pk", "wdm_node", "rear_port", "direction", "position", "actions")
-
-
-# ---------------------------------------------------------------------------
-# Wavelength Channel
-# ---------------------------------------------------------------------------
-
-
-class WavelengthChannelTable(NetBoxTable):
-    """Table for displaying WavelengthChannel objects."""
-
-    pk = columns.ToggleColumn()
-    wdm_node = tables.Column(linkify=True, verbose_name=_("WDM Node"))
-    grid_position = tables.Column(verbose_name=_("Grid Position"))
-    label = tables.Column(verbose_name=_("Label"))
-    wavelength_nm = tables.Column(verbose_name=_("Wavelength (nm)"))
-    front_port = tables.Column(linkify=True, verbose_name=_("Front Port"))
-    status = tables.Column(verbose_name=_("Status"))
-    actions = columns.ActionsColumn()
-
-    class Meta(NetBoxTable.Meta):
-        model = WavelengthChannel
-        fields = ("pk", "id", "wdm_node", "grid_position", "label", "wavelength_nm", "front_port", "status", "actions")
-        default_columns = ("pk", "label", "grid_position", "wavelength_nm", "front_port", "status", "actions")
-
-
-# ---------------------------------------------------------------------------
-# Wavelength Service
-# ---------------------------------------------------------------------------
-
-
-class WavelengthServiceTable(NetBoxTable):
-    """Table for displaying WavelengthService objects."""
-
-    pk = columns.ToggleColumn()
-    name = tables.Column(linkify=True, verbose_name=_("Name"))
-    status = tables.Column(verbose_name=_("Status"))
-    wavelength_nm = tables.Column(verbose_name=_("Wavelength (nm)"))
-    tenant = tables.Column(linkify=True, verbose_name=_("Tenant"))
-    actions = columns.ActionsColumn()
-
-    class Meta(NetBoxTable.Meta):
-        model = WavelengthService
-        fields = ("pk", "id", "name", "status", "wavelength_nm", "tenant", "description", "actions")
-        default_columns = ("pk", "name", "status", "wavelength_nm", "tenant", "actions")

@@ -29,12 +29,6 @@ from ..models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
-    WavelengthChannel,
-    WavelengthService,
-    WdmChannelTemplate,
-    WdmDeviceTypeProfile,
-    WdmNode,
-    WdmTrunkPort,
 )
 
 # Re-export FrontPortSerializer for use in nested fields
@@ -336,6 +330,7 @@ class SplicePlanSerializer(NetBoxModelSerializer):
     closure = DeviceSerializer(nested=True)
     project = SpliceProjectSerializer(nested=True, required=False, allow_null=True)
     entry_count = serializers.IntegerField(read_only=True, default=0)
+    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = SplicePlan
@@ -348,6 +343,7 @@ class SplicePlanSerializer(NetBoxModelSerializer):
             "name",
             "description",
             "status",
+            "submitted_by",
             "cached_diff",
             "diff_stale",
             "entry_count",
@@ -379,6 +375,7 @@ class SplicePlanEntrySerializer(NetBoxModelSerializer):
             "fiber_b",
             "notes",
             "is_express",
+            "change_note",
             "tags",
             "custom_fields",
             "created",
@@ -569,139 +566,3 @@ class ProvisionPortsInputSerializer(serializers.Serializer):
     fiber_cable_id = serializers.IntegerField()
     device_id = serializers.IntegerField()
     port_type = serializers.CharField(default="splice")
-
-
-# ---------------------------------------------------------------------------
-# WDM serializers
-# ---------------------------------------------------------------------------
-
-
-class WdmDeviceTypeProfileSerializer(NetBoxModelSerializer):
-    """Serializer for WDM device type profile (blueprint-level WDM capability)."""
-
-    class Meta:
-        model = WdmDeviceTypeProfile
-        fields = (
-            "id",
-            "url",
-            "display",
-            "device_type",
-            "node_type",
-            "grid",
-            "description",
-            "tags",
-            "custom_fields",
-            "created",
-            "last_updated",
-        )
-        brief_fields = ("id", "url", "display", "node_type", "grid")
-
-
-class WdmChannelTemplateSerializer(NetBoxModelSerializer):
-    """Serializer for WDM channel template (blueprint-level channel slot)."""
-
-    class Meta:
-        model = WdmChannelTemplate
-        fields = (
-            "id",
-            "url",
-            "display",
-            "profile",
-            "grid_position",
-            "wavelength_nm",
-            "label",
-            "front_port_template",
-            "tags",
-            "custom_fields",
-            "created",
-            "last_updated",
-        )
-        brief_fields = ("id", "url", "display", "label", "wavelength_nm")
-
-
-class WdmNodeSerializer(NetBoxModelSerializer):
-    """Serializer for WDM node instance attached to a device."""
-
-    class Meta:
-        model = WdmNode
-        fields = (
-            "id",
-            "url",
-            "display",
-            "device",
-            "node_type",
-            "grid",
-            "description",
-            "tags",
-            "custom_fields",
-            "created",
-            "last_updated",
-        )
-        brief_fields = ("id", "url", "display", "node_type", "grid")
-
-
-class WdmTrunkPortSerializer(NetBoxModelSerializer):
-    """Serializer for WDM trunk port mapping a rear port to a directional trunk."""
-
-    class Meta:
-        model = WdmTrunkPort
-        fields = (
-            "id",
-            "url",
-            "display",
-            "wdm_node",
-            "rear_port",
-            "direction",
-            "position",
-            "tags",
-            "custom_fields",
-            "created",
-            "last_updated",
-        )
-        brief_fields = ("id", "url", "display", "direction", "position")
-
-
-class WavelengthChannelSerializer(NetBoxModelSerializer):
-    """Serializer for a wavelength channel instance on a WDM node."""
-
-    class Meta:
-        model = WavelengthChannel
-        fields = (
-            "id",
-            "url",
-            "display",
-            "wdm_node",
-            "grid_position",
-            "wavelength_nm",
-            "label",
-            "front_port",
-            "status",
-            "tags",
-            "custom_fields",
-            "created",
-            "last_updated",
-        )
-        brief_fields = ("id", "url", "display", "label", "wavelength_nm", "status")
-
-
-class WavelengthServiceSerializer(NetBoxModelSerializer):
-    """Serializer for an end-to-end wavelength service spanning fiber circuits."""
-
-    class Meta:
-        model = WavelengthService
-        fields = (
-            "id",
-            "url",
-            "display",
-            "name",
-            "status",
-            "wavelength_nm",
-            "tenant",
-            "description",
-            "comments",
-            "tags",
-            "custom_fields",
-            "created",
-            "last_updated",
-        )
-        brief_fields = ("id", "url", "display", "name", "status", "wavelength_nm")

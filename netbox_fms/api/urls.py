@@ -25,13 +25,6 @@ router.register("slack-loops", views.SlackLoopViewSet)
 router.register("fiber-circuits", views.FiberCircuitViewSet)
 router.register("fiber-circuit-paths", views.FiberCircuitPathViewSet)
 router.register("fiber-circuit-nodes", views.FiberCircuitNodeViewSet)
-router.register("wdm-profiles", views.WdmDeviceTypeProfileViewSet)
-router.register("wdm-channel-templates", views.WdmChannelTemplateViewSet)
-router.register("wdm-nodes", views.WdmNodeViewSet)
-router.register("wdm-trunk-ports", views.WdmTrunkPortViewSet)
-router.register("wavelength-channels", views.WavelengthChannelViewSet)
-router.register("wavelength-services", views.WavelengthServiceViewSet)
-
 urlpatterns = (
     [
         path(

@@ -14,7 +14,7 @@ from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
-from .choices import FiberCircuitStatusChoices, TrayRoleChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
     BufferTubeFilterSet,
@@ -35,12 +35,6 @@ from .filters import (
     SpliceProjectFilterSet,
     TrayProfileFilterSet,
     TubeAssignmentFilterSet,
-    WavelengthChannelFilterSet,
-    WavelengthServiceFilterSet,
-    WdmChannelTemplateFilterSet,
-    WdmDeviceTypeProfileFilterSet,
-    WdmNodeFilterSet,
-    WdmTrunkPortFilterSet,
 )
 from .forms import (
     BufferTubeTemplateBulkEditForm,
@@ -88,20 +82,6 @@ from .forms import (
     TubeAssignmentFilterForm,
     TubeAssignmentForm,
     TubeAssignmentImportForm,
-    WavelengthChannelBulkEditForm,
-    WavelengthChannelFilterForm,
-    WavelengthChannelForm,
-    WavelengthServiceFilterForm,
-    WavelengthServiceForm,
-    WavelengthServiceImportForm,
-    WdmChannelTemplateForm,
-    WdmDeviceTypeProfileFilterForm,
-    WdmDeviceTypeProfileForm,
-    WdmDeviceTypeProfileImportForm,
-    WdmNodeFilterForm,
-    WdmNodeForm,
-    WdmNodeImportForm,
-    WdmTrunkPortForm,
 )
 from .models import (
     BufferTube,
@@ -123,13 +103,6 @@ from .models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
-    WavelengthChannel,
-    WavelengthService,
-    WavelengthServiceChannelAssignment,
-    WdmChannelTemplate,
-    WdmDeviceTypeProfile,
-    WdmNode,
-    WdmTrunkPort,
 )
 from .services import (
     NeedsMappingConfirmation,
@@ -157,12 +130,6 @@ from .tables import (
     SpliceProjectTable,
     TrayProfileTable,
     TubeAssignmentTable,
-    WavelengthChannelTable,
-    WavelengthServiceTable,
-    WdmChannelTemplateTable,
-    WdmDeviceTypeProfileTable,
-    WdmNodeTable,
-    WdmTrunkPortTable,
 )
 
 # ---------------------------------------------------------------------------
@@ -683,7 +650,7 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
 class SplicePlanListView(generic.ObjectListView):
     """List all splice plans."""
 
-    queryset = SplicePlan.objects.select_related("project", "closure").with_counts()
+    queryset = SplicePlan.objects.select_related("project", "closure", "submitted_by").with_counts()
     table = SplicePlanTable
     filterset = SplicePlanFilterSet
     filterset_form = SplicePlanFilterForm
@@ -881,12 +848,30 @@ class SplicePlanApplyView(generic.ObjectView):
                     }
                 )
 
+        # Fetch recent changelog messages for this plan (with non-empty messages)
+        from core.models import ObjectChange
+        from django.contrib.contenttypes.models import ContentType
+        from django.db.models import Q
+
+        plan_ct = ContentType.objects.get_for_model(SplicePlan)
+        recent_changes = (
+            ObjectChange.objects.filter(
+                Q(changed_object_type=plan_ct, changed_object_id=instance.pk)
+                | Q(related_object_type=plan_ct, related_object_id=instance.pk)
+            )
+            .exclude(message="")
+            .order_by("-time")[:10]
+            .values_list("time", "user_name", "message")
+        )
+        changelog_messages = [{"time": t, "user": u, "message": m} for t, u, m in recent_changes]
+
         return {
             "diff": diff,
             "total_add": total_add,
             "total_remove": total_remove,
             "total_unchanged": total_unchanged,
             "invalid_entries": invalid_entries,
+            "changelog_messages": changelog_messages,
         }
 
     def post(self, request, pk=None, **kwargs):
@@ -951,6 +936,97 @@ class SplicePlanExportDrawioView(LoginRequiredMixin, View):
         response = HttpResponse(xml_content, content_type="application/xml")
         response["Content-Disposition"] = f'attachment; filename="{plan.name}.drawio"'
         return response
+
+
+class SplicePlanTransitionView(LoginRequiredMixin, View):
+    """Handle splice plan status transitions via POST."""
+
+    def post(self, request, pk):
+        plan = get_object_or_404(SplicePlan, pk=pk)
+        action = request.POST.get("action")
+
+        if action == "submit":
+            if plan.status != SplicePlanStatusChoices.DRAFT:
+                messages.error(request, _("Only draft plans can be submitted."))
+                return redirect(plan.get_absolute_url())
+            if not request.user.has_perm("netbox_fms.change_spliceplan"):
+                messages.error(request, _("You do not have permission to submit plans."))
+                return redirect(plan.get_absolute_url())
+            plan.status = SplicePlanStatusChoices.PENDING_APPROVAL
+            plan.submitted_by = request.user
+            plan.full_clean()
+            plan.save()
+            messages.success(request, _('Plan "{plan}" submitted for approval.').format(plan=plan))
+
+        elif action == "approve":
+            if plan.status != SplicePlanStatusChoices.PENDING_APPROVAL:
+                messages.error(request, _("Only plans pending approval can be approved."))
+                return redirect(plan.get_absolute_url())
+            if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+                messages.error(request, _("You do not have permission to approve plans."))
+                return redirect(plan.get_absolute_url())
+            plan.status = SplicePlanStatusChoices.APPROVED
+            plan.full_clean()
+            plan.save()
+            messages.success(request, _('Plan "{plan}" approved.').format(plan=plan))
+
+        elif action == "reject":
+            if plan.status != SplicePlanStatusChoices.PENDING_APPROVAL:
+                messages.error(request, _("Only plans pending approval can be rejected."))
+                return redirect(plan.get_absolute_url())
+            if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+                messages.error(request, _("You do not have permission to reject plans."))
+                return redirect(plan.get_absolute_url())
+            plan.status = SplicePlanStatusChoices.DRAFT
+            plan.full_clean()
+            plan.save()
+            messages.success(request, _('Plan "{plan}" rejected, returned to draft.').format(plan=plan))
+
+        elif action == "withdraw":
+            if plan.status != SplicePlanStatusChoices.PENDING_APPROVAL:
+                messages.error(request, _("Only plans pending approval can be withdrawn."))
+                return redirect(plan.get_absolute_url())
+            if plan.submitted_by != request.user:
+                messages.error(request, _("Only the submitter can withdraw this plan."))
+                return redirect(plan.get_absolute_url())
+            plan.status = SplicePlanStatusChoices.DRAFT
+            plan.full_clean()
+            plan.save()
+            messages.success(request, _('Plan "{plan}" withdrawn, returned to draft.').format(plan=plan))
+
+        elif action == "reopen":
+            if plan.status != SplicePlanStatusChoices.APPROVED:
+                messages.error(request, _("Only approved plans can be reopened."))
+                return redirect(plan.get_absolute_url())
+            if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+                messages.error(request, _("You do not have permission to reopen plans."))
+                return redirect(plan.get_absolute_url())
+            plan.status = SplicePlanStatusChoices.DRAFT
+            plan.full_clean()
+            plan.save()
+            messages.success(request, _('Plan "{plan}" reopened as draft.').format(plan=plan))
+
+        elif action == "archive":
+            if plan.status == SplicePlanStatusChoices.ARCHIVED:
+                messages.error(request, _("Plan is already archived."))
+                return redirect(plan.get_absolute_url())
+            if plan.status == SplicePlanStatusChoices.DRAFT:
+                if not request.user.has_perm("netbox_fms.change_spliceplan"):
+                    messages.error(request, _("You do not have permission."))
+                    return redirect(plan.get_absolute_url())
+            else:
+                if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+                    messages.error(request, _("You do not have permission to archive this plan."))
+                    return redirect(plan.get_absolute_url())
+            plan.status = SplicePlanStatusChoices.ARCHIVED
+            plan.full_clean()
+            plan.save()
+            messages.success(request, _('Plan "{plan}" archived.').format(plan=plan))
+
+        else:
+            messages.error(request, _("Unknown action."))
+
+        return redirect(plan.get_absolute_url())
 
 
 # ---------------------------------------------------------------------------
@@ -1576,7 +1652,9 @@ class ProvisionPortsView(LoginRequiredMixin, View):
     """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device (htmx modal)."""
 
     def _get_context(self, request, form=None):
-        fiber_cable = get_object_or_404(FiberCable, pk=request.GET.get("fiber_cable") or request.POST.get("fiber_cable"))
+        fiber_cable = get_object_or_404(
+            FiberCable, pk=request.GET.get("fiber_cable") or request.POST.get("fiber_cable")
+        )
         if form is None:
             form = ProvisionPortsForm(initial={"fiber_cable": fiber_cable.pk})
         return {"form": form, "fiber_cable": fiber_cable}
@@ -1758,7 +1836,6 @@ def _build_tray_assignment_data(device):
         if not profile:
             continue
 
-        front_port_count = FrontPort.objects.filter(module=module).count()
         assigned_tubes = assignment_map.get(module.pk, [])
         fiber_count = sum(t.buffer_tube.fiber_strands.count() for t in assigned_tubes)
 
@@ -1767,7 +1844,7 @@ def _build_tray_assignment_data(device):
             "profile": profile,
             "assigned_tubes": assigned_tubes,
             "fiber_count": fiber_count,
-            "capacity": front_port_count,
+            "capacity": profile.max_fibers,
         }
 
         if profile.tray_role == TrayRoleChoices.SPLICE_TRAY:
@@ -2105,430 +2182,21 @@ class TraceDetailView(LoginRequiredMixin, View):
 
 
 # ---------------------------------------------------------------------------
-# WDM Device Type Profile
-# ---------------------------------------------------------------------------
-
-
-class WdmDeviceTypeProfileListView(generic.ObjectListView):
-    """List all WDM device type profiles."""
-
-    queryset = WdmDeviceTypeProfile.objects.select_related("device_type")
-    table = WdmDeviceTypeProfileTable
-    filterset = WdmDeviceTypeProfileFilterSet
-    filterset_form = WdmDeviceTypeProfileFilterForm
-
-
-@register_model_view(WdmDeviceTypeProfile)
-class WdmDeviceTypeProfileView(generic.ObjectView):
-    """Display a single WDM device type profile."""
-
-    queryset = WdmDeviceTypeProfile.objects.all()
-
-
-class WdmDeviceTypeProfileEditView(generic.ObjectEditView):
-    """Handle WDM device type profile creation and editing."""
-
-    queryset = WdmDeviceTypeProfile.objects.all()
-    form = WdmDeviceTypeProfileForm
-
-
-class WdmDeviceTypeProfileDeleteView(generic.ObjectDeleteView):
-    """Delete a WDM device type profile."""
-
-    queryset = WdmDeviceTypeProfile.objects.all()
-
-
-class WdmDeviceTypeProfileBulkImportView(generic.BulkImportView):
-    """Bulk import WDM device type profiles from CSV."""
-
-    queryset = WdmDeviceTypeProfile.objects.all()
-    model_form = WdmDeviceTypeProfileImportForm
-
-
-class WdmDeviceTypeProfileBulkDeleteView(generic.BulkDeleteView):
-    """Bulk delete WDM device type profiles."""
-
-    queryset = WdmDeviceTypeProfile.objects.all()
-    filterset = WdmDeviceTypeProfileFilterSet
-    table = WdmDeviceTypeProfileTable
-
-
-# ---------------------------------------------------------------------------
-# WDM Device Type Profile component tab views
-# ---------------------------------------------------------------------------
-
-
-@register_model_view(WdmDeviceTypeProfile, "channel_templates", path="channel-templates")
-class WdmDeviceTypeProfileChannelTemplatesView(generic.ObjectChildrenView):
-    """Display channel templates for a WDM device type profile."""
-
-    queryset = WdmDeviceTypeProfile.objects.all()
-    child_model = WdmChannelTemplate
-    table = WdmChannelTemplateTable
-    filterset = WdmChannelTemplateFilterSet
-    actions = (EditObject, DeleteObject, BulkDelete)
-    tab = ViewTab(
-        label=_("Channel Templates"),
-        badge=lambda obj: obj.channel_templates.count(),
-        permission="netbox_fms.view_wdmchanneltemplate",
-        weight=500,
-    )
-
-    def get_children(self, request, parent):
-        """Return channel templates filtered by parent profile."""
-        return self.child_model.objects.restrict(request.user, "view").filter(profile=parent)
-
-
-# ---------------------------------------------------------------------------
-# WDM Channel Template
-# ---------------------------------------------------------------------------
-
-
-@register_model_view(WdmChannelTemplate)
-class WdmChannelTemplateView(generic.ObjectView):
-    """Display a single WDM channel template."""
-
-    queryset = WdmChannelTemplate.objects.all()
-
-
-class WdmChannelTemplateEditView(generic.ObjectEditView):
-    """Handle WDM channel template creation and editing."""
-
-    queryset = WdmChannelTemplate.objects.all()
-    form = WdmChannelTemplateForm
-
-
-class WdmChannelTemplateDeleteView(generic.ObjectDeleteView):
-    """Delete a WDM channel template."""
-
-    queryset = WdmChannelTemplate.objects.all()
-
-
-# ---------------------------------------------------------------------------
-# WDM Node
-# ---------------------------------------------------------------------------
-
-
-class WdmNodeListView(generic.ObjectListView):
-    """List all WDM nodes."""
-
-    queryset = WdmNode.objects.select_related("device")
-    table = WdmNodeTable
-    filterset = WdmNodeFilterSet
-    filterset_form = WdmNodeFilterForm
-
-
-@register_model_view(WdmNode)
-class WdmNodeView(generic.ObjectView):
-    """Display a single WDM node with channel and trunk port counts."""
-
-    queryset = WdmNode.objects.all()
-
-    def get_extra_context(self, request, instance):
-        """Return channel and trunk port counts and utilization stats for the WDM node."""
-        channels = instance.channels.all()
-        total = channels.count()
-        lit = channels.filter(status="lit").count()
-        reserved = channels.filter(status="reserved").count()
-        available = channels.filter(status="available").count()
-        return {
-            "channel_count": total,
-            "trunk_port_count": instance.trunk_ports.count(),
-            "channel_stats": {
-                "total": total,
-                "lit": lit,
-                "reserved": reserved,
-                "available": available,
-                "lit_pct": round(lit / total * 100) if total else 0,
-                "reserved_pct": round(reserved / total * 100) if total else 0,
-                "available_pct": round(available / total * 100) if total else 0,
-            },
-        }
-
-
-class WdmNodeEditView(generic.ObjectEditView):
-    """Handle WDM node creation and editing."""
-
-    queryset = WdmNode.objects.all()
-    form = WdmNodeForm
-
-
-class WdmNodeDeleteView(generic.ObjectDeleteView):
-    """Delete a WDM node."""
-
-    queryset = WdmNode.objects.all()
-
-
-class WdmNodeBulkImportView(generic.BulkImportView):
-    """Bulk import WDM nodes from CSV."""
-
-    queryset = WdmNode.objects.all()
-    model_form = WdmNodeImportForm
-
-
-class WdmNodeBulkDeleteView(generic.BulkDeleteView):
-    """Bulk delete WDM nodes."""
-
-    queryset = WdmNode.objects.all()
-    filterset = WdmNodeFilterSet
-    table = WdmNodeTable
-
-
-# ---------------------------------------------------------------------------
-# WDM Node component tab views
-# ---------------------------------------------------------------------------
-
-
-@register_model_view(WdmNode, "channels", path="channels")
-class WdmNodeChannelsView(generic.ObjectChildrenView):
-    """Display wavelength channels for a WDM node."""
-
-    queryset = WdmNode.objects.all()
-    child_model = WavelengthChannel
-    table = WavelengthChannelTable
-    filterset = WavelengthChannelFilterSet
-    actions = (EditObject, DeleteObject, BulkDelete)
-    tab = ViewTab(
-        label=_("Channels"),
-        badge=lambda obj: obj.channels.count(),
-        permission="netbox_fms.view_wavelengthchannel",
-        weight=500,
-    )
-
-    def get_children(self, request, parent):
-        """Return channels filtered by parent WDM node."""
-        return self.child_model.objects.restrict(request.user, "view").filter(wdm_node=parent)
-
-
-@register_model_view(WdmNode, "trunk_ports", path="trunk-ports")
-class WdmNodeTrunkPortsView(generic.ObjectChildrenView):
-    """Display trunk ports for a WDM node."""
-
-    queryset = WdmNode.objects.all()
-    child_model = WdmTrunkPort
-    table = WdmTrunkPortTable
-    filterset = WdmTrunkPortFilterSet
-    actions = (EditObject, DeleteObject, BulkDelete)
-    tab = ViewTab(
-        label=_("Trunk Ports"),
-        badge=lambda obj: obj.trunk_ports.count(),
-        permission="netbox_fms.view_wdmtrunkport",
-        weight=510,
-    )
-
-    def get_children(self, request, parent):
-        """Return trunk ports filtered by parent WDM node."""
-        return self.child_model.objects.restrict(request.user, "view").filter(wdm_node=parent)
-
-
-@register_model_view(WdmNode, "wavelength_editor", path="wavelength-editor")
-class WdmNodeWavelengthEditorView(generic.ObjectView):
-    """Live wavelength channel editor for ROADM nodes."""
-
-    queryset = WdmNode.objects.all()
-    tab = ViewTab(
-        label=_("Wavelength Editor"),
-        permission="netbox_fms.change_wavelengthchannel",
-        weight=600,
-    )
-
-    def get_template_name(self):
-        """Return the wavelength editor template."""
-        return "netbox_fms/wdmnode_wavelength_editor.html"
-
-    def get_extra_context(self, request, instance):
-        """Build JSON config for the wavelength editor frontend."""
-        import json
-
-        channels = instance.channels.select_related("front_port").order_by("grid_position")
-        # Available ports = device FrontPorts not already assigned to a channel
-        assigned_fp_ids = set(
-            instance.channels.exclude(front_port__isnull=True).values_list("front_port_id", flat=True)
-        )
-        available_ports = FrontPort.objects.filter(device=instance.device).exclude(pk__in=assigned_fp_ids)
-
-        channel_data = []
-        for ch in channels:
-            svc_name = None
-            svc_assignment = (
-                WavelengthServiceChannelAssignment.objects.filter(channel=ch).select_related("service").first()
-            )
-            if svc_assignment:
-                svc_name = svc_assignment.service.name
-            channel_data.append(
-                {
-                    "id": ch.pk,
-                    "grid_position": ch.grid_position,
-                    "wavelength_nm": float(ch.wavelength_nm),
-                    "label": ch.label,
-                    "front_port_id": ch.front_port_id,
-                    "front_port_name": ch.front_port.name if ch.front_port else None,
-                    "status": ch.status,
-                    "service_name": svc_name,
-                }
-            )
-
-        port_data = [{"id": p.pk, "name": p.name} for p in available_ports]
-
-        config = {
-            "nodeId": instance.pk,
-            "nodeType": instance.node_type,
-            "lastUpdated": str(instance.last_updated),
-            "applyUrl": reverse("plugins-api:netbox_fms-api:wdmnode-apply-mapping", args=[instance.pk]),
-            "channels": channel_data,
-            "availablePorts": port_data,
-        }
-        return {"editor_config_json": json.dumps(config)}
-
-
-# ---------------------------------------------------------------------------
-# WDM Trunk Port
-# ---------------------------------------------------------------------------
-
-
-@register_model_view(WdmTrunkPort)
-class WdmTrunkPortView(generic.ObjectView):
-    """Display a single WDM trunk port."""
-
-    queryset = WdmTrunkPort.objects.all()
-
-
-class WdmTrunkPortEditView(generic.ObjectEditView):
-    """Handle WDM trunk port creation and editing."""
-
-    queryset = WdmTrunkPort.objects.all()
-    form = WdmTrunkPortForm
-
-
-class WdmTrunkPortDeleteView(generic.ObjectDeleteView):
-    """Delete a WDM trunk port."""
-
-    queryset = WdmTrunkPort.objects.all()
-
-
-# ---------------------------------------------------------------------------
-# Wavelength Channel
-# ---------------------------------------------------------------------------
-
-
-class WavelengthChannelListView(generic.ObjectListView):
-    """List all wavelength channels."""
-
-    queryset = WavelengthChannel.objects.select_related("wdm_node", "front_port")
-    table = WavelengthChannelTable
-    filterset = WavelengthChannelFilterSet
-    filterset_form = WavelengthChannelFilterForm
-
-
-@register_model_view(WavelengthChannel)
-class WavelengthChannelView(generic.ObjectView):
-    """Display a single wavelength channel."""
-
-    queryset = WavelengthChannel.objects.all()
-
-
-class WavelengthChannelEditView(generic.ObjectEditView):
-    """Handle wavelength channel creation and editing."""
-
-    queryset = WavelengthChannel.objects.all()
-    form = WavelengthChannelForm
-
-
-class WavelengthChannelDeleteView(generic.ObjectDeleteView):
-    """Delete a wavelength channel."""
-
-    queryset = WavelengthChannel.objects.all()
-
-
-class WavelengthChannelBulkEditView(generic.BulkEditView):
-    """Bulk edit wavelength channels."""
-
-    queryset = WavelengthChannel.objects.all()
-    filterset = WavelengthChannelFilterSet
-    table = WavelengthChannelTable
-    form = WavelengthChannelBulkEditForm
-
-
-class WavelengthChannelBulkDeleteView(generic.BulkDeleteView):
-    """Bulk delete wavelength channels."""
-
-    queryset = WavelengthChannel.objects.all()
-    filterset = WavelengthChannelFilterSet
-    table = WavelengthChannelTable
-
-
-# ---------------------------------------------------------------------------
-# Wavelength Service
-# ---------------------------------------------------------------------------
-
-
-class WavelengthServiceListView(generic.ObjectListView):
-    """List all wavelength services."""
-
-    queryset = WavelengthService.objects.select_related("tenant")
-    table = WavelengthServiceTable
-    filterset = WavelengthServiceFilterSet
-    filterset_form = WavelengthServiceFilterForm
-
-
-@register_model_view(WavelengthService)
-class WavelengthServiceView(generic.ObjectView):
-    """Display a single wavelength service."""
-
-    queryset = WavelengthService.objects.all()
-
-
-@register_model_view(WavelengthService, "trace", path="trace")
-class WavelengthServiceTraceView(generic.ObjectView):
-    """Stitched wavelength path trace visualization."""
-
-    queryset = WavelengthService.objects.all()
-    tab = ViewTab(
-        label=_("Trace"),
-        permission="netbox_fms.view_wavelengthservice",
-        weight=500,
-    )
-
-    def get_template_name(self):
-        """Return the trace tab template."""
-        return "netbox_fms/wavelengthservice_trace_tab.html"
-
-    def get_extra_context(self, request, instance):
-        """Return the stitched path for the trace tab."""
-        return {"stitched_path": instance.get_stitched_path()}
-
-
-class WavelengthServiceEditView(generic.ObjectEditView):
-    """Handle wavelength service creation and editing."""
-
-    queryset = WavelengthService.objects.all()
-    form = WavelengthServiceForm
-
-
-class WavelengthServiceDeleteView(generic.ObjectDeleteView):
-    """Delete a wavelength service."""
-
-    queryset = WavelengthService.objects.all()
-
-
-class WavelengthServiceBulkImportView(generic.BulkImportView):
-    """Bulk import wavelength services from CSV."""
-
-    queryset = WavelengthService.objects.all()
-    model_form = WavelengthServiceImportForm
-
-
-class WavelengthServiceBulkDeleteView(generic.BulkDeleteView):
-    """Bulk delete wavelength services."""
-
-    queryset = WavelengthService.objects.all()
-    filterset = WavelengthServiceFilterSet
-    table = WavelengthServiceTable
-
-
-# ---------------------------------------------------------------------------
 # Tray Assignment HTMX views
 # ---------------------------------------------------------------------------
+
+
+class TrayAssignmentsSectionView(LoginRequiredMixin, View):
+    """Return the tray assignments HTML fragment for HTMX refresh."""
+
+    def get(self, request, pk):
+        device = get_object_or_404(Device, pk=pk)
+        tray_data = _build_tray_assignment_data(device)
+        return render(
+            request,
+            "netbox_fms/htmx/tray_assignments_card.html",
+            {"device": device, "tray_data": tray_data},
+        )
 
 
 class AssignTubeView(LoginRequiredMixin, View):
@@ -2570,10 +2238,19 @@ class AssignTubeView(LoginRequiredMixin, View):
         ta.full_clean()
         ta.save()
 
-        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-        response = HttpResponse(status=200)
-        response["HX-Redirect"] = redirect_url
-        return response
+        return self._respond(request, device)
+
+    @staticmethod
+    def _respond(request, device):
+        """Return refreshed tray card (HTMX) or redirect (plain form)."""
+        if request.headers.get("HX-Request"):
+            tray_data = _build_tray_assignment_data(device)
+            response = render(
+                request, "netbox_fms/htmx/tray_assignments_card.html", {"device": device, "tray_data": tray_data}
+            )
+            response["HX-Trigger"] = "fmsCloseModal"
+            return response
+        return redirect(reverse("dcim:device", kwargs={"pk": device.pk}) + "fiber-overview/")
 
 
 class UnassignTubeView(LoginRequiredMixin, View):
@@ -2586,51 +2263,93 @@ class UnassignTubeView(LoginRequiredMixin, View):
         tube_id = request.POST.get("tube_id")
         TubeAssignment.objects.filter(closure=device, buffer_tube_id=tube_id).delete()
 
-        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-        response = HttpResponse(status=200)
-        response["HX-Redirect"] = redirect_url
-        return response
+        if request.headers.get("HX-Request"):
+            tray_data = _build_tray_assignment_data(device)
+            return render(
+                request, "netbox_fms/htmx/tray_assignments_card.html", {"device": device, "tray_data": tray_data}
+            )
+        return redirect(reverse("dcim:device", kwargs={"pk": device.pk}) + "fiber-overview/")
 
 
 class AutoAssignTubesView(LoginRequiredMixin, View):
-    """Auto-assign unassigned tubes to splice trays by first-fit."""
+    """Auto-assign unassigned tubes to splice trays, pairing by tube position.
+
+    Tubes at the same position across cables (e.g. T1 from Cable A and T1
+    from Cable B) are assigned to the same tray when capacity allows.
+    """
 
     def post(self, request, pk):
         if not request.user.has_perm("netbox_fms.add_tubeassignment"):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
 
-        trays = Module.objects.filter(
-            device=device,
-            module_type__tray_profile__tray_role=TrayRoleChoices.SPLICE_TRAY,
-        ).select_related("module_type")
+        trays = list(
+            Module.objects.filter(
+                device=device,
+                module_type__tray_profile__tray_role=TrayRoleChoices.SPLICE_TRAY,
+            ).select_related("module_type__tray_profile")
+        )
 
-        tray_capacity = {}
+        # Build tray capacity: max_fibers minus already-assigned fiber count
+        tray_remaining = {}
         for tray in trays:
-            total_ports = FrontPort.objects.filter(module=tray).count()
+            profile = tray.module_type.tray_profile
             used = sum(
                 ta.buffer_tube.fiber_strands.count()
                 for ta in TubeAssignment.objects.filter(tray=tray).select_related("buffer_tube")
             )
-            tray_capacity[tray.pk] = {"tray": tray, "remaining": total_ports - used}
+            tray_remaining[tray.pk] = {"tray": tray, "remaining": profile.max_fibers - used}
 
-        assigned_tube_ids = TubeAssignment.objects.filter(closure=device).values_list("buffer_tube_id", flat=True)
+        assigned_tube_ids = set(TubeAssignment.objects.filter(closure=device).values_list("buffer_tube_id", flat=True))
         cable_fc_ids = ClosureCableEntry.objects.filter(closure=device).values_list("fiber_cable_id", flat=True)
         unassigned_tubes = (
-            BufferTube.objects.filter(
-                fiber_cable_id__in=cable_fc_ids,
-            )
+            BufferTube.objects.filter(fiber_cable_id__in=cable_fc_ids)
             .exclude(pk__in=assigned_tube_ids)
-            .order_by("fiber_cable__pk", "position")
+            .select_related("fiber_cable")
+            .order_by("position", "fiber_cable__pk")
         )
 
+        # Group unassigned tubes by position so same-position tubes get the same tray
+        from collections import defaultdict
+
+        by_position = defaultdict(list)
         for tube in unassigned_tubes:
-            fiber_count = tube.fiber_strands.count()
-            for _tray_pk, info in tray_capacity.items():
-                if info["remaining"] >= fiber_count:
-                    TubeAssignment.objects.create(closure=device, tray=info["tray"], buffer_tube=tube)
-                    info["remaining"] -= fiber_count
+            by_position[tube.position].append(tube)
+
+        # Assign each position group to a tray, ordered by position
+        tray_list = sorted(tray_remaining.values(), key=lambda t: t["tray"].pk)
+        tray_idx = 0
+
+        for position in sorted(by_position.keys()):
+            tubes = by_position[position]
+            total_fibers = sum(t.fiber_strands.count() for t in tubes)
+
+            # Find a tray with enough capacity, starting from where we left off
+            assigned = False
+            for offset in range(len(tray_list)):
+                idx = (tray_idx + offset) % len(tray_list)
+                info = tray_list[idx]
+                if info["remaining"] >= total_fibers:
+                    for tube in tubes:
+                        TubeAssignment.objects.create(closure=device, tray=info["tray"], buffer_tube=tube)
+                    info["remaining"] -= total_fibers
+                    tray_idx = idx + 1
+                    assigned = True
                     break
 
-        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-        return redirect(redirect_url)
+            if not assigned:
+                # Fall back: assign tubes individually to any tray with space
+                for tube in tubes:
+                    fiber_count = tube.fiber_strands.count()
+                    for info in tray_list:
+                        if info["remaining"] >= fiber_count:
+                            TubeAssignment.objects.create(closure=device, tray=info["tray"], buffer_tube=tube)
+                            info["remaining"] -= fiber_count
+                            break
+
+        if request.headers.get("HX-Request"):
+            tray_data = _build_tray_assignment_data(device)
+            return render(
+                request, "netbox_fms/htmx/tray_assignments_card.html", {"device": device, "tray_data": tray_data}
+            )
+        return redirect(reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/")

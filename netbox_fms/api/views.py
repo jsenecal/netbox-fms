@@ -4,7 +4,7 @@ from dcim.models import CableTermination, Device, FrontPort, Module, PortMapping
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
-from ..choices import FiberCircuitStatusChoices
+from ..choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -34,12 +34,6 @@ from ..filters import (
     SpliceProjectFilterSet,
     TrayProfileFilterSet,
     TubeAssignmentFilterSet,
-    WavelengthChannelFilterSet,
-    WavelengthServiceFilterSet,
-    WdmChannelTemplateFilterSet,
-    WdmDeviceTypeProfileFilterSet,
-    WdmNodeFilterSet,
-    WdmTrunkPortFilterSet,
 )
 from ..models import (
     BufferTube,
@@ -61,15 +55,9 @@ from ..models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
-    WavelengthChannel,
-    WavelengthService,
-    WdmChannelTemplate,
-    WdmDeviceTypeProfile,
-    WdmNode,
-    WdmTrunkPort,
 )
 from ..services import apply_diff, get_or_recompute_diff, import_live_state
-from ..trace_hops import build_hops, get_wavelength_service_annotations
+from ..trace_hops import build_hops
 from .serializers import (
     BufferTubeSerializer,
     BufferTubeTemplateSerializer,
@@ -91,12 +79,6 @@ from .serializers import (
     SpliceProjectSerializer,
     TrayProfileSerializer,
     TubeAssignmentSerializer,
-    WavelengthChannelSerializer,
-    WavelengthServiceSerializer,
-    WdmChannelTemplateSerializer,
-    WdmDeviceTypeProfileSerializer,
-    WdmNodeSerializer,
-    WdmTrunkPortSerializer,
 )
 
 
@@ -229,6 +211,16 @@ class SplicePlanViewSet(NetBoxModelViewSet):
     serializer_class = SplicePlanSerializer
     filterset_class = SplicePlanFilterSet
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.status in (SplicePlanStatusChoices.PENDING_APPROVAL, SplicePlanStatusChoices.APPROVED):
+            if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+                return Response(
+                    {"error": "Deleting non-draft/non-archived plans requires approve_spliceplan permission."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"], url_path="import-from-device")
     def import_from_device(self, request, pk=None):
         """Import live splice state from the closure device into the plan."""
@@ -287,6 +279,11 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         if not request.user.has_perm("netbox_fms.change_spliceplan"):
             return Response(
                 {"detail": "You do not have permission to perform this action."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if plan.status != SplicePlanStatusChoices.DRAFT:
+            return Response(
+                {"error": f"Plan is '{plan.get_status_display()}' — only draft plans can be edited."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         # Optimistic locking: check plan version hasn't changed since editor loaded
@@ -467,7 +464,6 @@ class FiberCircuitPathViewSet(NetBoxModelViewSet):
             "wavelength_nm": path_obj.wavelength_nm,
             "hops": hops,
         }
-        data["wavelength_services"] = get_wavelength_service_annotations(path_obj.circuit)
         return Response(data)
 
 
@@ -477,222 +473,6 @@ class FiberCircuitNodeViewSet(ModelViewSet):
     queryset = FiberCircuitNode.objects.all()
     serializer_class = FiberCircuitNodeSerializer
     http_method_names = ["get", "head", "options"]
-
-
-# ---------------------------------------------------------------------------
-# WDM API views
-# ---------------------------------------------------------------------------
-
-
-class WdmDeviceTypeProfileViewSet(NetBoxModelViewSet):
-    """Manage WDM device type profiles (blueprint-level WDM capabilities)."""
-
-    queryset = WdmDeviceTypeProfile.objects.prefetch_related("device_type", "tags")
-    serializer_class = WdmDeviceTypeProfileSerializer
-    filterset_class = WdmDeviceTypeProfileFilterSet
-
-
-class WdmChannelTemplateViewSet(NetBoxModelViewSet):
-    """Manage WDM channel templates on device type profiles."""
-
-    queryset = WdmChannelTemplate.objects.prefetch_related("profile", "tags")
-    serializer_class = WdmChannelTemplateSerializer
-    filterset_class = WdmChannelTemplateFilterSet
-
-
-def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
-    """Apply channel-to-port mapping changes for a WDM node.
-
-    Uses bulk operations to avoid O(N*M) query counts.
-    """
-    channels = {ch.pk: ch for ch in wdm_node.channels.all()}
-    trunk_ports = list(wdm_node.trunk_ports.select_related("rear_port").all())
-
-    added = 0
-    removed = 0
-    changed = 0
-    affected_channels = []
-
-    # Collect channels that actually changed
-    channels_to_update = []
-    old_fp_ids_to_delete = []  # (front_port_id, grid_position) pairs
-    new_mappings_to_create = []  # PortMapping instances
-
-    for ch_pk, desired_fp_pk in desired_mapping.items():
-        ch = channels.get(ch_pk)
-        if ch is None:
-            continue
-
-        current_fp_pk = ch.front_port_id
-        if current_fp_pk == desired_fp_pk:
-            continue
-
-        affected_channels.append(ch)
-
-        # Track old mappings to delete
-        if current_fp_pk is not None:
-            old_fp_ids_to_delete.append((current_fp_pk, ch.grid_position))
-
-        # Track new mappings to create
-        if desired_fp_pk is not None:
-            for tp in trunk_ports:
-                new_mappings_to_create.append(
-                    PortMapping(
-                        device=wdm_node.device,
-                        front_port_id=desired_fp_pk,
-                        rear_port=tp.rear_port,
-                        front_port_position=1,
-                        rear_port_position=ch.grid_position,
-                    )
-                )
-
-        # Update channel FK
-        ch.front_port_id = desired_fp_pk
-        channels_to_update.append(ch)
-
-        # Count
-        if current_fp_pk is None and desired_fp_pk is not None:
-            added += 1
-        elif current_fp_pk is not None and desired_fp_pk is None:
-            removed += 1
-        else:
-            changed += 1
-
-    # Bulk update channels
-    if channels_to_update:
-        WavelengthChannel.objects.bulk_update(channels_to_update, ["front_port_id"])
-
-    # Bulk delete old PortMappings and create new ones
-    from ..signals import fms_portmapping_bypass
-
-    with fms_portmapping_bypass():
-        if old_fp_ids_to_delete:
-            delete_q = Q()
-            for fp_id, grid_pos in old_fp_ids_to_delete:
-                for tp in trunk_ports:
-                    delete_q |= Q(
-                        front_port_id=fp_id,
-                        rear_port=tp.rear_port,
-                        rear_port_position=grid_pos,
-                    )
-            if delete_q:
-                PortMapping.objects.filter(delete_q).delete()
-
-        if new_mappings_to_create:
-            PortMapping.objects.bulk_create(new_mappings_to_create)
-
-    # Retrace affected paths
-    if affected_channels:
-        _retrace_affected_paths(wdm_node, trunk_ports)
-
-    return {"added": added, "removed": removed, "changed": changed}
-
-
-def _retrace_affected_paths(wdm_node, trunk_ports):
-    """Retrace FiberCircuitPaths that traverse cables connected to the node's trunk ports.
-
-    Args:
-        wdm_node: The WdmNode instance.
-        trunk_ports: List of WdmTrunkPort instances on this node.
-    """
-    from dcim.models import CableTermination
-
-    rp_ids = [tp.rear_port_id for tp in trunk_ports]
-    if not rp_ids:
-        return
-
-    rp_ct = ContentType.objects.get_for_model(RearPort)
-    cable_ids = (
-        CableTermination.objects.filter(
-            termination_type=rp_ct,
-            termination_id__in=rp_ids,
-        )
-        .values_list("cable_id", flat=True)
-        .distinct()
-    )
-
-    if not cable_ids:
-        return
-
-    affected_paths = FiberCircuitPath.objects.filter(
-        nodes__cable_id__in=cable_ids,
-    ).distinct()
-
-    for path in affected_paths:
-        path.retrace()
-
-
-class WdmNodeViewSet(NetBoxModelViewSet):
-    """Manage WDM node instances attached to devices."""
-
-    queryset = WdmNode.objects.prefetch_related("device", "tags")
-    serializer_class = WdmNodeSerializer
-    filterset_class = WdmNodeFilterSet
-
-    @action(detail=True, methods=["post"], url_path="apply-mapping")
-    def apply_mapping(self, request, pk=None):
-        """Apply channel-to-port mapping changes atomically."""
-        node = self.get_object()
-
-        # Concurrent edit check
-        last_updated = request.data.get("last_updated")
-        if last_updated and str(node.last_updated) != last_updated:
-            return Response(
-                {"detail": "Node was modified since editor loaded. Please reload."},
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        desired = request.data.get("mapping", {})
-        desired = {int(k): (int(v) if v else None) for k, v in desired.items()}
-
-        errors = WdmNode.validate_channel_mapping(node, desired)
-        if errors:
-            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            result = _apply_mapping(node, desired)
-
-        return Response(result)
-
-
-class WdmTrunkPortViewSet(NetBoxModelViewSet):
-    """Manage WDM trunk port mappings on WDM nodes."""
-
-    queryset = WdmTrunkPort.objects.prefetch_related("wdm_node", "rear_port", "tags")
-    serializer_class = WdmTrunkPortSerializer
-    filterset_class = WdmTrunkPortFilterSet
-
-
-class WavelengthChannelViewSet(NetBoxModelViewSet):
-    """Manage wavelength channel instances on WDM nodes."""
-
-    queryset = WavelengthChannel.objects.prefetch_related("wdm_node", "tags")
-    serializer_class = WavelengthChannelSerializer
-    filterset_class = WavelengthChannelFilterSet
-
-
-class WavelengthServiceViewSet(NetBoxModelViewSet):
-    """Manage end-to-end wavelength services spanning fiber circuits."""
-
-    queryset = WavelengthService.objects.prefetch_related("tenant", "tags")
-    serializer_class = WavelengthServiceSerializer
-    filterset_class = WavelengthServiceFilterSet
-
-    @action(detail=True, methods=["get"], url_path="stitch")
-    def stitch(self, request, pk=None):
-        """Return the stitched end-to-end wavelength path."""
-        service = self.get_object()
-        path = service.get_stitched_path()
-        return Response(
-            {
-                "service_id": service.pk,
-                "service_name": service.name,
-                "wavelength_nm": float(service.wavelength_nm),
-                "status": service.status,
-                "is_complete": len(path) > 0,
-                "hops": path,
-            }
-        )
 
 
 class FiberCircuitProtectingAPIView(APIView):

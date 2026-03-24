@@ -218,55 +218,6 @@ menu = PluginMenu(
                 ),
             ),
         ),
-        (
-            "WDM",
-            (
-                PluginMenuItem(
-                    link="plugins:netbox_fms:wdmdevicetypeprofile_list",
-                    link_text="WDM Profiles",
-                    permissions=["netbox_fms.view_wdmdevicetypeprofile"],
-                    buttons=(
-                        PluginMenuButton(
-                            link="plugins:netbox_fms:wdmdevicetypeprofile_add",
-                            title="Add",
-                            icon_class="mdi mdi-plus-thick",
-                            permissions=["netbox_fms.add_wdmdevicetypeprofile"],
-                        ),
-                    ),
-                ),
-                PluginMenuItem(
-                    link="plugins:netbox_fms:wdmnode_list",
-                    link_text="WDM Nodes",
-                    permissions=["netbox_fms.view_wdmnode"],
-                    buttons=(
-                        PluginMenuButton(
-                            link="plugins:netbox_fms:wdmnode_add",
-                            title="Add",
-                            icon_class="mdi mdi-plus-thick",
-                            permissions=["netbox_fms.add_wdmnode"],
-                        ),
-                    ),
-                ),
-                PluginMenuItem(
-                    link="plugins:netbox_fms:wavelengthchannel_list",
-                    link_text="Wavelength Channels",
-                    permissions=["netbox_fms.view_wavelengthchannel"],
-                ),
-                PluginMenuItem(
-                    link="plugins:netbox_fms:wavelengthservice_list",
-                    link_text="Wavelength Services",
-                    permissions=["netbox_fms.view_wavelengthservice"],
-                    buttons=(
-                        PluginMenuButton(
-                            link="plugins:netbox_fms:wavelengthservice_add",
-                            title="Add",
-                            icon_class="mdi mdi-plus-thick",
-                            permissions=["netbox_fms.add_wavelengthservice"],
-                        ),
-                    ),
-                ),
-            ),
-        ),
     ),
     icon_class="mdi mdi-arrow-decision-outline",
 )

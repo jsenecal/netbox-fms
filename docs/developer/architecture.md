@@ -96,58 +96,6 @@ Created automatically by `FiberCable._instantiate_components()` when a new
 | `FiberCircuitPath` | One contiguous path (A-to-Z direction or protection path) within a circuit. |
 | `FiberCircuitNode` | An ordered node within a path, referencing the specific fiber strand and device traversed. |
 
-#### 5. WDM (Wavelength-Division Multiplexing)
-
-WDM models follow the same **overlay pattern** used by the rest of the plugin:
-a profile is attached to a `dcim.DeviceType` (blueprint), and a node is attached
-to a `dcim.Device` (instance). This keeps core NetBox models untouched while
-layering WDM semantics on top.
-
-| Model | Purpose |
-|-------|---------|
-| `WdmDeviceTypeProfile` | One-to-one overlay on `dcim.DeviceType`. Declares the device type's WDM capability (`node_type`) and channel grid (`grid`). Owns `WdmChannelTemplate` children. |
-| `WdmChannelTemplate` | Defines a channel slot on the profile. Each template specifies a `grid_position`, `wavelength_nm`, `label`, and optional `FrontPortTemplate` link. |
-| `WdmNode` | One-to-one overlay on `dcim.Device`. On creation (except for amplifiers), `_auto_populate_channels()` reads the device type's `WdmDeviceTypeProfile` templates and bulk-creates `WavelengthChannel` instances, resolving `FrontPortTemplate` names to live `FrontPort` objects. |
-| `WdmTrunkPort` | Maps a `dcim.RearPort` on the device to a directional trunk (e.g., East/West). Used by the apply-mapping logic to create `PortMapping` rows that connect channel `FrontPort` positions to trunk `RearPort` positions. |
-| `WavelengthChannel` | A wavelength channel instance on a `WdmNode`. Tracks `grid_position`, `wavelength_nm`, optional `front_port` assignment, and a `status` (available / reserved / lit). The `grid_position` maps directly to the `rear_port_position` in `PortMapping`, aligning each channel to the correct position in the cable profile's position stack. |
-| `WavelengthService` | End-to-end wavelength service spanning one or more fiber circuits and WDM nodes. Lifecycle transitions (decommission) automatically release channels and delete protection nodes. |
-| `WavelengthServiceCircuit` | Through-model linking a `WavelengthService` to `FiberCircuit` instances in sequence order. |
-| `WavelengthServiceChannelAssignment` | Through-model linking a `WavelengthService` to `WavelengthChannel` instances in sequence order. |
-| `WavelengthServiceNode` | Relational index for PROTECT-based deletion prevention. Each row references exactly one of `WavelengthChannel` or `FiberCircuit` (enforced by a `CheckConstraint`). Prevents deletion of channels or circuits that are part of an active service. |
-
-**Grid position and the cable profile position stack.** Each `WavelengthChannel`
-has a `grid_position` that corresponds to an ITU-T channel number. When a channel
-is mapped to a `FrontPort` via the apply-mapping endpoint, the system creates
-`PortMapping` rows where `rear_port_position = grid_position`. This aligns the
-WDM channel to the correct fiber position within the cable profile, so that the
-trace engine can walk through the WDM node just as it walks through any other
-device with port mappings.
-
-**Protection model.** `WavelengthServiceNode` rows act as relational guards.
-When a `WavelengthService` is active, its nodes hold PROTECT foreign keys to the
-referenced channels and circuits. Attempting to delete a channel or circuit that
-is part of an active service raises a `ProtectedError`. On decommission, the
-service's `save()` method deletes all nodes and releases channels back to
-`available` status.
-
-```mermaid
-erDiagram
-    WdmDeviceTypeProfile ||--|| DeviceType : "overlays (dcim)"
-    WdmDeviceTypeProfile ||--o{ WdmChannelTemplate : "has"
-
-    WdmNode ||--|| Device : "overlays (dcim)"
-    WdmNode ||--o{ WdmTrunkPort : "has"
-    WdmNode ||--o{ WavelengthChannel : "has"
-
-    WavelengthService ||--o{ WavelengthServiceCircuit : "circuit_assignments"
-    WavelengthService ||--o{ WavelengthServiceChannelAssignment : "channel_assignments"
-    WavelengthService ||--o{ WavelengthServiceNode : "nodes (protection)"
-    WavelengthServiceCircuit ||--|| FiberCircuit : "references"
-    WavelengthServiceChannelAssignment ||--|| WavelengthChannel : "references"
-    WavelengthServiceNode }|--|| WavelengthChannel : "protects"
-    WavelengthServiceNode }|--|| FiberCircuit : "protects"
-```
-
 ## Service Layer
 
 Business logic is separated from Django model methods into dedicated service

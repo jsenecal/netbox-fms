@@ -271,15 +271,15 @@ class SplicePlanStatusChoices(ChoiceSet):
     """Choice set for splice plan workflow status."""
 
     DRAFT = "draft"
-    PENDING_REVIEW = "pending_review"
-    READY_TO_APPLY = "ready_to_apply"
-    APPLIED = "applied"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    ARCHIVED = "archived"
 
     CHOICES = (
         (DRAFT, "Draft"),
-        (PENDING_REVIEW, "Pending Review"),
-        (READY_TO_APPLY, "Ready to Apply"),
-        (APPLIED, "Applied"),
+        (PENDING_APPROVAL, "Pending Approval"),
+        (APPROVED, "Approved"),
+        (ARCHIVED, "Archived"),
     )
 
 
@@ -292,69 +292,4 @@ class TrayRoleChoices(ChoiceSet):
     CHOICES = (
         (SPLICE_TRAY, _("Splice Tray")),
         (EXPRESS_BASKET, _("Express Basket")),
-    )
-
-
-#
-# WDM choices
-#
-
-
-class WdmNodeTypeChoices(ChoiceSet):
-    """Choice set for WDM node type."""
-
-    TERMINAL_MUX = "terminal_mux"
-    OADM = "oadm"
-    ROADM = "roadm"
-    AMPLIFIER = "amplifier"
-
-    CHOICES = (
-        (TERMINAL_MUX, "Terminal Mux"),
-        (OADM, "OADM"),
-        (ROADM, "ROADM"),
-        (AMPLIFIER, "Amplifier"),
-    )
-
-
-class WdmGridChoices(ChoiceSet):
-    """Choice set for WDM grid spacing."""
-
-    DWDM_100GHZ = "dwdm_100ghz"
-    DWDM_50GHZ = "dwdm_50ghz"
-    CWDM = "cwdm"
-
-    CHOICES = (
-        (DWDM_100GHZ, "DWDM 100 GHz"),
-        (DWDM_50GHZ, "DWDM 50 GHz"),
-        (CWDM, "CWDM"),
-    )
-
-
-class WavelengthChannelStatusChoices(ChoiceSet):
-    """Choice set for wavelength channel status."""
-
-    AVAILABLE = "available"
-    RESERVED = "reserved"
-    LIT = "lit"
-
-    CHOICES = (
-        (AVAILABLE, "Available"),
-        (RESERVED, "Reserved"),
-        (LIT, "Lit"),
-    )
-
-
-class WavelengthServiceStatusChoices(ChoiceSet):
-    """Choice set for wavelength service lifecycle status."""
-
-    PLANNED = "planned"
-    STAGED = "staged"
-    ACTIVE = "active"
-    DECOMMISSIONED = "decommissioned"
-
-    CHOICES = (
-        (PLANNED, "Planned"),
-        (STAGED, "Staged"),
-        (ACTIVE, "Active"),
-        (DECOMMISSIONED, "Decommissioned"),
     )

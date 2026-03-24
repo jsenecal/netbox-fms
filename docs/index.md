@@ -13,7 +13,6 @@ Fiber cable management, splice planning, and circuit provisioning for NetBox.
 - **Splice planning with diff computation and draw.io export** — Build splice plans that map strand-to-strand connections, compute diffs against existing plans, and export diagrams for field crews.
 - **Fiber circuit provisioning with DAG-based pathfinding** — Provision end-to-end fiber circuits across your infrastructure using directed acyclic graph traversal for optimal path selection.
 - **Device fiber overview with closure management** — View all fiber connections on a device at a glance and manage splice closures with tray and group organization.
-- **WDM wavelength modeling** — Model terminal muxes, OADMs, ROADMs, and amplifiers with ITU grid channel plans. Provision wavelength services across WDM nodes and manage channel assignments with the interactive ROADM editor.
 
 ---
 
@@ -32,12 +31,6 @@ Fiber cable management, splice planning, and circuit provisioning for NetBox.
     Learn how to use each feature, from cable types to splice planning.
 
     [:octicons-arrow-right-24: User Guide](user-guide/concepts.md)
-
--   **WDM**
-
-    Model WDM nodes, provision wavelength services, and manage ROADM channel assignments.
-
-    [:octicons-arrow-right-24: WDM Nodes](user-guide/wdm-nodes.md)
 
 -   **Developer**
 

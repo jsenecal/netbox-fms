@@ -23,7 +23,6 @@ from netbox_fms.models import (
     FiberCircuitPath,
     SplicePlan,
     SplicePlanEntry,
-    WavelengthService,
 )
 
 
@@ -157,7 +156,8 @@ class TestQuickAddAPI(TestCase):
         assert resp.json()["name"] == "Quick Plan"
         assert SplicePlan.objects.filter(closure=self.closure).exists()
 
-    def test_quick_add_duplicate_closure_fails(self):
+    def test_quick_add_duplicate_closure_allowed(self):
+        """closure is now a ForeignKey, so multiple plans per closure are allowed."""
         SplicePlan.objects.create(closure=self.closure, name="Existing")
         url = "/api/plugins/fms/splice-plans/quick-add/"
         resp = self.client.post(
@@ -169,8 +169,7 @@ class TestQuickAddAPI(TestCase):
             },
             format="json",
         )
-        assert resp.status_code in (400, 500), f"Expected 400 or 500 but got {resp.status_code}"
-        assert resp.status_code != 201  # Must not succeed
+        assert resp.status_code == 201, f"Expected 201 but got {resp.status_code}"
 
 
 # ---------------------------------------------------------------------------
@@ -226,36 +225,6 @@ class TestFiberCircuitPathTraceAPI(TestCase):
         data = resp.json()
         assert "hops" in data
         assert data["circuit_name"] == "FC-Trace"
-        assert "wavelength_services" in data
-
-
-# ---------------------------------------------------------------------------
-# WavelengthService stitch action
-# ---------------------------------------------------------------------------
-
-
-class TestWavelengthServiceStitchAPI(TestCase):
-    """GET /api/plugins/fms/wavelength-services/{pk}/stitch/ should return 200."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.service = WavelengthService.objects.create(
-            name="WS-Stitch",
-            wavelength_nm="1550.12",
-            status="planned",
-        )
-
-    def setUp(self):
-        self.client = _make_authed_client()
-
-    def test_stitch_returns_200_with_hops(self):
-        url = f"/api/plugins/fms/wavelength-services/{self.service.pk}/stitch/"
-        resp = self.client.get(url)
-        assert resp.status_code == 200, resp.content
-        data = resp.json()
-        assert data["service_name"] == "WS-Stitch"
-        assert "hops" in data
-        assert isinstance(data["hops"], list)
 
 
 # ---------------------------------------------------------------------------
@@ -439,42 +408,6 @@ class TestProvisionPortsAPI(TestCase):
             format="json",
         )
         assert resp.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# WDM CRUD list endpoints
-# ---------------------------------------------------------------------------
-
-
-class TestWdmListEndpoints(TestCase):
-    """GET list endpoints for WDM models should return 200."""
-
-    def setUp(self):
-        self.client = _make_authed_client()
-
-    def test_wdm_profiles_list(self):
-        resp = self.client.get("/api/plugins/fms/wdm-profiles/")
-        assert resp.status_code == 200, resp.content
-
-    def test_wdm_channel_templates_list(self):
-        resp = self.client.get("/api/plugins/fms/wdm-channel-templates/")
-        assert resp.status_code == 200, resp.content
-
-    def test_wdm_nodes_list(self):
-        resp = self.client.get("/api/plugins/fms/wdm-nodes/")
-        assert resp.status_code == 200, resp.content
-
-    def test_wdm_trunk_ports_list(self):
-        resp = self.client.get("/api/plugins/fms/wdm-trunk-ports/")
-        assert resp.status_code == 200, resp.content
-
-    def test_wavelength_channels_list(self):
-        resp = self.client.get("/api/plugins/fms/wavelength-channels/")
-        assert resp.status_code == 200, resp.content
-
-    def test_wavelength_services_list(self):
-        resp = self.client.get("/api/plugins/fms/wavelength-services/")
-        assert resp.status_code == 200, resp.content
 
 
 # ---------------------------------------------------------------------------

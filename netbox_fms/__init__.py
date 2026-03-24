@@ -68,27 +68,6 @@ class NetBoxFMSConfig(PluginConfig):
         )
 
         register_map_layer(
-            name="fms_wdm_nodes",
-            label="WDM Nodes",
-            geometry_type="Point",
-            source="reference",
-            queryset=lambda r: Device.objects.filter(
-                wdm_node__isnull=False,
-            ).restrict(r.user, "view"),
-            geometry_field="site",
-            feature_fields=["name", "site", "role", "status"],
-            popover_fields=["name", "role"],
-            style=LayerStyle(color="#2196f3", icon="mdi-sine-wave"),
-            detail=LayerDetail(
-                url_template="/dcim/devices/{id}/",
-                fields=["name", "site", "role", "status"],
-                label_field="name",
-            ),
-            group="Fiber Management",
-            sort_order=20,
-        )
-
-        register_map_layer(
             name="fms_slack_loops",
             label="Slack Loops",
             geometry_type="Point",

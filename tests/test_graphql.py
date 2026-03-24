@@ -86,36 +86,6 @@ class TestGraphQLTypeImports:
 
         assert SlackLoopType is not None
 
-    def test_import_wdm_device_type_profile_type(self):
-        from netbox_fms.graphql.types import WdmDeviceTypeProfileType
-
-        assert WdmDeviceTypeProfileType is not None
-
-    def test_import_wdm_channel_template_type(self):
-        from netbox_fms.graphql.types import WdmChannelTemplateType
-
-        assert WdmChannelTemplateType is not None
-
-    def test_import_wdm_node_instance_type(self):
-        from netbox_fms.graphql.types import WdmNodeInstanceType
-
-        assert WdmNodeInstanceType is not None
-
-    def test_import_wdm_trunk_port_type(self):
-        from netbox_fms.graphql.types import WdmTrunkPortType
-
-        assert WdmTrunkPortType is not None
-
-    def test_import_wavelength_channel_type(self):
-        from netbox_fms.graphql.types import WavelengthChannelType
-
-        assert WavelengthChannelType is not None
-
-    def test_import_wavelength_service_type(self):
-        from netbox_fms.graphql.types import WavelengthServiceType
-
-        assert WavelengthServiceType is not None
-
     def test_types_all_exports(self):
         """Verify __all__ contains exactly the expected types."""
         from netbox_fms.graphql import types
@@ -137,12 +107,6 @@ class TestGraphQLTypeImports:
             "FiberCircuitType",
             "FiberCircuitPathType",
             "SlackLoopType",
-            "WdmDeviceTypeProfileType",
-            "WdmChannelTemplateType",
-            "WdmNodeInstanceType",
-            "WdmTrunkPortType",
-            "WavelengthChannelType",
-            "WavelengthServiceType",
             "TrayProfileType",
             "TubeAssignmentType",
         }
@@ -212,26 +176,6 @@ class TestGraphQLFilterImports:
 
         assert SlackLoopFilter is not None
 
-    def test_import_wdm_device_type_profile_filter(self):
-        from netbox_fms.graphql.filters import WdmDeviceTypeProfileFilter
-
-        assert WdmDeviceTypeProfileFilter is not None
-
-    def test_import_wdm_node_filter(self):
-        from netbox_fms.graphql.filters import WdmNodeFilter
-
-        assert WdmNodeFilter is not None
-
-    def test_import_wavelength_channel_filter(self):
-        from netbox_fms.graphql.filters import WavelengthChannelFilter
-
-        assert WavelengthChannelFilter is not None
-
-    def test_import_wavelength_service_filter(self):
-        from netbox_fms.graphql.filters import WavelengthServiceFilter
-
-        assert WavelengthServiceFilter is not None
-
     def test_filters_all_exports(self):
         """Verify __all__ contains exactly the expected filters."""
         from netbox_fms.graphql import filters
@@ -249,10 +193,6 @@ class TestGraphQLFilterImports:
             "FiberCircuitFilter",
             "FiberCircuitPathFilter",
             "SlackLoopFilter",
-            "WdmDeviceTypeProfileFilter",
-            "WdmNodeFilter",
-            "WavelengthChannelFilter",
-            "WavelengthServiceFilter",
             "TrayProfileFilter",
             "TubeAssignmentFilter",
         }
@@ -360,40 +300,10 @@ class TestGraphQLSchema:
         assert "slack_loop" in fields
         assert "slack_loop_list" in fields
 
-    def test_query_has_wdm_device_type_profile_fields(self):
-        fields = self._get_strawberry_field_names()
-        assert "wdm_device_type_profile" in fields
-        assert "wdm_device_type_profile_list" in fields
-
-    def test_query_has_wdm_channel_template_fields(self):
-        fields = self._get_strawberry_field_names()
-        assert "wdm_channel_template" in fields
-        assert "wdm_channel_template_list" in fields
-
-    def test_query_has_wdm_node_fields(self):
-        fields = self._get_strawberry_field_names()
-        assert "wdm_node" in fields
-        assert "wdm_node_list" in fields
-
-    def test_query_has_wdm_trunk_port_fields(self):
-        fields = self._get_strawberry_field_names()
-        assert "wdm_trunk_port" in fields
-        assert "wdm_trunk_port_list" in fields
-
-    def test_query_has_wavelength_channel_fields(self):
-        fields = self._get_strawberry_field_names()
-        assert "wavelength_channel" in fields
-        assert "wavelength_channel_list" in fields
-
-    def test_query_has_wavelength_service_fields(self):
-        fields = self._get_strawberry_field_names()
-        assert "wavelength_service" in fields
-        assert "wavelength_service_list" in fields
-
     def test_query_field_count(self):
-        """Verify the query class has the expected number of field pairs (22 models x 2)."""
+        """Verify the query class has the expected number of field pairs (18 models x 2)."""
         fields = self._get_strawberry_field_names()
-        assert len(fields) == 48  # 24 models x (single + list)
+        assert len(fields) == 36  # 18 models x (single + list)
 
 
 @pytest.mark.django_db
@@ -413,18 +323,6 @@ class TestGraphQLFilterInstantiation:
 
         f = FiberCableFilter(id=None, fiber_cable_type_id=None, cable_id=None, name=None)
         assert f.name is None
-
-    def test_wdm_node_filter_instantiation(self):
-        from netbox_fms.graphql.filters import WdmNodeFilter
-
-        f = WdmNodeFilter(id=None, node_type=None, grid=None, device_id=None)
-        assert f.device_id is None
-
-    def test_wavelength_service_filter_instantiation(self):
-        from netbox_fms.graphql.filters import WavelengthServiceFilter
-
-        f = WavelengthServiceFilter(id=None, name=None, status=None)
-        assert f.status is None
 
     def test_splice_plan_filter_instantiation(self):
         from netbox_fms.graphql.filters import SplicePlanFilter
@@ -446,8 +344,3 @@ class TestGraphQLFilterInstantiation:
         )
         assert f.storage_method is None
 
-    def test_wavelength_channel_filter_instantiation(self):
-        from netbox_fms.graphql.filters import WavelengthChannelFilter
-
-        f = WavelengthChannelFilter(id=None, wdm_node_id=None, status=None, grid_position=None)
-        assert f.grid_position is None
