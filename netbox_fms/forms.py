@@ -28,6 +28,7 @@ from utilities.forms.fields import (
     DynamicModelMultipleChoiceField,
 )
 from utilities.forms.rendering import FieldSet
+from utilities.forms.utils import add_blank_choice
 
 from .choices import (
     CableElementTypeChoices,
@@ -36,6 +37,7 @@ from .choices import (
     FiberCircuitStatusChoices,
     FiberTypeChoices,
     FireRatingChoices,
+    MarkerTypeChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -82,6 +84,7 @@ class FiberCableTypeForm(NetBoxModelForm):
         label=_("Manufacturer"),
     )
     jacket_color = ColorField(required=False, label=_("Jacket Color"))
+    strand_marker_color = ColorField(required=False)
     comments = CommentField()
 
     fieldsets = (
@@ -90,6 +93,12 @@ class FiberCableTypeForm(NetBoxModelForm):
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
         FieldSet("deployment", "fire_rating", name=_("Deployment & Rating")),
+        FieldSet(
+            "strand_marker_interval",
+            "strand_marker_color",
+            "strand_marker_type",
+            name=_("Strand Markers (Tight Buffer)"),
+        ),
         FieldSet("construction_image", "notes", "tags", name=_("Additional")),
     )
 
@@ -108,6 +117,9 @@ class FiberCableTypeForm(NetBoxModelForm):
             "armor_type",
             "deployment",
             "fire_rating",
+            "strand_marker_interval",
+            "strand_marker_color",
+            "strand_marker_type",
             "construction_image",
             "notes",
             "tags",
@@ -197,7 +209,8 @@ class BufferTubeTemplateForm(NetBoxModelForm):
         label=_("Fiber Cable Type"),
     )
     color = ColorField(required=False)
-    stripe_color = ColorField(required=False)
+    marker_color = ColorField(required=False)
+    strand_marker_color = ColorField(required=False)
 
     fieldsets = (
         FieldSet(
@@ -205,17 +218,39 @@ class BufferTubeTemplateForm(NetBoxModelForm):
             "name",
             "position",
             "color",
-            "stripe_color",
+            "marker_count",
+            "marker_color",
+            "marker_type",
             "fiber_count",
             "description",
             name=_("Buffer Tube"),
+        ),
+        FieldSet(
+            "strand_marker_interval",
+            "strand_marker_color",
+            "strand_marker_type",
+            name=_("Strand Markers"),
         ),
         FieldSet("tags", name=_("Additional")),
     )
 
     class Meta:
         model = BufferTubeTemplate
-        fields = ("fiber_cable_type", "name", "position", "color", "stripe_color", "fiber_count", "description", "tags")
+        fields = (
+            "fiber_cable_type",
+            "name",
+            "position",
+            "color",
+            "marker_count",
+            "marker_color",
+            "marker_type",
+            "fiber_count",
+            "strand_marker_interval",
+            "strand_marker_color",
+            "strand_marker_type",
+            "description",
+            "tags",
+        )
 
 
 class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
@@ -224,11 +259,13 @@ class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
     model = BufferTubeTemplate
 
     color = ColorField(required=False)
-    stripe_color = ColorField(required=False)
+    marker_count = forms.IntegerField(required=False)
+    marker_color = ColorField(required=False)
+    marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
 
-    fieldsets = (FieldSet("color", "stripe_color", "fiber_count"),)
-    nullable_fields = ("color", "stripe_color")
+    fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
+    nullable_fields = ("color", "marker_color", "marker_type")
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +287,8 @@ class RibbonTemplateForm(NetBoxModelForm):
         query_params={"fiber_cable_type_id": "$fiber_cable_type"},
     )
     color = ColorField(required=False)
-    stripe_color = ColorField(required=False)
+    marker_color = ColorField(required=False)
+    strand_marker_color = ColorField(required=False)
 
     fieldsets = (
         FieldSet(
@@ -259,10 +297,18 @@ class RibbonTemplateForm(NetBoxModelForm):
             "name",
             "position",
             "color",
-            "stripe_color",
+            "marker_count",
+            "marker_color",
+            "marker_type",
             "fiber_count",
             "description",
             name=_("Ribbon Template"),
+        ),
+        FieldSet(
+            "strand_marker_interval",
+            "strand_marker_color",
+            "strand_marker_type",
+            name=_("Strand Markers"),
         ),
         FieldSet("tags", name=_("Additional")),
     )
@@ -275,8 +321,13 @@ class RibbonTemplateForm(NetBoxModelForm):
             "name",
             "position",
             "color",
-            "stripe_color",
+            "marker_count",
+            "marker_color",
+            "marker_type",
             "fiber_count",
+            "strand_marker_interval",
+            "strand_marker_color",
+            "strand_marker_type",
             "description",
             "tags",
         )
@@ -288,11 +339,13 @@ class RibbonTemplateBulkEditForm(NetBoxModelBulkEditForm):
     model = RibbonTemplate
 
     color = ColorField(required=False)
-    stripe_color = ColorField(required=False)
+    marker_count = forms.IntegerField(required=False)
+    marker_color = ColorField(required=False)
+    marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
 
-    fieldsets = (FieldSet("color", "stripe_color", "fiber_count"),)
-    nullable_fields = ("color", "stripe_color")
+    fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
+    nullable_fields = ("color", "marker_color", "marker_type")
 
 
 # ---------------------------------------------------------------------------
@@ -1158,11 +1211,11 @@ class TrayProfileForm(NetBoxModelForm):
 
     module_type = DynamicModelChoiceField(queryset=ModuleType.objects.all(), label=_("Module Type"))
 
-    fieldsets = (FieldSet("module_type", "tray_role", "description", "tags", name=_("Tray Profile")),)
+    fieldsets = (FieldSet("module_type", "tray_role", "max_fibers", "description", "tags", name=_("Tray Profile")),)
 
     class Meta:
         model = TrayProfile
-        fields = ("module_type", "tray_role", "description", "tags")
+        fields = ("module_type", "tray_role", "max_fibers", "description", "tags")
 
 
 class TrayProfileImportForm(NetBoxModelImportForm):
