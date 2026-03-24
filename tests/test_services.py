@@ -233,10 +233,10 @@ class TestApplyDiff(TestCase):
         assert result["removed"] == 1
         assert not Cable.objects.filter(pk=cable.pk).exists()
 
-    def test_apply_sets_status_to_applied(self):
+    def test_apply_sets_status_to_archived(self):
         from netbox_fms.choices import SplicePlanStatusChoices
 
         plan = SplicePlan.objects.create(closure=self.closure, name="Status Plan")
         apply_diff(plan)
         plan.refresh_from_db()
-        assert plan.status == SplicePlanStatusChoices.APPLIED
+        assert plan.status == SplicePlanStatusChoices.ARCHIVED

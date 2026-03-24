@@ -190,6 +190,8 @@ async function init(config: EditorConfig): Promise<void> {
     },
   );
 
+  renderer.setAfterRender(updateAfterRender);
+
   const interactions = new Interactions(state, renderer, config, handleSave);
 
   // Wire detail panel close

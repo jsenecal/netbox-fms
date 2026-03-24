@@ -38,6 +38,7 @@ export class SpliceRenderer {
   private onSpliceClick: (entry: SpliceEntry, event: MouseEvent) => void;
   private onTubeToggle: (node: LayoutNode, nodes: LayoutNode[]) => void;
   private onCableMove: ((cableId: number) => void) | null = null;
+  private onAfterRender: (() => void) | null = null;
 
   private containerWidth: number;
 
@@ -172,6 +173,13 @@ export class SpliceRenderer {
     this.renderColumn(this.rightInner, this.state.rightNodes, 'right', rightX);
     this.renderLinks();
     this.setupDrag(svgHeight);
+
+    if (this.onAfterRender) this.onAfterRender();
+  }
+
+  /** Register a callback to run after each render. */
+  setAfterRender(cb: () => void): void {
+    this.onAfterRender = cb;
   }
 
   /** Re-measure container and re-render. */

@@ -6,12 +6,71 @@
 {% load static %}
 
 {% block extra_controls %}
-    <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_import_device' pk=object.pk %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-warning">
-            <i class="mdi mdi-download"></i> {% trans "Import from Device" %}
-        </button>
-    </form>
+    {% if object.status == 'draft' %}
+        <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_transition' pk=object.pk %}" class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="submit">
+            <button type="submit" class="btn btn-primary">
+                <i class="mdi mdi-send"></i> {% trans "Submit for Approval" %}
+            </button>
+        </form>
+        <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_transition' pk=object.pk %}" class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="archive">
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="mdi mdi-archive"></i> {% trans "Discard" %}
+            </button>
+        </form>
+        <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_import_device' pk=object.pk %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-warning">
+                <i class="mdi mdi-download"></i> {% trans "Import from Device" %}
+            </button>
+        </form>
+    {% elif object.status == 'pending_approval' %}
+        {% if perms.netbox_fms.approve_spliceplan %}
+            <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_transition' pk=object.pk %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="approve">
+                <button type="submit" class="btn btn-success">
+                    <i class="mdi mdi-check"></i> {% trans "Approve" %}
+                </button>
+            </form>
+            <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_transition' pk=object.pk %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reject">
+                <button type="submit" class="btn btn-danger">
+                    <i class="mdi mdi-close"></i> {% trans "Reject" %}
+                </button>
+            </form>
+        {% endif %}
+        {% if object.submitted_by == request.user %}
+            <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_transition' pk=object.pk %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="withdraw">
+                <button type="submit" class="btn btn-outline-warning">
+                    <i class="mdi mdi-undo"></i> {% trans "Withdraw" %}
+                </button>
+            </form>
+        {% endif %}
+    {% elif object.status == 'approved' %}
+        {% if perms.netbox_fms.approve_spliceplan %}
+            <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_transition' pk=object.pk %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reopen">
+                <button type="submit" class="btn btn-outline-primary">
+                    <i class="mdi mdi-lock-open"></i> {% trans "Reopen" %}
+                </button>
+            </form>
+            <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_transition' pk=object.pk %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="archive">
+                <button type="submit" class="btn btn-outline-danger">
+                    <i class="mdi mdi-archive"></i> {% trans "Discard" %}
+                </button>
+            </form>
+        {% endif %}
+    {% endif %}
     <a href="{% url 'plugins:netbox_fms:spliceplan_export' pk=object.pk %}" class="btn btn-secondary">
         <i class="mdi mdi-export"></i> {% trans "Export Draw.io" %}
     </a>
@@ -40,17 +99,23 @@
                 <tr>
                     <th scope="row">{% trans "Status" %}</th>
                     <td>
-                        {% if object.status == 'applied' %}
+                        {% if object.status == 'archived' %}
                             <span class="fms-badge fms-badge--live">{{ object.get_status_display }}</span>
-                        {% elif object.status == 'ready_to_apply' %}
+                        {% elif object.status == 'approved' %}
                             <span class="fms-badge fms-badge--planned">{{ object.get_status_display }}</span>
-                        {% elif object.status == 'pending_review' %}
+                        {% elif object.status == 'pending_approval' %}
                             <span class="fms-badge fms-badge--pending">{{ object.get_status_display }}</span>
                         {% else %}
                             <span class="fms-badge fms-badge--draft">{{ object.get_status_display }}</span>
                         {% endif %}
                     </td>
                 </tr>
+                {% if object.submitted_by %}
+                <tr>
+                    <th scope="row">{% trans "Submitted By" %}</th>
+                    <td>{{ object.submitted_by }}</td>
+                </tr>
+                {% endif %}
                 <tr>
                     <th scope="row">{% trans "Entries" %}</th>
                     <td>{{ object.entries.count }}</td>
@@ -58,7 +123,7 @@
                 <tr>
                     <th scope="row">{% trans "Sync" %}</th>
                     <td>
-                        {% if object.status == 'applied' and not object.diff_stale %}
+                        {% if object.status == 'archived' and not object.diff_stale %}
                             <span class="fms-badge fms-badge--live"><i class="mdi mdi-check"></i> {% trans "In sync" %}</span>
                         {% elif object.diff_stale %}
                             <span class="fms-badge fms-badge--pending"><i class="mdi mdi-sync-alert"></i> {% trans "Out of sync" %}</span>

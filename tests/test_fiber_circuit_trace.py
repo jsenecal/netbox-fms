@@ -127,7 +127,7 @@ class TestTraceMultiHop(TestCase):
 
         cls.splice_cable = _make_splice(cls.fp_b1, cls.fp_b2)
         cls.plan_b = SplicePlan.objects.create(
-            closure=cls.dev_b, name="Plan-B", status=SplicePlanStatusChoices.APPLIED
+            closure=cls.dev_b, name="Plan-B", status=SplicePlanStatusChoices.ARCHIVED
         )
         cls.splice_entry = SplicePlanEntry.objects.create(
             plan=cls.plan_b,

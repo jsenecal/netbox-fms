@@ -135,6 +135,36 @@
     </div>
     {% endif %}
 
+    {# Recent changelog messages #}
+    {% if changelog_messages %}
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <i class="mdi mdi-history"></i>
+            <strong>{% trans "Recent Changes" %}</strong>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:180px">{% trans "Time" %}</th>
+                        <th style="width:120px">{% trans "User" %}</th>
+                        <th>{% trans "Message" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in changelog_messages %}
+                    <tr>
+                        <td class="text-muted small">{{ entry.time|timesince }} {% trans "ago" %}</td>
+                        <td>{{ entry.user }}</td>
+                        <td>{{ entry.message }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
     {% else %}
     <div class="text-muted text-center py-4">
         <i class="mdi mdi-check-circle-outline mdi-48px"></i>

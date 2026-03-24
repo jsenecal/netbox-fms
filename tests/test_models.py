@@ -12,14 +12,14 @@ class TestSplicePlanStatusChoices(TestCase):
     def test_has_draft(self):
         assert SplicePlanStatusChoices.DRAFT == "draft"
 
-    def test_has_pending_review(self):
-        assert SplicePlanStatusChoices.PENDING_REVIEW == "pending_review"
+    def test_has_pending_approval(self):
+        assert SplicePlanStatusChoices.PENDING_APPROVAL == "pending_approval"
 
-    def test_has_ready_to_apply(self):
-        assert SplicePlanStatusChoices.READY_TO_APPLY == "ready_to_apply"
+    def test_has_approved(self):
+        assert SplicePlanStatusChoices.APPROVED == "approved"
 
-    def test_has_applied(self):
-        assert SplicePlanStatusChoices.APPLIED == "applied"
+    def test_has_archived(self):
+        assert SplicePlanStatusChoices.ARCHIVED == "archived"
 
     def test_mode_choices_removed(self):
         """SplicePlanModeChoices should no longer exist."""
@@ -74,12 +74,11 @@ class TestSplicePlanRework(TestCase):
         assert plan.project == self.project
         assert self.project.plans.count() == 1
 
-    def test_unique_closure_constraint(self):
-        from django.db import IntegrityError
-
+    def test_multiple_plans_per_closure(self):
+        """closure is now a ForeignKey, allowing multiple plans per device."""
         SplicePlan.objects.create(closure=self.closure, name="Plan 1")
-        with self.assertRaises(IntegrityError):
-            SplicePlan.objects.create(closure=self.closure, name="Plan 2")
+        plan2 = SplicePlan.objects.create(closure=self.closure, name="Plan 2")
+        assert plan2.pk is not None
 
     def test_no_mode_field(self):
         plan = SplicePlan.objects.create(closure=self.closure, name="Plan 1")

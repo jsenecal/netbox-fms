@@ -411,7 +411,6 @@ def apply_diff(plan):
         for port_a_id, port_b_id in all_adds:
             cable = Cable(
                 status="connected",
-                label=f"splice-{port_a_id}-{port_b_id}",
             )
             cable.save()
             CableTermination.objects.create(
@@ -428,7 +427,7 @@ def apply_diff(plan):
             )
             added += 1
 
-        plan.status = SplicePlanStatusChoices.APPLIED
+        plan.status = SplicePlanStatusChoices.ARCHIVED
         plan.diff_stale = True
         plan.save(update_fields=["status", "diff_stale"])
 
