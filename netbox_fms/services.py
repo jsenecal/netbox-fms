@@ -6,6 +6,7 @@ from django.db import transaction
 
 from .choices import SplicePlanStatusChoices
 from .models import FiberCable, SplicePlanEntry
+from .signals import fms_portmapping_bypass
 
 
 class NeedsMappingConfirmation(Exception):  # noqa: N818
@@ -113,44 +114,76 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
     cable_end = _determine_cable_end(cable, device)
     fk_field = "front_port_a" if cable_end in ("A", "AB") else "front_port_b"
 
-    if existing_term_rp_ids and port_mapping is not None:
-        # Adopt path: link strands to existing FrontPorts
-        for strand in fc.fiber_strands.all().order_by("position"):
-            fp_id = port_mapping.get(strand.position)
-            if fp_id:
-                setattr(strand, fk_field, FrontPort.objects.get(pk=fp_id))
-                strand.save(update_fields=[fk_field])
-    else:
-        # Greenfield path: create ports
-        tubes = list(fc.buffer_tubes.all().order_by("position"))
-        strands = list(fc.fiber_strands.all().order_by("position"))
+    with fms_portmapping_bypass():
+        if existing_term_rp_ids and port_mapping is not None:
+            # Adopt path: link strands to existing FrontPorts
+            for strand in fc.fiber_strands.all().order_by("position"):
+                fp_id = port_mapping.get(strand.position)
+                if fp_id:
+                    setattr(strand, fk_field, FrontPort.objects.get(pk=fp_id))
+                    strand.save(update_fields=[fk_field])
+        else:
+            # Greenfield path: create ports
+            tubes = list(fc.buffer_tubes.all().order_by("position"))
+            strands = list(fc.fiber_strands.all().order_by("position"))
 
-        if tubes:
-            # One RearPort per tube
-            for tube_idx, tube in enumerate(tubes, start=1):
-                tube_fiber_count = fc.fiber_strands.filter(buffer_tube=tube).count()
+            if tubes:
+                # One RearPort per tube
+                for _tube_idx, tube in enumerate(tubes, start=1):
+                    tube_fiber_count = fc.fiber_strands.filter(buffer_tube=tube).count()
+                    rp = RearPort.objects.create(
+                        device=device,
+                        name=f"{str(cable)}:T{tube.position}"[:64],
+                        type=port_type,
+                        positions=tube_fiber_count,
+                    )
+                    # Create CableTermination linking RearPort to cable
+                    # connector/positions enable profile-based tracing
+                    CableTermination.objects.create(
+                        cable=cable,
+                        cable_end=cable_end if cable_end != "AB" else "A",
+                        termination_type=rp_ct,
+                        termination_id=rp.pk,
+                        connector=tube.position,
+                        positions=list(range(1, tube_fiber_count + 1)),
+                    )
+                    # Create FrontPorts + PortMappings for each fiber in this tube
+                    tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
+                    for i, strand in enumerate(tube_strands, start=1):
+                        fp = FrontPort.objects.create(
+                            device=device,
+                            name=f"{str(cable)}:T{tube.position}:F{strand.position}"[:64],
+                            type=port_type,
+                        )
+                        PortMapping.objects.create(
+                            device=device,
+                            front_port=fp,
+                            rear_port=rp,
+                            front_port_position=1,
+                            rear_port_position=i,
+                        )
+                        setattr(strand, fk_field, fp)
+                        strand.save(update_fields=[fk_field])
+            else:
+                # Single RearPort for all strands
                 rp = RearPort.objects.create(
                     device=device,
-                    name=f"#{cable.pk}:T{tube.position}",
+                    name=str(cable)[:64],
                     type=port_type,
-                    positions=tube_fiber_count,
+                    positions=fiber_cable_type.strand_count,
                 )
-                # Create CableTermination linking RearPort to cable
-                # connector/positions enable profile-based tracing
                 CableTermination.objects.create(
                     cable=cable,
                     cable_end=cable_end if cable_end != "AB" else "A",
                     termination_type=rp_ct,
                     termination_id=rp.pk,
-                    connector=tube_idx,
-                    positions=list(range(1, tube_fiber_count + 1)),
+                    connector=1,
+                    positions=list(range(1, fiber_cable_type.strand_count + 1)),
                 )
-                # Create FrontPorts + PortMappings for each fiber in this tube
-                tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
-                for i, strand in enumerate(tube_strands, start=1):
+                for i, strand in enumerate(strands, start=1):
                     fp = FrontPort.objects.create(
                         device=device,
-                        name=f"#{cable.pk}:T{tube.position}:F{strand.position}",
+                        name=f"{str(cable)}:F{strand.position}"[:64],
                         type=port_type,
                     )
                     PortMapping.objects.create(
@@ -162,37 +195,6 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                     )
                     setattr(strand, fk_field, fp)
                     strand.save(update_fields=[fk_field])
-        else:
-            # Single RearPort for all strands
-            rp = RearPort.objects.create(
-                device=device,
-                name=f"#{cable.pk}",
-                type=port_type,
-                positions=fiber_cable_type.strand_count,
-            )
-            CableTermination.objects.create(
-                cable=cable,
-                cable_end=cable_end if cable_end != "AB" else "A",
-                termination_type=rp_ct,
-                termination_id=rp.pk,
-                connector=1,
-                positions=list(range(1, fiber_cable_type.strand_count + 1)),
-            )
-            for i, strand in enumerate(strands, start=1):
-                fp = FrontPort.objects.create(
-                    device=device,
-                    name=f"#{cable.pk}:F{strand.position}",
-                    type=port_type,
-                )
-                PortMapping.objects.create(
-                    device=device,
-                    front_port=fp,
-                    rear_port=rp,
-                    front_port_position=1,
-                    rear_port_position=i,
-                )
-                setattr(strand, fk_field, fp)
-                strand.save(update_fields=[fk_field])
 
     return fc, warnings
 

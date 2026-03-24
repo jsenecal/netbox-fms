@@ -48,6 +48,7 @@ from netbox_fms.models import (
     TrayProfile,
     TubeAssignment,
 )
+from netbox_fms.signals import fms_portmapping_bypass
 
 # EIA/TIA-598 colors (12 standard)
 EIA_COLORS = {
@@ -980,40 +981,80 @@ class Command(BaseCommand):
         profile_key = fct.get_cable_profile()
         side_rps = {"A": [], "B": []}
 
-        for device, cable_end, fk_field in [
-            (cable_info["a_device"], "A", "front_port_a"),
-            (cable_info["b_device"], "B", "front_port_b"),
-        ]:
-            tubes = list(fc.buffer_tubes.all().order_by("position"))
-            strands = list(fc.fiber_strands.all().order_by("position"))
-            trays = list(Module.objects.filter(device=device).order_by("module_bay__position"))
+        with fms_portmapping_bypass():
+            for device, cable_end, fk_field in [
+                (cable_info["a_device"], "A", "front_port_a"),
+                (cable_info["b_device"], "B", "front_port_b"),
+            ]:
+                tubes = list(fc.buffer_tubes.all().order_by("position"))
+                strands = list(fc.fiber_strands.all().order_by("position"))
+                trays = list(Module.objects.filter(device=device).order_by("module_bay__position"))
 
-            if tubes:
-                for tube_idx, tube in enumerate(tubes):
-                    tray = trays[tube_idx % len(trays)] if trays else None
-                    tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
+                if tubes:
+                    for tube_idx, tube in enumerate(tubes):
+                        tray = trays[tube_idx % len(trays)] if trays else None
+                        tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
 
+                        rp = RearPort.objects.create(
+                            device=device,
+                            module=tray,
+                            name=f"{str(cable)}:T{tube.position}"[:64],
+                            type="splice",
+                            positions=len(tube_strands),
+                        )
+                        side_rps[cable_end].append(rp)
+
+                        fps_to_create = []
+                        for pos_in_tube, strand in enumerate(tube_strands, 1):
+                            fp = FrontPort(
+                                device=device,
+                                module=tray,
+                                name=f"{str(cable)}:T{tube.position}:F{strand.position}"[:64],
+                                type="splice",
+                                color=EIA_COLORS.get(pos_in_tube, "cccccc"),
+                            )
+                            fps_to_create.append((fp, rp, pos_in_tube, strand))
+
+                        # Bulk create FrontPorts
+                        fp_objects = FrontPort.objects.bulk_create([f[0] for f in fps_to_create])
+                        pms_to_create = []
+                        for fp_obj, (_, rp_ref, pos, strand) in zip(fp_objects, fps_to_create, strict=False):
+                            pms_to_create.append(
+                                PortMapping(
+                                    device=device,
+                                    front_port=fp_obj,
+                                    rear_port=rp_ref,
+                                    front_port_position=1,
+                                    rear_port_position=pos,
+                                )
+                            )
+                            setattr(strand, fk_field, fp_obj)
+
+                        PortMapping.objects.bulk_create(pms_to_create)
+                        FiberStrand.objects.bulk_update(tube_strands, [fk_field])
+                else:
+                    # Tight buffer (no tubes)
+                    tray = trays[0] if trays else None
                     rp = RearPort.objects.create(
                         device=device,
                         module=tray,
-                        name=f"#{cable.pk}:T{tube.position}",
+                        name=str(cable)[:64],
                         type="splice",
-                        positions=len(tube_strands),
+                        positions=len(strands),
                     )
                     side_rps[cable_end].append(rp)
 
                     fps_to_create = []
-                    for pos_in_tube, strand in enumerate(tube_strands, 1):
+                    for strand in strands:
                         fp = FrontPort(
                             device=device,
                             module=tray,
-                            name=f"#{cable.pk}:T{tube.position}:F{strand.position}",
+                            name=f"{str(cable)}:F{strand.position}"[:64],
                             type="splice",
-                            color=EIA_COLORS.get(pos_in_tube, "cccccc"),
+                            color=EIA_COLORS.get(strand.position, "cccccc"),
                         )
-                        fps_to_create.append((fp, rp, pos_in_tube, strand))
+                        fps_to_create.append((fp, rp, strand.position, strand))
 
-                    # Bulk create FrontPorts
                     fp_objects = FrontPort.objects.bulk_create([f[0] for f in fps_to_create])
                     pms_to_create = []
                     for fp_obj, (_, rp_ref, pos, strand) in zip(fp_objects, fps_to_create, strict=False):
@@ -1029,46 +1070,7 @@ class Command(BaseCommand):
                         setattr(strand, fk_field, fp_obj)
 
                     PortMapping.objects.bulk_create(pms_to_create)
-                    FiberStrand.objects.bulk_update(tube_strands, [fk_field])
-            else:
-                # Tight buffer (no tubes)
-                tray = trays[0] if trays else None
-                rp = RearPort.objects.create(
-                    device=device,
-                    module=tray,
-                    name=f"#{cable.pk}",
-                    type="splice",
-                    positions=len(strands),
-                )
-                side_rps[cable_end].append(rp)
-
-                fps_to_create = []
-                for strand in strands:
-                    fp = FrontPort(
-                        device=device,
-                        module=tray,
-                        name=f"#{cable.pk}:F{strand.position}",
-                        type="splice",
-                        color=EIA_COLORS.get(strand.position, "cccccc"),
-                    )
-                    fps_to_create.append((fp, rp, strand.position, strand))
-
-                fp_objects = FrontPort.objects.bulk_create([f[0] for f in fps_to_create])
-                pms_to_create = []
-                for fp_obj, (_, rp_ref, pos, strand) in zip(fp_objects, fps_to_create, strict=False):
-                    pms_to_create.append(
-                        PortMapping(
-                            device=device,
-                            front_port=fp_obj,
-                            rear_port=rp_ref,
-                            front_port_position=1,
-                            rear_port_position=pos,
-                        )
-                    )
-                    setattr(strand, fk_field, fp_obj)
-
-                PortMapping.objects.bulk_create(pms_to_create)
-                FiberStrand.objects.bulk_update(strands, [fk_field])
+                    FiberStrand.objects.bulk_update(strands, [fk_field])
 
         # Set cable profile and terminations — Cable.save() calls update_terminations()
         # which creates CableTerminations with connector/positions for profile-based tracing

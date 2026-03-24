@@ -640,6 +640,12 @@ class FiberCableCableElementsView(FiberCableComponentsView):
     )
 
 
+class CableElementView(generic.ObjectView):
+    """Detail view for a single CableElement."""
+
+    queryset = CableElement.objects.all()
+
+
 @register_model_view(Cable, "fibercircuits", path="fiber-circuits")
 class CableFiberCircuitsView(generic.ObjectChildrenView):
     """Display fiber circuit paths passing through a dcim.Cable."""

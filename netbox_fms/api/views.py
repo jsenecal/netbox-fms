@@ -559,22 +559,24 @@ def _apply_mapping(wdm_node, desired_mapping: dict[int, int | None]) -> dict:
     if channels_to_update:
         WavelengthChannel.objects.bulk_update(channels_to_update, ["front_port_id"])
 
-    # Bulk delete old PortMappings
-    if old_fp_ids_to_delete:
-        delete_q = Q()
-        for fp_id, grid_pos in old_fp_ids_to_delete:
-            for tp in trunk_ports:
-                delete_q |= Q(
-                    front_port_id=fp_id,
-                    rear_port=tp.rear_port,
-                    rear_port_position=grid_pos,
-                )
-        if delete_q:
-            PortMapping.objects.filter(delete_q).delete()
+    # Bulk delete old PortMappings and create new ones
+    from ..signals import fms_portmapping_bypass
 
-    # Bulk create new PortMappings
-    if new_mappings_to_create:
-        PortMapping.objects.bulk_create(new_mappings_to_create)
+    with fms_portmapping_bypass():
+        if old_fp_ids_to_delete:
+            delete_q = Q()
+            for fp_id, grid_pos in old_fp_ids_to_delete:
+                for tp in trunk_ports:
+                    delete_q |= Q(
+                        front_port_id=fp_id,
+                        rear_port=tp.rear_port,
+                        rear_port_position=grid_pos,
+                    )
+            if delete_q:
+                PortMapping.objects.filter(delete_q).delete()
+
+        if new_mappings_to_create:
+            PortMapping.objects.bulk_create(new_mappings_to_create)
 
     # Retrace affected paths
     if affected_channels:
@@ -967,35 +969,38 @@ class ProvisionPortsAPIView(APIView):
 
         cable_label = str(fiber_cable.cable) if fiber_cable.cable else f"FiberCable-{fiber_cable.pk}"
 
-        rear_port = RearPort(
-            device=device,
-            name=cable_label,
-            type=port_type,
-            positions=strand_count,
-        )
-        rear_port.save()
+        from ..signals import fms_portmapping_bypass
 
-        created_ports = []
-        for strand in strands:
-            fp = FrontPort(
+        with fms_portmapping_bypass():
+            rear_port = RearPort(
                 device=device,
-                name=strand.name,
+                name=cable_label,
                 type=port_type,
-                color=strand.color,
+                positions=strand_count,
             )
-            fp.save()
+            rear_port.save()
 
-            PortMapping.objects.create(
-                device=device,
-                front_port=fp,
-                rear_port=rear_port,
-                front_port_position=1,
-                rear_port_position=strand.position,
-            )
+            created_ports = []
+            for strand in strands:
+                fp = FrontPort(
+                    device=device,
+                    name=strand.name,
+                    type=port_type,
+                    color=strand.color,
+                )
+                fp.save()
 
-            strand.front_port_a = fp
-            strand.save(update_fields=["front_port_a"])
-            created_ports.append(fp.pk)
+                PortMapping.objects.create(
+                    device=device,
+                    front_port=fp,
+                    rear_port=rear_port,
+                    front_port_position=1,
+                    rear_port_position=strand.position,
+                )
+
+                strand.front_port_a = fp
+                strand.save(update_fields=["front_port_a"])
+                created_ports.append(fp.pk)
 
         return Response(
             {

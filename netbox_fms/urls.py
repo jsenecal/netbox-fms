@@ -83,6 +83,8 @@ urlpatterns = [
     path("fiber-cables/<int:pk>/", views.FiberCableView.as_view(), name="fibercable"),
     path("fiber-cables/<int:pk>/edit/", views.FiberCableEditView.as_view(), name="fibercable_edit"),
     path("fiber-cables/<int:pk>/delete/", views.FiberCableDeleteView.as_view(), name="fibercable_delete"),
+    # CableElement (instance, read-only)
+    path("cable-elements/<int:pk>/", views.CableElementView.as_view(), name="cableelement"),
     # SplicePlan
     path("splice-plans/", views.SplicePlanListView.as_view(), name="spliceplan_list"),
     path(

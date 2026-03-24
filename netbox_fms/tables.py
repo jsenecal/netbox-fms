@@ -246,12 +246,12 @@ class BufferTubeTable(NetBoxTable):
     position = tables.Column(verbose_name=_("Position"))
     color = columns.ColorColumn(verbose_name=_("Color"))
     stripe_color = columns.ColorColumn(verbose_name=_("Stripe"))
-    actions = columns.ActionsColumn()
+    actions = columns.ActionsColumn(actions=())  # read-only: no edit/delete views
 
     class Meta(NetBoxTable.Meta):
         model = BufferTube
-        fields = ("pk", "id", "name", "position", "color", "stripe_color", "actions")
-        default_columns = ("pk", "name", "position", "color", "stripe_color", "actions")
+        fields = ("pk", "id", "name", "position", "color", "stripe_color")
+        default_columns = ("pk", "name", "position", "color", "stripe_color")
 
 
 class RibbonTable(NetBoxTable):
@@ -263,12 +263,12 @@ class RibbonTable(NetBoxTable):
     color = columns.ColorColumn(verbose_name=_("Color"))
     stripe_color = columns.ColorColumn(verbose_name=_("Stripe"))
     buffer_tube = tables.Column(linkify=True, verbose_name=_("Buffer Tube"))
-    actions = columns.ActionsColumn()
+    actions = columns.ActionsColumn(actions=())  # read-only: no edit/delete views
 
     class Meta(NetBoxTable.Meta):
         model = Ribbon
-        fields = ("pk", "id", "name", "position", "color", "stripe_color", "buffer_tube", "actions")
-        default_columns = ("pk", "name", "position", "color", "stripe_color", "buffer_tube", "actions")
+        fields = ("pk", "id", "name", "position", "color", "stripe_color", "buffer_tube")
+        default_columns = ("pk", "name", "position", "color", "stripe_color", "buffer_tube")
 
 
 class FiberStrandTable(NetBoxTable):
@@ -282,7 +282,7 @@ class FiberStrandTable(NetBoxTable):
     ribbon = tables.Column(linkify=True, verbose_name=_("Ribbon"))
     front_port_a = tables.Column(linkify=True, verbose_name=_("Front Port A"))
     front_port_b = tables.Column(linkify=True, verbose_name=_("Front Port B"))
-    actions = columns.ActionsColumn()
+    actions = columns.ActionsColumn(actions=())  # read-only: no edit/delete views
 
     class Meta(NetBoxTable.Meta):
         model = FiberStrand
@@ -296,7 +296,6 @@ class FiberStrandTable(NetBoxTable):
             "ribbon",
             "front_port_a",
             "front_port_b",
-            "actions",
         )
         default_columns = (
             "pk",
@@ -307,7 +306,6 @@ class FiberStrandTable(NetBoxTable):
             "ribbon",
             "front_port_a",
             "front_port_b",
-            "actions",
         )
 
 
@@ -317,12 +315,12 @@ class CableElementTable(NetBoxTable):
     pk = columns.ToggleColumn()
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     element_type = tables.Column(verbose_name=_("Type"))
-    actions = columns.ActionsColumn()
+    actions = columns.ActionsColumn(actions=())  # read-only: no edit/delete views
 
     class Meta(NetBoxTable.Meta):
         model = CableElement
-        fields = ("pk", "id", "name", "element_type", "actions")
-        default_columns = ("pk", "name", "element_type", "actions")
+        fields = ("pk", "id", "name", "element_type")
+        default_columns = ("pk", "name", "element_type")
 
 
 # ---------------------------------------------------------------------------
