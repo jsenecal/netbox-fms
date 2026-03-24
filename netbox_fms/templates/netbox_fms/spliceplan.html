@@ -11,9 +11,6 @@
             <i class="mdi mdi-download"></i> {% trans "Import from Device" %}
         </button>
     </form>
-    <a href="{% url 'plugins:netbox_fms:spliceplan_apply' pk=object.pk %}" class="btn btn-success">
-        <i class="mdi mdi-check-circle"></i> {% trans "Apply" %}
-    </a>
     <a href="{% url 'plugins:netbox_fms:spliceplan_export' pk=object.pk %}" class="btn btn-secondary">
         <i class="mdi mdi-export"></i> {% trans "Export Draw.io" %}
     </a>
@@ -42,8 +39,20 @@
                     <td>{{ object.get_status_display }}</td>
                 </tr>
                 <tr>
-                    <th scope="row">{% trans "Diff Stale" %}</th>
-                    <td>{{ object.diff_stale|yesno }}</td>
+                    <th scope="row">{% trans "Entries" %}</th>
+                    <td>{{ object.entries.count }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Sync" %}</th>
+                    <td>
+                        {% if object.status == 'applied' and not object.diff_stale %}
+                            <span class="badge text-bg-success"><i class="mdi mdi-check"></i> {% trans "In sync" %}</span>
+                        {% elif object.diff_stale %}
+                            <span class="badge text-bg-warning"><i class="mdi mdi-sync-alert"></i> {% trans "Out of sync" %}</span>
+                        {% else %}
+                            <span class="badge text-bg-info"><i class="mdi mdi-pencil"></i> {% trans "Not applied" %}</span>
+                        {% endif %}
+                    </td>
                 </tr>
             </table>
         </div>

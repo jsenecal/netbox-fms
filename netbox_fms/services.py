@@ -247,7 +247,11 @@ def get_desired_state(plan):
     """
     Read desired FrontPort<->FrontPort connections from a SplicePlan's entries.
     Returns: {tray_module_id: set((port_a_id, port_b_id), ...)}
+    Only includes pairs where both ports belong to the closure device.
     """
+    closure = plan.closure
+    local_fp_ids = set(FrontPort.objects.filter(device=closure, module__isnull=False).values_list("pk", flat=True))
+
     entries = list(plan.entries.values_list("tray_id", "fiber_a_id", "fiber_b_id"))
 
     fb_ids = {fb_id for _, _, fb_id in entries}
@@ -255,6 +259,10 @@ def get_desired_state(plan):
 
     state = {}
     for tray_id, fa_id, fb_id in entries:
+        # Skip pairs where either port is not on this closure's trays
+        if fa_id not in local_fp_ids or fb_id not in local_fp_ids:
+            continue
+
         pair = (min(fa_id, fb_id), max(fa_id, fb_id))
         state.setdefault(tray_id, set()).add(pair)
 
@@ -388,7 +396,16 @@ def apply_diff(plan):
                 Cable.objects.filter(pk=cable_id).delete()
                 removed += 1
 
-        # Process additions
+        # Process additions — clear any existing terminations first (re-splice case)
+        add_port_ids = {p for pair in all_adds for p in pair}
+        conflicting_terms = CableTermination.objects.filter(
+            termination_type=fp_ct,
+            termination_id__in=add_port_ids,
+        )
+        conflicting_cable_ids = set(conflicting_terms.values_list("cable_id", flat=True))
+        if conflicting_cable_ids:
+            Cable.objects.filter(pk__in=conflicting_cable_ids).delete()
+
         for port_a_id, port_b_id in all_adds:
             cable = Cable(
                 status="connected",

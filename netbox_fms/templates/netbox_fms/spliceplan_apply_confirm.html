@@ -6,124 +6,141 @@
 {% block content %}
 <link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
 
-<div class="row mb-3 fms-component">
-    <div class="col col-md-12">
-        <div class="card">
-            <h5 class="card-header d-flex justify-content-between align-items-center">
-                {% trans "Apply Splice Plan" %}: {{ object.name }}
-                {% include "netbox_fms/inc/splice_plan_status_badge.html" with status=object.status %}
-            </h5>
-            <div class="card-body">
-                <p class="text-muted">{% trans "Review the changes below before applying to live infrastructure." %}</p>
+<div class="fms-component">
 
-                {# Summary stats #}
-                {% if diff %}
-                <div class="d-flex gap-4 mb-3">
-                    {% if total_add %}
-                    <span>
-                        <span class="fms-badge fms-badge--live">{% trans "ADD" %}</span>
-                        <strong>{{ total_add }}</strong> {% trans "splices" %}
-                    </span>
-                    {% endif %}
-                    {% if total_remove %}
-                    <span>
-                        <span class="fms-badge fms-badge--protected">{% trans "REMOVE" %}</span>
-                        <strong>{{ total_remove }}</strong> {% trans "splices" %}
-                    </span>
-                    {% endif %}
-                    {% if total_unchanged %}
-                    <span class="text-muted">
-                        <strong>{{ total_unchanged }}</strong> {% trans "unchanged" %}
-                    </span>
-                    {% endif %}
-                </div>
-
-                {# Per-tray diff tables #}
-                {% for tray in diff %}
-                <div class="card mb-3">
-                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                        <span>
-                            <i class="mdi mdi-tray-full"></i>
-                            <strong>{{ tray.tray_name }}</strong>
-                        </span>
-                        <span class="text-muted small">
-                            {% if tray.add %}
-                                <span class="fms-badge fms-badge--live">+{{ tray.add|length }}</span>
-                            {% endif %}
-                            {% if tray.remove %}
-                                <span class="fms-badge fms-badge--protected">-{{ tray.remove|length }}</span>
-                            {% endif %}
-                            {% if tray.unchanged %}
-                                <span class="text-muted">{{ tray.unchanged|length }} {% trans "kept" %}</span>
-                            {% endif %}
-                        </span>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover mb-0">
-                            <thead>
-                                <tr>
-                                    <th style="width:100px">{% trans "Action" %}</th>
-                                    <th>{% trans "Fiber A" %}</th>
-                                    <th></th>
-                                    <th>{% trans "Fiber B" %}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for pair in tray.add %}
-                                <tr>
-                                    <td><span class="fms-badge fms-badge--live">{% trans "Add" %}</span></td>
-                                    <td>{{ pair.name_a }}</td>
-                                    <td class="text-muted text-center">&harr;</td>
-                                    <td>{{ pair.name_b }}</td>
-                                </tr>
-                                {% endfor %}
-                                {% for pair in tray.remove %}
-                                <tr class="text-decoration-line-through" style="opacity:0.6">
-                                    <td><span class="fms-badge fms-badge--protected">{% trans "Remove" %}</span></td>
-                                    <td>{{ pair.name_a }}</td>
-                                    <td class="text-muted text-center">&harr;</td>
-                                    <td>{{ pair.name_b }}</td>
-                                </tr>
-                                {% endfor %}
-                                {% for pair in tray.unchanged %}
-                                <tr class="text-muted">
-                                    <td><span class="badge text-bg-secondary">{% trans "Keep" %}</span></td>
-                                    <td>{{ pair.name_a }}</td>
-                                    <td class="text-center">&harr;</td>
-                                    <td>{{ pair.name_b }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                {% endfor %}
-
-                {% else %}
-                <div class="text-muted text-center py-4">
-                    <i class="mdi mdi-check-circle-outline mdi-48px"></i>
-                    <p class="mt-2">{% trans "No changes to apply. The plan matches the live state." %}</p>
-                </div>
-                {% endif %}
-
-                <div class="d-flex gap-2 mt-3">
-                    {% if diff %}
-                    <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_apply' pk=object.pk %}">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-success">
-                            <i class="mdi mdi-check-circle"></i> {% trans "Apply Changes" %}
-                        </button>
-                    </form>
-                    {% endif %}
-                    <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">
-                        <i class="mdi mdi-arrow-left"></i> {% trans "Back to Plan" %}
-                    </a>
-                    <a href="{% url 'plugins:netbox_fms:spliceplan_editor' pk=object.pk %}" class="btn btn-outline-primary">
-                        <i class="mdi mdi-pencil"></i> {% trans "Edit in Splice Editor" %}
-                    </a>
-                </div>
-            </div>
+    {# Summary stats #}
+    {% if diff %}
+    <div class="d-flex gap-4 mb-3 align-items-center">
+        {% if total_add %}
+        <span>
+            <span class="fms-badge fms-badge--live">{% trans "ADD" %}</span>
+            <strong>{{ total_add }}</strong> {% trans "splices" %}
+        </span>
+        {% endif %}
+        {% if total_remove %}
+        <span>
+            <span class="fms-badge fms-badge--protected">{% trans "REMOVE" %}</span>
+            <strong>{{ total_remove }}</strong> {% trans "splices" %}
+        </span>
+        {% endif %}
+        {% if total_unchanged %}
+        <span class="text-muted">
+            <strong>{{ total_unchanged }}</strong> {% trans "unchanged" %}
+        </span>
+        {% endif %}
+        <div class="ms-auto">
+            <form method="post" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success">
+                    <i class="mdi mdi-check-circle"></i> {% trans "Apply Changes" %}
+                </button>
+            </form>
         </div>
     </div>
+
+    {# Per-tray diff tables #}
+    {% for tray in diff %}
+    <div class="card mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <span>
+                <i class="mdi mdi-tray-full"></i>
+                <strong>{{ tray.tray_name }}</strong>
+            </span>
+            <span class="text-muted small">
+                {% if tray.add %}
+                    <span class="fms-badge fms-badge--live">+{{ tray.add|length }}</span>
+                {% endif %}
+                {% if tray.remove %}
+                    <span class="fms-badge fms-badge--protected">-{{ tray.remove|length }}</span>
+                {% endif %}
+                {% if tray.unchanged %}
+                    <span class="text-muted">{{ tray.unchanged|length }} {% trans "kept" %}</span>
+                {% endif %}
+            </span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:100px">{% trans "Action" %}</th>
+                        <th>{% trans "Fiber A" %}</th>
+                        <th></th>
+                        <th>{% trans "Fiber B" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pair in tray.add %}
+                    <tr>
+                        <td><span class="fms-badge fms-badge--live">{% trans "Add" %}</span></td>
+                        <td>{{ pair.name_a }}</td>
+                        <td class="text-muted text-center">&harr;</td>
+                        <td>{{ pair.name_b }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for pair in tray.remove %}
+                    <tr class="text-decoration-line-through" style="opacity:0.6">
+                        <td><span class="fms-badge fms-badge--protected">{% trans "Remove" %}</span></td>
+                        <td>{{ pair.name_a }}</td>
+                        <td class="text-muted text-center">&harr;</td>
+                        <td>{{ pair.name_b }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for pair in tray.unchanged %}
+                    <tr class="text-muted">
+                        <td><span class="badge text-bg-secondary">{% trans "Keep" %}</span></td>
+                        <td>{{ pair.name_a }}</td>
+                        <td class="text-center">&harr;</td>
+                        <td>{{ pair.name_b }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+
+    {# Invalid entries — tray on a different device #}
+    {% if invalid_entries %}
+    <div class="card mb-3 border-warning">
+        <div class="card-header py-2 bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+            <span>
+                <i class="mdi mdi-alert-outline text-warning"></i>
+                <strong>{% trans "Invalid Entries" %}</strong>
+                <span class="text-muted small">{% trans "(tray belongs to a different device — will be removed on apply)" %}</span>
+            </span>
+            <span class="fms-badge fms-badge--pending">{{ invalid_entries|length }}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0" style="opacity:0.7">
+                <thead>
+                    <tr>
+                        <th>{% trans "Fiber A" %}</th>
+                        <th></th>
+                        <th>{% trans "Fiber B" %}</th>
+                        <th>{% trans "Tray (wrong device)" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in invalid_entries %}
+                    <tr>
+                        <td>{{ entry.fiber_a }}</td>
+                        <td class="text-muted text-center">&harr;</td>
+                        <td>{{ entry.fiber_b }}</td>
+                        <td class="text-warning">{{ entry.tray }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-muted text-center py-4">
+        <i class="mdi mdi-check-circle-outline mdi-48px"></i>
+        <p class="mt-2">{% trans "No changes to apply. The plan matches the live state." %}</p>
+    </div>
+    {% endif %}
+
 </div>
 {% endblock %}

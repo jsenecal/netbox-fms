@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import NetBoxModel
 from utilities.fields import ColorField, CounterCacheField
+from utilities.querysets import RestrictedQuerySet
 from utilities.tracking import TrackingModelMixin
 
 from .choices import (
@@ -861,6 +862,15 @@ class SpliceProject(NetBoxModel):
         return reverse("plugins:netbox_fms:spliceproject", args=[self.pk])
 
 
+class SplicePlanQuerySet(RestrictedQuerySet):
+    def with_counts(self):
+        return self.annotate(
+            entry_count=models.Count("entries"),
+            tray_count=models.Count("entries__tray", distinct=True),
+            cable_count=models.Count("closure__cable_entries", distinct=True),
+        )
+
+
 class SplicePlan(NetBoxModel):
     """
     A splice plan represents the desired state of all splice connections
@@ -904,6 +914,8 @@ class SplicePlan(NetBoxModel):
         verbose_name=_("diff stale"),
         default=True,
     )
+
+    objects = SplicePlanQuerySet.as_manager()
 
     clone_fields = ("project", "closure", "status")
 

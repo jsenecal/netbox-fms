@@ -1,5 +1,6 @@
 import type {
   BulkUpdatePayload,
+  BulkUpdateResponse,
   EditorConfig,
   QuickAddResponse,
   StrandsApiResponse,
@@ -14,9 +15,13 @@ export async function fetchStrands(
     const sep = url.includes('?') ? '&' : '?';
     url += `${sep}plan_id=${config.planId}`;
   }
+  if (config.debug) console.log('[SpliceEditor:API] fetching:', url);
   const resp = await fetch(url);
+  if (config.debug) console.log('[SpliceEditor:API] response status:', resp.status, 'content-type:', resp.headers.get('content-type'));
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+  const data = await resp.json();
+  if (config.debug) console.log('[SpliceEditor:API] parsed JSON, type:', typeof data, 'isArray:', Array.isArray(data), 'keys:', data && typeof data === 'object' ? Object.keys(data) : 'N/A');
+  return data;
 }
 
 /** Create a new splice plan via quick-add API. */
@@ -40,7 +45,7 @@ export async function quickAddPlan(
 export async function bulkUpdatePlan(
   config: EditorConfig,
   payload: BulkUpdatePayload,
-): Promise<{ entries: unknown[] }> {
+): Promise<BulkUpdateResponse> {
   if (!config.bulkUpdateUrl) {
     throw new Error('No bulk update URL — plan may not exist yet');
   }

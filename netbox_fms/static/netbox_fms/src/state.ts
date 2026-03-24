@@ -1,4 +1,5 @@
 import type {
+  BulkUpdatePayload,
   CableGroupData,
   LayoutNode,
   LegendSection,
@@ -118,13 +119,95 @@ export class EditorState {
       }
       for (const s of cg.loose_strands) this.strandMap.set(s.id, s);
     }
-    // Initialize side assignments if not already set — balance by strand count
+    // Initialize side assignments — put spliced cables on opposite sides
     if (this.sideAssignment.size === 0) {
-      // Sort cables largest-first for greedy bin packing
-      const sorted = [...groups].sort((a, b) => b.strand_count - a.strand_count);
-      let leftCount = 0;
-      let rightCount = 0;
-      for (const cg of sorted) {
+      this.assignSidesBySpliceRelationship(groups);
+    }
+    this.rebuildLayout();
+  }
+
+  /** Get strand data by ID. */
+  getStrand(id: number): StrandData | undefined {
+    return this.strandMap.get(id);
+  }
+
+  /** Assign cables to left/right based on splice relationships.
+   *  Spliced cables go on opposite sides; balanced by strand count for ties. */
+  private assignSidesBySpliceRelationship(groups: CableGroupData[]): void {
+    // Build strand-to-cable lookup
+    const strandToCable = new Map<number, number>();
+    for (const cg of groups) {
+      for (const tube of cg.tubes) {
+        for (const s of tube.strands) strandToCable.set(s.id, cg.fiber_cable_id);
+      }
+      for (const s of cg.loose_strands) strandToCable.set(s.id, cg.fiber_cable_id);
+    }
+
+    // Build splice edges: cable_id -> set of partner cable_ids
+    const edges = new Map<number, Set<number>>();
+    for (const cg of groups) {
+      const allStrands: StrandData[] = [];
+      for (const t of cg.tubes) allStrands.push(...t.strands);
+      allStrands.push(...cg.loose_strands);
+      for (const s of allStrands) {
+        const partnerId = s.live_spliced_to || s.plan_spliced_to;
+        if (partnerId) {
+          const partnerCable = strandToCable.get(partnerId);
+          if (partnerCable && partnerCable !== cg.fiber_cable_id) {
+            if (!edges.has(cg.fiber_cable_id)) edges.set(cg.fiber_cable_id, new Set());
+            edges.get(cg.fiber_cable_id)!.add(partnerCable);
+            if (!edges.has(partnerCable)) edges.set(partnerCable, new Set());
+            edges.get(partnerCable)!.add(cg.fiber_cable_id);
+          }
+        }
+      }
+    }
+
+    // Greedy 2-coloring: process cables by most connections first,
+    // place each on the opposite side of its most-connected partner
+    const sorted = [...groups].sort((a, b) => {
+      const aEdges = edges.get(a.fiber_cable_id)?.size ?? 0;
+      const bEdges = edges.get(b.fiber_cable_id)?.size ?? 0;
+      if (bEdges !== aEdges) return bEdges - aEdges;
+      return b.strand_count - a.strand_count;
+    });
+
+    let leftCount = 0;
+    let rightCount = 0;
+
+    for (const cg of sorted) {
+      if (this.sideAssignment.has(cg.fiber_cable_id)) continue;
+
+      const partners = edges.get(cg.fiber_cable_id);
+      if (partners) {
+        // Count how many partners are on each side
+        let partnersLeft = 0;
+        let partnersRight = 0;
+        for (const pid of partners) {
+          const side = this.sideAssignment.get(pid);
+          if (side === 'left') partnersLeft++;
+          else if (side === 'right') partnersRight++;
+        }
+
+        // Put this cable on the opposite side from the majority of its partners
+        if (partnersLeft > partnersRight) {
+          this.sideAssignment.set(cg.fiber_cable_id, 'right');
+          rightCount += cg.strand_count || 1;
+        } else if (partnersRight > partnersLeft) {
+          this.sideAssignment.set(cg.fiber_cable_id, 'left');
+          leftCount += cg.strand_count || 1;
+        } else {
+          // Tie — balance by strand count
+          if (leftCount <= rightCount) {
+            this.sideAssignment.set(cg.fiber_cable_id, 'left');
+            leftCount += cg.strand_count || 1;
+          } else {
+            this.sideAssignment.set(cg.fiber_cable_id, 'right');
+            rightCount += cg.strand_count || 1;
+          }
+        }
+      } else {
+        // No splice connections — balance by strand count
         if (leftCount <= rightCount) {
           this.sideAssignment.set(cg.fiber_cable_id, 'left');
           leftCount += cg.strand_count || 1;
@@ -134,12 +217,6 @@ export class EditorState {
         }
       }
     }
-    this.rebuildLayout();
-  }
-
-  /** Get strand data by ID. */
-  getStrand(id: number): StrandData | undefined {
-    return this.strandMap.get(id);
   }
 
   /** Find the cable group and tube containing a strand. */
@@ -349,7 +426,7 @@ export class EditorState {
 
   /** Get pending changes as bulk update payload (uses front_port_a_ids).
    *  Automatically includes implicit removals for superseded splices. */
-  getPendingPayload(): { add: Array<{ fiber_a: number; fiber_b: number }>; remove: Array<{ fiber_a: number; fiber_b: number }> } {
+  getPendingPayload(): BulkUpdatePayload {
     const add: Array<{ fiber_a: number; fiber_b: number }> = [];
     const remove: Array<{ fiber_a: number; fiber_b: number }> = [];
 

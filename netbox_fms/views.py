@@ -677,11 +677,7 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
 class SplicePlanListView(generic.ObjectListView):
     """List all splice plans."""
 
-    queryset = SplicePlan.objects.select_related("project", "closure").annotate(
-        entry_count=models.Count("entries"),
-        tray_count=models.Count("entries__tray", distinct=True),
-        cable_count=models.Count("closure__cable_entries", distinct=True),
-    )
+    queryset = SplicePlan.objects.select_related("project", "closure").with_counts()
     table = SplicePlanTable
     filterset = SplicePlanFilterSet
     filterset_form = SplicePlanFilterForm
@@ -693,7 +689,14 @@ class SplicePlanView(generic.ObjectView):
     queryset = SplicePlan.objects.all()
 
     def get_extra_context(self, request, instance):
-        entries_table = SplicePlanEntryTable(instance.entries.all())
+        entries_table = SplicePlanEntryTable(
+            instance.entries.select_related("tray").prefetch_related(
+                "fiber_a__fiber_strands_a__fiber_cable__cable",
+                "fiber_a__fiber_strands_b__fiber_cable__cable",
+                "fiber_b__fiber_strands_a__fiber_cable__cable",
+                "fiber_b__fiber_strands_b__fiber_cable__cable",
+            )
+        )
         entries_table.configure(request)
         return {
             "entries_table": entries_table,
@@ -772,97 +775,117 @@ class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
         return redirect(plan.get_absolute_url())
 
 
-class SplicePlanApplyView(LoginRequiredMixin, View):
-    """Preview and apply a splice plan's diff to NetBox."""
+def _build_enriched_diff(plan):
+    """Build an enriched diff with readable names for the apply preview."""
+    raw_diff = get_or_recompute_diff(plan)
 
-    def get(self, request, pk):
-        """Display the diff preview before applying the splice plan."""
-        plan = get_object_or_404(SplicePlan, pk=pk)
-        raw_diff = get_or_recompute_diff(plan)
+    all_fp_ids = set()
+    tray_ids = set()
+    for tray_id, tray_diff in raw_diff.items():
+        tray_ids.add(tray_id)
+        for pair in tray_diff.get("add", []) + tray_diff.get("remove", []) + tray_diff.get("unchanged", []):
+            all_fp_ids.update(pair)
 
-        # Collect all FP IDs and tray (module) IDs for resolution
-        all_fp_ids = set()
-        tray_ids = set()
-        for tray_id, tray_diff in raw_diff.items():
-            tray_ids.add(tray_id)
-            for pair in tray_diff.get("add", []) + tray_diff.get("remove", []) + tray_diff.get("unchanged", []):
-                all_fp_ids.update(pair)
+    fp_lookup = {}
+    if all_fp_ids:
+        for fp in FrontPort.objects.filter(pk__in=all_fp_ids).select_related("module"):
+            fp_lookup[fp.pk] = str(fp)
 
-        # Build FP name lookup
-        fp_lookup = {}
-        if all_fp_ids:
-            for fp in FrontPort.objects.filter(pk__in=all_fp_ids).select_related("module"):
-                fp_lookup[fp.pk] = str(fp)
+    tray_lookup = {}
+    if tray_ids:
+        for m in Module.objects.filter(pk__in=tray_ids).select_related("module_type"):
+            tray_lookup[m.pk] = str(m)
 
-        # Build tray name lookup
-        tray_lookup = {}
-        if tray_ids:
-            for m in Module.objects.filter(pk__in=tray_ids).select_related("module_type"):
-                tray_lookup[m.pk] = str(m)
+    def _enrich_pairs(pairs):
+        return [
+            {
+                "fp_a": p[0],
+                "fp_b": p[1],
+                "name_a": fp_lookup.get(p[0], str(p[0])),
+                "name_b": fp_lookup.get(p[1], str(p[1])),
+            }
+            for p in pairs
+        ]
 
-        # Enrich diff with readable names
-        diff = []
-        total_add = 0
-        total_remove = 0
-        total_unchanged = 0
-        for tray_id, tray_diff in raw_diff.items():
-            adds = [
+    diff = []
+    total_add = 0
+    total_remove = 0
+    total_unchanged = 0
+    for tray_id, tray_diff in raw_diff.items():
+        adds = _enrich_pairs(tray_diff.get("add", []))
+        removes = _enrich_pairs(tray_diff.get("remove", []))
+        unchanged = _enrich_pairs(tray_diff.get("unchanged", []))
+        total_add += len(adds)
+        total_remove += len(removes)
+        total_unchanged += len(unchanged)
+        if adds or removes or unchanged:
+            diff.append(
                 {
-                    "fp_a": p[0],
-                    "fp_b": p[1],
-                    "name_a": fp_lookup.get(p[0], str(p[0])),
-                    "name_b": fp_lookup.get(p[1], str(p[1])),
+                    "tray_id": tray_id,
+                    "tray_name": tray_lookup.get(tray_id, f"Tray #{tray_id}"),
+                    "add": adds,
+                    "remove": removes,
+                    "unchanged": unchanged,
                 }
-                for p in tray_diff.get("add", [])
-            ]
-            removes = [
-                {
-                    "fp_a": p[0],
-                    "fp_b": p[1],
-                    "name_a": fp_lookup.get(p[0], str(p[0])),
-                    "name_b": fp_lookup.get(p[1], str(p[1])),
-                }
-                for p in tray_diff.get("remove", [])
-            ]
-            unchanged = [
-                {
-                    "fp_a": p[0],
-                    "fp_b": p[1],
-                    "name_a": fp_lookup.get(p[0], str(p[0])),
-                    "name_b": fp_lookup.get(p[1], str(p[1])),
-                }
-                for p in tray_diff.get("unchanged", [])
-            ]
-            total_add += len(adds)
-            total_remove += len(removes)
-            total_unchanged += len(unchanged)
-            if adds or removes or unchanged:
-                diff.append(
+            )
+
+    return diff, total_add, total_remove, total_unchanged
+
+
+def _splice_plan_has_changes(instance):
+    """Return True if the splice plan diff has pending additions or removals."""
+    try:
+        raw_diff = get_or_recompute_diff(instance)
+        for tray_diff in raw_diff.values():
+            if tray_diff.get("add") or tray_diff.get("remove"):
+                return True
+    except Exception:  # noqa: S110
+        return False
+    return False
+
+
+@register_model_view(SplicePlan, "apply", path="apply")
+class SplicePlanApplyView(generic.ObjectView):
+    """Apply tab on a SplicePlan — shows diff preview and apply button."""
+
+    queryset = SplicePlan.objects.all()
+    tab = ViewTab(
+        label=_("Pending Changes"),
+        weight=600,
+        visible=_splice_plan_has_changes,
+    )
+
+    def get_template_name(self):
+        return "netbox_fms/spliceplan_apply_confirm.html"
+
+    def get_extra_context(self, request, instance):
+        diff, total_add, total_remove, total_unchanged = _build_enriched_diff(instance)
+
+        # Detect invalid entries (tray not on this closure device)
+        local_module_ids = set(Module.objects.filter(device=instance.closure).values_list("pk", flat=True))
+        invalid_entries = []
+        for entry in instance.entries.select_related("tray", "fiber_a", "fiber_b"):
+            if entry.tray_id not in local_module_ids:
+                invalid_entries.append(
                     {
-                        "tray_id": tray_id,
-                        "tray_name": tray_lookup.get(tray_id, f"Tray #{tray_id}"),
-                        "add": adds,
-                        "remove": removes,
-                        "unchanged": unchanged,
+                        "id": entry.pk,
+                        "fiber_a": str(entry.fiber_a),
+                        "fiber_b": str(entry.fiber_b),
+                        "tray": str(entry.tray),
                     }
                 )
 
-        return render(
-            request,
-            "netbox_fms/spliceplan_apply_confirm.html",
-            {
-                "object": plan,
-                "diff": diff,
-                "total_add": total_add,
-                "total_remove": total_remove,
-                "total_unchanged": total_unchanged,
-            },
-        )
+        return {
+            "diff": diff,
+            "total_add": total_add,
+            "total_remove": total_remove,
+            "total_unchanged": total_unchanged,
+            "invalid_entries": invalid_entries,
+        }
 
-    @transaction.atomic
-    def post(self, request, pk):
+    def post(self, request, pk=None, **kwargs):
         """Apply the splice plan diff to NetBox, creating and removing connections."""
-        plan = get_object_or_404(SplicePlan, pk=pk)
+        plan = get_object_or_404(SplicePlan, pk=pk or kwargs.get("pk"))
 
         # Block applying if any splices are protected by fiber circuits
         fp_ids = set()
@@ -884,13 +907,29 @@ class SplicePlanApplyView(LoginRequiredMixin, View):
                 return redirect(plan.get_absolute_url())
 
         try:
-            result = apply_diff(plan)
-            messages.success(
-                request,
-                _('Applied {added} additions and {removed} removals for "{plan}".').format(
-                    added=result["added"], removed=result["removed"], plan=plan
-                ),
+            with transaction.atomic():
+                # Clean up invalid entries BEFORE applying (tray not on this closure)
+                local_module_ids = set(Module.objects.filter(device=plan.closure).values_list("pk", flat=True))
+                invalid_qs = plan.entries.exclude(tray_id__in=local_module_ids)
+                invalid_count = invalid_qs.count()
+                invalid_qs.delete()
+
+                result = apply_diff(plan)
+
+            # Force-clear the cached diff so the tab disappears
+            plan.refresh_from_db()
+            plan.cached_diff = None
+            plan.diff_stale = True
+            plan.save(update_fields=["cached_diff", "diff_stale"])
+
+            msg = _('Applied {added} additions and {removed} removals for "{plan}".').format(
+                added=result["added"], removed=result["removed"], plan=plan
             )
+            if invalid_count:
+                msg += " " + _("Removed {count} invalid entries (tray on different device).").format(
+                    count=invalid_count
+                )
+            messages.success(request, msg)
         except (ValueError, ValidationError, IntegrityError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())
@@ -967,7 +1006,12 @@ class ClosureCableEntryBulkDeleteView(generic.BulkDeleteView):
 class SplicePlanEntryListView(generic.ObjectListView):
     """List all splice plan entries."""
 
-    queryset = SplicePlanEntry.objects.select_related("plan", "tray", "fiber_a", "fiber_b")
+    queryset = SplicePlanEntry.objects.select_related("plan", "tray", "fiber_a", "fiber_b").prefetch_related(
+        "fiber_a__fiber_strands_a__fiber_cable__cable",
+        "fiber_a__fiber_strands_b__fiber_cable__cable",
+        "fiber_b__fiber_strands_a__fiber_cable__cable",
+        "fiber_b__fiber_strands_b__fiber_cable__cable",
+    )
     table = SplicePlanEntryTable
     filterset = SplicePlanEntryFilterSet
     filterset_form = SplicePlanEntryFilterForm
@@ -1020,7 +1064,7 @@ class SpliceProjectView(generic.ObjectView):
     queryset = SpliceProject.objects.all()
 
     def get_extra_context(self, request, instance):
-        plans_table = SplicePlanTable(instance.plans.all())
+        plans_table = SplicePlanTable(instance.plans.select_related("project", "closure").with_counts())
         plans_table.configure(request)
         return {"plans_table": plans_table}
 

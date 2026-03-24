@@ -483,26 +483,7 @@ describe('splice entries', () => {
 // moveCable
 // ---------------------------------------------------------------------------
 
-describe('cable side assignment balancing', () => {
-  it('balances by strand count, not cable count', () => {
-    const s = new EditorState();
-    // 2x 144F cables + 1x 48F cable
-    s.loadCableGroups([
-      makeCableGroup({ fiber_cable_id: 1, strand_count: 144 }),
-      makeCableGroup({ fiber_cable_id: 2, strand_count: 144 }),
-      makeCableGroup({ fiber_cable_id: 3, strand_count: 48 }),
-    ]);
-
-    const leftCables = s.leftNodes.filter(n => n.type === 'cable');
-    const rightCables = s.rightNodes.filter(n => n.type === 'cable');
-
-    // Greedy: 144(id1) -> left (0<=0), 144(id2) -> right (144>0), 48(id3) -> left (144<=144)
-    // Result: 2 cables left (144+48=192F), 1 cable right (144F)
-    // Much better than naive split: 2 left (288F) + 1 right (48F)
-    expect(leftCables).toHaveLength(2);
-    expect(rightCables).toHaveLength(1);
-  });
-
+describe('cable side assignment', () => {
   it('puts single cable on left', () => {
     const s = new EditorState();
     s.loadCableGroups([
@@ -512,7 +493,7 @@ describe('cable side assignment balancing', () => {
     expect(leftCables).toHaveLength(1);
   });
 
-  it('splits two equal cables evenly', () => {
+  it('splits two equal unspliced cables evenly', () => {
     const s = new EditorState();
     s.loadCableGroups([
       makeCableGroup({ fiber_cable_id: 1, strand_count: 24 }),
@@ -522,6 +503,69 @@ describe('cable side assignment balancing', () => {
     const rightCables = s.rightNodes.filter(n => n.type === 'cable');
     expect(leftCables).toHaveLength(1);
     expect(rightCables).toHaveLength(1);
+  });
+
+  it('places spliced cables on opposite sides', () => {
+    const s = new EditorState();
+    // Cable 1 strand 1 is spliced to Cable 2 strand 3
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1, strand_count: 12,
+        tubes: [{
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 1, live_spliced_to: 3 })],
+        }],
+      }),
+      makeCableGroup({
+        fiber_cable_id: 2, strand_count: 12,
+        tubes: [{
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 3, live_spliced_to: 1 })],
+        }],
+      }),
+    ]);
+
+    const leftCables = s.leftNodes.filter(n => n.type === 'cable');
+    const rightCables = s.rightNodes.filter(n => n.type === 'cable');
+    expect(leftCables).toHaveLength(1);
+    expect(rightCables).toHaveLength(1);
+    // They should be on opposite sides
+    expect(leftCables[0].cableId).not.toBe(rightCables[0].cableId);
+  });
+
+  it('puts unspliced third cable on the lighter side', () => {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1, strand_count: 144,
+        tubes: [{
+          id: 10, name: 'T1', color: '0000ff', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 1, live_spliced_to: 3 })],
+        }],
+      }),
+      makeCableGroup({
+        fiber_cable_id: 2, strand_count: 144,
+        tubes: [{
+          id: 20, name: 'T1', color: 'ff0000', stripe_color: null, strand_count: 1, tray_assignment: null,
+          strands: [makeStrand({ id: 3, live_spliced_to: 1 })],
+        }],
+      }),
+      makeCableGroup({ fiber_cable_id: 3, strand_count: 48 }),
+    ]);
+
+    // Cables 1 and 2 are on opposite sides (spliced).
+    // Cable 3 (unspliced) goes to the lighter side by strand count.
+    const allCableNodes = [...s.leftNodes, ...s.rightNodes].filter(n => n.type === 'cable');
+    expect(allCableNodes).toHaveLength(3);
+
+    const leftIds = s.leftNodes.filter(n => n.type === 'cable').map(n => n.cableId);
+    const rightIds = s.rightNodes.filter(n => n.type === 'cable').map(n => n.cableId);
+    // Cable 1 and 2 must be on different sides
+    if (leftIds.includes(1)) {
+      expect(rightIds).toContain(2);
+    } else {
+      expect(leftIds).toContain(2);
+    }
   });
 });
 

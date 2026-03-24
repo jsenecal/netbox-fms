@@ -555,3 +555,131 @@ class TestCoreListEndpoints(TestCase):
     def test_fiber_circuit_nodes_list(self):
         resp = self.client.get("/api/plugins/fms/fiber-circuit-nodes/")
         assert resp.status_code == 200, resp.content
+
+
+# ---------------------------------------------------------------------------
+# Optimistic Locking
+# ---------------------------------------------------------------------------
+
+
+class TestOptimisticLocking(TestCase):
+    """Bulk-update should reject saves when the plan was modified by another user."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site, mfr, dt, role = _make_base_infra("lock")
+        cls.closure = Device.objects.create(name="C-Lock", site=site, device_type=dt, role=role)
+
+        mt = ModuleType.objects.create(manufacturer=mfr, model="Lock Tray")
+        bay = ModuleBay.objects.create(device=cls.closure, name="Bay Lock")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
+
+        cls.fp1 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="LF1", type="lc")
+        cls.fp2 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="LF2", type="lc")
+        cls.fp3 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="LF3", type="lc")
+        cls.fp4 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="LF4", type="lc")
+
+    def setUp(self):
+        self.plan = SplicePlan.objects.create(closure=self.closure, name="Lock Plan")
+        user_model = get_user_model()
+        self.user = user_model.objects.create_superuser("lockuser", "lock@test.com", "password")
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.url = f"/api/plugins/fms/splice-plans/{self.plan.pk}/bulk-update/"
+
+    def test_save_succeeds_with_correct_version(self):
+        """Save with matching plan_version should succeed."""
+        version = self.plan.last_updated.isoformat()
+        resp = self.client.post(
+            self.url,
+            {
+                "add": [{"fiber_a": self.fp1.pk, "fiber_b": self.fp2.pk}],
+                "remove": [],
+                "plan_version": version,
+            },
+            format="json",
+        )
+        assert resp.status_code == 200, resp.content
+        assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 1
+        # Response should include new plan_version
+        assert resp.json().get("plan_version") is not None
+
+    def test_save_rejected_with_stale_version(self):
+        """Save with outdated plan_version should be rejected with 409."""
+        stale_version = self.plan.last_updated.isoformat()
+
+        # Simulate another user modifying the plan
+        SplicePlanEntry.objects.create(
+            plan=self.plan, tray=self.tray, fiber_a=self.fp3, fiber_b=self.fp4
+        )
+        self.plan.save()  # updates last_updated
+
+        resp = self.client.post(
+            self.url,
+            {
+                "add": [{"fiber_a": self.fp1.pk, "fiber_b": self.fp2.pk}],
+                "remove": [],
+                "plan_version": stale_version,
+            },
+            format="json",
+        )
+        assert resp.status_code == 409, resp.content
+        assert "modified by another user" in resp.json()["error"]
+
+    def test_save_succeeds_without_version(self):
+        """Save without plan_version should succeed (backwards compatible)."""
+        resp = self.client.post(
+            self.url,
+            {
+                "add": [{"fiber_a": self.fp1.pk, "fiber_b": self.fp2.pk}],
+                "remove": [],
+            },
+            format="json",
+        )
+        assert resp.status_code == 200, resp.content
+
+    def test_version_updates_after_save(self):
+        """After a successful save, the returned plan_version should be newer."""
+        old_version = self.plan.last_updated.isoformat()
+        resp = self.client.post(
+            self.url,
+            {
+                "add": [{"fiber_a": self.fp1.pk, "fiber_b": self.fp2.pk}],
+                "remove": [],
+                "plan_version": old_version,
+            },
+            format="json",
+        )
+        assert resp.status_code == 200
+        new_version = resp.json()["plan_version"]
+        assert new_version is not None
+        assert new_version != old_version
+
+    def test_sequential_saves_with_updated_version(self):
+        """Two sequential saves by same user should both succeed when version is updated."""
+        # First save
+        version = self.plan.last_updated.isoformat()
+        resp1 = self.client.post(
+            self.url,
+            {
+                "add": [{"fiber_a": self.fp1.pk, "fiber_b": self.fp2.pk}],
+                "remove": [],
+                "plan_version": version,
+            },
+            format="json",
+        )
+        assert resp1.status_code == 200
+        version2 = resp1.json()["plan_version"]
+
+        # Second save with updated version
+        resp2 = self.client.post(
+            self.url,
+            {
+                "add": [{"fiber_a": self.fp3.pk, "fiber_b": self.fp4.pk}],
+                "remove": [],
+                "plan_version": version2,
+            },
+            format="json",
+        )
+        assert resp2.status_code == 200
+        assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 2

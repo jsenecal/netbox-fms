@@ -15,6 +15,7 @@ export interface EditorConfig {
   quickAddFormUrl: string;
   quickAddApiUrl: string;
   csrfToken: string;
+  debug?: boolean;
 }
 
 /** A single fiber strand as returned by ClosureStrandsAPIView. */
@@ -79,6 +80,13 @@ export interface CableGroupData {
 export interface StrandsApiResponse {
   cables: CableGroupData[];
   trays: TrayData[];
+  plan_version: string | null;
+}
+
+/** Bulk update response. */
+export interface BulkUpdateResponse {
+  entries: Array<{ id: number; fiber_a: number; fiber_b: number; tray: number }>;
+  plan_version: string | null;
 }
 
 /** Layout node types for the column renderer. */
@@ -142,6 +150,7 @@ export interface SpliceEntry {
 export interface BulkUpdatePayload {
   add: Array<{ fiber_a: number; fiber_b: number }>;
   remove: Array<{ fiber_a: number; fiber_b: number }>;
+  plan_version?: string | null;
 }
 
 /** Quick-add plan creation payload. */

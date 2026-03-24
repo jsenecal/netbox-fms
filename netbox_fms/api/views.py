@@ -289,6 +289,15 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Optimistic locking: check plan version hasn't changed since editor loaded
+        client_version = request.data.get("plan_version")
+        if client_version and plan.last_updated:
+            if plan.last_updated.isoformat() != client_version:
+                return Response(
+                    {"error": "This plan was modified by another user. Please reload the editor and try again."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
         adds = request.data.get("add", [])
         removes = request.data.get("remove", [])
 
@@ -375,7 +384,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                     )
 
                 plan.diff_stale = True
-                plan.save(update_fields=["diff_stale"])
+                plan.save()  # full save to bump last_updated for optimistic locking
 
         except IntegrityError as e:
             return Response(
@@ -385,12 +394,14 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         except (FrontPort.DoesNotExist, ValueError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        plan.refresh_from_db()
         entries = SplicePlanEntry.objects.filter(plan=plan)
         return Response(
             {
                 "entries": [
                     {"id": e.pk, "fiber_a": e.fiber_a_id, "fiber_b": e.fiber_b_id, "tray": e.tray_id} for e in entries
-                ]
+                ],
+                "plan_version": plan.last_updated.isoformat() if plan.last_updated else None,
             }
         )
 
@@ -796,6 +807,7 @@ class ClosureStrandsAPIView(APIView):
                         live_lookup[b_id] = a_id
 
         # --- B) Build PLAN splice lookup (optional, when plan_id param provided) ---
+        # Only include entries where both ports are on this device's tray modules.
         plan_lookup = {}
         plan_id = request.query_params.get("plan_id")
         if plan_id:
@@ -803,8 +815,9 @@ class ClosureStrandsAPIView(APIView):
                 plan_id=plan_id,
             ).values_list("id", "fiber_a_id", "fiber_b_id")
             for entry_id, fa_id, fb_id in plan_entries:
-                plan_lookup[fa_id] = (entry_id, fb_id)
-                plan_lookup[fb_id] = (entry_id, fa_id)
+                if fa_id in tray_front_port_ids and fb_id in tray_front_port_ids:
+                    plan_lookup[fa_id] = (entry_id, fb_id)
+                    plan_lookup[fb_id] = (entry_id, fa_id)
 
         # --- C) Build protection lookup: front_port_id → circuit name ---
         # A front port is "protected" if referenced by a non-decommissioned FiberCircuitNode
@@ -921,7 +934,14 @@ class ClosureStrandsAPIView(APIView):
                     }
                 )
 
-        return Response({"cables": cable_groups, "trays": trays})
+        # Include plan version for optimistic locking
+        plan_version = None
+        if plan_id:
+            plan_obj = SplicePlan.objects.filter(pk=plan_id).first()
+            if plan_obj and plan_obj.last_updated:
+                plan_version = plan_obj.last_updated.isoformat()
+
+        return Response({"cables": cable_groups, "trays": trays, "plan_version": plan_version})
 
 
 class ProvisionPortsAPIView(APIView):

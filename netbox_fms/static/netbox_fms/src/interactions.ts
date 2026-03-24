@@ -321,7 +321,15 @@ export class Interactions {
   }
 
   private updateToolbarState(): void {
-    if (this.saveBtn) {
+    // Toggle the save button group (or standalone save btn)
+    const saveGroup = document.getElementById('splice-save-group');
+    if (saveGroup) {
+      if (this.state.hasPendingChanges()) {
+        saveGroup.classList.remove('d-none');
+      } else {
+        saveGroup.classList.add('d-none');
+      }
+    } else if (this.saveBtn) {
       if (this.state.hasPendingChanges()) {
         this.saveBtn.classList.remove('d-none');
       } else {

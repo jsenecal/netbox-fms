@@ -362,8 +362,8 @@ class SplicePlanTable(NetBoxTable):
         url_params={"plan_id": "pk"},
         verbose_name=_("Entries"),
     )
-    cable_count = tables.Column(verbose_name=_("Cables"), accessor="cable_count")
-    tray_count = tables.Column(verbose_name=_("Trays"), accessor="tray_count")
+    cable_count = tables.Column(verbose_name=_("Cables"), accessor="cable_count", orderable=False)
+    tray_count = tables.Column(verbose_name=_("Trays"), accessor="tray_count", orderable=False)
     actions = columns.ActionsColumn()
 
     class Meta(NetBoxTable.Meta):
@@ -404,6 +404,21 @@ class SplicePlanEntryTable(NetBoxTable):
     fiber_b = tables.Column(linkify=True, verbose_name=_("Fiber B"))
     is_express = columns.BooleanColumn(verbose_name=_("Express"))
     actions = columns.ActionsColumn()
+
+    @staticmethod
+    def _strand_display(front_port):
+        """Return FiberStrand display name for a FrontPort, falling back to FrontPort name."""
+        for side in ("a", "b"):
+            strand = getattr(front_port, f"fiber_strands_{side}", FiberStrand.objects.none()).first()
+            if strand:
+                return str(strand)
+        return str(front_port)
+
+    def render_fiber_a(self, value):
+        return self._strand_display(value)
+
+    def render_fiber_b(self, value):
+        return self._strand_display(value)
 
     class Meta(NetBoxTable.Meta):
         model = SplicePlanEntry

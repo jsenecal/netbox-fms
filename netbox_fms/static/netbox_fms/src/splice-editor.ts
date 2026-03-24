@@ -9,8 +9,19 @@ import type { DetailCard, EditorConfig, LayoutNode, SpliceEntry } from './types'
 declare const d3: typeof import('d3');
 
 const config = (window as unknown as { SPLICE_EDITOR_CONFIG: EditorConfig }).SPLICE_EDITOR_CONFIG;
+
+/** Debug logger — only logs when config.debug is true. */
+function dbg(...args: unknown[]): void {
+  if (config?.debug) {
+    console.log('[SpliceEditor]', ...args);
+  }
+}
+
 if (config) {
+  dbg('Config loaded:', JSON.stringify(config, null, 2));
   init(config);
+} else {
+  console.error('[SpliceEditor] No SPLICE_EDITOR_CONFIG found on window');
 }
 
 /** Create a button element with an MDI icon and optional label text. */
@@ -29,10 +40,18 @@ function createIconButton(id: string, iconClass: string, label: string, classNam
 }
 
 async function init(config: EditorConfig): Promise<void> {
+  dbg('init() starting');
   const canvasContainer = document.getElementById('splice-canvas-container');
   const toolbarEl = document.getElementById('fms-toolbar');
   const statsBarEl = document.getElementById('fms-stats-bar');
-  if (!canvasContainer) return;
+  dbg('DOM elements:', { canvasContainer: !!canvasContainer, toolbarEl: !!toolbarEl, statsBarEl: !!statsBarEl });
+  if (!canvasContainer) {
+    dbg('ERROR: #splice-canvas-container not found, aborting');
+    return;
+  }
+
+  // Track plan version for optimistic locking
+  let planVersion: string | null = null;
 
   const state = new EditorState();
 
@@ -109,9 +128,42 @@ async function init(config: EditorConfig): Promise<void> {
     redoBtn.title = 'Redo (Ctrl+Y)';
     toolbarEl.insertBefore(redoBtn, backBtn);
 
-    // Save button
-    const saveBtn = createIconButton('splice-save-btn', 'mdi mdi-content-save', 'Save', 'btn btn-sm btn-success d-none');
-    toolbarEl.insertBefore(saveBtn, backBtn);
+    // Save split button (Save + dropdown with Save & Apply)
+    const saveBtnGroup = document.createElement('div');
+    saveBtnGroup.className = 'btn-group d-none';
+    saveBtnGroup.id = 'splice-save-group';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.id = 'splice-save-btn';
+    saveBtn.className = 'btn btn-sm btn-success';
+    saveBtn.innerHTML = '<i class="mdi mdi-content-save"></i> Save';
+    saveBtnGroup.appendChild(saveBtn);
+
+    const dropdownToggle = document.createElement('button');
+    dropdownToggle.type = 'button';
+    dropdownToggle.className = 'btn btn-sm btn-success dropdown-toggle dropdown-toggle-split';
+    dropdownToggle.dataset.bsToggle = 'dropdown';
+    dropdownToggle.setAttribute('aria-expanded', 'false');
+    const srText = document.createElement('span');
+    srText.className = 'visually-hidden';
+    srText.textContent = 'Toggle Dropdown';
+    dropdownToggle.appendChild(srText);
+    saveBtnGroup.appendChild(dropdownToggle);
+
+    const dropdownMenu = document.createElement('ul');
+    dropdownMenu.className = 'dropdown-menu dropdown-menu-end';
+    const applyItem = document.createElement('li');
+    const applyLink = document.createElement('a');
+    applyLink.className = 'dropdown-item';
+    applyLink.href = '#';
+    applyLink.id = 'splice-save-apply-btn';
+    applyLink.innerHTML = '<i class="mdi mdi-check-circle"></i> Save &amp; Apply';
+    applyItem.appendChild(applyLink);
+    dropdownMenu.appendChild(applyItem);
+    saveBtnGroup.appendChild(dropdownMenu);
+
+    toolbarEl.insertBefore(saveBtnGroup, backBtn);
   }
 
   // -----------------------------------------------------------------------
@@ -216,13 +268,17 @@ async function init(config: EditorConfig): Promise<void> {
       }
       statsBar.update(stats);
     }
-    // Constrain the editor row height to the SVG canvas height
+    // Set editor row height to match SVG canvas so detail panel scrolls within it
     const editorRow = document.getElementById('splice-editor-row');
     const svg = canvasContainer!.querySelector('svg');
     if (editorRow && svg) {
       const svgHeight = svg.getAttribute('height');
       if (svgHeight) {
-        editorRow.style.height = svgHeight + 'px';
+        const h = parseInt(svgHeight, 10);
+        if (h > 0) {
+          editorRow.style.maxHeight = h + 'px';
+          editorRow.style.minHeight = Math.min(h, 500) + 'px';
+        }
       }
     }
   }
@@ -396,9 +452,26 @@ async function init(config: EditorConfig): Promise<void> {
   }
 
   async function loadData(): Promise<void> {
+    dbg('loadData() starting, url:', config.strandsUrl, 'planId:', config.planId);
     try {
       const response = await fetchStrands(config);
+      dbg('loadData() response:', {
+        cables: response.cables?.length ?? 'undefined',
+        trays: response.trays?.length ?? 'undefined',
+        plan_version: response.plan_version,
+        responseKeys: Object.keys(response),
+      });
+      if (!response.cables) {
+        dbg('ERROR: response.cables is falsy, full response:', response);
+      }
+      planVersion = response.plan_version;
       state.loadCableGroups(response.cables, response.trays);
+      dbg('State after load:', {
+        cableGroups: state.cableGroups.length,
+        leftNodes: state.leftNodes.length,
+        rightNodes: state.rightNodes.length,
+        spliceEntries: state.spliceEntries.length,
+      });
       renderer.render();
       updateAfterRender();
 
@@ -438,6 +511,8 @@ async function init(config: EditorConfig): Promise<void> {
         `Loaded ${response.cables.length} cable(s). Click strands to splice.`,
       );
     } catch (err) {
+      dbg('loadData() ERROR:', err);
+      console.error('[SpliceEditor] loadData error:', err);
       interactions.setStatus(`Error: ${(err as Error).message}`);
     }
   }
@@ -462,16 +537,46 @@ async function init(config: EditorConfig): Promise<void> {
     }
   }
 
-  async function savePendingChanges(): Promise<void> {
+  async function savePendingChanges(andApply = false): Promise<void> {
     try {
       const payload = state.getPendingPayload();
-      await bulkUpdatePlan(config, payload);
+      payload.plan_version = planVersion;
+      const result = await bulkUpdatePlan(config, payload);
+      planVersion = result.plan_version;
       state.clearPending();
       interactions.updateSaveButton();
+
+      if (andApply && config.planId) {
+        interactions.setStatus('Saved. Applying...');
+        // POST to the apply endpoint (non-API URL)
+        const applyUrl = `/plugins/fms/splice-plans/${config.planId}/apply/`;
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = applyUrl;
+        const csrf = document.createElement('input');
+        csrf.type = 'hidden';
+        csrf.name = 'csrfmiddlewaretoken';
+        csrf.value = config.csrfToken;
+        form.appendChild(csrf);
+        document.body.appendChild(form);
+        form.submit();
+        return;
+      }
+
       interactions.setStatus('Changes saved successfully.');
       await loadData();
     } catch (err) {
       interactions.setStatus(`Save error: ${(err as Error).message}`);
     }
+  }
+
+  // Wire Save & Apply button
+  const saveApplyBtn = document.getElementById('splice-save-apply-btn');
+  if (saveApplyBtn) {
+    saveApplyBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (!state.hasPendingChanges()) return;
+      await savePendingChanges(true);
+    });
   }
 }
