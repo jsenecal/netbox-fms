@@ -101,7 +101,9 @@ class BufferTubeTemplateTable(NetBoxTable):
     fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Cable Type"))
     position = tables.Column(verbose_name=_("Position"))
     color = columns.ColorColumn(verbose_name=_("Color"))
-    stripe_color = columns.ColorColumn(verbose_name=_("Stripe"))
+    marker_count = tables.Column(verbose_name=_("Markers"))
+    marker_color = columns.ColorColumn(verbose_name=_("Marker Color"))
+    marker_type = tables.Column(verbose_name=_("Marker Type"))
     fiber_count = tables.Column(verbose_name=_("Fiber Count"))
     actions = columns.ActionsColumn()
 
@@ -114,7 +116,9 @@ class BufferTubeTemplateTable(NetBoxTable):
             "name",
             "position",
             "color",
-            "stripe_color",
+            "marker_count",
+            "marker_color",
+            "marker_type",
             "fiber_count",
             "description",
             "actions",
@@ -125,7 +129,7 @@ class BufferTubeTemplateTable(NetBoxTable):
             "name",
             "position",
             "color",
-            "stripe_color",
+            "marker_count",
             "fiber_count",
             "actions",
         )
@@ -140,7 +144,9 @@ class RibbonTemplateTable(NetBoxTable):
     buffer_tube_template = tables.Column(linkify=True, verbose_name=_("Buffer Tube"))
     position = tables.Column(verbose_name=_("Position"))
     color = columns.ColorColumn(verbose_name=_("Color"))
-    stripe_color = columns.ColorColumn(verbose_name=_("Stripe"))
+    marker_count = tables.Column(verbose_name=_("Markers"))
+    marker_color = columns.ColorColumn(verbose_name=_("Marker Color"))
+    marker_type = tables.Column(verbose_name=_("Marker Type"))
     fiber_count = tables.Column(verbose_name=_("Fiber Count"))
     actions = columns.ActionsColumn()
 
@@ -154,7 +160,9 @@ class RibbonTemplateTable(NetBoxTable):
             "name",
             "position",
             "color",
-            "stripe_color",
+            "marker_count",
+            "marker_color",
+            "marker_type",
             "fiber_count",
             "description",
             "actions",
@@ -166,7 +174,7 @@ class RibbonTemplateTable(NetBoxTable):
             "name",
             "position",
             "color",
-            "stripe_color",
+            "marker_count",
             "fiber_count",
             "actions",
         )
@@ -245,13 +253,15 @@ class BufferTubeTable(NetBoxTable):
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     position = tables.Column(verbose_name=_("Position"))
     color = columns.ColorColumn(verbose_name=_("Color"))
-    stripe_color = columns.ColorColumn(verbose_name=_("Stripe"))
+    marker_count = tables.Column(verbose_name=_("Markers"))
+    marker_color = columns.ColorColumn(verbose_name=_("Marker Color"))
+    marker_type = tables.Column(verbose_name=_("Marker Type"))
     actions = columns.ActionsColumn(actions=())  # read-only: no edit/delete views
 
     class Meta(NetBoxTable.Meta):
         model = BufferTube
-        fields = ("pk", "id", "name", "position", "color", "stripe_color")
-        default_columns = ("pk", "name", "position", "color", "stripe_color")
+        fields = ("pk", "id", "name", "position", "color", "marker_count", "marker_color", "marker_type")
+        default_columns = ("pk", "name", "position", "color", "marker_count")
 
 
 class RibbonTable(NetBoxTable):
@@ -261,14 +271,16 @@ class RibbonTable(NetBoxTable):
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     position = tables.Column(verbose_name=_("Position"))
     color = columns.ColorColumn(verbose_name=_("Color"))
-    stripe_color = columns.ColorColumn(verbose_name=_("Stripe"))
+    marker_count = tables.Column(verbose_name=_("Markers"))
+    marker_color = columns.ColorColumn(verbose_name=_("Marker Color"))
+    marker_type = tables.Column(verbose_name=_("Marker Type"))
     buffer_tube = tables.Column(linkify=True, verbose_name=_("Buffer Tube"))
     actions = columns.ActionsColumn(actions=())  # read-only: no edit/delete views
 
     class Meta(NetBoxTable.Meta):
         model = Ribbon
-        fields = ("pk", "id", "name", "position", "color", "stripe_color", "buffer_tube")
-        default_columns = ("pk", "name", "position", "color", "stripe_color", "buffer_tube")
+        fields = ("pk", "id", "name", "position", "color", "marker_count", "marker_color", "marker_type", "buffer_tube")
+        default_columns = ("pk", "name", "position", "color", "marker_count", "buffer_tube")
 
 
 class FiberStrandTable(NetBoxTable):
@@ -278,6 +290,9 @@ class FiberStrandTable(NetBoxTable):
     name = tables.Column(linkify=True, verbose_name=_("Name"))
     position = tables.Column(verbose_name=_("Position"))
     color = columns.ColorColumn(verbose_name=_("Color"))
+    marker_count = tables.Column(verbose_name=_("Markers"))
+    marker_color = columns.ColorColumn(verbose_name=_("Marker Color"))
+    marker_type = tables.Column(verbose_name=_("Marker Type"))
     buffer_tube = tables.Column(linkify=True, verbose_name=_("Buffer Tube"))
     ribbon = tables.Column(linkify=True, verbose_name=_("Ribbon"))
     front_port_a = tables.Column(linkify=True, verbose_name=_("Front Port A"))
@@ -292,6 +307,9 @@ class FiberStrandTable(NetBoxTable):
             "name",
             "position",
             "color",
+            "marker_count",
+            "marker_color",
+            "marker_type",
             "buffer_tube",
             "ribbon",
             "front_port_a",
@@ -302,6 +320,7 @@ class FiberStrandTable(NetBoxTable):
             "name",
             "position",
             "color",
+            "marker_count",
             "buffer_tube",
             "ribbon",
             "front_port_a",
