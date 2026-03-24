@@ -16,6 +16,7 @@ from .choices import (
     FiberCircuitStatusChoices,
     FiberTypeChoices,
     FireRatingChoices,
+    MarkerTypeChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -137,6 +138,23 @@ class FiberCableType(NetBoxModel):
         verbose_name=_("fire rating"),
         max_length=50,
         choices=FireRatingChoices,
+        blank=True,
+    )
+
+    # Strand markers (tight-buffer cables without tubes)
+    strand_marker_interval = models.PositiveSmallIntegerField(
+        verbose_name=_("strand marker interval"),
+        default=0,
+        help_text=_("Number of strands per marker group. 0 = no strand markers."),
+    )
+    strand_marker_color = ColorField(
+        verbose_name=_("strand marker color"),
+        blank=True,
+    )
+    strand_marker_type = models.CharField(
+        verbose_name=_("strand marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
         blank=True,
     )
 
@@ -269,10 +287,35 @@ class BufferTubeTemplate(TrackingModelMixin, NetBoxModel):
         verbose_name=_("color"),
         blank=True,
     )
-    stripe_color = ColorField(
-        verbose_name=_("stripe color"),
+    marker_count = models.PositiveSmallIntegerField(
+        verbose_name=_("marker count"),
+        default=0,
+        help_text=_("Number of markers (dashes/rings/stripes) on this tube."),
+    )
+    marker_color = ColorField(
+        verbose_name=_("marker color"),
         blank=True,
-        help_text=_("Stripe/dash color for identification beyond 12 tubes (EIA/TIA-598)."),
+    )
+    marker_type = models.CharField(
+        verbose_name=_("marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
+        blank=True,
+    )
+    strand_marker_interval = models.PositiveSmallIntegerField(
+        verbose_name=_("strand marker interval"),
+        default=0,
+        help_text=_("Number of strands per marker group. 0 = no strand markers."),
+    )
+    strand_marker_color = ColorField(
+        verbose_name=_("strand marker color"),
+        blank=True,
+    )
+    strand_marker_type = models.CharField(
+        verbose_name=_("strand marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
+        blank=True,
     )
     fiber_count = models.PositiveIntegerField(
         verbose_name=_("fiber count"),
@@ -327,7 +370,9 @@ class BufferTubeTemplate(TrackingModelMixin, NetBoxModel):
             name=self.name,
             position=self.position,
             color=self.color,
-            stripe_color=self.stripe_color,
+            marker_count=self.marker_count,
+            marker_color=self.marker_color,
+            marker_type=self.marker_type,
         )
 
 
@@ -362,10 +407,35 @@ class RibbonTemplate(TrackingModelMixin, NetBoxModel):
         verbose_name=_("color"),
         blank=True,
     )
-    stripe_color = ColorField(
-        verbose_name=_("stripe color"),
+    marker_count = models.PositiveSmallIntegerField(
+        verbose_name=_("marker count"),
+        default=0,
+        help_text=_("Number of markers (dashes/rings/stripes) on this ribbon."),
+    )
+    marker_color = ColorField(
+        verbose_name=_("marker color"),
         blank=True,
-        help_text=_("Stripe/dash color for identification beyond 12 ribbons (EIA/TIA-598)."),
+    )
+    marker_type = models.CharField(
+        verbose_name=_("marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
+        blank=True,
+    )
+    strand_marker_interval = models.PositiveSmallIntegerField(
+        verbose_name=_("strand marker interval"),
+        default=0,
+        help_text=_("Number of strands per marker group. 0 = no strand markers."),
+    )
+    strand_marker_color = ColorField(
+        verbose_name=_("strand marker color"),
+        blank=True,
+    )
+    strand_marker_type = models.CharField(
+        verbose_name=_("strand marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
+        blank=True,
     )
     fiber_count = models.PositiveIntegerField(
         verbose_name=_("fiber count"),
@@ -411,7 +481,9 @@ class RibbonTemplate(TrackingModelMixin, NetBoxModel):
             name=self.name,
             position=self.position,
             color=self.color,
-            stripe_color=self.stripe_color,
+            marker_count=self.marker_count,
+            marker_color=self.marker_color,
+            marker_type=self.marker_type,
         )
 
 
@@ -527,6 +599,17 @@ class FiberCable(NetBoxModel):
         else:
             super().save(*args, **kwargs)
 
+    @staticmethod
+    def _strand_marker(local_position, template):
+        """Compute strand marker fields from a template's strand_marker_* config."""
+        interval = template.strand_marker_interval
+        if not interval or interval <= 0:
+            return 0, "", ""
+        group = (local_position - 1) // interval
+        if group == 0:
+            return 0, "", ""
+        return group, template.strand_marker_color, template.strand_marker_type
+
     def _instantiate_components(self):
         """
         Create tubes, ribbons, fibers, and cable elements from the type's templates.
@@ -560,7 +643,7 @@ class FiberCable(NetBoxModel):
                     strand_position = self._create_fibers_in_ribbon(
                         ribbon,
                         tube,
-                        rt.fiber_count,
+                        rt,
                         strand_position,
                     )
             elif tt.fiber_count:
@@ -568,6 +651,7 @@ class FiberCable(NetBoxModel):
                 fibers = []
                 for i in range(1, tt.fiber_count + 1):
                     hex_color, _ = get_eia598_color(i)
+                    mk_count, mk_color, mk_type = self._strand_marker(i, tt)
                     fibers.append(
                         FiberStrand(
                             fiber_cable=self,
@@ -575,6 +659,9 @@ class FiberCable(NetBoxModel):
                             name=f"{tube.name}-F{i}",
                             position=strand_position,
                             color=hex_color,
+                            marker_count=mk_count,
+                            marker_color=mk_color,
+                            marker_type=mk_type,
                         )
                     )
                     strand_position += 1
@@ -588,7 +675,7 @@ class FiberCable(NetBoxModel):
                 strand_position = self._create_fibers_in_ribbon(
                     ribbon,
                     None,
-                    rt.fiber_count,
+                    rt,
                     strand_position,
                 )
         elif not tube_templates.exists():
@@ -596,12 +683,16 @@ class FiberCable(NetBoxModel):
             fibers = []
             for i in range(1, fct.strand_count + 1):
                 hex_color, _ = get_eia598_color(i)
+                mk_count, mk_color, mk_type = self._strand_marker(i, fct)
                 fibers.append(
                     FiberStrand(
                         fiber_cable=self,
                         name=f"F{i}",
                         position=i,
                         color=hex_color,
+                        marker_count=mk_count,
+                        marker_color=mk_color,
+                        marker_type=mk_type,
                     )
                 )
             FiberStrand.objects.bulk_create(fibers)
@@ -611,11 +702,12 @@ class FiberCable(NetBoxModel):
         if elements:
             CableElement.objects.bulk_create(elements)
 
-    def _create_fibers_in_ribbon(self, ribbon, buffer_tube, fiber_count, start_position):
+    def _create_fibers_in_ribbon(self, ribbon, buffer_tube, ribbon_template, start_position):
         """Create fiber strands within a ribbon. Returns next strand position."""
         fibers = []
-        for i in range(1, fiber_count + 1):
+        for i in range(1, ribbon_template.fiber_count + 1):
             hex_color, _ = get_eia598_color(i)
+            mk_count, mk_color, mk_type = self._strand_marker(i, ribbon_template)
             fibers.append(
                 FiberStrand(
                     fiber_cable=self,
@@ -624,6 +716,9 @@ class FiberCable(NetBoxModel):
                     name=f"{ribbon.name}-F{i}",
                     position=start_position,
                     color=hex_color,
+                    marker_count=mk_count,
+                    marker_color=mk_color,
+                    marker_type=mk_type,
                 )
             )
             start_position += 1
@@ -653,8 +748,18 @@ class BufferTube(NetBoxModel):
         verbose_name=_("color"),
         blank=True,
     )
-    stripe_color = ColorField(
-        verbose_name=_("stripe color"),
+    marker_count = models.PositiveSmallIntegerField(
+        verbose_name=_("marker count"),
+        default=0,
+    )
+    marker_color = ColorField(
+        verbose_name=_("marker color"),
+        blank=True,
+    )
+    marker_type = models.CharField(
+        verbose_name=_("marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
         blank=True,
     )
 
@@ -702,8 +807,18 @@ class Ribbon(NetBoxModel):
         verbose_name=_("color"),
         blank=True,
     )
-    stripe_color = ColorField(
-        verbose_name=_("stripe color"),
+    marker_count = models.PositiveSmallIntegerField(
+        verbose_name=_("marker count"),
+        default=0,
+    )
+    marker_color = ColorField(
+        verbose_name=_("marker color"),
+        blank=True,
+    )
+    marker_type = models.CharField(
+        verbose_name=_("marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
         blank=True,
     )
 
@@ -757,6 +872,20 @@ class FiberStrand(NetBoxModel):
     )
     color = ColorField(
         verbose_name=_("color"),
+        blank=True,
+    )
+    marker_count = models.PositiveSmallIntegerField(
+        verbose_name=_("marker count"),
+        default=0,
+    )
+    marker_color = ColorField(
+        verbose_name=_("marker color"),
+        blank=True,
+    )
+    marker_type = models.CharField(
+        verbose_name=_("marker type"),
+        max_length=20,
+        choices=MarkerTypeChoices,
         blank=True,
     )
     front_port_a = models.ForeignKey(
@@ -825,8 +954,8 @@ class CableElement(NetBoxModel):
         return f"{self.fiber_cable.cable} → {self.name}"
 
     def get_absolute_url(self):
-        """Return the detail URL for the parent fiber cable."""
-        return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
+        """Return the detail URL for this cable element."""
+        return reverse("plugins:netbox_fms:cableelement", args=[self.pk])
 
 
 # ---------------------------------------------------------------------------
@@ -990,6 +1119,12 @@ class SplicePlanEntry(NetBoxModel):
         """Return the detail URL for this splice plan entry."""
         return reverse("plugins:netbox_fms:spliceplanentry", args=[self.pk])
 
+    def to_objectchange(self, action):
+        """Link changelog entries to the parent SplicePlan."""
+        objectchange = super().to_objectchange(action)
+        objectchange.related_object = self.plan
+        return objectchange
+
     @property
     def is_inter_platter(self):
         """True if fiber_a and fiber_b are on different tray modules."""
@@ -1071,9 +1206,14 @@ class TrayProfile(NetBoxModel):
         choices=TrayRoleChoices,
         verbose_name=_("tray role"),
     )
+    max_fibers = models.PositiveIntegerField(
+        default=24,
+        verbose_name=_("max fibers"),
+        help_text=_("Maximum number of fiber splice positions in this tray."),
+    )
     description = models.TextField(blank=True, verbose_name=_("description"))
 
-    clone_fields = ("tray_role",)
+    clone_fields = ("tray_role", "max_fibers")
 
     class Meta:
         ordering = ("module_type",)

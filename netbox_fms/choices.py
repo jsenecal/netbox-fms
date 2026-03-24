@@ -212,6 +212,22 @@ class CableElementTypeChoices(ChoiceSet):
     )
 
 
+class MarkerTypeChoices(ChoiceSet):
+    """Choice set for fiber/tube identification marker type."""
+
+    DASH = "dash"
+    RING = "ring"
+    STRIPE = "stripe"
+    BAND = "band"
+
+    CHOICES = (
+        (DASH, "Dash"),
+        (RING, "Ring"),
+        (STRIPE, "Stripe"),
+        (BAND, "Band"),
+    )
+
+
 #
 # Splice plan choices
 #
