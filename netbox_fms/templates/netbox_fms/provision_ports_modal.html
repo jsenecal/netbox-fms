@@ -1,0 +1,28 @@
+{% load form_helpers %}
+{% load i18n %}
+
+<div class="modal-header">
+  <h5 class="modal-title">{% trans "Provision Ports" %}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+</div>
+<div class="modal-body">
+  <p class="text-muted">
+    {% trans "Create dcim FrontPorts, a RearPort, and PortMappings for this fiber cable on a device. Each fiber strand gets its own FrontPort." %}
+  </p>
+  <form
+      hx-post="{% url 'plugins:netbox_fms:provision_ports' %}?fiber_cable={{ fiber_cable.pk }}"
+      hx-target="#htmx-modal-content"
+  >
+    {% csrf_token %}
+    <input type="hidden" name="fiber_cable" value="{{ fiber_cable.pk }}">
+    {% render_form form %}
+    <div class="text-end mt-3">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+        {% trans "Cancel" %}
+      </button>
+      <button type="submit" class="btn btn-primary">
+        <i class="mdi mdi-check-bold"></i> {% trans "Provision Ports" %}
+      </button>
+    </div>
+  </form>
+</div>

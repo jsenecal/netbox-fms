@@ -6,7 +6,12 @@
 
 {% block extra_controls %}
     {% if perms.dcim.add_frontport %}
-    <a href="{% url 'plugins:netbox_fms:provision_ports' %}?fiber_cable={{ object.pk }}" class="btn btn-outline-primary">
+    <a href="#"
+       hx-get="{% url 'plugins:netbox_fms:provision_ports' %}?fiber_cable={{ object.pk }}"
+       hx-target="#htmx-modal-content"
+       data-bs-toggle="modal"
+       data-bs-target="#htmx-modal"
+       class="btn btn-outline-primary">
         <i class="mdi mdi-ethernet"></i> {% trans "Provision Ports" %}
     </a>
     {% endif %}

@@ -713,7 +713,7 @@ class ProvisionPortsForm(forms.Form):
     )
 
     fieldsets = (
-        FieldSet("fiber_cable", "device", name=_("Provision Ports")),
+        FieldSet("device", name=_("Provision Ports")),
         FieldSet("port_type", name=_("Advanced")),
     )
 

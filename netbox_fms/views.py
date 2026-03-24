@@ -560,7 +560,7 @@ class FiberCableComponentsView(generic.ObjectChildrenView):
     """Base view for fiber cable component tabs."""
 
     queryset = FiberCable.objects.all()
-    actions = (EditObject, DeleteObject, BulkDelete)
+    actions = ()
     viewname = None
 
     def get_children(self, request, parent):
@@ -1533,51 +1533,63 @@ def provision_strands(fiber_cable, device, port_type, module=None):
     if module is not None:
         component_kwargs["module"] = module
 
-    rear_port = RearPort(
-        **component_kwargs,
-        name=cable_label,
-        type=port_type,
-        positions=strand_count,
-        color="",
-    )
-    rear_port.save()
+    from .signals import fms_portmapping_bypass
 
-    for strand in strands:
-        fp = FrontPort(
+    with fms_portmapping_bypass():
+        rear_port = RearPort(
             **component_kwargs,
-            name=strand.name,
+            name=cable_label,
             type=port_type,
-            color=strand.color,
+            positions=strand_count,
+            color="",
         )
-        fp.save()
+        rear_port.save()
 
-        PortMapping.objects.create(
-            device=device,
-            front_port=fp,
-            rear_port=rear_port,
-            front_port_position=1,
-            rear_port_position=strand.position,
-        )
+        for strand in strands:
+            fp = FrontPort(
+                **component_kwargs,
+                name=strand.name,
+                type=port_type,
+                color=strand.color,
+            )
+            fp.save()
 
-        strand.front_port_a = fp
-        strand.save(update_fields=["front_port_a"])
+            PortMapping.objects.create(
+                device=device,
+                front_port=fp,
+                rear_port=rear_port,
+                front_port_position=1,
+                rear_port_position=strand.position,
+            )
+
+            strand.front_port_a = fp
+            strand.save(update_fields=["front_port_a"])
 
 
 class ProvisionPortsView(LoginRequiredMixin, View):
-    """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device."""
+    """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device (htmx modal)."""
+
+    def _get_context(self, request, form=None):
+        fiber_cable = get_object_or_404(FiberCable, pk=request.GET.get("fiber_cable") or request.POST.get("fiber_cable"))
+        if form is None:
+            form = ProvisionPortsForm(initial={"fiber_cable": fiber_cable.pk})
+        return {"form": form, "fiber_cable": fiber_cable}
 
     def get(self, request):
-        """Render the port provisioning form."""
-        form = ProvisionPortsForm(initial=request.GET)
-        return render(request, "netbox_fms/provision_ports.html", {"form": form})
+        """Render the provision ports form inside the htmx modal."""
+        ctx = self._get_context(request)
+        return render(request, "netbox_fms/provision_ports_modal.html", ctx)
 
     def post(self, request):
         """Create FrontPort/RearPort/PortMapping for the selected fiber cable and device."""
         form = ProvisionPortsForm(request.POST)
-        if not form.is_valid():
-            return render(request, "netbox_fms/provision_ports.html", {"form": form})
+        ctx = self._get_context(request, form)
+        fiber_cable = ctx["fiber_cable"]
+        template = "netbox_fms/provision_ports_modal.html"
 
-        fiber_cable = form.cleaned_data["fiber_cable"]
+        if not form.is_valid():
+            return render(request, template, ctx)
+
         device = form.cleaned_data["device"]
         port_type = form.cleaned_data["port_type"]
 
@@ -1587,7 +1599,7 @@ class ProvisionPortsView(LoginRequiredMixin, View):
         ).exists()
         if already:
             messages.error(request, _("Some strands are already provisioned on this device."))
-            return render(request, "netbox_fms/provision_ports.html", {"form": form})
+            return render(request, template, ctx)
 
         try:
             provision_strands(fiber_cable, device, port_type)
@@ -1600,9 +1612,11 @@ class ProvisionPortsView(LoginRequiredMixin, View):
             )
         except ValueError as e:
             messages.error(request, str(e))
-            return render(request, "netbox_fms/provision_ports.html", {"form": form})
+            return render(request, template, ctx)
 
-        return redirect(fiber_cable.get_absolute_url())
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = fiber_cable.get_absolute_url()
+        return response
 
 
 # ---------------------------------------------------------------------------
