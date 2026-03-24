@@ -2,8 +2,11 @@
 {% load helpers %}
 {% load plugins %}
 {% load i18n %}
+{% load static %}
 
 {% block content %}
+<link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
+<div class="fms-component">
 <div class="row mb-3">
     <div class="col col-md-6">
         <div class="card">
@@ -19,7 +22,19 @@
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Status" %}</th>
-                    <td>{{ object.get_status_display }}</td>
+                    <td>
+                        {% if object.status == 'active' %}
+                            <span class="fms-badge fms-badge--live">{{ object.get_status_display }}</span>
+                        {% elif object.status == 'planned' %}
+                            <span class="fms-badge fms-badge--planned">{{ object.get_status_display }}</span>
+                        {% elif object.status == 'provisioning' %}
+                            <span class="fms-badge fms-badge--pending">{{ object.get_status_display }}</span>
+                        {% elif object.status == 'decommissioning' or object.status == 'deprovisioning' %}
+                            <span class="fms-badge fms-badge--protected">{{ object.get_status_display }}</span>
+                        {% else %}
+                            <span class="fms-badge fms-badge--draft">{{ object.get_status_display }}</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Strand Count" %}</th>
@@ -67,7 +82,7 @@
                             <td>{{ path.position }}</td>
                             <td>{{ path.origin|linkify }}</td>
                             <td>{% if path.destination %}{{ path.destination|linkify }}{% else %}&mdash;{% endif %}</td>
-                            <td>{{ path.is_complete|yesno }}</td>
+                            <td>{% if path.is_complete %}<span class="fms-badge fms-badge--live">&#10003;</span>{% else %}<span class="fms-badge fms-badge--draft">&mdash;</span>{% endif %}</td>
                             <td>{% if path.calculated_loss_db is not None %}{{ path.calculated_loss_db }}{% else %}&mdash;{% endif %}</td>
                             <td>{% if path.actual_loss_db is not None %}{{ path.actual_loss_db }}{% else %}&mdash;{% endif %}</td>
                             <td>{% if path.wavelength_nm %}{{ path.wavelength_nm }}{% else %}&mdash;{% endif %}</td>
@@ -84,4 +99,5 @@
     </div>
 </div>
 {% plugin_full_width_page object %}
+</div>
 {% endblock %}

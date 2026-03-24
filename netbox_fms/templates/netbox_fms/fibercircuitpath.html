@@ -5,6 +5,8 @@
 {% load static %}
 
 {% block content %}
+<link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
+<div class="fms-component">
 <ul class="nav nav-tabs mb-3" role="tablist">
     <li class="nav-item" role="presentation">
         <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details" type="button" role="tab">
@@ -43,7 +45,7 @@
                         </tr>
                         <tr>
                             <th scope="row">{% trans "Complete" %}</th>
-                            <td>{{ object.is_complete|yesno }}</td>
+                            <td>{% if object.is_complete %}<span class="fms-badge fms-badge--live">&#10003; {% trans "Yes" %}</span>{% else %}<span class="fms-badge fms-badge--draft">{% trans "No" %}</span>{% endif %}</td>
                         </tr>
                     </table>
                 </div>
@@ -76,6 +78,7 @@
 </div>
 
 {% plugin_full_width_page object %}
+</div>
 {% endblock %}
 
 {% block javascript %}

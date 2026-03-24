@@ -3,6 +3,7 @@
 {% load plugins %}
 {% load render_table from django_tables2 %}
 {% load i18n %}
+{% load static %}
 
 {% block extra_controls %}
     <form method="post" action="{% url 'plugins:netbox_fms:spliceplan_import_device' pk=object.pk %}" class="d-inline">
@@ -17,6 +18,8 @@
 {% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
+<div class="fms-component">
 <div class="row mb-3">
     <div class="col col-md-6">
         <div class="card">
@@ -36,7 +39,17 @@
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Status" %}</th>
-                    <td>{{ object.get_status_display }}</td>
+                    <td>
+                        {% if object.status == 'applied' %}
+                            <span class="fms-badge fms-badge--live">{{ object.get_status_display }}</span>
+                        {% elif object.status == 'ready_to_apply' %}
+                            <span class="fms-badge fms-badge--planned">{{ object.get_status_display }}</span>
+                        {% elif object.status == 'pending_review' %}
+                            <span class="fms-badge fms-badge--pending">{{ object.get_status_display }}</span>
+                        {% else %}
+                            <span class="fms-badge fms-badge--draft">{{ object.get_status_display }}</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Entries" %}</th>
@@ -46,11 +59,11 @@
                     <th scope="row">{% trans "Sync" %}</th>
                     <td>
                         {% if object.status == 'applied' and not object.diff_stale %}
-                            <span class="badge text-bg-success"><i class="mdi mdi-check"></i> {% trans "In sync" %}</span>
+                            <span class="fms-badge fms-badge--live"><i class="mdi mdi-check"></i> {% trans "In sync" %}</span>
                         {% elif object.diff_stale %}
-                            <span class="badge text-bg-warning"><i class="mdi mdi-sync-alert"></i> {% trans "Out of sync" %}</span>
+                            <span class="fms-badge fms-badge--pending"><i class="mdi mdi-sync-alert"></i> {% trans "Out of sync" %}</span>
                         {% else %}
-                            <span class="badge text-bg-info"><i class="mdi mdi-pencil"></i> {% trans "Not applied" %}</span>
+                            <span class="fms-badge fms-badge--planned"><i class="mdi mdi-pencil"></i> {% trans "Not applied" %}</span>
                         {% endif %}
                     </td>
                 </tr>
@@ -77,4 +90,5 @@
     </div>
 </div>
 {% plugin_full_width_page object %}
+</div>
 {% endblock %}

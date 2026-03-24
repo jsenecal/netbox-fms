@@ -2,8 +2,11 @@
 {% load helpers %}
 {% load plugins %}
 {% load i18n %}
+{% load static %}
 
 {% block content %}
+<link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
+<div class="fms-component">
 <div class="row mb-3">
     <div class="col col-md-6">
         <div class="card">
@@ -45,4 +48,5 @@
     </div>
 </div>
 {% plugin_full_width_page object %}
+</div>
 {% endblock %}

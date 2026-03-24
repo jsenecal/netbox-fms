@@ -1,8 +1,11 @@
 {% extends 'dcim/device/base.html' %}
 {% load helpers %}
 {% load i18n %}
+{% load static %}
 
 {% block content %}
+<link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
+<div class="fms-component">
 <div class="row mb-3">
     <div class="col">
         <div class="card">
@@ -121,4 +124,5 @@
 </div>
 
 {% include 'inc/htmx_modal.html' %}
+</div>
 {% endblock %}
