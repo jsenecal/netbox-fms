@@ -40,6 +40,19 @@
                         {% endif %}
                     </td>
                 </tr>
+                <tr>
+                    <th scope="row">{% trans "Marker" %}</th>
+                    <td>
+                        {% if object.marker_count %}
+                            {{ object.marker_count }}x {{ object.get_marker_type_display }}
+                            {% if object.marker_color %}
+                                <span class="color-label" style="background-color: #{{ object.marker_color }}">&nbsp;</span>
+                            {% endif %}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
             </table>
         </div>
     </div>

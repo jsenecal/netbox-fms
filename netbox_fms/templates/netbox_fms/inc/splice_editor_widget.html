@@ -24,3 +24,30 @@
   {# Stats bar — built dynamically by JS #}
   <div id="fms-stats-bar"></div>
 </div>
+
+{# Save confirmation modal — matches NetBox changelog_message styling #}
+<div class="modal fade" id="splice-save-modal" tabindex="-1" aria-labelledby="splice-save-modal-label" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="splice-save-modal-label">{% trans "Save Splice Plan" %}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+      </div>
+      <div class="modal-body">
+        <div id="splice-save-summary" class="mb-3"></div>
+        <div class="bg-primary-subtle border border-primary rounded-1 pt-3 px-3 mb-3">
+          <div class="mb-3">
+            <label for="splice-changelog-message" class="form-label">{% trans "Changelog message" %}</label>
+            <input type="text" class="form-control" id="splice-changelog-message" maxlength="200"
+                   placeholder="{% trans 'Brief description of changes (optional)' %}">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{% trans "Cancel" %}</button>
+        <button type="button" class="btn btn-primary" id="splice-save-confirm-btn">{% trans "Save" %}</button>
+        <button type="button" class="btn btn-success d-none" id="splice-save-apply-confirm-btn">{% trans "Save &amp; Apply" %}</button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -10,7 +10,7 @@
             <span>
                 <i class="mdi mdi-tray-full"></i>
                 {{ tray.module|linkify }}
-                <span class="badge bg-primary">{% trans "Splice Tray" %}</span>
+                <span class="fms-badge fms-badge--active">{% trans "Splice Tray" %}</span>
             </span>
             <span class="text-muted">{{ tray.fiber_count }}/{{ tray.capacity }} {% trans "fibers" %}</span>
         </div>
@@ -20,11 +20,20 @@
             <li class="list-group-item d-flex justify-content-between align-items-center py-1">
                 <span>
                     {% if ta.buffer_tube.color %}
-                    <span class="color-label" style="background-color: #{{ ta.buffer_tube.color }}">&nbsp;</span>
+                    <span class="color-label" style="background-color: #{{ ta.buffer_tube.color }}; display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle;"></span>
                     {% endif %}
                     {{ ta.buffer_tube.name }} &mdash; {{ ta.buffer_tube.fiber_cable }}
                 </span>
-                <span class="text-muted">{{ ta.buffer_tube.fiber_strands.count }} {% trans "fibers" %}</span>
+                <span class="d-flex align-items-center gap-2">
+                    <span class="text-muted">{{ ta.buffer_tube.fiber_strands.count }} {% trans "fibers" %}</span>
+                    <form hx-post="{% url 'plugins:netbox_fms:fiber_overview_unassign_tube' pk=device.pk %}" hx-target="#tray-assignments-card" hx-swap="outerHTML" style="margin:0;">
+                        {% csrf_token %}
+                        <input type="hidden" name="tube_id" value="{{ ta.buffer_tube.pk }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="{% trans 'Unassign' %}">
+                            <i class="mdi mdi-close"></i>
+                        </button>
+                    </form>
+                </span>
             </li>
             {% endfor %}
         </ul>
@@ -40,7 +49,7 @@
             <span>
                 <i class="mdi mdi-arrow-right-bold"></i>
                 {{ basket.module|linkify }}
-                <span class="badge bg-secondary">{% trans "Express Basket" %}</span>
+                <span class="fms-badge fms-badge--draft">{% trans "Express Basket" %}</span>
             </span>
             <span class="text-muted">{{ basket.capacity }} {% trans "positions" %}</span>
         </div>
@@ -60,7 +69,7 @@
             <li class="list-group-item d-flex justify-content-between align-items-center py-1">
                 <span>
                     {% if tube.color %}
-                    <span class="color-label" style="background-color: #{{ tube.color }}">&nbsp;</span>
+                    <span class="color-label" style="background-color: #{{ tube.color }}; display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle;"></span>
                     {% endif %}
                     {{ tube.name }} &mdash; {{ tube.fiber_cable }}
                 </span>

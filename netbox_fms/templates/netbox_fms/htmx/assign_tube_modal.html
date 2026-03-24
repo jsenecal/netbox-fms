@@ -3,7 +3,7 @@
     <h5 class="modal-title">{% trans "Assign Tube to Tray" %}</h5>
     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 </div>
-<form method="post" action="{{ post_url }}">
+<form id="assign-tube-form" hx-post="{{ post_url }}" hx-target="#tray-assignments-card" hx-swap="outerHTML">
     {% csrf_token %}
     <div class="modal-body">
         <input type="hidden" name="tube_id" value="{{ tube.pk }}">

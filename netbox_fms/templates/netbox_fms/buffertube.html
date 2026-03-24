@@ -33,11 +33,13 @@
                     </td>
                 </tr>
                 <tr>
-                    <th scope="row">{% trans "Stripe" %}</th>
+                    <th scope="row">{% trans "Marker" %}</th>
                     <td>
-                        {% if object.stripe_color %}
-                            <span class="color-label" style="background-color: #{{ object.stripe_color }}">&nbsp;</span>
-                            {{ object.stripe_color }}
+                        {% if object.marker_count %}
+                            {{ object.marker_count }}x {{ object.get_marker_type_display }}
+                            {% if object.marker_color %}
+                                <span class="color-label" style="background-color: #{{ object.marker_color }}">&nbsp;</span>
+                            {% endif %}
                         {% else %}
                             {{ ''|placeholder }}
                         {% endif %}

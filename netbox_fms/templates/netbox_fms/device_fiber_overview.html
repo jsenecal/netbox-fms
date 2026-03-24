@@ -9,14 +9,15 @@
 <div class="row mb-3">
     <div class="col">
         <div class="card">
-            <h5 class="card-header">
-                {% trans "Fiber Management Summary" %}
+            <h2 class="card-header">{% trans "Fiber Management Summary" %}
                 {% if show_on_map_url %}
-                <a href="{{ show_on_map_url }}" class="btn btn-sm btn-outline-info float-end" title="{% trans 'Show on Map' %}">
-                    <i class="mdi mdi-map-marker"></i> {% trans "Show on Map" %}
-                </a>
+                <div class="card-actions">
+                    <a href="{{ show_on_map_url }}" class="btn btn-ghost-info btn-sm" title="{% trans 'Show on Map' %}">
+                        <i class="mdi mdi-map-marker"></i> {% trans "Show on Map" %}
+                    </a>
+                </div>
                 {% endif %}
-            </h5>
+            </h2>
             <div class="card-body">
                 {# Stats bar #}
                 <div class="row text-center mb-3">
@@ -76,25 +77,10 @@
     </div>
 </div>
 
-{# Tray Assignments section #}
+{# Tray Assignments section — HTMX refreshable #}
 <div class="row mb-3">
     <div class="col">
-        <div class="card">
-            <h5 class="card-header d-flex justify-content-between align-items-center">
-                {% trans "Tray Assignments" %}
-                {% if tray_data.unassigned_tubes and tray_data.has_trays %}
-                <form method="post" action="{% url 'plugins:netbox_fms:fiber_overview_auto_assign' pk=device.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-outline-success">
-                        <i class="mdi mdi-auto-fix"></i> {% trans "Auto-Assign" %}
-                    </button>
-                </form>
-                {% endif %}
-            </h5>
-            <div class="card-body">
-                {% include "netbox_fms/htmx/tray_assignments_section.html" %}
-            </div>
-        </div>
+        {% include "netbox_fms/htmx/tray_assignments_card.html" %}
     </div>
 </div>
 
@@ -102,7 +88,7 @@
 <div class="row mb-3">
     <div class="col">
         <div class="card">
-            <h5 class="card-header">{% trans "Splice Plan" %}</h5>
+            <h2 class="card-header">{% trans "Splice Plan" %}</h2>
             <div class="card-body">
                 {% if plan %}
                     <p>
@@ -125,4 +111,5 @@
 
 {% include 'inc/htmx_modal.html' %}
 </div>
+<script src="{% static 'netbox_fms/dist/fms-htmx.min.js' %}"></script>
 {% endblock %}

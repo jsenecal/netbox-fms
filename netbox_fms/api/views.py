@@ -384,6 +384,9 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                     )
 
                 plan.diff_stale = True
+                changelog_msg = request.META.get("HTTP_X_CHANGELOG_MESSAGE", "")
+                if changelog_msg:
+                    plan._changelog_message = changelog_msg
                 plan.save()  # full save to bump last_updated for optimistic locking
 
         except IntegrityError as e:
@@ -897,7 +900,9 @@ class ClosureStrandsAPIView(APIView):
                             "id": s.buffer_tube.pk,
                             "name": s.buffer_tube.name,
                             "color": s.buffer_tube.color,
-                            "stripe_color": s.buffer_tube.stripe_color,
+                            "marker_count": s.buffer_tube.marker_count,
+                            "marker_color": s.buffer_tube.marker_color,
+                            "marker_type": s.buffer_tube.marker_type,
                             "strand_count": 0,
                             "strands": [],
                             "tray_assignment": tube_assignment_lookup.get(s.buffer_tube.pk),

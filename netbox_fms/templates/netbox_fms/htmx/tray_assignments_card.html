@@ -1,0 +1,32 @@
+{% load i18n %}
+<style>
+    #tray-assignments-card .card-body {
+        transition: opacity 0.2s ease;
+    }
+    #tray-assignments-card.htmx-request .card-body {
+        opacity: 0.35;
+        pointer-events: none;
+    }
+</style>
+<div id="tray-assignments-card">
+    <div class="card">
+        <h2 class="card-header">{% trans "Tray Assignments" %}
+            {% if tray_data.unassigned_tubes and tray_data.has_trays %}
+            <div class="card-actions">
+                <form hx-post="{% url 'plugins:netbox_fms:fiber_overview_auto_assign' pk=device.pk %}"
+                      hx-target="#tray-assignments-card"
+                      hx-swap="outerHTML"
+                      style="margin:0;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-ghost-success btn-sm">
+                        <i class="mdi mdi-auto-fix"></i> {% trans "Auto-Assign" %}
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+        </h2>
+        <div class="card-body">
+            {% include "netbox_fms/htmx/tray_assignments_section.html" %}
+        </div>
+    </div>
+</div>
