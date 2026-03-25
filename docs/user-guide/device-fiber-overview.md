@@ -8,7 +8,7 @@ The Fiber Overview tab consolidates the following information for the selected d
 
 - **Connected fiber cables** -- all FiberCable instances associated with the device, including cable type, strand count, and termination details.
 - **Fiber strand status** -- a per-strand breakdown showing whether each strand is available, in use, or spliced.
-- **Associated splice plans** -- any SplicePlan entries that reference strands terminating at the device.
+- **Associated splice plans** -- one or more SplicePlan entries that reference strands terminating at the device. A single closure may have multiple active plans from different teams or projects.
 - **Closure cable entry (gland) assignments** -- for closure-type devices, the mapping of cables to physical entry points on the enclosure.
 
 ## ClosureCableEntry Management
@@ -40,3 +40,25 @@ An embedded splice editor is available directly from the device view, enabling q
 - Reviewing and correcting splice assignments reported by technicians.
 
 The widget provides the same functionality as the full splice plan interface in a compact, context-aware form. See [Splice Planning](splice-planning.md) for the full workflow and splice plan management details.
+
+## Pending Work Tab
+
+Closure devices with approved splice plans display a **Pending Work** tab on their detail page. This tab provides a combined view of all approved plans targeting the closure, enabling batch application of changes.
+
+### What the Tab Shows
+
+- **Per-plan summary** -- Each approved plan is listed with its name, project, and a summary of the changes it introduces (additions, removals, unchanged splices).
+- **Combined diff** -- The aggregate diff across all approved plans, organized by tray. Each tray section shows which splices will be added, removed, or kept.
+- **Apply All action** -- A single button applies all approved plans' changes atomically. This creates and removes splice cables as needed, then archives the applied plans.
+
+### Batch Apply Workflow
+
+Instead of applying plans individually, the Pending Work tab merges all approved plans into a single operation:
+
+1. Multiple teams create splice plans for the same closure (each plan is independent).
+2. Plans go through the approval workflow (draft → pending_approval → approved).
+3. A field technician opens the closure's Pending Work tab and reviews the combined diff.
+4. The "Apply All" action commits all changes in a single atomic transaction.
+5. Applied plans are automatically archived.
+
+This approach ensures that a closure is only opened once for all pending changes, reducing field visits and minimizing the risk of partial updates.

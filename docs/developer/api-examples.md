@@ -390,3 +390,127 @@ for c in circuits["results"]:
 
 Valid values for `status`: `planned`, `staged`, `active`, `decommissioned`.
 
+---
+
+## 7. Fiber Claims for a Closure
+
+Retrieve fibers claimed by non-archived splice plans on a closure device. Used by the visual editor to show ghost lines for other plans' claims.
+
+**Request**
+
+```
+GET /api/plugins/fms/closures/{device_id}/fiber-claims/?exclude_plan={plan_id}
+```
+
+The `exclude_plan` query parameter is optional — when provided, entries from that plan are excluded (typically the plan currently being edited).
+
+**curl**
+
+```bash
+curl -s -H "Authorization: Token $TOKEN" \
+  "$NETBOX_URL/api/plugins/fms/closures/42/fiber-claims/?exclude_plan=5" | python3 -m json.tool
+```
+
+**Sample response**
+
+```json
+[
+  {
+    "fiber_a": 123,
+    "fiber_b": 456,
+    "plan_id": 7,
+    "plan_name": "Phase 2 Upgrade",
+    "project_name": "Downtown Ring",
+    "status": "draft"
+  }
+]
+```
+
+Each entry represents a splice pair claimed by another plan. The `status` field reflects the plan's current lifecycle state.
+
+---
+
+## 8. Bulk Update Splice Plan Entries
+
+Atomically add and remove splice entries on a draft plan. Requires the `X-Changelog-Message` header.
+
+**Request**
+
+```
+POST /api/plugins/fms/splice-plans/{id}/bulk-update/
+```
+
+**curl**
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Token $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Changelog-Message: Rewired T1 fibers per work order WO-2026-042" \
+  -d '{
+    "add": [
+      {"fiber_a": 101, "fiber_b": 202},
+      {"fiber_a": 103, "fiber_b": 204}
+    ],
+    "remove": [
+      {"fiber_a": 105, "fiber_b": 206}
+    ],
+    "plan_version": "2026-03-25T10:30:00+00:00"
+  }' \
+  "$NETBOX_URL/api/plugins/fms/splice-plans/1/bulk-update/"
+```
+
+**Headers**
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-Changelog-Message` | Yes | Description of the change. Saved as `change_note` on each created entry. |
+| `X-CSRFToken` | Yes (browser) | CSRF token for browser-based requests. |
+
+**Request body**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `add` | array | Splice pairs to create. Each has `fiber_a` and `fiber_b` (FrontPort IDs). |
+| `remove` | array | Splice pairs to delete. |
+| `plan_version` | string | ISO timestamp for optimistic locking. Obtained from previous response. |
+
+**Validation**
+
+- Plan must be in `draft` status
+- All FrontPorts must exist and have a module (tray) assigned
+- No fibers can be claimed by other active plans on the same closure (fiber exclusivity)
+- No fibers can be in active circuits (circuit protection)
+- The `X-Changelog-Message` header must be non-empty
+
+**Sample response**
+
+```json
+{
+  "entries": [
+    {"id": 15, "fiber_a": 101, "fiber_b": 202, "tray": 10},
+    {"id": 16, "fiber_a": 103, "fiber_b": 204, "tray": 10}
+  ],
+  "plan_version": "2026-03-25T10:31:00+00:00"
+}
+```
+
+---
+
+## 9. Splice Plan Status Transitions
+
+Transition a splice plan through its lifecycle states using POST actions on the plan detail page.
+
+**Available transitions**
+
+| Action | From | To | Permission Required |
+|--------|------|----|-------------------|
+| Submit | draft | pending_approval | change_spliceplan |
+| Approve | pending_approval | approved | approve_spliceplan |
+| Reject | pending_approval | draft | approve_spliceplan |
+| Withdraw | pending_approval | draft | change_spliceplan (submitter only) |
+| Reopen | approved | draft | approve_spliceplan |
+| Archive | any non-archived | archived | approve_spliceplan |
+
+Transitions are performed via POST to the plan's detail page with the appropriate action parameter. The `submitted_by` field is automatically set when submitting for approval.
+

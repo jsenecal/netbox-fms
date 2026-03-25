@@ -94,9 +94,9 @@ These are the valid values for choice fields used throughout the FMS plugin. Use
 | Value | Label |
 |-------|-------|
 | draft | Draft |
-| pending_review | Pending Review |
-| ready_to_apply | Ready to Apply |
-| applied | Applied |
+| pending_approval | Pending Approval |
+| approved | Approved |
+| archived | Archived |
 
 ## FiberCircuitStatusChoices
 

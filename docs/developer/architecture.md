@@ -30,7 +30,8 @@ erDiagram
     Ribbon ||--o{ FiberStrand : "contains"
 
     SpliceProject ||--o{ SplicePlan : "groups"
-    SplicePlan ||--|| Device : "for closure (dcim)"
+    SplicePlan }o--|| Device : "for closure (dcim)"
+    SplicePlan ||--o| User : "submitted_by"
     SplicePlan ||--o{ SplicePlanEntry : "contains"
     SplicePlanEntry ||--|| FrontPort : "fiber_a (dcim)"
     SplicePlanEntry ||--|| FrontPort : "fiber_b (dcim)"
@@ -83,8 +84,8 @@ Created automatically by `FiberCable._instantiate_components()` when a new
 | Model | Purpose |
 |-------|---------|
 | `SpliceProject` | Groups related splice plans for project-level organization. |
-| `SplicePlan` | A splice plan for a specific closure (`dcim.Device`). Tracks diff staleness for cache invalidation. |
-| `SplicePlanEntry` | Maps one `dcim.FrontPort` (fiber_a) to another `dcim.FrontPort` (fiber_b), representing a planned splice. |
+| `SplicePlan` | A splice plan for a specific closure (`dcim.Device`, ForeignKey — multiple plans per closure allowed). Tracks diff staleness for cache invalidation. Status follows a four-state FSM: `draft` → `pending_approval` → `approved` → `archived`. Stores `submitted_by` (FK to `auth.User`). Enforces fiber exclusivity: each `FrontPort` may appear in at most one approved plan at a time. |
+| `SplicePlanEntry` | Maps one `dcim.FrontPort` (fiber_a) to another `dcim.FrontPort` (fiber_b), representing a planned splice. Includes a `change_note` field for per-entry annotations. |
 | `ClosureCableEntry` | Records which `FiberCable` instances enter a closure (`dcim.Device`). |
 | `SlackLoop` | Tracks slack loop storage at a closure. |
 
@@ -95,6 +96,47 @@ Created automatically by `FiberCable._instantiate_components()` when a new
 | `FiberCircuit` | End-to-end logical circuit spanning multiple fiber segments and splices. |
 | `FiberCircuitPath` | One contiguous path (A-to-Z direction or protection path) within a circuit. |
 | `FiberCircuitNode` | An ordered node within a path, referencing the specific fiber strand and device traversed. |
+
+## Splice Plan Lifecycle
+
+### State Machine
+
+A `SplicePlan` moves through four states:
+
+```
+draft  →  pending_approval  →  approved  →  archived
+  ↑              |
+  └──────────────┘  (rejection / reset to draft)
+```
+
+| Transition | Meaning |
+|------------|---------|
+| `draft` → `pending_approval` | Submitter requests review; `submitted_by` is recorded. |
+| `pending_approval` → `approved` | Reviewer approves the plan; diff may now be applied. |
+| `pending_approval` → `draft` | Reviewer rejects or submitter retracts; plan is editable again. |
+| `approved` → `archived` | Plan has been applied and is no longer active. |
+
+### Enforcement Points
+
+State transition guards are checked in three places:
+
+1. **`SplicePlan.clean()`** -- Validates that the requested status transition is
+   legal and that the fiber exclusivity invariant is satisfied before the model
+   is saved.
+2. **API views** -- Dedicated action endpoints (`/submit/`, `/approve/`,
+   `/archive/`) enforce that callers supply the correct current state before
+   permitting a transition.
+3. **Visual editor** -- The splice editor widget disables mutation controls
+   (add/remove/reorder entries) when the plan is not in the `draft` state.
+
+### Fiber Exclusivity Invariant
+
+A given `FrontPort` may appear as `fiber_a` or `fiber_b` in at most one
+`approved` `SplicePlan` at a time. This constraint is enforced in
+`SplicePlan.clean()` before the plan transitions to `approved`. Plans in other
+states (`draft`, `pending_approval`, `archived`) do not participate in the
+exclusivity check, so the same port can be planned in multiple drafts
+simultaneously.
 
 ## Service Layer
 
@@ -171,9 +213,19 @@ Registered via `connect_signals()` in `PluginConfig.ready()`.
 - **`cable_post_save`** -- On `dcim.Cable` save, checks whether the cable
   terminates on `FrontPort` instances belonging to a closure with a `SplicePlan`.
   If so, marks the plan's diff as stale (`diff_stale=True`) so it will be
-  recomputed on next access.
+  recomputed on next access. Also renames ports via `_rename_ports_for_cable()`
+  when a cable is linked to a `FiberCable`.
 - **`cable_pre_delete`** -- Same invalidation logic, but on `pre_delete` (before
   cascade removes the termination records needed for the device lookup).
+- **`portmapping_pre_save`** / **`portmapping_pre_delete`** -- Block external
+  `PortMapping` changes on FMS-managed devices, preventing out-of-band edits that
+  would bypass splice plan enforcement. Internal operations that legitimately need
+  to write `PortMapping` records must use the `fms_portmapping_bypass` context
+  manager to suppress the guard.
+- **`fibercable_post_save`** -- Syncs port names on the associated closure device
+  when a `FiberCable` is linked to a `dcim.Cable`.
+- **`closure_cable_entry_post_delete`** -- Cleans up orphaned `TubeAssignment`
+  records when a `ClosureCableEntry` is removed.
 
 ## Template Content Injection
 
