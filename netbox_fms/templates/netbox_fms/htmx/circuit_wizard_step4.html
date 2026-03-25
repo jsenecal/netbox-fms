@@ -1,0 +1,61 @@
+{% load form_helpers %}
+{% load helpers %}
+{% load i18n %}
+
+<div class="card">
+    <h5 class="card-header">{% trans "Step 4: Review & Create" %}</h5>
+    <div class="card-body">
+        <table class="table table-hover attr-table mb-3">
+            <tr>
+                <th>{% trans "Name" %}</th>
+                <td>{{ state.name }}</td>
+            </tr>
+            {% if state.cid %}
+            <tr>
+                <th>{% trans "Circuit ID" %}</th>
+                <td>{{ state.cid }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+                <th>{% trans "Strand Count" %}</th>
+                <td>{{ state.strand_count }}</td>
+            </tr>
+            <tr>
+                <th>{% trans "Hops" %}</th>
+                <td>{{ proposal.hop_count }}</td>
+            </tr>
+            <tr>
+                <th>{% trans "New Splices" %}</th>
+                <td>{{ proposal.new_splice_count }}</td>
+            </tr>
+        </table>
+
+        <form method="post" action="{% url 'plugins:netbox_fms:fibercircuit_wizard' %}">
+            {% csrf_token %}
+
+            {% if needs_splices %}
+            <div class="card mb-3">
+                <h6 class="card-header">{% trans "Splice Project" %}</h6>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        {% trans "New splices are required. Select or create a splice project to organize them." %}
+                    </p>
+                    {% render_form form %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="text-end">
+                <a href="{% url 'plugins:netbox_fms:fibercircuit_wizard' %}?restart=1" class="btn btn-outline-secondary">
+                    {% trans "Start Over" %}
+                </a>
+                <button type="submit" name="_back" value="1" class="btn btn-outline-primary">
+                    <i class="mdi mdi-arrow-left"></i> {% trans "Back" %}
+                </button>
+                <button type="submit" class="btn btn-success">
+                    <i class="mdi mdi-check-bold"></i> {% trans "Create Circuit" %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

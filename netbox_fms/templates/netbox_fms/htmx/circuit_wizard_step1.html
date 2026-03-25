@@ -1,0 +1,20 @@
+{% load form_helpers %}
+{% load i18n %}
+
+<div class="card">
+    <h5 class="card-header">{% trans "Step 1: Circuit Basics" %}</h5>
+    <div class="card-body">
+        <form hx-post="{% url 'plugins:netbox_fms:fibercircuit_wizard' %}" hx-target="#wizard-content">
+            {% csrf_token %}
+            {% render_form form %}
+            <div class="text-end mt-3">
+                <a href="{% url 'plugins:netbox_fms:fibercircuit_wizard' %}?restart=1" class="btn btn-outline-secondary">
+                    {% trans "Start Over" %}
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    {% trans "Next" %} <i class="mdi mdi-arrow-right"></i>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
