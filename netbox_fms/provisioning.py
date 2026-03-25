@@ -12,12 +12,12 @@ import re
 from collections import defaultdict
 from itertools import combinations
 
-from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPort
+from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Q
 
-from .choices import FiberCircuitStatusChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from .models import (
     FiberCircuitNode,
     FiberCircuitPath,
@@ -563,12 +563,14 @@ def find_fiber_paths(origin_device, destination_device, strand_count=1, prioriti
     return all_candidates[:max_results]
 
 
-def create_circuit_from_proposal(proposal, name_template="Circuit-{n}"):
+def create_circuit_from_proposal(proposal, name_template="Circuit-{n}", name=None, splice_project=None):
     """Create a FiberCircuit from a selected proposal.
 
     Args:
         proposal: A proposal dict from find_fiber_paths()
         name_template: Name template with {n} placeholder for auto-increment
+        name: Literal circuit name (takes precedence over name_template)
+        splice_project: Optional SpliceProject instance to link new SplicePlans to
 
     Returns:
         The created FiberCircuit instance
@@ -578,12 +580,15 @@ def create_circuit_from_proposal(proposal, name_template="Circuit-{n}"):
     fp_ct = ContentType.objects.get_for_model(FrontPort)
 
     with transaction.atomic():
-        # Generate name with auto-increment
-        name = _resolve_name_template(name_template)
+        # Resolve circuit name: literal name takes precedence
+        if name:
+            circuit_name = name
+        else:
+            circuit_name = _resolve_name_template(name_template)
 
         # Create the FiberCircuit
         circuit = FiberCircuit(
-            name=name,
+            name=circuit_name,
             status=FiberCircuitStatusChoices.PLANNED,
             strand_count=len(proposal["strands"]),
         )
@@ -656,8 +661,19 @@ def create_circuit_from_proposal(proposal, name_template="Circuit-{n}"):
                 termination_id=fp_b_id,
             )
 
-            # Create SplicePlanEntry if a SplicePlan exists for this closure
-            plan = SplicePlan.objects.filter(closure_id=device_id).first()
+            # Create SplicePlanEntry — link to project if provided
+            if splice_project:
+                # Create a new plan for this closure, linked to the project
+                plan, _ = SplicePlan.objects.get_or_create(
+                    closure_id=device_id,
+                    project=splice_project,
+                    defaults={
+                        "name": f"{Device.objects.get(pk=device_id).name} — {splice_project.name}",
+                        "status": SplicePlanStatusChoices.DRAFT,
+                    },
+                )
+            else:
+                plan = SplicePlan.objects.filter(closure_id=device_id).first()
             if plan:
                 # Find the tray (module) for fiber_a
                 fp_a = FrontPort.objects.get(pk=fp_a_id)

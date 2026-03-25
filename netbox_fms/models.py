@@ -1559,7 +1559,7 @@ class FiberCircuit(NetBoxModel):
         )
 
     @classmethod
-    def create_from_proposal(cls, proposal, name_template="Circuit-{n}"):
+    def create_from_proposal(cls, proposal, name_template="Circuit-{n}", name=None, splice_project=None):
         """Create a FiberCircuit from a selected proposal.
 
         Delegates to the provisioning engine. See
@@ -1567,7 +1567,9 @@ class FiberCircuit(NetBoxModel):
         """
         from .provisioning import create_circuit_from_proposal
 
-        return create_circuit_from_proposal(proposal, name_template=name_template)
+        return create_circuit_from_proposal(
+            proposal, name_template=name_template, name=name, splice_project=splice_project
+        )
 
 
 class FiberCircuitPath(NetBoxModel):
