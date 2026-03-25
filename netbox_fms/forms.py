@@ -11,6 +11,7 @@ from dcim.models import (
     Site,
 )
 from django import forms
+from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
     NetBoxModelBulkEditForm,
@@ -857,6 +858,61 @@ class FiberCircuitPathFilterForm(NetBoxModelFilterSetForm):
         label=_("Circuit"),
     )
     is_complete = forms.NullBooleanField(required=False, label=_("Complete"))
+
+
+# ---------------------------------------------------------------------------
+# Circuit Wizard
+# ---------------------------------------------------------------------------
+
+
+class CircuitWizardStep1Form(forms.Form):
+    """Step 1: Circuit basics."""
+
+    name = forms.CharField(max_length=200, label=_("Circuit Name"))
+    cid = forms.CharField(max_length=200, required=False, label=_("Circuit ID"))
+    strand_count = forms.IntegerField(min_value=1, initial=1, label=_("Strand Count"))
+    tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False, label=_("Tenant"))
+
+    fieldsets = (FieldSet("name", "cid", "strand_count", "tenant", name=_("Circuit Basics")),)
+
+
+class CircuitWizardStep2Form(forms.Form):
+    """Step 2: Select origin and destination devices."""
+
+    origin_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Origin Device"))
+    destination_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Destination Device"))
+
+    fieldsets = (FieldSet("origin_device", "destination_device", name=_("Endpoints")),)
+
+    def clean(self):
+        super().clean()
+        origin = self.cleaned_data.get("origin_device")
+        destination = self.cleaned_data.get("destination_device")
+        if origin and destination and origin == destination:
+            raise ValidationError(_("Origin and destination must be different devices."))
+        return self.cleaned_data
+
+
+class CircuitWizardStep3Form(forms.Form):
+    """Step 3: Pick a route proposal."""
+
+    selected_proposal = forms.IntegerField(widget=forms.RadioSelect, label=_("Select Route"))
+
+
+class CircuitWizardStep4Form(forms.Form):
+    """Step 4: Splice project selection (only when new splices needed)."""
+
+    splice_project = DynamicModelChoiceField(
+        queryset=SpliceProject.objects.all(),
+        required=False,
+        label=_("Existing Splice Project"),
+    )
+    new_project_name = forms.CharField(
+        max_length=100,
+        required=False,
+        label=_("Or Create New Project"),
+        help_text=_("Enter a name to create a new splice project."),
+    )
 
 
 # ---------------------------------------------------------------------------
