@@ -198,6 +198,7 @@ urlpatterns = [
     path("fiber-circuits/import/", views.FiberCircuitBulkImportView.as_view(), name="fibercircuit_import"),
     path("fiber-circuits/edit/", views.FiberCircuitBulkEditView.as_view(), name="fibercircuit_bulk_edit"),
     path("fiber-circuits/delete/", views.FiberCircuitBulkDeleteView.as_view(), name="fibercircuit_bulk_delete"),
+    path("fiber-circuits/wizard/", views.CircuitWizardView.as_view(), name="fibercircuit_wizard"),
     path("fiber-circuits/<int:pk>/", include(get_model_urls("netbox_fms", "fibercircuit"))),
     path("fiber-circuits/<int:pk>/", views.FiberCircuitView.as_view(), name="fibercircuit"),
     path("fiber-circuits/<int:pk>/edit/", views.FiberCircuitEditView.as_view(), name="fibercircuit_edit"),

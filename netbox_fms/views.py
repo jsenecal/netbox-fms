@@ -1,3 +1,5 @@
+import time
+
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, PortMapping, RearPort
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -41,6 +43,10 @@ from .forms import (
     BufferTubeTemplateForm,
     CableElementTemplateBulkEditForm,
     CableElementTemplateForm,
+    CircuitWizardStep1Form,
+    CircuitWizardStep2Form,
+    CircuitWizardStep3Form,
+    CircuitWizardStep4Form,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
     FiberCableBulkEditForm,
@@ -104,6 +110,7 @@ from .models import (
     TrayProfile,
     TubeAssignment,
 )
+from .provisioning import create_circuit_from_proposal, find_fiber_paths
 from .services import (
     NeedsMappingConfirmation,
     apply_diff,
@@ -1460,6 +1467,7 @@ class FiberCircuitListView(generic.ObjectListView):
     table = FiberCircuitTable
     filterset = FiberCircuitFilterSet
     filterset_form = FiberCircuitFilterForm
+    template_name = "netbox_fms/fibercircuit_list.html"
 
 
 class FiberCircuitView(generic.ObjectView):
@@ -1506,6 +1514,207 @@ class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
     queryset = FiberCircuit.objects.all()
     filterset = FiberCircuitFilterSet
     table = FiberCircuitTable
+
+
+class CircuitWizardView(LoginRequiredMixin, View):
+    """4-step htmx wizard for guided fiber circuit creation."""
+
+    SESSION_KEY = "circuit_wizard"
+    SESSION_TTL = 3600  # 1 hour
+
+    def _get_state(self, request):
+        state = request.session.get(self.SESSION_KEY, {})
+        if state and time.time() - state.get("timestamp", 0) > self.SESSION_TTL:
+            request.session.pop(self.SESSION_KEY, None)
+            return {}
+        return state
+
+    def _set_state(self, request, state):
+        state["timestamp"] = time.time()
+        request.session[self.SESSION_KEY] = state
+        request.session.modified = True
+
+    def _clear_state(self, request):
+        request.session.pop(self.SESSION_KEY, None)
+
+    def get(self, request):
+        if request.GET.get("restart"):
+            self._clear_state(request)
+            return redirect("plugins:netbox_fms:fibercircuit_wizard")
+        state = self._get_state(request)
+        step = state.get("step", 1)
+        return self._render_step(request, step, state)
+
+    def post(self, request):
+        state = self._get_state(request)
+        step = state.get("step", 1)
+        if request.POST.get("_back"):
+            state["step"] = max(1, step - 1)
+            self._set_state(request, state)
+            return self._render_step(request, state["step"], state)
+        if step == 1:
+            return self._process_step1(request, state)
+        elif step == 2:
+            return self._process_step2(request, state)
+        elif step == 3:
+            return self._process_step3(request, state)
+        elif step == 4:
+            return self._process_step4(request, state)
+        return self._render_step(request, 1, {})
+
+    def _render_step(self, request, step, state):
+        ctx = {"state": state, "current_step": step}
+        if step == 1:
+            ctx["form"] = CircuitWizardStep1Form(
+                initial={
+                    "name": state.get("name", ""),
+                    "cid": state.get("cid", ""),
+                    "strand_count": state.get("strand_count", 1),
+                    "tenant": state.get("tenant_id"),
+                }
+            )
+        elif step == 2:
+            ctx["form"] = CircuitWizardStep2Form(
+                initial={
+                    "origin_device": state.get("origin_device_id"),
+                    "destination_device": state.get("destination_device_id"),
+                }
+            )
+        elif step == 3:
+            ctx["proposals"] = state.get("proposals", [])
+            ctx["form"] = CircuitWizardStep3Form()
+        elif step == 4:
+            proposals = state.get("proposals", [])
+            idx = state.get("selected_proposal_idx", 0)
+            ctx["proposal"] = proposals[idx] if idx < len(proposals) else {}
+            ctx["needs_splices"] = ctx["proposal"].get("new_splice_count", 0) > 0
+            ctx["form"] = CircuitWizardStep4Form()
+        template = f"netbox_fms/htmx/circuit_wizard_step{step}.html"
+        if request.headers.get("HX-Request"):
+            return render(request, template, ctx)
+        return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+
+    def _process_step1(self, request, state):
+        form = CircuitWizardStep1Form(request.POST)
+        if not form.is_valid():
+            ctx = {"form": form, "state": state, "current_step": 1}
+            template = "netbox_fms/htmx/circuit_wizard_step1.html"
+            if request.headers.get("HX-Request"):
+                return render(request, template, ctx)
+            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+        state.update(
+            {
+                "step": 2,
+                "name": form.cleaned_data["name"],
+                "cid": form.cleaned_data.get("cid", ""),
+                "strand_count": form.cleaned_data["strand_count"],
+                "tenant_id": form.cleaned_data["tenant"].pk if form.cleaned_data.get("tenant") else None,
+            }
+        )
+        self._set_state(request, state)
+        return self._render_step(request, 2, state)
+
+    def _process_step2(self, request, state):
+        form = CircuitWizardStep2Form(request.POST)
+        if not form.is_valid():
+            ctx = {"form": form, "state": state, "current_step": 2}
+            template = "netbox_fms/htmx/circuit_wizard_step2.html"
+            if request.headers.get("HX-Request"):
+                return render(request, template, ctx)
+            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+        origin = form.cleaned_data["origin_device"]
+        destination = form.cleaned_data["destination_device"]
+        strand_count = state.get("strand_count", 1)
+        try:
+            proposals = find_fiber_paths(origin, destination, strand_count)
+        except Exception as e:
+            messages.error(request, _("Pathfinding error: {error}").format(error=str(e)))
+            ctx = {"form": form, "state": state, "current_step": 2}
+            template = "netbox_fms/htmx/circuit_wizard_step2.html"
+            if request.headers.get("HX-Request"):
+                return render(request, template, ctx)
+            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+        if not proposals:
+            messages.error(request, _("No routes found. Check that ports are provisioned on both devices."))
+            ctx = {"form": form, "state": state, "current_step": 2}
+            template = "netbox_fms/htmx/circuit_wizard_step2.html"
+            if request.headers.get("HX-Request"):
+                return render(request, template, ctx)
+            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+        state.update(
+            {
+                "step": 3,
+                "origin_device_id": origin.pk,
+                "destination_device_id": destination.pk,
+                "proposals": proposals,
+            }
+        )
+        self._set_state(request, state)
+        return self._render_step(request, 3, state)
+
+    def _process_step3(self, request, state):
+        proposals = state.get("proposals", [])
+        try:
+            idx = int(request.POST.get("selected_proposal", 0))
+        except (TypeError, ValueError):
+            idx = 0
+        if idx < 0 or idx >= len(proposals):
+            messages.error(request, _("Invalid route selection."))
+            return self._render_step(request, 3, state)
+        state.update({"step": 4, "selected_proposal_idx": idx})
+        self._set_state(request, state)
+        return self._render_step(request, 4, state)
+
+    def _process_step4(self, request, state):
+        form = CircuitWizardStep4Form(request.POST)
+        proposals = state.get("proposals", [])
+        idx = state.get("selected_proposal_idx", 0)
+        proposal = proposals[idx] if idx < len(proposals) else None
+        if not proposal:
+            messages.error(request, _("Session expired. Please start over."))
+            self._clear_state(request)
+            return redirect("plugins:netbox_fms:fibercircuit_wizard")
+        needs_splices = proposal.get("new_splice_count", 0) > 0
+        splice_project = None
+        if needs_splices:
+            if not form.is_valid():
+                ctx = {"form": form, "state": state, "current_step": 4, "proposal": proposal, "needs_splices": True}
+                template = "netbox_fms/htmx/circuit_wizard_step4.html"
+                if request.headers.get("HX-Request"):
+                    return render(request, template, ctx)
+                return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+            if form.cleaned_data.get("splice_project"):
+                splice_project = form.cleaned_data["splice_project"]
+            elif form.cleaned_data.get("new_project_name"):
+                splice_project = SpliceProject.objects.create(name=form.cleaned_data["new_project_name"])
+            else:
+                messages.error(request, _("Please select or create a splice project for the new splices."))
+                ctx = {"form": form, "state": state, "current_step": 4, "proposal": proposal, "needs_splices": True}
+                template = "netbox_fms/htmx/circuit_wizard_step4.html"
+                if request.headers.get("HX-Request"):
+                    return render(request, template, ctx)
+                return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+        try:
+            circuit = create_circuit_from_proposal(proposal, name=state.get("name"), splice_project=splice_project)
+            tenant_id = state.get("tenant_id")
+            if tenant_id:
+                circuit.tenant_id = tenant_id
+                circuit.save(update_fields=["tenant_id"])
+            cid = state.get("cid")
+            if cid:
+                circuit.cid = cid
+                circuit.save(update_fields=["cid"])
+            messages.success(
+                request,
+                _('Circuit "{name}" created with {count} paths.').format(
+                    name=circuit.name, count=circuit.paths.count()
+                ),
+            )
+        except Exception as e:
+            messages.error(request, _("Error creating circuit: {error}").format(error=str(e)))
+            return self._render_step(request, 4, state)
+        self._clear_state(request)
+        return redirect(circuit.get_absolute_url())
 
 
 # ---------------------------------------------------------------------------
