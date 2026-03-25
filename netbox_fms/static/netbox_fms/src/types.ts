@@ -16,6 +16,7 @@ export interface EditorConfig {
   quickAddApiUrl: string;
   csrfToken: string;
   debug?: boolean;
+  readOnly: boolean;
 }
 
 /** A single fiber strand as returned by ClosureStrandsAPIView. */

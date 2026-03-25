@@ -1884,6 +1884,7 @@ class SpliceEditorView(generic.ObjectView):
         """Return context for the splice editor."""
         return {
             "context_mode": "plan-edit",
+            "is_readonly": instance.status != SplicePlanStatusChoices.DRAFT,
         }
 
 

@@ -75,6 +75,7 @@ export class Interactions {
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+      if (this.config.readOnly) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         this.undoBtn?.click();
@@ -164,6 +165,7 @@ export class Interactions {
   }
 
   private setupBeforeUnload(): void {
+    if (this.config.readOnly) return;
     window.addEventListener('beforeunload', (e) => {
       if (this.state.hasPendingChanges()) {
         e.preventDefault();
@@ -180,6 +182,7 @@ export class Interactions {
   }
 
   handleStrandClick(node: LayoutNode, side: 'left' | 'right'): void {
+    if (this.config.readOnly) return;
     if (!node.id || !node.frontPortId) return;
 
     // Block interaction with protected strands
@@ -275,6 +278,7 @@ export class Interactions {
   }
 
   handleSpliceClick(entry: SpliceEntry, event?: MouseEvent): void {
+    if (this.config.readOnly) return;
     const isCtrl = event ? (event.ctrlKey || event.metaKey) : false;
     const isShift = event ? event.shiftKey : false;
 

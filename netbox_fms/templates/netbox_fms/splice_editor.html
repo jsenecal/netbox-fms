@@ -26,6 +26,7 @@
         quickAddApiUrl: "",
         csrfToken: "{{ csrf_token }}",
         debug: {{ debug|yesno:"true,false" }},
+        readOnly: {{ is_readonly|yesno:"true,false" }},
     };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>

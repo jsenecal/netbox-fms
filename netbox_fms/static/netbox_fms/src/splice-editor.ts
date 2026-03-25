@@ -66,25 +66,27 @@ async function init(config: EditorConfig): Promise<void> {
   // Build toolbar contents
   // -----------------------------------------------------------------------
   if (toolbarEl) {
-    // Mode pill group
-    const modePills = createPillGroup(
-      [
-        { id: 'single', label: 'Single', active: true },
-        { id: 'sequential', label: 'Sequential' },
-      ],
-      (id) => {
-        interactions.setMode(id as 'single' | 'sequential');
-      },
-    );
-    // Insert at the beginning (before the back button if present)
-    toolbarEl.insertBefore(modePills, toolbarEl.firstChild);
-
-    toolbarEl.insertBefore(createSeparator(), modePills.nextSibling);
-
     // Action buttons — create with IDs that interactions.ts expects
     const backBtn = toolbarEl.querySelector('#splice-back-btn');
 
-    // Splice visibility filter pills
+    if (!config.readOnly) {
+      // Mode pill group (edit mode only)
+      const modePills = createPillGroup(
+        [
+          { id: 'single', label: 'Single', active: true },
+          { id: 'sequential', label: 'Sequential' },
+        ],
+        (id) => {
+          interactions.setMode(id as 'single' | 'sequential');
+        },
+      );
+      // Insert at the beginning (before the back button if present)
+      toolbarEl.insertBefore(modePills, toolbarEl.firstChild);
+
+      toolbarEl.insertBefore(createSeparator(), modePills.nextSibling);
+    }
+
+    // Splice visibility filter pills (always shown)
     const visFilterSep = createSeparator();
     toolbarEl.insertBefore(visFilterSep, backBtn);
 
@@ -106,66 +108,94 @@ async function init(config: EditorConfig): Promise<void> {
     );
     toolbarEl.insertBefore(visFilterPills, backBtn);
 
-    const deleteSep = createSeparator();
-    toolbarEl.insertBefore(deleteSep, backBtn);
+    if (!config.readOnly) {
+      const deleteSep = createSeparator();
+      toolbarEl.insertBefore(deleteSep, backBtn);
 
-    const deleteBtn = createIconButton('splice-delete-btn', 'mdi mdi-delete', 'Delete', 'btn btn-sm btn-outline-danger');
-    deleteBtn.disabled = true;
-    deleteBtn.title = 'Delete selected splices';
-    toolbarEl.insertBefore(deleteBtn, backBtn);
+      const deleteBtn = createIconButton('splice-delete-btn', 'mdi mdi-delete', 'Delete', 'btn btn-sm btn-outline-danger');
+      deleteBtn.disabled = true;
+      deleteBtn.title = 'Delete selected splices';
+      toolbarEl.insertBefore(deleteBtn, backBtn);
 
-    // Spacer pushes right-side buttons
-    const spacer = createSpacer();
-    toolbarEl.insertBefore(spacer, backBtn);
+      // Spacer pushes right-side buttons
+      const spacer = createSpacer();
+      toolbarEl.insertBefore(spacer, backBtn);
 
-    // Undo button
-    const undoBtn = createIconButton('splice-undo-btn', 'mdi mdi-undo', '', 'btn btn-sm btn-outline-secondary');
-    undoBtn.disabled = true;
-    undoBtn.title = 'Undo (Ctrl+Z)';
-    toolbarEl.insertBefore(undoBtn, backBtn);
+      // Undo button
+      const undoBtn = createIconButton('splice-undo-btn', 'mdi mdi-undo', '', 'btn btn-sm btn-outline-secondary');
+      undoBtn.disabled = true;
+      undoBtn.title = 'Undo (Ctrl+Z)';
+      toolbarEl.insertBefore(undoBtn, backBtn);
 
-    // Redo button
-    const redoBtn = createIconButton('splice-redo-btn', 'mdi mdi-redo', '', 'btn btn-sm btn-outline-secondary');
-    redoBtn.disabled = true;
-    redoBtn.title = 'Redo (Ctrl+Y)';
-    toolbarEl.insertBefore(redoBtn, backBtn);
+      // Redo button
+      const redoBtn = createIconButton('splice-redo-btn', 'mdi mdi-redo', '', 'btn btn-sm btn-outline-secondary');
+      redoBtn.disabled = true;
+      redoBtn.title = 'Redo (Ctrl+Y)';
+      toolbarEl.insertBefore(redoBtn, backBtn);
 
-    // Save split button (Save + dropdown with Save & Apply)
-    const saveBtnGroup = document.createElement('div');
-    saveBtnGroup.className = 'btn-group d-none';
-    saveBtnGroup.id = 'splice-save-group';
+      // Save split button (Save + dropdown with Save & Apply)
+      const saveBtnGroup = document.createElement('div');
+      saveBtnGroup.className = 'btn-group d-none';
+      saveBtnGroup.id = 'splice-save-group';
 
-    const saveBtn = document.createElement('button');
-    saveBtn.type = 'button';
-    saveBtn.id = 'splice-save-btn';
-    saveBtn.className = 'btn btn-sm btn-success';
-    saveBtn.innerHTML = '<i class="mdi mdi-content-save"></i> Save';
-    saveBtnGroup.appendChild(saveBtn);
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.id = 'splice-save-btn';
+      saveBtn.className = 'btn btn-sm btn-success';
+      const saveIcon = document.createElement('i');
+      saveIcon.className = 'mdi mdi-content-save';
+      saveBtn.appendChild(saveIcon);
+      saveBtn.appendChild(document.createTextNode(' Save'));
+      saveBtnGroup.appendChild(saveBtn);
 
-    const dropdownToggle = document.createElement('button');
-    dropdownToggle.type = 'button';
-    dropdownToggle.className = 'btn btn-sm btn-success dropdown-toggle dropdown-toggle-split';
-    dropdownToggle.dataset.bsToggle = 'dropdown';
-    dropdownToggle.setAttribute('aria-expanded', 'false');
-    const srText = document.createElement('span');
-    srText.className = 'visually-hidden';
-    srText.textContent = 'Toggle Dropdown';
-    dropdownToggle.appendChild(srText);
-    saveBtnGroup.appendChild(dropdownToggle);
+      const dropdownToggle = document.createElement('button');
+      dropdownToggle.type = 'button';
+      dropdownToggle.className = 'btn btn-sm btn-success dropdown-toggle dropdown-toggle-split';
+      dropdownToggle.dataset.bsToggle = 'dropdown';
+      dropdownToggle.setAttribute('aria-expanded', 'false');
+      const srText = document.createElement('span');
+      srText.className = 'visually-hidden';
+      srText.textContent = 'Toggle Dropdown';
+      dropdownToggle.appendChild(srText);
+      saveBtnGroup.appendChild(dropdownToggle);
 
-    const dropdownMenu = document.createElement('ul');
-    dropdownMenu.className = 'dropdown-menu dropdown-menu-end';
-    const applyItem = document.createElement('li');
-    const applyLink = document.createElement('a');
-    applyLink.className = 'dropdown-item';
-    applyLink.href = '#';
-    applyLink.id = 'splice-save-apply-btn';
-    applyLink.innerHTML = '<i class="mdi mdi-check-circle"></i> Save &amp; Apply';
-    applyItem.appendChild(applyLink);
-    dropdownMenu.appendChild(applyItem);
-    saveBtnGroup.appendChild(dropdownMenu);
+      const dropdownMenu = document.createElement('ul');
+      dropdownMenu.className = 'dropdown-menu dropdown-menu-end';
+      const applyItem = document.createElement('li');
+      const applyLink = document.createElement('a');
+      applyLink.className = 'dropdown-item';
+      applyLink.href = '#';
+      applyLink.id = 'splice-save-apply-btn';
+      const applyIcon = document.createElement('i');
+      applyIcon.className = 'mdi mdi-check-circle';
+      applyLink.appendChild(applyIcon);
+      applyLink.appendChild(document.createTextNode(' Save & Apply'));
+      applyItem.appendChild(applyLink);
+      dropdownMenu.appendChild(applyItem);
+      saveBtnGroup.appendChild(dropdownMenu);
 
-    toolbarEl.insertBefore(saveBtnGroup, backBtn);
+      toolbarEl.insertBefore(saveBtnGroup, backBtn);
+    }
+  }
+
+  // Show read-only status banner below toolbar
+  if (config.readOnly && toolbarEl) {
+    const banner = document.createElement('div');
+    banner.className = 'alert alert-info py-1 px-3 mb-0 d-flex align-items-center small';
+
+    const icon = document.createElement('i');
+    icon.className = 'mdi mdi-lock me-2';
+    banner.appendChild(icon);
+
+    const statusText = config.planStatus.replace(/_/g, ' ');
+    banner.appendChild(document.createTextNode('This plan is '));
+    const strong = document.createElement('strong');
+    strong.className = 'mx-1';
+    strong.textContent = statusText;
+    banner.appendChild(strong);
+    banner.appendChild(document.createTextNode(' \u2014 read only'));
+
+    toolbarEl.after(banner);
   }
 
   // -----------------------------------------------------------------------
