@@ -1,7 +1,7 @@
 """Tests for required changelog message on bulk_update_entries."""
 from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.contrib.auth import get_user_model
-from django.test import TransactionTestCase
+from django.test import TestCase
 from rest_framework.test import APIClient
 
 User = get_user_model()
@@ -10,7 +10,7 @@ from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import SplicePlan, SplicePlanEntry
 
 
-class TestChangelogRequired(TransactionTestCase):
+class TestChangelogRequired(TestCase):
     """Test that bulk_update_entries requires X-Changelog-Message header."""
 
     def setUp(self):
