@@ -2,6 +2,7 @@ import type {
   BulkUpdatePayload,
   BulkUpdateResponse,
   EditorConfig,
+  FiberClaim,
   QuickAddResponse,
   StrandsApiResponse,
 } from './types';
@@ -76,4 +77,18 @@ export async function fetchQuickAddForm(
   const resp = await fetch(config.quickAddFormUrl);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return resp.text();
+}
+
+/** Fetch fiber claims from other plans on this closure. */
+export async function fetchFiberClaims(
+  deviceId: number,
+  excludePlanId: number | null,
+): Promise<FiberClaim[]> {
+  let url = `/api/plugins/fms/closures/${deviceId}/fiber-claims/`;
+  if (excludePlanId !== null) {
+    url += `?exclude_plan=${excludePlanId}`;
+  }
+  const resp = await fetch(url);
+  if (!resp.ok) return [];
+  return resp.json();
 }

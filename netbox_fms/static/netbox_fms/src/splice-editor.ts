@@ -1,4 +1,4 @@
-import { bulkUpdatePlan, fetchStrands } from './api';
+import { bulkUpdatePlan, fetchFiberClaims, fetchStrands } from './api';
 import { FmsLegend, FmsDetailPanel, FmsStatsBar, createPillGroup, createPillFilter, createSeparator, createSpacer } from './components';
 import { Interactions } from './interactions';
 import { showQuickAddModal } from './modal';
@@ -475,6 +475,11 @@ async function init(config: EditorConfig): Promise<void> {
       }
       planVersion = response.plan_version;
       state.loadCableGroups(response.cables, response.trays);
+
+      // Fetch fiber claims from other plans for ghost lines
+      const claims = await fetchFiberClaims(config.deviceId, config.planId);
+      state.loadFiberClaims(claims);
+
       dbg('State after load:', {
         cableGroups: state.cableGroups.length,
         leftNodes: state.leftNodes.length,

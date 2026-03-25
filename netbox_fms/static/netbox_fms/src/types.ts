@@ -174,6 +174,16 @@ export interface QuickAddResponse {
   url: string;
 }
 
+/** A fiber claim from another plan on the same closure. */
+export interface FiberClaim {
+  fiber_a: number;
+  fiber_b: number;
+  plan_id: number;
+  plan_name: string;
+  project_name: string | null;
+  status: string;
+}
+
 /* -------------------------------------------------------------------------
    Visual Component Types
    ------------------------------------------------------------------------- */

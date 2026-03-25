@@ -1,6 +1,7 @@
 import type {
   BulkUpdatePayload,
   CableGroupData,
+  FiberClaim,
   LayoutNode,
   LegendSection,
   PendingChange,
@@ -44,6 +45,17 @@ export class EditorState {
   showLive = true;
   showPlanned = true;
   showUnspliced = true;
+  fiberClaims: FiberClaim[] = [];
+  claimedPortIds: Set<number> = new Set();
+
+  loadFiberClaims(claims: FiberClaim[]): void {
+    this.fiberClaims = claims;
+    this.claimedPortIds = new Set<number>();
+    for (const c of claims) {
+      this.claimedPortIds.add(c.fiber_a);
+      this.claimedPortIds.add(c.fiber_b);
+    }
+  }
 
   /** Key for a splice entry (order-independent). */
   spliceKey(a: number, b: number): string {
@@ -577,6 +589,9 @@ export class EditorState {
     }
     if (hasProtected) {
       spliceItems.push({ type: 'icon', icon: '\uD83D\uDD12', label: 'Protected (circuit)' });
+    }
+    if (this.fiberClaims.length > 0) {
+      spliceItems.push({ type: 'line' as const, dashed: true, color: '#888', label: 'Other plan claim' });
     }
     if (spliceItems.length > 0) {
       sections.push({ title: 'Splices', items: spliceItems });

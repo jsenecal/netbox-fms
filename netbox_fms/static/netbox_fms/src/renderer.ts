@@ -555,11 +555,15 @@ export class SpliceRenderer {
     sg.append('title').text(title);
 
     // Dimmed strands (filtered out by visibility toggles) — non-interactive
+    const isClaimed = !!(node.frontPortId && this.state.claimedPortIds.has(node.frontPortId));
     if (dimmed) {
       sg.style('opacity', '0.25').style('pointer-events', 'none');
     } else if (isProtected) {
       // Protected strands are non-interactive
       sg.style('opacity', '0.7').style('cursor', 'not-allowed');
+    } else if (isClaimed) {
+      // Claimed by another plan — greyed out and non-interactive
+      sg.style('opacity', '0.4').style('pointer-events', 'none').style('cursor', 'not-allowed');
     } else {
       sg.on('click', (event: Event) => {
         event.stopPropagation();
@@ -782,6 +786,57 @@ export class SpliceRenderer {
         .attr('d', pathD)
         .attr('stroke', gradUrl)
         .attr('fill', 'none');
+    }
+
+    // --- Ghost lines for other plans' claims ---
+    // Build portId -> nodePosition map for ghost line lookup
+    const portIdToPos = new Map<number, NodePosition>();
+    for (const n of this.state.leftNodes) {
+      if (n.type === 'strand' && n.frontPortId) {
+        portIdToPos.set(n.frontPortId, {
+          x: COLUMN_WIDTH - 14,
+          y: n.y + HEADER_HEIGHT + this.state.leftOffset,
+          hidden: n.hidden,
+          color: n.color,
+        });
+      }
+    }
+    for (const n of this.state.rightNodes) {
+      if (n.type === 'strand' && n.frontPortId) {
+        portIdToPos.set(n.frontPortId, {
+          x: rightX + 14,
+          y: n.y + HEADER_HEIGHT + this.state.rightOffset,
+          hidden: n.hidden,
+          color: n.color,
+        });
+      }
+    }
+
+    for (const claim of this.state.fiberClaims) {
+      const a = portIdToPos.get(claim.fiber_a);
+      const b = portIdToPos.get(claim.fiber_b);
+      if (!a || !b) continue;
+
+      const pathD = this.buildLinkPath(a, b);
+      if (!pathD) continue;
+
+      const tooltip = claim.project_name
+        ? `${claim.plan_name} (${claim.project_name}) \u2014 ${claim.status}`
+        : `${claim.plan_name} \u2014 ${claim.status}`;
+
+      // SVG <title> for native browser tooltip (safe, no XSS)
+      const path = this.linksGroup
+        .append('path')
+        .attr('class', 'splice-link ghost-claim')
+        .attr('d', pathD)
+        .attr('stroke', '#888')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '6,4')
+        .attr('opacity', 0.35)
+        .attr('fill', 'none')
+        .attr('pointer-events', 'visibleStroke');
+
+      path.append('title').text(tooltip);
     }
   }
 
