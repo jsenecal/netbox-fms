@@ -4,7 +4,6 @@ from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPor
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
-from .choices import SplicePlanStatusChoices
 from .models import FiberCable, SplicePlanEntry
 from .signals import fms_portmapping_bypass
 
@@ -427,8 +426,7 @@ def apply_diff(plan):
             )
             added += 1
 
-        plan.status = SplicePlanStatusChoices.ARCHIVED
         plan.diff_stale = True
-        plan.save(update_fields=["status", "diff_stale"])
+        plan.save(update_fields=["diff_stale"])
 
     return {"added": added, "removed": removed}

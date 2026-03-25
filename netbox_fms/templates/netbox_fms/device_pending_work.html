@@ -1,4 +1,4 @@
-{% extends 'generic/object.html' %}
+{% extends 'dcim/device/base.html' %}
 {% load helpers %}
 {% load i18n %}
 {% load static %}
@@ -8,7 +8,6 @@
 
 <div class="fms-component">
 
-    {# Summary stats #}
     {% if diff %}
     <div class="d-flex gap-4 mb-3 align-items-center">
         {% if total_add %}
@@ -29,13 +28,22 @@
         </span>
         {% endif %}
         <div class="ms-auto">
-            <span class="text-muted">
-                <i class="mdi mdi-information-outline"></i> {% trans "Apply changes from the closure's Pending Work tab." %}
-            </span>
+            <form method="post" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success">
+                    <i class="mdi mdi-check-circle"></i> {% trans "Apply All Approved Plans" %}
+                </button>
+            </form>
         </div>
     </div>
 
-    {# Per-tray diff tables #}
+    <div class="mb-3">
+        <strong>{% trans "Plans included:" %}</strong>
+        {% for plan in approved_plans %}
+            <span class="badge text-bg-success">{{ plan.name }}{% if plan.project %} ({{ plan.project }}){% endif %}</span>
+        {% endfor %}
+    </div>
+
     {% for tray in diff %}
     <div class="card mb-3">
         <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -59,10 +67,11 @@
             <table class="table table-sm table-hover mb-0">
                 <thead>
                     <tr>
-                        <th style="width:100px">{% trans "Action" %}</th>
+                        <th style="width:80px">{% trans "Action" %}</th>
                         <th>{% trans "Fiber A" %}</th>
                         <th></th>
                         <th>{% trans "Fiber B" %}</th>
+                        <th>{% trans "Plan" %}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -72,6 +81,7 @@
                         <td>{{ pair.name_a }}</td>
                         <td class="text-muted text-center">&harr;</td>
                         <td>{{ pair.name_b }}</td>
+                        <td class="text-muted small">{{ pair.plan_name }}</td>
                     </tr>
                     {% endfor %}
                     {% for pair in tray.remove %}
@@ -80,6 +90,7 @@
                         <td>{{ pair.name_a }}</td>
                         <td class="text-muted text-center">&harr;</td>
                         <td>{{ pair.name_b }}</td>
+                        <td class="text-muted small">{{ pair.plan_name }}</td>
                     </tr>
                     {% endfor %}
                     {% for pair in tray.unchanged %}
@@ -88,6 +99,7 @@
                         <td>{{ pair.name_a }}</td>
                         <td class="text-center">&harr;</td>
                         <td>{{ pair.name_b }}</td>
+                        <td class="text-muted small">{{ pair.plan_name }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -96,76 +108,10 @@
     </div>
     {% endfor %}
 
-    {# Invalid entries — tray on a different device #}
-    {% if invalid_entries %}
-    <div class="card mb-3 border-warning">
-        <div class="card-header py-2 bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
-            <span>
-                <i class="mdi mdi-alert-outline text-warning"></i>
-                <strong>{% trans "Invalid Entries" %}</strong>
-                <span class="text-muted small">{% trans "(tray belongs to a different device — will be removed on apply)" %}</span>
-            </span>
-            <span class="fms-badge fms-badge--pending">{{ invalid_entries|length }}</span>
-        </div>
-        <div class="table-responsive">
-            <table class="table table-sm mb-0" style="opacity:0.7">
-                <thead>
-                    <tr>
-                        <th>{% trans "Fiber A" %}</th>
-                        <th></th>
-                        <th>{% trans "Fiber B" %}</th>
-                        <th>{% trans "Tray (wrong device)" %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for entry in invalid_entries %}
-                    <tr>
-                        <td>{{ entry.fiber_a }}</td>
-                        <td class="text-muted text-center">&harr;</td>
-                        <td>{{ entry.fiber_b }}</td>
-                        <td class="text-warning">{{ entry.tray }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    {% endif %}
-
-    {# Recent changelog messages #}
-    {% if changelog_messages %}
-    <div class="card mb-3">
-        <div class="card-header py-2">
-            <i class="mdi mdi-history"></i>
-            <strong>{% trans "Recent Changes" %}</strong>
-        </div>
-        <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th style="width:180px">{% trans "Time" %}</th>
-                        <th style="width:120px">{% trans "User" %}</th>
-                        <th>{% trans "Message" %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for entry in changelog_messages %}
-                    <tr>
-                        <td class="text-muted small">{{ entry.time|timesince }} {% trans "ago" %}</td>
-                        <td>{{ entry.user }}</td>
-                        <td>{{ entry.message }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    {% endif %}
-
     {% else %}
     <div class="text-muted text-center py-4">
         <i class="mdi mdi-check-circle-outline mdi-48px"></i>
-        <p class="mt-2">{% trans "No changes to apply. The plan matches the live state." %}</p>
+        <p class="mt-2">{% trans "No approved plans to apply." %}</p>
     </div>
     {% endif %}
 

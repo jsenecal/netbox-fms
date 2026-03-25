@@ -819,7 +819,7 @@ def _splice_plan_has_changes(instance):
 
 @register_model_view(SplicePlan, "apply", path="apply")
 class SplicePlanApplyView(generic.ObjectView):
-    """Apply tab on a SplicePlan — shows diff preview and apply button."""
+    """Read-only preview tab on a SplicePlan — shows diff of what this plan would contribute."""
 
     queryset = SplicePlan.objects.all()
     tab = ViewTab(
@@ -873,57 +873,6 @@ class SplicePlanApplyView(generic.ObjectView):
             "invalid_entries": invalid_entries,
             "changelog_messages": changelog_messages,
         }
-
-    def post(self, request, pk=None, **kwargs):
-        """Apply the splice plan diff to NetBox, creating and removing connections."""
-        plan = get_object_or_404(SplicePlan, pk=pk or kwargs.get("pk"))
-
-        # Block applying if any splices are protected by fiber circuits
-        fp_ids = set()
-        for entry in plan.entries.all():
-            fp_ids.add(entry.fiber_a_id)
-            fp_ids.add(entry.fiber_b_id)
-        if fp_ids:
-            protected_circuits = set(
-                FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
-                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-                .values_list("path__circuit__name", flat=True)
-            )
-            if protected_circuits:
-                names = ", ".join(sorted(protected_circuits))
-                messages.error(
-                    request,
-                    _("Cannot apply: splices are protected by circuit(s): {names}").format(names=names),
-                )
-                return redirect(plan.get_absolute_url())
-
-        try:
-            with transaction.atomic():
-                # Clean up invalid entries BEFORE applying (tray not on this closure)
-                local_module_ids = set(Module.objects.filter(device=plan.closure).values_list("pk", flat=True))
-                invalid_qs = plan.entries.exclude(tray_id__in=local_module_ids)
-                invalid_count = invalid_qs.count()
-                invalid_qs.delete()
-
-                result = apply_diff(plan)
-
-            # Force-clear the cached diff so the tab disappears
-            plan.refresh_from_db()
-            plan.cached_diff = None
-            plan.diff_stale = True
-            plan.save(update_fields=["cached_diff", "diff_stale"])
-
-            msg = _('Applied {added} additions and {removed} removals for "{plan}".').format(
-                added=result["added"], removed=result["removed"], plan=plan
-            )
-            if invalid_count:
-                msg += " " + _("Removed {count} invalid entries (tray on different device).").format(
-                    count=invalid_count
-                )
-            messages.success(request, msg)
-        except (ValueError, ValidationError, IntegrityError) as e:
-            messages.error(request, str(e))
-        return redirect(plan.get_absolute_url())
 
 
 class SplicePlanExportDrawioView(LoginRequiredMixin, View):
@@ -2005,6 +1954,132 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
         response = HttpResponse(status=200)
         response["HX-Redirect"] = redirect_url
         return response
+
+
+def _device_has_approved_plans(device):
+    """Return True if the device (closure) has at least one approved splice plan."""
+    return SplicePlan.objects.filter(
+        closure=device,
+        status=SplicePlanStatusChoices.APPROVED,
+    ).exists()
+
+
+@register_model_view(Device, "pending_work", path="pending-work")
+class DevicePendingWorkView(generic.ObjectView):
+    """Closure-level view showing combined changes from all approved splice plans."""
+
+    queryset = Device.objects.all()
+    tab = ViewTab(
+        label=_("Pending Work"),
+        visible=_device_has_approved_plans,
+        weight=1600,
+    )
+
+    def get_template_name(self):
+        return "netbox_fms/device_pending_work.html"
+
+    def get_extra_context(self, request, instance):
+        approved_plans = SplicePlan.objects.filter(
+            closure=instance,
+            status=SplicePlanStatusChoices.APPROVED,
+        ).select_related("project")
+
+        # Build combined diff from all approved plans
+        combined_diff = []
+        total_add = 0
+        total_remove = 0
+        total_unchanged = 0
+
+        for plan in approved_plans:
+            plan_diff, p_add, p_remove, p_unchanged = _build_enriched_diff(plan)
+            for tray_data in plan_diff:
+                for action_key in ("add", "remove", "unchanged"):
+                    for pair in tray_data.get(action_key, []):
+                        pair["plan_name"] = plan.name
+                        pair["project_name"] = plan.project.name if plan.project else ""
+            combined_diff.extend(plan_diff)
+            total_add += p_add
+            total_remove += p_remove
+            total_unchanged += p_unchanged
+
+        return {
+            "diff": combined_diff,
+            "total_add": total_add,
+            "total_remove": total_remove,
+            "total_unchanged": total_unchanged,
+            "approved_plans": approved_plans,
+        }
+
+    def post(self, request, pk):
+        """Apply all approved plans atomically."""
+        device = get_object_or_404(Device, pk=pk)
+
+        approved_plans = list(
+            SplicePlan.objects.filter(
+                closure=device,
+                status=SplicePlanStatusChoices.APPROVED,
+            ).select_for_update()
+        )
+
+        if not approved_plans:
+            messages.error(request, _("No approved plans to apply."))
+            return redirect(device.get_absolute_url())
+
+        # Verify all are still approved (race condition guard)
+        if any(p.status != SplicePlanStatusChoices.APPROVED for p in approved_plans):
+            messages.error(request, _("Some plans are no longer approved. Please review."))
+            return redirect(device.get_absolute_url())
+
+        # Block applying if any splices are protected by active fiber circuits
+        fp_ids = set()
+        for plan in approved_plans:
+            for entry in plan.entries.all():
+                fp_ids.add(entry.fiber_a_id)
+                fp_ids.add(entry.fiber_b_id)
+        if fp_ids:
+            protected_circuits = set(
+                FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
+                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
+                .values_list("path__circuit__name", flat=True)
+            )
+            if protected_circuits:
+                names = ", ".join(sorted(protected_circuits))
+                messages.error(
+                    request,
+                    _("Cannot apply: splices are protected by circuit(s): {names}").format(names=names),
+                )
+                return redirect(device.get_absolute_url())
+
+        try:
+            with transaction.atomic():
+                total_added = 0
+                total_removed = 0
+
+                for plan in approved_plans:
+                    # Clean up invalid entries before applying (tray not on this closure)
+                    local_module_ids = set(Module.objects.filter(device=plan.closure).values_list("pk", flat=True))
+                    plan.entries.exclude(tray_id__in=local_module_ids).delete()
+
+                    result = apply_diff(plan)
+                    total_added += result["added"]
+                    total_removed += result["removed"]
+
+                    # Archive the plan
+                    plan.status = SplicePlanStatusChoices.ARCHIVED
+                    plan.cached_diff = None
+                    plan.diff_stale = True
+                    plan.save(update_fields=["status", "cached_diff", "diff_stale"])
+
+            msg = _("Applied {added} additions and {removed} removals from {count} plan(s).").format(
+                added=total_added,
+                removed=total_removed,
+                count=len(approved_plans),
+            )
+            messages.success(request, msg)
+        except (ValueError, ValidationError, IntegrityError) as e:
+            messages.error(request, str(e))
+
+        return redirect(device.get_absolute_url())
 
 
 class LinkTopologyView(LoginRequiredMixin, View):
