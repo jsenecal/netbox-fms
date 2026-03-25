@@ -538,6 +538,43 @@ class FiberCircuitProtectingAPIView(APIView):
 
 
 # ---------------------------------------------------------------------------
+# Fiber claims API view
+# ---------------------------------------------------------------------------
+
+
+class FiberClaimsAPIView(APIView):
+    """Return fibers claimed by non-archived plans on the same closure, optionally excluding one plan."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, device_id):
+        """Return fiber claims for all non-archived plans on the given closure device."""
+        qs = (
+            SplicePlanEntry.objects.filter(plan__closure_id=device_id)
+            .exclude(plan__status=SplicePlanStatusChoices.ARCHIVED)
+            .select_related("plan__project")
+        )
+
+        exclude_plan = request.query_params.get("exclude_plan")
+        if exclude_plan:
+            qs = qs.exclude(plan_id=exclude_plan)
+
+        result = []
+        for entry in qs:
+            result.append(
+                {
+                    "fiber_a": entry.fiber_a_id,
+                    "fiber_b": entry.fiber_b_id,
+                    "plan_id": entry.plan_id,
+                    "plan_name": entry.plan.name,
+                    "project_name": entry.plan.project.name if entry.plan.project else None,
+                    "status": entry.plan.status,
+                }
+            )
+        return Response(result)
+
+
+# ---------------------------------------------------------------------------
 # Splice toolkit API views
 # ---------------------------------------------------------------------------
 

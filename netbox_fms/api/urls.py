@@ -34,6 +34,7 @@ urlpatterns = (
     + router.urls
     + [
         path("closure-strands/<int:device_id>/", views.ClosureStrandsAPIView.as_view(), name="closure_strands"),
+        path("closures/<int:device_id>/fiber-claims/", views.FiberClaimsAPIView.as_view(), name="closure_fiber_claims"),
         path("provision-ports/", views.ProvisionPortsAPIView.as_view(), name="provision_ports_api"),
     ]
 )
