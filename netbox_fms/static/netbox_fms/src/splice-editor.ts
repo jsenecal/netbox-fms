@@ -609,6 +609,12 @@ async function init(config: EditorConfig): Promise<void> {
     // Clear previous message
     const msgInput = document.getElementById('splice-changelog-message') as HTMLInputElement;
     if (msgInput) msgInput.value = '';
+
+    // Reset button state (changelog message is required)
+    const saveConfirmBtnLocal = document.getElementById('splice-save-confirm-btn') as HTMLButtonElement;
+    const saveApplyConfirmBtnLocal = document.getElementById('splice-save-apply-confirm-btn') as HTMLButtonElement;
+    if (saveConfirmBtnLocal) saveConfirmBtnLocal.disabled = true;
+    if (saveApplyConfirmBtnLocal) saveApplyConfirmBtnLocal.disabled = true;
   }
 
   function showSaveModal(andApply = false): void {
@@ -654,6 +660,23 @@ async function init(config: EditorConfig): Promise<void> {
     saveApplyConfirmBtn.addEventListener('click', async () => {
       hideModal();
       await savePendingChanges(true);
+    });
+  }
+
+  // Disable save confirm buttons until changelog message is entered
+  const changelogInput = document.getElementById('splice-changelog-message') as HTMLInputElement;
+  const saveConfirmBtnEl = document.getElementById('splice-save-confirm-btn') as HTMLButtonElement;
+  const saveApplyConfirmBtnEl = document.getElementById('splice-save-apply-confirm-btn') as HTMLButtonElement;
+
+  if (changelogInput) {
+    // Disable buttons initially
+    if (saveConfirmBtnEl) saveConfirmBtnEl.disabled = true;
+    if (saveApplyConfirmBtnEl) saveApplyConfirmBtnEl.disabled = true;
+
+    changelogInput.addEventListener('input', () => {
+      const hasMessage = changelogInput.value.trim().length > 0;
+      if (saveConfirmBtnEl) saveConfirmBtnEl.disabled = !hasMessage;
+      if (saveApplyConfirmBtnEl) saveApplyConfirmBtnEl.disabled = !hasMessage;
     });
   }
 

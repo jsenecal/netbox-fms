@@ -24,7 +24,6 @@ from netbox_fms.models import (
     SlackLoop,
     SplicePlan,
     SplicePlanEntry,
-    SpliceProject,
 )
 from tests.conftest import make_front_port
 

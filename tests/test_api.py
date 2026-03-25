@@ -84,6 +84,7 @@ class TestBulkUpdateAPI(TestCase):
                 "remove": [],
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test add",
         )
         assert resp.status_code == 200, resp.content
         assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 1
@@ -103,6 +104,7 @@ class TestBulkUpdateAPI(TestCase):
                 "remove": [{"fiber_a": self.fp3.pk, "fiber_b": self.fp4.pk}],
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test remove",
         )
         assert resp.status_code == 200, resp.content
         assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 0
@@ -120,6 +122,7 @@ class TestBulkUpdateAPI(TestCase):
                 "remove": [],
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test rollback",
         )
         assert resp.status_code == 400
         assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 0
@@ -531,6 +534,7 @@ class TestOptimisticLocking(TestCase):
                 "plan_version": version,
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test correct version",
         )
         assert resp.status_code == 200, resp.content
         assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 1
@@ -568,6 +572,7 @@ class TestOptimisticLocking(TestCase):
                 "remove": [],
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test no version",
         )
         assert resp.status_code == 200, resp.content
 
@@ -582,6 +587,7 @@ class TestOptimisticLocking(TestCase):
                 "plan_version": old_version,
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test version update",
         )
         assert resp.status_code == 200
         new_version = resp.json()["plan_version"]
@@ -600,6 +606,7 @@ class TestOptimisticLocking(TestCase):
                 "plan_version": version,
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test sequential save 1",
         )
         assert resp1.status_code == 200
         version2 = resp1.json()["plan_version"]
@@ -613,6 +620,7 @@ class TestOptimisticLocking(TestCase):
                 "plan_version": version2,
             },
             format="json",
+            HTTP_X_CHANGELOG_MESSAGE="test sequential save 2",
         )
         assert resp2.status_code == 200
         assert SplicePlanEntry.objects.filter(plan=self.plan).count() == 2

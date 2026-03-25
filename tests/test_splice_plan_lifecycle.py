@@ -154,7 +154,7 @@ class TestBulkUpdateStatusEnforcement(TransactionTestCase):
             status=SplicePlanStatusChoices.DRAFT,
         )
         url = f"/api/plugins/fms/splice-plans/{plan.pk}/bulk-update/"
-        resp = self.client.post(url, {"add": [], "remove": []}, format="json")
+        resp = self.client.post(url, {"add": [], "remove": []}, format="json", HTTP_X_CHANGELOG_MESSAGE="test draft")
         assert resp.status_code == 200
 
 

@@ -295,6 +295,14 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
+        # Require changelog message
+        changelog_msg = request.META.get("HTTP_X_CHANGELOG_MESSAGE", "").strip()
+        if not changelog_msg:
+            return Response(
+                {"error": "A changelog message is required. Describe what you changed and why."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         adds = request.data.get("add", [])
         removes = request.data.get("remove", [])
 
@@ -414,12 +422,11 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                         tray=tray,
                         fiber_a_id=fa_id,
                         fiber_b_id=fb_id,
+                        change_note=changelog_msg,
                     )
 
                 plan.diff_stale = True
-                changelog_msg = request.META.get("HTTP_X_CHANGELOG_MESSAGE", "")
-                if changelog_msg:
-                    plan._changelog_message = changelog_msg
+                plan._changelog_message = changelog_msg
                 plan.save()  # full save to bump last_updated for optimistic locking
 
         except IntegrityError as e:
