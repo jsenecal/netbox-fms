@@ -17,6 +17,7 @@ function makeConfig(overrides: Partial<EditorConfig> = {}): EditorConfig {
     quickAddFormUrl: '/api/fms/splice-plans/quick-add-form/',
     quickAddApiUrl: '/api/fms/splice-plans/quick-add/',
     csrfToken: 'test-token',
+    readOnly: false,
     ...overrides,
   };
 }
