@@ -24,9 +24,7 @@ from netbox_fms.trace_hops import build_hops
 def _make_device(site, mfr, name, suffix=""):
     """Create a device with a module tray."""
     slug_name = f"{name}{suffix}".lower().replace(" ", "-")
-    dt, _ = DeviceType.objects.get_or_create(
-        manufacturer=mfr, model=f"{name}-Type{suffix}", slug=f"{slug_name}-dt"
-    )
+    dt, _ = DeviceType.objects.get_or_create(manufacturer=mfr, model=f"{name}-Type{suffix}", slug=f"{slug_name}-dt")
     role, _ = DeviceRole.objects.get_or_create(name=f"{name}-Role", slug=f"{slug_name}-role")
     device = Device.objects.create(name=f"{name}{suffix}", site=site, device_type=dt, role=role)
     mt, _ = ModuleType.objects.get_or_create(manufacturer=mfr, model=f"{name}-Tray{suffix}")
@@ -39,9 +37,7 @@ def _make_front_rear_pair(device, tray, fp_name, rp_name):
     """Create a FrontPort/RearPort pair linked via PortMapping."""
     rp = RearPort.objects.create(device=device, module=tray, name=rp_name, type="lc", positions=1)
     fp = FrontPort.objects.create(device=device, module=tray, name=fp_name, type="lc")
-    PortMapping.objects.create(
-        device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=1
-    )
+    PortMapping.objects.create(device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=1)
     return fp, rp
 
 
@@ -201,9 +197,7 @@ class TestBuildHopsClosurePattern(TestCase):
         cls.rp_mid_in = RearPort.objects.create(
             device=cls.dev_mid, module=cls.tray_mid, name="RP-MID-IN", type="lc", positions=1
         )
-        cls.fp_mid_in = FrontPort.objects.create(
-            device=cls.dev_mid, module=cls.tray_mid, name="FP-MID-IN", type="lc"
-        )
+        cls.fp_mid_in = FrontPort.objects.create(device=cls.dev_mid, module=cls.tray_mid, name="FP-MID-IN", type="lc")
         PortMapping.objects.create(
             device=cls.dev_mid,
             front_port=cls.fp_mid_in,
@@ -212,9 +206,7 @@ class TestBuildHopsClosurePattern(TestCase):
             rear_port_position=1,
         )
 
-        cls.fp_mid_out, cls.rp_mid_out = _make_front_rear_pair(
-            cls.dev_mid, cls.tray_mid, "FP-MID-OUT", "RP-MID-OUT"
-        )
+        cls.fp_mid_out, cls.rp_mid_out = _make_front_rear_pair(cls.dev_mid, cls.tray_mid, "FP-MID-OUT", "RP-MID-OUT")
         cls.fp_b, cls.rp_b = _make_front_rear_pair(cls.dev_b, cls.tray_b, "FP-B1", "RP-B1")
 
         cls.cable1 = Cable.objects.create()

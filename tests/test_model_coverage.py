@@ -777,4 +777,3 @@ class TestSplicePlanEntryClean:
         entry = SplicePlanEntry(plan=plan, tray=mod, fiber_a=fp_a, fiber_b=fp_b)
         with pytest.raises(ValidationError, match="fiber_a"):
             entry.clean()
-

@@ -117,23 +117,32 @@ class TestPortMappingProtection(TransactionTestCase):
     def test_external_portmapping_create_blocked(self):
         with self.assertRaises(ValidationError):
             PortMapping.objects.create(
-                device=self.device, front_port=self.fp, rear_port=self.rp,
-                front_port_position=1, rear_port_position=1,
+                device=self.device,
+                front_port=self.fp,
+                rear_port=self.rp,
+                front_port_position=1,
+                rear_port_position=1,
             )
 
     def test_bypass_allows_portmapping_create(self):
         with fms_portmapping_bypass():
             pm = PortMapping.objects.create(
-                device=self.device, front_port=self.fp, rear_port=self.rp,
-                front_port_position=1, rear_port_position=1,
+                device=self.device,
+                front_port=self.fp,
+                rear_port=self.rp,
+                front_port_position=1,
+                rear_port_position=1,
             )
         assert pm.pk is not None
 
     def test_external_portmapping_delete_blocked(self):
         with fms_portmapping_bypass():
             pm = PortMapping.objects.create(
-                device=self.device, front_port=self.fp, rear_port=self.rp,
-                front_port_position=1, rear_port_position=1,
+                device=self.device,
+                front_port=self.fp,
+                rear_port=self.rp,
+                front_port_position=1,
+                rear_port_position=1,
             )
         with self.assertRaises(ValidationError):
             pm.delete()
@@ -146,8 +155,11 @@ class TestPortMappingProtection(TransactionTestCase):
         rp2 = RearPort.objects.create(device=device2, name="NF-RP", type="8p8c", positions=1)
         fp2 = FrontPort.objects.create(device=device2, name="NF-FP", type="8p8c")
         pm = PortMapping.objects.create(
-            device=device2, front_port=fp2, rear_port=rp2,
-            front_port_position=1, rear_port_position=1,
+            device=device2,
+            front_port=fp2,
+            rear_port=rp2,
+            front_port_position=1,
+            rear_port_position=1,
         )
         assert pm.pk is not None
 
@@ -305,13 +317,20 @@ class TestFiberCableLinkNameSync(TransactionTestCase):
         rp = RearPort.objects.create(device=self.device, name="old-name", type="splice", positions=1)
         rp_ct = ContentType.objects.get_for_model(RearPort)
         CableTermination.objects.create(
-            cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp.pk, connector=1,
+            cable=cable,
+            cable_end="A",
+            termination_type=rp_ct,
+            termination_id=rp.pk,
+            connector=1,
         )
         fp = FrontPort.objects.create(device=self.device, name="old-fp", type="splice")
         with fms_portmapping_bypass():
             PortMapping.objects.create(
-                device=self.device, front_port=fp, rear_port=rp,
-                front_port_position=1, rear_port_position=1,
+                device=self.device,
+                front_port=fp,
+                rear_port=rp,
+                front_port_position=1,
+                rear_port_position=1,
             )
 
         # Create FiberCable with a strand linked to the FrontPort

@@ -55,21 +55,15 @@ class TestTracePerformance(TestCase):
                 device=dev_a, front_port=fp_a, rear_port=rp_a, front_port_position=1, rear_port_position=1
             )
 
-            rp_b = RearPort.objects.create(
-                device=dev_b, module=tray_b, name=f"RP-in-{i + 1}", type="lc", positions=1
-            )
+            rp_b = RearPort.objects.create(device=dev_b, module=tray_b, name=f"RP-in-{i + 1}", type="lc", positions=1)
             fp_b = FrontPort.objects.create(device=dev_b, module=tray_b, name=f"FP-in-{i + 1}", type="lc")
             PortMapping.objects.create(
                 device=dev_b, front_port=fp_b, rear_port=rp_b, front_port_position=1, rear_port_position=1
             )
 
             cable = Cable.objects.create()
-            CableTermination.objects.create(
-                cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp_a.pk
-            )
-            CableTermination.objects.create(
-                cable=cable, cable_end="B", termination_type=rp_ct, termination_id=rp_b.pk
-            )
+            CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp_a.pk)
+            CableTermination.objects.create(cable=cable, cable_end="B", termination_type=rp_ct, termination_id=rp_b.pk)
 
             # Create splice at intermediate closures (connect previous ingress to this egress)
             if prev_egress_fp is not None and i > 0:

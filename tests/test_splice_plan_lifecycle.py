@@ -25,7 +25,9 @@ class TestSplicePlanFSM(TransactionTestCase):
 
     def _make_plan(self, status=SplicePlanStatusChoices.DRAFT):
         return SplicePlan.objects.create(
-            closure=self.closure, name="Test Plan", status=status,
+            closure=self.closure,
+            name="Test Plan",
+            status=status,
         )
 
     # Valid transitions
@@ -206,9 +208,7 @@ class TestSplicePlanDeletion(TransactionTestCase):
         assert resp.status_code == 403
 
     def test_delete_archived_allowed(self):
-        plan = SplicePlan.objects.create(
-            closure=self.closure, name="Archived", status=SplicePlanStatusChoices.ARCHIVED
-        )
+        plan = SplicePlan.objects.create(closure=self.closure, name="Archived", status=SplicePlanStatusChoices.ARCHIVED)
         resp = self.client.delete(f"/api/plugins/fms/splice-plans/{plan.pk}/")
         assert resp.status_code == 204
 
@@ -271,9 +271,7 @@ class TestFiberExclusivity(TransactionTestCase):
 
     def test_archived_plan_does_not_block(self):
         """Archived plans release their fiber claims."""
-        plan_a = SplicePlan.objects.create(
-            closure=self.closure, name="Plan A", status=SplicePlanStatusChoices.ARCHIVED
-        )
+        plan_a = SplicePlan.objects.create(closure=self.closure, name="Plan A", status=SplicePlanStatusChoices.ARCHIVED)
         plan_b = SplicePlan.objects.create(closure=self.closure, name="Plan B")
 
         from netbox_fms.models import SplicePlanEntry
