@@ -1,6 +1,6 @@
 name: Release Drafter
 
-# Only runs on the default branch — release-drafter reads its config from the
+# Only runs on the default branch -- release-drafter reads its config from the
 # default branch, so running it on PR events would always fail until the PR's
 # config changes are merged. Categorization at merge time still works because
 # release-drafter falls back to PR title matching when labels are absent, and

@@ -8,13 +8,13 @@ template: |
   **Full changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
 
 categories:
-  - title: "🚀 Features"
+  - title: "Features"
     labels: [enhancement, feat, feature]
-  - title: "🐛 Fixes"
+  - title: "Fixes"
     labels: [bug, fix, bugfix]
-  - title: "📚 Documentation"
+  - title: "Documentation"
     labels: [docs, documentation]
-  - title: "🔧 Maintenance"
+  - title: "Maintenance"
     labels: [chore, refactor, ci, build, test, perf, revert]
 
 change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
