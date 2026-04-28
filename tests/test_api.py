@@ -546,9 +546,7 @@ class TestOptimisticLocking(TestCase):
         stale_version = self.plan.last_updated.isoformat()
 
         # Simulate another user modifying the plan
-        SplicePlanEntry.objects.create(
-            plan=self.plan, tray=self.tray, fiber_a=self.fp3, fiber_b=self.fp4
-        )
+        SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=self.fp3, fiber_b=self.fp4)
         self.plan.save()  # updates last_updated
 
         resp = self.client.post(

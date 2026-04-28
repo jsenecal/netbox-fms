@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Reject commits that contain AI / Claude attribution lines.
+# Matches the *structure* of attribution lines (trailers, generator
+# tags, bot emails) rather than the bare words "claude" / "anthropic",
+# so legitimate mentions in commit subjects/bodies (dependency bumps,
+# CHANGELOG entries, etc.) are not blocked.
+set -eu
+
+msg_file=$1
+
+patterns=(
+    '^[[:space:]]*Co-[Aa]uthored-[Bb]y:.*([Cc]laude|[Aa]nthropic|@anthropic\.com)'
+    '🤖[[:space:]]*[Gg]enerated'
+    '[Gg]enerated[[:space:]]+(with|by)[[:space:]]+\[?[Cc]laude'
+    '[Gg]enerated[[:space:]]+(with|by)[[:space:]]+.*[Aa]nthropic'
+    '\[Claude Code\]'
+    'noreply@anthropic\.com'
+)
+
+for p in "${patterns[@]}"; do
+    if grep -qE "$p" "$msg_file"; then
+        echo "ERROR: commit message contains AI / Claude attribution." >&2
+        echo "       Matched pattern: $p" >&2
+        echo "       Remove the line and re-commit (do NOT use --no-verify)." >&2
+        exit 1
+    fi
+done
+
+exit 0

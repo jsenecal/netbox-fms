@@ -343,4 +343,3 @@ class TestGraphQLFilterInstantiation:
             id=None, fiber_cable_id=None, site_id=None, location_id=None, storage_method=None, length_unit=None
         )
         assert f.storage_method is None
-

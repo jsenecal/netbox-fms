@@ -92,78 +92,117 @@ class TestGetCableProfile:
     def test_tight_buffer_48f(self):
         mfr = Manufacturer.objects.create(name="TB48-Mfr", slug="tb48-mfr")
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="TB-48F", strand_count=48,
-            fiber_type="smf_os2", construction="tight_buffer",
+            manufacturer=mfr,
+            model="TB-48F",
+            strand_count=48,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
         )
         assert fct.get_cable_profile() == "single-1c48p"
 
     def test_tight_buffer_6f_uses_builtin_profile(self):
         mfr = Manufacturer.objects.create(name="TB6-Mfr", slug="tb6-mfr")
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="TB-6F", strand_count=6,
-            fiber_type="smf_os2", construction="tight_buffer",
+            manufacturer=mfr,
+            model="TB-6F",
+            strand_count=6,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
         )
         assert fct.get_cable_profile() == "single-1c6p"  # built-in NetBox profile
 
     def test_tight_buffer_5f_no_profile(self):
         mfr = Manufacturer.objects.create(name="TB5-Mfr", slug="tb5-mfr")
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="TB-5F", strand_count=5,
-            fiber_type="smf_os2", construction="tight_buffer",
+            manufacturer=mfr,
+            model="TB-5F",
+            strand_count=5,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
         )
         assert fct.get_cable_profile() is None  # no single-1c5p exists
 
     def test_loose_tube_12x12(self):
         mfr = Manufacturer.objects.create(name="LT12-Mfr", slug="lt12-mfr")
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="LT-144F", strand_count=144,
-            fiber_type="smf_os2", construction="loose_tube",
+            manufacturer=mfr,
+            model="LT-144F",
+            strand_count=144,
+            fiber_type="smf_os2",
+            construction="loose_tube",
         )
         for i in range(1, 13):
             BufferTubeTemplate.objects.create(
-                fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=12,
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=12,
             )
         assert fct.get_cable_profile() == "trunk-12c12p"
 
     def test_ribbon_in_tube_4x12(self):
         mfr = Manufacturer.objects.create(name="RIT2-Mfr", slug="rit2-mfr")
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="RIT-48F", strand_count=48,
-            fiber_type="smf_os2", construction="ribbon_in_tube",
+            manufacturer=mfr,
+            model="RIT-48F",
+            strand_count=48,
+            fiber_type="smf_os2",
+            construction="ribbon_in_tube",
         )
         for i in range(1, 5):
             btt = BufferTubeTemplate.objects.create(
-                fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=None,
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=None,
             )
             RibbonTemplate.objects.create(
-                fiber_cable_type=fct, buffer_tube_template=btt,
-                name=f"R{i}", position=1, fiber_count=12,
+                fiber_cable_type=fct,
+                buffer_tube_template=btt,
+                name=f"R{i}",
+                position=1,
+                fiber_count=12,
             )
         assert fct.get_cable_profile() == "trunk-4c12p"
 
     def test_mixed_tube_sizes(self):
         mfr = Manufacturer.objects.create(name="MX-Mfr", slug="mx-mfr")
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="MX-18F", strand_count=18,
-            fiber_type="smf_os2", construction="loose_tube",
+            manufacturer=mfr,
+            model="MX-18F",
+            strand_count=18,
+            fiber_type="smf_os2",
+            construction="loose_tube",
         )
         BufferTubeTemplate.objects.create(
-            fiber_cable_type=fct, name="T1", position=1, fiber_count=12,
+            fiber_cable_type=fct,
+            name="T1",
+            position=1,
+            fiber_count=12,
         )
         BufferTubeTemplate.objects.create(
-            fiber_cable_type=fct, name="T2", position=2, fiber_count=6,
+            fiber_cable_type=fct,
+            name="T2",
+            position=2,
+            fiber_count=6,
         )
         assert fct.get_cable_profile() is None
 
     def test_topology_not_in_registry(self):
         mfr = Manufacturer.objects.create(name="NR-Mfr", slug="nr-mfr")
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="NR-36F", strand_count=36,
-            fiber_type="smf_os2", construction="loose_tube",
+            manufacturer=mfr,
+            model="NR-36F",
+            strand_count=36,
+            fiber_type="smf_os2",
+            construction="loose_tube",
         )
         for i in range(1, 4):
             BufferTubeTemplate.objects.create(
-                fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=12,
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=12,
             )
         assert fct.get_cable_profile() is None  # trunk-3c12p not in registry
 
@@ -456,12 +495,18 @@ class TestCableTerminationConnectorPositions:
     def test_tube_based_sets_connector_per_tube(self):
         device, cable, mfr = self._make_fixtures()
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="CT-48F", strand_count=48,
-            fiber_type="smf_os2", construction="loose_tube",
+            manufacturer=mfr,
+            model="CT-48F",
+            strand_count=48,
+            fiber_type="smf_os2",
+            construction="loose_tube",
         )
         for i in range(1, 5):
             BufferTubeTemplate.objects.create(
-                fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=12,
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=12,
             )
         fc, warnings = link_cable_topology(cable, fct, device)
 
@@ -470,7 +515,8 @@ class TestCableTerminationConnectorPositions:
 
         rp_ct = ContentType.objects.get_for_model(RearPort)
         terms = CableTermination.objects.filter(
-            cable=cable, termination_type=rp_ct,
+            cable=cable,
+            termination_type=rp_ct,
         ).order_by("connector")
         assert terms.count() == 4
         for i, term in enumerate(terms, start=1):
@@ -480,8 +526,11 @@ class TestCableTerminationConnectorPositions:
     def test_tight_buffer_sets_single_connector(self):
         device, cable, mfr = self._make_fixtures()
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="CT-12F", strand_count=12,
-            fiber_type="smf_os2", construction="tight_buffer",
+            manufacturer=mfr,
+            model="CT-12F",
+            strand_count=12,
+            fiber_type="smf_os2",
+            construction="tight_buffer",
         )
         fc, warnings = link_cable_topology(cable, fct, device)
 
@@ -490,7 +539,8 @@ class TestCableTerminationConnectorPositions:
 
         rp_ct = ContentType.objects.get_for_model(RearPort)
         terms = CableTermination.objects.filter(
-            cable=cable, termination_type=rp_ct,
+            cable=cable,
+            termination_type=rp_ct,
         )
         assert terms.count() == 1
         term = terms.first()
@@ -500,12 +550,18 @@ class TestCableTerminationConnectorPositions:
     def test_rearport_syncs_cable_connector(self):
         device, cable, mfr = self._make_fixtures()
         fct = FiberCableType.objects.create(
-            manufacturer=mfr, model="CT-24F", strand_count=24,
-            fiber_type="smf_os2", construction="loose_tube",
+            manufacturer=mfr,
+            model="CT-24F",
+            strand_count=24,
+            fiber_type="smf_os2",
+            construction="loose_tube",
         )
         for i in range(1, 3):
             BufferTubeTemplate.objects.create(
-                fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=12,
+                fiber_cable_type=fct,
+                name=f"T{i}",
+                position=i,
+                fiber_count=12,
             )
         fc, warnings = link_cable_topology(cable, fct, device)
 

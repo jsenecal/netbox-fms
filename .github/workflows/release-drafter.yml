@@ -1,0 +1,24 @@
+name: Release Drafter
+
+# Only runs on the default branch -- release-drafter reads its config from the
+# default branch, so running it on PR events would always fail until the PR's
+# config changes are merged. Categorization at merge time still works because
+# release-drafter falls back to PR title matching when labels are absent, and
+# pr-title.yml enforces conventional-commits prefixes.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  update_release_draft:
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

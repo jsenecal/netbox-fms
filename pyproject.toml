@@ -69,18 +69,27 @@ push = true
 "netbox_fms/__init__.py" = [
     '__version__ = "{version}"',
 ]
+"CHANGELOG.md" = [
+    '## \[Unreleased\]',
+    '## \[{version}\] - {now:%Y-%m-%d}',
+]
 
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+extend-exclude = ["**/migrations/*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "DJ", "PIE"]
-ignore = ["E501", "S101", "DJ01"]
+ignore = ["E501", "N806", "S101", "DJ01"]
 
 [tool.ruff.lint.per-file-ignores]
 "migrations/*" = ["N806", "N999"]
-"tests/*" = ["S101", "S105", "S106"]
+"tests/*" = ["S101", "S105", "S106", "E402", "F841"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

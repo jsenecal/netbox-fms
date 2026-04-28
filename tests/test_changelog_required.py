@@ -1,4 +1,5 @@
 """Tests for required changelog message on bulk_update_entries."""
+
 from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -30,7 +31,9 @@ class TestChangelogRequired(TestCase):
         self.fp4 = FrontPort.objects.create(device=self.closure, module=self.tray, name="F4", type="splice")
 
         self.plan = SplicePlan.objects.create(
-            closure=self.closure, name="CL Plan", status=SplicePlanStatusChoices.DRAFT,
+            closure=self.closure,
+            name="CL Plan",
+            status=SplicePlanStatusChoices.DRAFT,
         )
 
         self.user = User.objects.create_superuser(username="cl-user", password="test")
