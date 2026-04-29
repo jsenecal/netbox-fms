@@ -402,7 +402,7 @@ Retrieve fibers claimed by non-archived splice plans on a closure device. Used b
 GET /api/plugins/fms/closures/{device_id}/fiber-claims/?exclude_plan={plan_id}
 ```
 
-The `exclude_plan` query parameter is optional — when provided, entries from that plan are excluded (typically the plan currently being edited).
+The `exclude_plan` query parameter is optional -- when provided, entries from that plan are excluded (typically the plan currently being edited).
 
 **curl**
 

@@ -21,7 +21,7 @@ NetBox FMS applies the same idea to fiber cables:
 | NetBox core | DeviceType | Device |
 | NetBox FMS | **FiberCableType** | **FiberCable** |
 
-### FiberCableType — the Blueprint
+### FiberCableType -- the Blueprint
 
 A **FiberCableType** defines a cable's construction: how many tubes it has, how
 many fibers per tube, whether it uses ribbons, and what non-fiber elements
@@ -30,14 +30,14 @@ distinct cable product you use, then reuse it every time you install that cable.
 
 The blueprint is built from **component templates**:
 
-- **BufferTubeTemplate** — defines a buffer tube and its fiber count or ribbon
+- **BufferTubeTemplate** -- defines a buffer tube and its fiber count or ribbon
   children.
-- **RibbonTemplate** — defines a fiber ribbon (can be a child of a
+- **RibbonTemplate** -- defines a fiber ribbon (can be a child of a
   BufferTubeTemplate or attached directly to the FiberCableType).
-- **CableElementTemplate** — defines non-fiber elements such as strength
+- **CableElementTemplate** -- defines non-fiber elements such as strength
   members, ripcords, or armor.
 
-### FiberCable — the Instance
+### FiberCable -- the Instance
 
 A **FiberCable** represents a specific physical cable installed in your network.
 Each FiberCable is linked one-to-one with a NetBox `dcim.Cable` record, giving
@@ -46,11 +46,11 @@ it endpoints, length, and path information.
 When a FiberCable is created, the plugin reads the associated FiberCableType and
 **automatically instantiates** all internal components:
 
-- **BufferTube** — a physical tube inside the cable.
-- **Ribbon** — a fiber ribbon grouping multiple strands.
-- **FiberStrand** — an individual optical fiber, automatically colored using the
+- **BufferTube** -- a physical tube inside the cable.
+- **Ribbon** -- a fiber ribbon grouping multiple strands.
+- **FiberStrand** -- an individual optical fiber, automatically colored using the
   EIA-598 standard.
-- **CableElement** — a non-fiber component (strength member, armor, etc.).
+- **CableElement** -- a non-fiber component (strength member, armor, etc.).
 
 No manual creation of strands or tubes is required. The type defines the
 structure; the instance builds it.
@@ -152,7 +152,7 @@ FiberStrands attached directly to the FiberCable.
 ## EIA-598 Color Code
 
 NetBox FMS automatically assigns colors to FiberStrands using the **TIA/EIA-598**
-standard color code. You do not need to set strand colors manually — they are
+standard color code. You do not need to set strand colors manually -- they are
 determined by the strand's position within its parent (tube, ribbon, or cable).
 
 The 12 standard fiber colors are:
