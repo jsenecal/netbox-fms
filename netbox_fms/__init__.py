@@ -1,6 +1,10 @@
+import logging
+
 from netbox.plugins import PluginConfig
 
 __version__ = "0.1.0"
+
+logger = logging.getLogger(__name__)
 
 
 class NetBoxFMSConfig(PluginConfig):
@@ -29,6 +33,7 @@ class NetBoxFMSConfig(PluginConfig):
         connect_counters(FiberCableType)
 
         self._register_map_layers()
+        logger.info("%s plugin loaded", self.name)
 
     @staticmethod
     def _register_map_layers():
