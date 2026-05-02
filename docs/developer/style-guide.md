@@ -1,8 +1,8 @@
-# FMS Visual Component Library — Style Guide
+# FMS Visual Component Library -- Style Guide
 
 ## 1. Overview
 
-The FMS component library (`fms-components.css`) provides shared UI primitives for all FMS visualization views: splice editors, wavelength planners, cable maps. It is **not** a full design system — it covers the specific patterns that appear across FMS canvases and panels.
+The FMS component library (`fms-components.css`) provides shared UI primitives for all FMS visualization views: splice editors, wavelength planners, cable maps. It is **not** a full design system -- it covers the specific patterns that appear across FMS canvases and panels.
 
 **Files:**
 - CSS: `netbox_fms/static/netbox_fms/css/fms-components.css`
@@ -29,13 +29,13 @@ Load the stylesheet in your template:
 <link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
 ```
 
-The component root reads `data-bs-theme` from a parent element to switch between dark and light palettes automatically — no extra JS needed.
+The component root reads `data-bs-theme` from a parent element to switch between dark and light palettes automatically -- no extra JS needed.
 
 ---
 
 ## 3. Color Palette
 
-All colors are defined as CSS custom properties on `.fms-component`. Never use hex values directly — always reference these variables.
+All colors are defined as CSS custom properties on `.fms-component`. Never use hex values directly -- always reference these variables.
 
 | Variable | Purpose |
 |---|---|
@@ -77,13 +77,13 @@ Use badges to show status inline with text. They are small (9px, uppercase) and 
 <span class="fms-badge fms-badge--protected">Protected</span>
 ```
 
-Do not use badges for counts or non-status information — use plain text for those.
+Do not use badges for counts or non-status information -- use plain text for those.
 
 ---
 
 ## 5. Legend (`.fms-legend`)
 
-The legend is an absolutely-positioned overlay anchored to the **bottom-left** of the canvas container. It collapses **downward** — the bottom edge stays fixed and the content shrinks into a small pill-shaped bar at the bottom corner.
+The legend is an absolutely-positioned overlay anchored to the **bottom-left** of the canvas container. It collapses **downward** -- the bottom edge stays fixed and the content shrinks into a small pill-shaped bar at the bottom corner.
 
 **Rules:**
 - Only include items that are currently visible on the canvas. If a filter hides all spliced strands, remove the "Spliced" entry from the legend. Rebuild on every render.
@@ -122,7 +122,7 @@ legend.destroy();
   <div class="fms-legend" id="my-legend">
     <div class="fms-legend__header">
       <span class="fms-legend__title">Legend</span>
-      <button class="fms-legend__toggle" aria-label="Toggle legend">▼</button>
+      <button class="fms-legend__toggle" aria-label="Toggle legend">v</button>
     </div>
     <div class="fms-legend__body">
       <div class="fms-legend__section">
@@ -141,7 +141,7 @@ legend.destroy();
 </div>
 ```
 
-The `data-collapsed` attribute is managed by `FmsLegend.toggle()`. When collapsed, the legend shrinks to a 24px pill showing "Legend ▲". When expanded, content grows upward from the bottom edge, toggle shows "▼".
+The `data-collapsed` attribute is managed by `FmsLegend.toggle()`. When collapsed, the legend shrinks to a 24px pill showing "Legend ^". When expanded, content grows upward from the bottom edge, toggle shows "v".
 
 ---
 
@@ -263,7 +263,7 @@ The toolbar sits above the canvas, below any page heading. It wraps at narrow wi
   <div class="fms-toolbar__spacer"></div>
 
   <!-- Search -->
-  <input class="fms-search" type="search" placeholder="Search…" aria-label="Search strands">
+  <input class="fms-search" type="search" placeholder="Search..." aria-label="Search strands">
 
 </div>
 ```
@@ -280,7 +280,7 @@ A slim (28px) bar pinned to the bottom of the canvas. Surfaces aggregate counts.
 
 **Stat ordering:** Essential counts left (total strands, active circuits), secondary/contextual counts right.
 
-Mark the most important stats with `fms-stat--essential` — these remain visible on mobile when non-essential stats are hidden.
+Mark the most important stats with `fms-stat--essential` -- these remain visible on mobile when non-essential stats are hidden.
 
 ```html
 <div class="fms-stats-bar fms-component">
@@ -289,11 +289,11 @@ Mark the most important stats with `fms-stat--essential` — these remain visibl
     <span class="fms-stat fms-stat--essential">
       <span class="fms-stat__label">Strands:</span> 144
     </span>
-    <span class="fms-stats-bar__dot" aria-hidden="true">·</span>
+    <span class="fms-stats-bar__dot" aria-hidden="true">.</span>
     <span class="fms-stat fms-stat--live">
       <span class="fms-stat__label">Live:</span> 88
     </span>
-    <span class="fms-stats-bar__dot" aria-hidden="true">·</span>
+    <span class="fms-stats-bar__dot" aria-hidden="true">.</span>
     <span class="fms-stat fms-stat--planned">
       <span class="fms-stat__label">Planned:</span> 12
     </span>
@@ -327,7 +327,7 @@ statsBar.update({
 statsBar.setMessage('Changes saved.', 3000);
 ```
 
-**Messages:** Use `setMessage()` for status updates — they appear on the right side alongside the plan badge and auto-clear. The left side (counts) is never replaced. Do not use alerts or toasts for minor status updates from canvas actions.
+**Messages:** Use `setMessage()` for status updates -- they appear on the right side alongside the plan badge and auto-clear. The left side (counts) is never replaced. Do not use alerts or toasts for minor status updates from canvas actions.
 
 ---
 
@@ -363,8 +363,8 @@ The library automatically responds to Bootstrap's `data-bs-theme` attribute. No 
 | Breakpoint | Width | Behavior |
 |---|---|---|
 | Desktop | > 991px | Full layout, panel slides in from right |
-| Tablet | ≤ 991px | Panel overlays canvas (absolute, full height, shadow) |
-| Mobile | ≤ 767px | Panel becomes bottom sheet (50vh max), toolbar compacts, legend hidden, non-essential stats hidden |
+| Tablet | <= 991px | Panel overlays canvas (absolute, full height, shadow) |
+| Mobile | <= 767px | Panel becomes bottom sheet (50vh max), toolbar compacts, legend hidden, non-essential stats hidden |
 
 ### Component behavior at each breakpoint
 
@@ -389,7 +389,7 @@ The library automatically responds to Bootstrap's `data-bs-theme` attribute. No 
 
 ### Touch targets
 
-All interactive elements must have a minimum tap target of **44×44px**, even if the visual element is smaller. Use padding to expand the hit area without changing the visual size.
+All interactive elements must have a minimum tap target of **44x44px**, even if the visual element is smaller. Use padding to expand the hit area without changing the visual size.
 
 ```css
 /* Expanding a small button's hit area */
@@ -421,8 +421,8 @@ Every interactive element must have a visible focus ring. The library provides `
 
 ### Keyboard navigation
 
-- **Escape** — close the open detail panel.
-- **Tab** — move through toolbar controls, close button, and panel rows in DOM order.
+- **Escape** -- close the open detail panel.
+- **Tab** -- move through toolbar controls, close button, and panel rows in DOM order.
 - Pill groups should support **Left/Right arrow** keys to move between pills in the group (implement with a `keydown` handler; the CSS does not do this automatically).
 
 ---

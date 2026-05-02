@@ -84,7 +84,7 @@ Created automatically by `FiberCable._instantiate_components()` when a new
 | Model | Purpose |
 |-------|---------|
 | `SpliceProject` | Groups related splice plans for project-level organization. |
-| `SplicePlan` | A splice plan for a specific closure (`dcim.Device`, ForeignKey — multiple plans per closure allowed). Tracks diff staleness for cache invalidation. Status follows a four-state FSM: `draft` → `pending_approval` → `approved` → `archived`. Stores `submitted_by` (FK to `auth.User`). Enforces fiber exclusivity: each `FrontPort` may appear in at most one approved plan at a time. |
+| `SplicePlan` | A splice plan for a specific closure (`dcim.Device`, ForeignKey -- multiple plans per closure allowed). Tracks diff staleness for cache invalidation. Status follows a four-state FSM: `draft` -> `pending_approval` -> `approved` -> `archived`. Stores `submitted_by` (FK to `auth.User`). Enforces fiber exclusivity: each `FrontPort` may appear in at most one approved plan at a time. |
 | `SplicePlanEntry` | Maps one `dcim.FrontPort` (fiber_a) to another `dcim.FrontPort` (fiber_b), representing a planned splice. Includes a `change_note` field for per-entry annotations. |
 | `ClosureCableEntry` | Records which `FiberCable` instances enter a closure (`dcim.Device`). |
 | `SlackLoop` | Tracks slack loop storage at a closure. |
@@ -104,17 +104,17 @@ Created automatically by `FiberCable._instantiate_components()` when a new
 A `SplicePlan` moves through four states:
 
 ```
-draft  →  pending_approval  →  approved  →  archived
-  ↑              |
-  └──────────────┘  (rejection / reset to draft)
+draft  ->  pending_approval  ->  approved  ->  archived
+  ^              |
+  +--------------+  (rejection / reset to draft)
 ```
 
 | Transition | Meaning |
 |------------|---------|
-| `draft` → `pending_approval` | Submitter requests review; `submitted_by` is recorded. |
-| `pending_approval` → `approved` | Reviewer approves the plan; diff may now be applied. |
-| `pending_approval` → `draft` | Reviewer rejects or submitter retracts; plan is editable again. |
-| `approved` → `archived` | Plan has been applied and is no longer active. |
+| `draft` -> `pending_approval` | Submitter requests review; `submitted_by` is recorded. |
+| `pending_approval` -> `approved` | Reviewer approves the plan; diff may now be applied. |
+| `pending_approval` -> `draft` | Reviewer rejects or submitter retracts; plan is editable again. |
+| `approved` -> `archived` | Plan has been applied and is no longer active. |
 
 ### Enforcement Points
 

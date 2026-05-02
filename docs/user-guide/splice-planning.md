@@ -122,9 +122,9 @@ To resolve a conflict, either archive the competing plan or remove the conflicti
 
 The `approve_spliceplan` permission controls who can act as an approver. Users with this permission can:
 
-- Approve a plan (pending_approval → approved)
-- Reject a plan (pending_approval → draft)
-- Reopen an approved plan (approved → draft)
+- Approve a plan (pending_approval -> approved)
+- Reject a plan (pending_approval -> draft)
+- Reopen an approved plan (approved -> draft)
 
 Assign this permission to leads, network engineers, or anyone responsible for validating splice designs before they are applied to the network.
 

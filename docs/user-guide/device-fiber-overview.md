@@ -56,7 +56,7 @@ Closure devices with approved splice plans display a **Pending Work** tab on the
 Instead of applying plans individually, the Pending Work tab merges all approved plans into a single operation:
 
 1. Multiple teams create splice plans for the same closure (each plan is independent).
-2. Plans go through the approval workflow (draft → pending_approval → approved).
+2. Plans go through the approval workflow (draft -> pending_approval -> approved).
 3. A field technician opens the closure's Pending Work tab and reviews the combined diff.
 4. The "Apply All" action commits all changes in a single atomic transaction.
 5. Applied plans are automatically archived.
