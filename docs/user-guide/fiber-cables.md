@@ -30,6 +30,26 @@ never need to create strands or tubes by hand.
 
 ---
 
+## Glass length
+
+Each FiberCable exposes a derived `glass_length` property:
+
+```
+glass_length = cable.length * (1 + fiber_cable_type.twist_factor_ratio)
+```
+
+The result follows the underlying `dcim.Cable.length_unit`. It returns `None`
+when either operand is missing -- if the cable type has no twist-factor spec, or
+the cable record has no length.
+
+This is the right value to compare against an OTDR trace, since OTDR distances
+measure through the glass and not along the sheath. Field-measured pull lengths
+remain `cable.length` (sheath distance).
+
+`glass_length` is exposed on the FiberCable detail page, the REST API, and
+GraphQL. There is no dedicated database column -- the value is recomputed on
+read whenever the cable type's `twist_factor_ratio` changes.
+
 ## Sheath Marks and Installer
 
 A FiberCable carries optional metadata about how it was installed and where

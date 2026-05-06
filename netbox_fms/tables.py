@@ -42,6 +42,8 @@ class FiberCableTypeTable(NetBoxTable):
     is_armored = columns.BooleanColumn(verbose_name=_("Armored"))
     deployment = tables.Column(verbose_name=_("Deployment"))
     fire_rating = tables.Column(verbose_name=_("Fire Rating"))
+    outer_diameter = tables.Column(verbose_name=_("Outer Diameter (mm)"))
+    twist_factor_ratio = tables.Column(verbose_name=_("Twist Factor"))
     mark_unit = tables.Column(verbose_name=_("Mark Unit"))
     instance_count = columns.LinkedCountColumn(
         viewname="plugins:netbox_fms:fibercable_list",
@@ -61,6 +63,8 @@ class FiberCableTypeTable(NetBoxTable):
             "construction",
             "fiber_type",
             "strand_count",
+            "outer_diameter",
+            "twist_factor_ratio",
             "mark_unit",
             "sheath_material",
             "jacket_color",

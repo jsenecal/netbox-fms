@@ -44,7 +44,7 @@ def _noop_reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("netbox_fms", "0031_remove_wdm_models"),
+        ("netbox_fms", "0032_cabletype_outer_diameter_twist"),
         ("tenancy", "0023_add_mptt_tree_indexes"),
     ]
 

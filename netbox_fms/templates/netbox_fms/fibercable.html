@@ -68,6 +68,16 @@
                     <th scope="row">{% trans "Installed by" %}</th>
                     <td>{{ object.installed_by|linkify|placeholder }}</td>
                 </tr>
+                <tr>
+                    <th scope="row">{% trans "Glass Length" %}</th>
+                    <td>
+                        {% if object.glass_length is not None %}
+                            {{ object.glass_length }} {{ object.cable.length_unit|default:'' }}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
             </table>
         </div>
         <div class="card mt-3">

@@ -9,10 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `FiberCableType.outer_diameter` (FloatField, mm-implicit) -- manufacturer spec for the cable's outer diameter; required input for conduit-fill and pull-tension calculations.
+- `FiberCableType.twist_factor_ratio` (FloatField, dimensionless) -- manufacturer spec for the helical pitch / lay factor; the ratio of glass-length excess over sheath length.
 - `FiberCableType.mark_unit` (CharField, `CableLengthUnitChoices`, blank) -- the unit of the distance markings printed on the cable jacket by the manufacturer. Empty means "no sheath markings on this cable type".
+- `FiberCable.glass_length` -- read-only property computing `cable.length * (1 + fiber_cable_type.twist_factor_ratio)` in the cable's `length_unit`. Returns `None` when either operand is missing. Exposed in REST and GraphQL.
 - `FiberCable.start_mark` / `end_mark` (Decimal max_digits=10 dp=2, nullable) -- absolute sheath-distance reference frame at the A-end and B-end of the cable, read in the cable type's `mark_unit`. `save()` swaps the two if inverted; `clean()` checks non-negative and that the type declares a `mark_unit`.
 - `FiberCable.installed_by` -- FK to `tenancy.Tenant`, `on_delete=PROTECT`, nullable. Names the contractor or workforce that physically installed the cable.
 - `SlackLoop.mark_unit` -- read-only `@property` delegating to `fiber_cable.fiber_cable_type.mark_unit`. The model `__str__` and detail templates now use this.
+- Forms (main / import / bulk-edit), table, REST + GraphQL serializers/types, search index display, and detail templates updated for the cable-type fields and the derived FiberCable property.
 - Canonical normalize-toolkit CI/CD shape: 5 GHA workflows (`ci.yml`, `publish.yml`, `docs.yml`, `release-drafter.yml`, `pr-title.yml`) + `.github/release-drafter.yml`.
 - `.pre-commit-config.yaml` with ruff hooks + standard pre-commit-hooks + a `commit-msg` stage that rejects AI/Claude attribution lines.
 - `.git-template/hooks/commit-msg` (canonical hook tracked in-tree, referenced by pre-commit).
