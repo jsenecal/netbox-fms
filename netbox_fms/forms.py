@@ -79,6 +79,7 @@ class FiberCableTypeForm(NetBoxModelForm):
     fieldsets = (
         FieldSet("manufacturer", "model", "part_number", name=_("Cable Type")),
         FieldSet("construction", "fiber_type", "strand_count", name=_("Fiber Properties")),
+        FieldSet("outer_diameter", "twist_factor_ratio", name=_("Physical")),
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
         FieldSet("deployment", "fire_rating", name=_("Deployment & Rating")),
@@ -100,6 +101,8 @@ class FiberCableTypeForm(NetBoxModelForm):
             "construction",
             "fiber_type",
             "strand_count",
+            "outer_diameter",
+            "twist_factor_ratio",
             "sheath_material",
             "jacket_color",
             "is_armored",
@@ -131,6 +134,8 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
             "construction",
             "fiber_type",
             "strand_count",
+            "outer_diameter",
+            "twist_factor_ratio",
             "sheath_material",
             "jacket_color",
             "is_armored",
@@ -153,12 +158,15 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     sheath_material = forms.ChoiceField(choices=SheathMaterialChoices, required=False)
     deployment = forms.ChoiceField(choices=DeploymentChoices, required=False)
     fire_rating = forms.ChoiceField(choices=FireRatingChoices, required=False)
+    outer_diameter = forms.FloatField(required=False, label=_("Outer diameter (mm)"))
+    twist_factor_ratio = forms.FloatField(required=False, label=_("Twist factor ratio"))
 
     fieldsets = (
         FieldSet("manufacturer", "construction", "fiber_type"),
+        FieldSet("outer_diameter", "twist_factor_ratio", name=_("Physical")),
         FieldSet("sheath_material", "deployment", "fire_rating"),
     )
-    nullable_fields = ("sheath_material", "deployment", "fire_rating")
+    nullable_fields = ("sheath_material", "deployment", "fire_rating", "outer_diameter", "twist_factor_ratio")
 
 
 class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):

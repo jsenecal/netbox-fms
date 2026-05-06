@@ -18,6 +18,8 @@ any number of [FiberCable](fiber-cables.md) instances from it.
 | **Construction** | Yes | Cable construction style: Loose Tube, Tight Buffer, Ribbon, Ribbon-in-Tube, Micro Cable, or Blown Fiber. See [Construction Choices](../reference/choices.md) for details. |
 | **Fiber type** | Yes | Optical fiber specification. Single-mode: SMF OS1, SMF OS2. Multi-mode: MMF OM1, MMF OM2, MMF OM3, MMF OM4, MMF OM5. |
 | **Strand count** | Yes | Total number of fiber strands in the cable. Must match the sum computed from component templates if any are defined. |
+| **Outer diameter** | No | Cable outer diameter in millimeters. Used by conduit-fill / pull-tension calculations. |
+| **Twist factor ratio** | No | Dimensionless ratio of glass-length excess over sheath length (helical pitch / lay factor). Typical values fall between 0.001 and 0.02. Used by `FiberCable.glass_length` to convert sheath distance to optical-fibre distance. |
 | **Sheath material** | No | Outer jacket material: LSZH, PE, MDPE, HDPE, PVC, or PVDF. |
 | **Jacket color** | No | Color of the cable's outer jacket. |
 | **Armored** | No | Whether the cable has armor. Defaults to false. |
