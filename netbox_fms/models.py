@@ -128,6 +128,20 @@ class FiberCableType(NetBoxModel):
         blank=True,
     )
 
+    # Sheath markings printed on the jacket by the manufacturer.
+    # Empty = "no sheath marks on this cable type". When set, instances
+    # (FiberCable, SlackLoop) read mark values in this unit.
+    mark_unit = models.CharField(
+        verbose_name=_("sheath mark unit"),
+        max_length=10,
+        choices=CableLengthUnitChoices,
+        blank=True,
+        help_text=_(
+            "Unit of the distance markings printed on the cable jacket by the manufacturer. "
+            "Empty if the cable type has no sheath markings."
+        ),
+    )
+
     # Strand markers (tight-buffer cables without tubes)
     strand_marker_interval = models.PositiveSmallIntegerField(
         verbose_name=_("strand marker interval"),
@@ -175,6 +189,7 @@ class FiberCableType(NetBoxModel):
         "construction",
         "fiber_type",
         "strand_count",
+        "mark_unit",
         "sheath_material",
         "jacket_color",
         "is_armored",
@@ -556,6 +571,31 @@ class FiberCable(NetBoxModel):
         blank=True,
         null=True,
     )
+    installed_by = models.ForeignKey(
+        to="tenancy.Tenant",
+        on_delete=models.PROTECT,
+        related_name="installed_fiber_cables",
+        verbose_name=_("installed by"),
+        blank=True,
+        null=True,
+        help_text=_("Contractor or workforce that physically installed this cable."),
+    )
+    start_mark = models.DecimalField(
+        verbose_name=_("start sheath mark"),
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text=_("Sheath distance mark at the A-end of the cable, read in the cable type's mark_unit."),
+    )
+    end_mark = models.DecimalField(
+        verbose_name=_("end sheath mark"),
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text=_("Sheath distance mark at the B-end of the cable, read in the cable type's mark_unit."),
+    )
     notes = models.TextField(
         verbose_name=_("notes"),
         blank=True,
@@ -576,8 +616,32 @@ class FiberCable(NetBoxModel):
         """Return the detail URL for this fiber cable."""
         return reverse("plugins:netbox_fms:fibercable", args=[self.pk])
 
+    def clean(self):
+        """Validate sheath marks and mark-unit coupling."""
+        super().clean()
+        if self.start_mark is not None and self.start_mark < 0:
+            raise ValidationError({"start_mark": _("Start mark must be non-negative.")})
+        if self.end_mark is not None and self.end_mark < 0:
+            raise ValidationError({"end_mark": _("End mark must be non-negative.")})
+        if (self.start_mark is not None or self.end_mark is not None) and self.fiber_cable_type_id:
+            if not self.fiber_cable_type.mark_unit:
+                raise ValidationError(
+                    {
+                        "start_mark": _(
+                            "Cannot set sheath marks: the cable type does not declare a mark_unit "
+                            "(no sheath markings on this product)."
+                        )
+                    }
+                )
+
     def save(self, *args, **kwargs):
-        """Save and auto-instantiate components on first creation."""
+        """Save and auto-instantiate components on first creation.
+
+        Mirrors ``SlackLoop.save``: when start_mark and end_mark are inverted,
+        swap them so the pair always represents a forward interval.
+        """
+        if self.start_mark is not None and self.end_mark is not None and self.end_mark < self.start_mark:
+            self.start_mark, self.end_mark = self.end_mark, self.start_mark
         is_new = self.pk is None
         if is_new:
             with transaction.atomic():
@@ -1422,18 +1486,13 @@ class SlackLoop(NetBoxModel):
         verbose_name=_("start mark"),
         max_digits=10,
         decimal_places=2,
-        help_text=_("Sheath distance mark where the loop begins."),
+        help_text=_("Sheath distance mark where the loop begins, read in the cable type's mark_unit."),
     )
     end_mark = models.DecimalField(
         verbose_name=_("end mark"),
         max_digits=10,
         decimal_places=2,
-        help_text=_("Sheath distance mark where the loop ends."),
-    )
-    length_unit = models.CharField(
-        verbose_name=_("length unit"),
-        max_length=10,
-        choices=CableLengthUnitChoices,
+        help_text=_("Sheath distance mark where the loop ends, read in the cable type's mark_unit."),
     )
     storage_method = models.CharField(
         verbose_name=_("storage method"),
@@ -1443,7 +1502,7 @@ class SlackLoop(NetBoxModel):
     )
     notes = models.TextField(verbose_name=_("notes"), blank=True)
 
-    clone_fields = ("fiber_cable", "site", "location", "length", "length_unit", "storage_method")
+    clone_fields = ("fiber_cable", "site", "location", "storage_method")
 
     class Meta:
         ordering = ("fiber_cable", "start_mark")
@@ -1451,9 +1510,16 @@ class SlackLoop(NetBoxModel):
         verbose_name = _("slack loop")
         verbose_name_plural = _("slack loops")
 
+    @property
+    def mark_unit(self):
+        """Return the cable type's sheath mark unit (or '')."""
+        if self.fiber_cable_id and self.fiber_cable.fiber_cable_type_id:
+            return self.fiber_cable.fiber_cable_type.mark_unit
+        return ""
+
     def __str__(self):
-        """Return cable, start/end marks, and length unit."""
-        return f"{self.fiber_cable} @ {self.start_mark}\u2013{self.end_mark} {self.length_unit}"
+        """Return cable, start/end marks, and mark unit."""
+        return f"{self.fiber_cable} @ {self.start_mark}\u2013{self.end_mark} {self.mark_unit}"
 
     def get_absolute_url(self):
         """Return the detail URL for this slack loop."""
@@ -1465,12 +1531,21 @@ class SlackLoop(NetBoxModel):
         return self.end_mark - self.start_mark
 
     def clean(self):
-        """Validate that start and end marks are non-negative."""
+        """Validate that start and end marks are non-negative and the cable type declares a mark_unit."""
         super().clean()
         if self.start_mark is not None and self.start_mark < 0:
             raise ValidationError({"start_mark": _("Start mark must be non-negative.")})
         if self.end_mark is not None and self.end_mark < 0:
             raise ValidationError({"end_mark": _("End mark must be non-negative.")})
+        if self.fiber_cable_id and not self.fiber_cable.fiber_cable_type.mark_unit:
+            raise ValidationError(
+                {
+                    "fiber_cable": _(
+                        "Cannot record a slack loop: the cable's type does not declare a mark_unit "
+                        "(no sheath markings on this product)."
+                    )
+                }
+            )
 
     def save(self, *args, **kwargs):
         """Swap start/end marks if inverted, then save."""

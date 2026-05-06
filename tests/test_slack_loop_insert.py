@@ -99,6 +99,7 @@ class TestInsertSlackLoopIntoClosure:
             fiber_type="smf_os2",
             construction="tight_buffer",
             strand_count=1,
+            mark_unit="m",
         )
 
     def _make_cable_and_loop(self):
@@ -117,7 +118,6 @@ class TestInsertSlackLoopIntoClosure:
             site=self.site_mid,
             start_mark=Decimal("100.00"),
             end_mark=Decimal("120.00"),
-            length_unit="m",
         )
         return cable, fc, sl
 

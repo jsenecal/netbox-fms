@@ -18,6 +18,7 @@ any number of [FiberCable](fiber-cables.md) instances from it.
 | **Construction** | Yes | Cable construction style: Loose Tube, Tight Buffer, Ribbon, Ribbon-in-Tube, Micro Cable, or Blown Fiber. See [Construction Choices](../reference/choices.md) for details. |
 | **Fiber type** | Yes | Optical fiber specification. Single-mode: SMF OS1, SMF OS2. Multi-mode: MMF OM1, MMF OM2, MMF OM3, MMF OM4, MMF OM5. |
 | **Strand count** | Yes | Total number of fiber strands in the cable. Must match the sum computed from component templates if any are defined. |
+| **Mark unit** | No | Unit of the distance markings printed on the cable jacket by the manufacturer (e.g. metres, feet). Empty if the cable type has no sheath markings. Read by `FiberCable.start_mark` / `end_mark` and by every `SlackLoop` on cables of this type. |
 | **Sheath material** | No | Outer jacket material: LSZH, PE, MDPE, HDPE, PVC, or PVDF. |
 | **Jacket color** | No | Color of the cable's outer jacket. |
 | **Armored** | No | Whether the cable has armor. Defaults to false. |

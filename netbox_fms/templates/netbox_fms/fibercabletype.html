@@ -66,6 +66,10 @@
                     <th scope="row">{% trans "Strand Count" %}</th>
                     <td>{{ object.strand_count }}</td>
                 </tr>
+                <tr>
+                    <th scope="row">{% trans "Sheath Mark Unit" %}</th>
+                    <td>{{ object.get_mark_unit_display|placeholder }}</td>
+                </tr>
             </table>
         </div>
     </div>

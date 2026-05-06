@@ -1,34 +1,18 @@
-"""Tests for StorageMethodChoices, SplicePlanEntry.is_express field, and SlackLoop model."""
+"""Tests for SplicePlanEntry.is_express and SlackLoop model behaviour.
+
+Per project memory: framework-only tests (CharField round-trip, unique-together,
+cascade delete, choice constant string values) are skipped. Only our own logic
+is exercised here -- save() swap, clean() validators, computed property,
+__str__, get_absolute_url.
+"""
 
 from decimal import Decimal
 
 import pytest
-from django.db import IntegrityError, connection
+from django.db import connection
 
-from netbox_fms.choices import StorageMethodChoices
-
-
-@pytest.mark.django_db
-class TestStorageMethodChoices:
-    """Verify all 5 StorageMethodChoices constants exist."""
-
-    def test_coil_constant(self):
-        assert StorageMethodChoices.COIL == "coil"
-
-    def test_figure_8_constant(self):
-        assert StorageMethodChoices.FIGURE_8 == "figure_8"
-
-    def test_in_tray_constant(self):
-        assert StorageMethodChoices.IN_TRAY == "in_tray"
-
-    def test_on_pole_constant(self):
-        assert StorageMethodChoices.ON_POLE == "on_pole"
-
-    def test_in_vault_constant(self):
-        assert StorageMethodChoices.IN_VAULT == "in_vault"
-
-    def test_choices_tuple_has_five_entries(self):
-        assert len(StorageMethodChoices.CHOICES) == 5
+# Tests for StorageMethodChoices constants were removed: asserting that a
+# ChoiceSet exposes specific string keys is framework / round-trip behaviour.
 
 
 @pytest.mark.django_db
@@ -96,10 +80,11 @@ class TestSplicePlanEntryIsExpress:
 
 @pytest.mark.django_db
 class TestSlackLoopModel:
-    """Tests for SlackLoop model."""
+    """Tests for SlackLoop model logic (our save/clean/property/__str__)."""
 
     @pytest.fixture(autouse=True)
     def setup_data(self):
+        from dcim.choices import CableLengthUnitChoices
         from dcim.models import Cable, Location, Manufacturer, Site
 
         from netbox_fms.models import FiberCable, FiberCableType
@@ -113,10 +98,13 @@ class TestSlackLoopModel:
             fiber_type="smf_os2",
             construction="tight_buffer",
             strand_count=1,
+            mark_unit=CableLengthUnitChoices.UNIT_METER,
         )
         with connection.cursor() as cursor:
             cursor.execute(
-                "INSERT INTO dcim_cable (type, status, label, color, comments, description, profile, custom_field_data, created, last_updated) VALUES (%s, %s, '', '', '', '', '{}', '{}', NOW(), NOW()) RETURNING id",
+                "INSERT INTO dcim_cable (type, status, label, color, comments, description, profile, "
+                "custom_field_data, created, last_updated) "
+                "VALUES (%s, %s, '', '', '', '', '{}', '{}', NOW(), NOW()) RETURNING id",
                 ["smf-os2", "connected"],
             )
             cable_id = cursor.fetchone()[0]
@@ -125,20 +113,9 @@ class TestSlackLoopModel:
 
         self.site = site
         self.location = location
+        self.fct = fct
         self.fiber_cable = fc
         self.cable = cable
-
-    def test_create_slack_loop(self):
-        from netbox_fms.models import SlackLoop
-
-        sl = SlackLoop.objects.create(
-            fiber_cable=self.fiber_cable,
-            site=self.site,
-            start_mark=Decimal("100.00"),
-            end_mark=Decimal("120.00"),
-            length_unit="m",
-        )
-        assert sl.pk is not None
 
     def test_loop_length_property(self):
         from netbox_fms.models import SlackLoop
@@ -148,7 +125,6 @@ class TestSlackLoopModel:
             site=self.site,
             start_mark=Decimal("100.00"),
             end_mark=Decimal("150.00"),
-            length_unit="m",
         )
         assert sl.loop_length == Decimal("50.00")
 
@@ -160,7 +136,6 @@ class TestSlackLoopModel:
             site=self.site,
             start_mark=Decimal("200.00"),
             end_mark=Decimal("100.00"),
-            length_unit="m",
         )
         assert sl.start_mark == Decimal("100.00")
         assert sl.end_mark == Decimal("200.00")
@@ -175,39 +150,48 @@ class TestSlackLoopModel:
             site=self.site,
             start_mark=Decimal("-10.00"),
             end_mark=Decimal("100.00"),
-            length_unit="m",
         )
         with pytest.raises(ValidationError) as exc_info:
             sl.clean()
         assert "start_mark" in exc_info.value.message_dict
 
-    def test_with_location(self):
-        from netbox_fms.models import SlackLoop
+    def test_clean_requires_mark_unit_on_type(self):
+        """clean() rejects a slack loop on a cable type that declares no mark_unit."""
+        from django.core.exceptions import ValidationError
 
-        sl = SlackLoop.objects.create(
-            fiber_cable=self.fiber_cable,
+        from netbox_fms.models import FiberCable, FiberCableType, SlackLoop
+
+        unmarked_fct = FiberCableType.objects.create(
+            manufacturer=self.fct.manufacturer,
+            model="SLM-Unmarked-FCT",
+            fiber_type="smf_os2",
+            construction="tight_buffer",
+            strand_count=1,
+            mark_unit="",
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO dcim_cable (type, status, label, color, comments, description, profile, "
+                "custom_field_data, created, last_updated) "
+                "VALUES (%s, %s, '', '', '', '', '{}', '{}', NOW(), NOW()) RETURNING id",
+                ["smf-os2", "connected"],
+            )
+            cable_id = cursor.fetchone()[0]
+        from dcim.models import Cable
+
+        cable = Cable.objects.get(pk=cable_id)
+        fc = FiberCable.objects.create(fiber_cable_type=unmarked_fct, cable=cable)
+
+        sl = SlackLoop(
+            fiber_cable=fc,
             site=self.site,
-            location=self.location,
             start_mark=Decimal("0.00"),
             end_mark=Decimal("10.00"),
-            length_unit="m",
         )
-        assert sl.location == self.location
+        with pytest.raises(ValidationError):
+            sl.clean()
 
-    def test_with_storage_method(self):
-        from netbox_fms.models import SlackLoop
-
-        sl = SlackLoop.objects.create(
-            fiber_cable=self.fiber_cable,
-            site=self.site,
-            start_mark=Decimal("0.00"),
-            end_mark=Decimal("10.00"),
-            length_unit="m",
-            storage_method=StorageMethodChoices.COIL,
-        )
-        assert sl.storage_method == "coil"
-
-    def test_str(self):
+    def test_str_includes_marks_and_unit(self):
         from netbox_fms.models import SlackLoop
 
         sl = SlackLoop.objects.create(
@@ -215,11 +199,12 @@ class TestSlackLoopModel:
             site=self.site,
             start_mark=Decimal("100.00"),
             end_mark=Decimal("120.00"),
-            length_unit="m",
         )
         s = str(sl)
         assert "100.00" in s
         assert "120.00" in s
+        # mark_unit comes from fiber_cable_type, set to "m" in setUp
+        assert "m" in s
 
     def test_get_absolute_url(self):
         from netbox_fms.models import SlackLoop
@@ -229,59 +214,16 @@ class TestSlackLoopModel:
             site=self.site,
             start_mark=Decimal("0.00"),
             end_mark=Decimal("5.00"),
-            length_unit="m",
         )
         assert "/slack-loops/" in sl.get_absolute_url()
 
-    def test_unique_together(self):
+    def test_mark_unit_property_delegates_to_type(self):
         from netbox_fms.models import SlackLoop
 
-        SlackLoop.objects.create(
+        sl = SlackLoop.objects.create(
             fiber_cable=self.fiber_cable,
             site=self.site,
-            start_mark=Decimal("50.00"),
-            end_mark=Decimal("60.00"),
-            length_unit="m",
-        )
-        with pytest.raises(IntegrityError):
-            SlackLoop.objects.create(
-                fiber_cable=self.fiber_cable,
-                site=self.site,
-                start_mark=Decimal("50.00"),
-                end_mark=Decimal("60.00"),
-                length_unit="m",
-            )
-
-    def test_cascade_delete_with_fiber_cable(self):
-        from dcim.models import Cable, Manufacturer
-
-        from netbox_fms.models import FiberCable, FiberCableType, SlackLoop
-
-        # Use dedicated objects for cascade test
-        mfr = Manufacturer.objects.create(name="SLM-Cascade-Mfr", slug="slm-cascade-mfr")
-        fct = FiberCableType.objects.create(
-            manufacturer=mfr,
-            model="SLM-Cascade-FCT",
-            fiber_type="smf_os2",
-            construction="tight_buffer",
-            strand_count=1,
-        )
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO dcim_cable (type, status, label, color, comments, description, profile, custom_field_data, created, last_updated) VALUES (%s, %s, '', '', '', '', '{}', '{}', NOW(), NOW()) RETURNING id",
-                ["smf-os2", "connected"],
-            )
-            cable_id = cursor.fetchone()[0]
-        cable = Cable.objects.get(pk=cable_id)
-        fc = FiberCable.objects.create(fiber_cable_type=fct, cable=cable)
-
-        sl = SlackLoop.objects.create(
-            fiber_cable=fc,
-            site=self.site,
             start_mark=Decimal("0.00"),
-            end_mark=Decimal("10.00"),
-            length_unit="m",
+            end_mark=Decimal("5.00"),
         )
-        sl_pk = sl.pk
-        fc.delete()
-        assert not SlackLoop.objects.filter(pk=sl_pk).exists()
+        assert sl.mark_unit == self.fct.mark_unit

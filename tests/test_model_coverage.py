@@ -458,6 +458,7 @@ class TestSlackLoopEdgeCases:
             construction=ConstructionChoices.TIGHT_BUFFER,
             fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=4,
+            mark_unit="m",
         )
         cable = Cable.objects.create()
         cable.a_terminations = []
@@ -473,7 +474,6 @@ class TestSlackLoopEdgeCases:
             site=slack_fixtures["site"],
             start_mark=Decimal("-10"),
             end_mark=Decimal("20"),
-            length_unit="m",
         )
         with pytest.raises(ValidationError, match="start_mark"):
             sl.clean()
@@ -484,7 +484,6 @@ class TestSlackLoopEdgeCases:
             site=slack_fixtures["site"],
             start_mark=Decimal("10"),
             end_mark=Decimal("-5"),
-            length_unit="m",
         )
         with pytest.raises(ValidationError, match="end_mark"):
             sl.clean()
@@ -495,7 +494,6 @@ class TestSlackLoopEdgeCases:
             site=slack_fixtures["site"],
             start_mark=Decimal("50"),
             end_mark=Decimal("10"),
-            length_unit="m",
         )
         sl.save()
         assert sl.start_mark == Decimal("10")
@@ -507,7 +505,6 @@ class TestSlackLoopEdgeCases:
             site=slack_fixtures["site"],
             start_mark=Decimal("10"),
             end_mark=Decimal("30"),
-            length_unit="m",
         )
         assert sl.loop_length == Decimal("20")
 
@@ -517,7 +514,6 @@ class TestSlackLoopEdgeCases:
             site=slack_fixtures["site"],
             start_mark=Decimal("10"),
             end_mark=Decimal("30"),
-            length_unit="m",
         )
         assert "10" in str(sl)
         assert str(sl.pk) in sl.get_absolute_url()

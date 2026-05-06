@@ -33,9 +33,9 @@
             <table class="table table-hover attr-table">
                 <tr><th>{% trans "Fiber Cable" %}</th><td>{{ object.fiber_cable|linkify }}</td></tr>
                 <tr><th>{% trans "Site" %}</th><td>{{ object.site|linkify }}</td></tr>
-                <tr><th>{% trans "Start Mark" %}</th><td>{{ object.start_mark }} {{ object.get_length_unit_display }}</td></tr>
-                <tr><th>{% trans "End Mark" %}</th><td>{{ object.end_mark }} {{ object.get_length_unit_display }}</td></tr>
-                <tr><th>{% trans "Loop Length" %}</th><td>{{ object.loop_length }} {{ object.get_length_unit_display }}</td></tr>
+                <tr><th>{% trans "Start Mark" %}</th><td>{{ object.start_mark }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}</td></tr>
+                <tr><th>{% trans "End Mark" %}</th><td>{{ object.end_mark }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}</td></tr>
+                <tr><th>{% trans "Loop Length" %}</th><td>{{ object.loop_length }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}</td></tr>
             </table>
         </div>
     </div>

@@ -1,5 +1,4 @@
 import django_filters
-from dcim.choices import CableLengthUnitChoices
 from dcim.models import Cable, Device, Location, Manufacturer, Module, Site
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -168,6 +167,11 @@ class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         label=_("Cable (ID)"),
     )
     install_date = django_filters.DateFilter()
+    installed_by_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Tenant.objects.all(),
+        field_name="installed_by",
+        label=_("Installed by (ID)"),
+    )
 
     search_fields = (
         "serial_number__icontains",
@@ -178,7 +182,7 @@ class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
 
     class Meta:
         model = FiberCable
-        fields = ("id", "cable_id", "fiber_cable_type_id", "serial_number", "install_date")
+        fields = ("id", "cable_id", "fiber_cable_type_id", "serial_number", "install_date", "installed_by_id")
 
 
 class BufferTubeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
@@ -392,14 +396,13 @@ class SlackLoopFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         field_name="location",
         label=_("Location (ID)"),
     )
-    length_unit = django_filters.MultipleChoiceFilter(choices=CableLengthUnitChoices)
     storage_method = django_filters.MultipleChoiceFilter(choices=StorageMethodChoices)
 
     search_fields = ("notes__icontains",)
 
     class Meta:
         model = SlackLoop
-        fields = ("id", "fiber_cable_id", "site_id", "location_id", "length_unit", "storage_method")
+        fields = ("id", "fiber_cable_id", "site_id", "location_id", "storage_method")
 
 
 class FiberCircuitFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
