@@ -53,6 +53,8 @@ class FiberCableTypeSerializer(NetBoxModelSerializer):
             "construction",
             "fiber_type",
             "strand_count",
+            "outer_diameter",
+            "twist_factor_ratio",
             "sheath_material",
             "jacket_color",
             "is_armored",
@@ -164,6 +166,16 @@ class FiberCableSerializer(NetBoxModelSerializer):
 
     cable = CableSerializer(nested=True)
     fiber_cable_type = FiberCableTypeSerializer(nested=True)
+    glass_length = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=4,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Optical-fibre length, computed as cable.length * (1 + fiber_cable_type.twist_factor_ratio). "
+            "Returns null when either operand is missing."
+        ),
+    )
 
     class Meta:
         model = FiberCable
@@ -175,6 +187,7 @@ class FiberCableSerializer(NetBoxModelSerializer):
             "fiber_cable_type",
             "serial_number",
             "install_date",
+            "glass_length",
             "notes",
             "tags",
             "custom_fields",

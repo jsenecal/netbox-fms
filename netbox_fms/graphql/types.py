@@ -1,5 +1,6 @@
 """GraphQL object types for netbox_fms models."""
 
+from decimal import Decimal
 from typing import Annotated
 
 import strawberry
@@ -84,6 +85,11 @@ class FiberCableInstanceType(NetBoxObjectType):
     ribbons: list[Annotated["RibbonType", strawberry.lazy(".types")]]
     fiber_strands: list[Annotated["FiberStrandType", strawberry.lazy(".types")]]
     cable_elements: list[Annotated["CableElementType", strawberry.lazy(".types")]]
+
+    @strawberry_django.field
+    def glass_length(self) -> Decimal | None:
+        """Optical-fibre length, derived from sheath length and the cable type's twist factor."""
+        return self.glass_length
 
 
 @strawberry_django.type(BufferTube, fields="__all__")

@@ -152,6 +152,24 @@ class FiberCableType(NetBoxModel):
         help_text=_("Cross-section or construction diagram of the cable."),
     )
 
+    # Physical construction
+    outer_diameter = models.FloatField(
+        verbose_name=_("outer diameter"),
+        blank=True,
+        null=True,
+        help_text=_("Cable outer diameter in millimeters."),
+    )
+    twist_factor_ratio = models.FloatField(
+        verbose_name=_("twist factor ratio"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "Dimensionless ratio of (glass length excess) over (sheath length); "
+            "manufacturer spec for the helical pitch / lay factor. "
+            "FiberCable.glass_length uses this to convert sheath distance to fiber distance."
+        ),
+    )
+
     notes = models.TextField(
         verbose_name=_("notes"),
         blank=True,
@@ -181,6 +199,8 @@ class FiberCableType(NetBoxModel):
         "armor_type",
         "deployment",
         "fire_rating",
+        "outer_diameter",
+        "twist_factor_ratio",
     )
 
     class Meta:
@@ -575,6 +595,23 @@ class FiberCable(NetBoxModel):
     def get_absolute_url(self):
         """Return the detail URL for this fiber cable."""
         return reverse("plugins:netbox_fms:fibercable", args=[self.pk])
+
+    @property
+    def glass_length(self):
+        """Optical-fibre length, derived from sheath length and the type's twist factor.
+
+        Returns ``cable.length * (1 + twist_factor_ratio)`` as a Decimal in the
+        same unit as ``cable.length_unit``. Returns ``None`` when either the
+        sheath length or the cable type's twist factor is unset, since the
+        conversion cannot be computed without both.
+        """
+        from decimal import Decimal
+
+        sheath = self.cable.length if self.cable_id else None
+        ratio = self.fiber_cable_type.twist_factor_ratio if self.fiber_cable_type_id else None
+        if sheath is None or ratio is None:
+            return None
+        return sheath * (Decimal("1") + Decimal(str(ratio)))
 
     def save(self, *args, **kwargs):
         """Save and auto-instantiate components on first creation."""
