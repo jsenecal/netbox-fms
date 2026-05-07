@@ -23,6 +23,7 @@ from tenancy.models import Tenant
 from utilities.forms.fields import (
     ColorField,
     CommentField,
+    CSVModelChoiceField,
     DynamicModelChoiceField,
     DynamicModelMultipleChoiceField,
 )
@@ -79,7 +80,7 @@ class FiberCableTypeForm(NetBoxModelForm):
     fieldsets = (
         FieldSet("manufacturer", "model", "part_number", name=_("Cable Type")),
         FieldSet("construction", "fiber_type", "strand_count", name=_("Fiber Properties")),
-        FieldSet("outer_diameter", "twist_factor_ratio", name=_("Physical")),
+        FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
         FieldSet("deployment", "fire_rating", name=_("Deployment & Rating")),
@@ -103,6 +104,7 @@ class FiberCableTypeForm(NetBoxModelForm):
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
+            "mark_unit",
             "sheath_material",
             "jacket_color",
             "is_armored",
@@ -136,6 +138,7 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
+            "mark_unit",
             "sheath_material",
             "jacket_color",
             "is_armored",
@@ -160,13 +163,21 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     fire_rating = forms.ChoiceField(choices=FireRatingChoices, required=False)
     outer_diameter = forms.FloatField(required=False, label=_("Outer diameter (mm)"))
     twist_factor_ratio = forms.FloatField(required=False, label=_("Twist factor ratio"))
+    mark_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
 
     fieldsets = (
         FieldSet("manufacturer", "construction", "fiber_type"),
-        FieldSet("outer_diameter", "twist_factor_ratio", name=_("Physical")),
+        FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "deployment", "fire_rating"),
     )
-    nullable_fields = ("sheath_material", "deployment", "fire_rating", "outer_diameter", "twist_factor_ratio")
+    nullable_fields = (
+        "sheath_material",
+        "deployment",
+        "fire_rating",
+        "outer_diameter",
+        "twist_factor_ratio",
+        "mark_unit",
+    )
 
 
 class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
@@ -392,17 +403,34 @@ class FiberCableForm(NetBoxModelForm):
         queryset=FiberCableType.objects.all(),
         label=_("Fiber Cable Type"),
     )
+    installed_by = DynamicModelChoiceField(
+        queryset=Tenant.objects.all(),
+        required=False,
+        label=_("Installed by"),
+        help_text=_("Contractor or workforce that physically installed this cable."),
+    )
     comments = CommentField()
 
     fieldsets = (
         FieldSet("cable", "fiber_cable_type", name=_("Fiber Cable")),
-        FieldSet("serial_number", "install_date", name=_("Identification")),
+        FieldSet("serial_number", "install_date", "installed_by", name=_("Identification")),
+        FieldSet("start_mark", "end_mark", name=_("Sheath Marks")),
         FieldSet("notes", "tags", name=_("Additional")),
     )
 
     class Meta:
         model = FiberCable
-        fields = ("cable", "fiber_cable_type", "serial_number", "install_date", "notes", "tags")
+        fields = (
+            "cable",
+            "fiber_cable_type",
+            "serial_number",
+            "install_date",
+            "installed_by",
+            "start_mark",
+            "end_mark",
+            "notes",
+            "tags",
+        )
 
 
 class FiberCableImportForm(NetBoxModelImportForm):
@@ -410,10 +438,26 @@ class FiberCableImportForm(NetBoxModelImportForm):
 
     cable = DynamicModelChoiceField(queryset=Cable.objects.all())
     fiber_cable_type = DynamicModelChoiceField(queryset=FiberCableType.objects.all())
+    installed_by = CSVModelChoiceField(
+        queryset=Tenant.objects.all(),
+        to_field_name="name",
+        required=False,
+        help_text=_("Installer tenant name."),
+    )
 
     class Meta:
         model = FiberCable
-        fields = ("cable", "fiber_cable_type", "serial_number", "install_date", "notes", "tags")
+        fields = (
+            "cable",
+            "fiber_cable_type",
+            "serial_number",
+            "install_date",
+            "installed_by",
+            "start_mark",
+            "end_mark",
+            "notes",
+            "tags",
+        )
 
 
 class FiberCableBulkEditForm(NetBoxModelBulkEditForm):
@@ -423,9 +467,10 @@ class FiberCableBulkEditForm(NetBoxModelBulkEditForm):
 
     fiber_cable_type = DynamicModelChoiceField(queryset=FiberCableType.objects.all(), required=False)
     install_date = forms.DateField(required=False)
+    installed_by = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
 
-    fieldsets = (FieldSet("fiber_cable_type", "install_date"),)
-    nullable_fields = ("install_date",)
+    fieldsets = (FieldSet("fiber_cable_type", "install_date", "installed_by"),)
+    nullable_fields = ("install_date", "installed_by")
 
 
 class FiberCableFilterForm(NetBoxModelFilterSetForm):
@@ -438,10 +483,15 @@ class FiberCableFilterForm(NetBoxModelFilterSetForm):
         required=False,
         label=_("Fiber Cable Type"),
     )
+    installed_by_id = DynamicModelMultipleChoiceField(
+        queryset=Tenant.objects.all(),
+        required=False,
+        label=_("Installed by"),
+    )
 
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
-        FieldSet("fiber_cable_type_id", name=_("Attributes")),
+        FieldSet("fiber_cable_type_id", "installed_by_id", name=_("Attributes")),
     )
 
 
@@ -647,7 +697,7 @@ class SlackLoopForm(NetBoxModelForm):
 
     fieldsets = (
         FieldSet("fiber_cable", "site", "location", name=_("Slack Loop")),
-        FieldSet("start_mark", "end_mark", "length_unit", name=_("Position")),
+        FieldSet("start_mark", "end_mark", name=_("Position")),
         FieldSet("storage_method", name=_("Storage")),
         FieldSet("notes", "tags", name=_("Additional")),
     )
@@ -660,7 +710,6 @@ class SlackLoopForm(NetBoxModelForm):
             "location",
             "start_mark",
             "end_mark",
-            "length_unit",
             "storage_method",
             "notes",
             "tags",
@@ -671,7 +720,6 @@ class SlackLoopImportForm(NetBoxModelImportForm):
     """Import form for SlackLoop."""
 
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all())
-    length_unit = forms.ChoiceField(choices=CableLengthUnitChoices)
     storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
 
     class Meta:
@@ -682,7 +730,6 @@ class SlackLoopImportForm(NetBoxModelImportForm):
             "location",
             "start_mark",
             "end_mark",
-            "length_unit",
             "storage_method",
             "notes",
         )
@@ -695,10 +742,9 @@ class SlackLoopBulkEditForm(NetBoxModelBulkEditForm):
 
     site = DynamicModelChoiceField(queryset=Site.objects.all(), required=False)
     location = DynamicModelChoiceField(queryset=Location.objects.all(), required=False)
-    length_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
     storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
 
-    fieldsets = (FieldSet("site", "location", "length_unit", "storage_method"),)
+    fieldsets = (FieldSet("site", "location", "storage_method"),)
     nullable_fields = ("location", "storage_method")
 
 
@@ -722,13 +768,12 @@ class SlackLoopFilterForm(NetBoxModelFilterSetForm):
         required=False,
         label=_("Location"),
     )
-    length_unit = forms.MultipleChoiceField(choices=CableLengthUnitChoices, required=False)
     storage_method = forms.MultipleChoiceField(choices=StorageMethodChoices, required=False)
 
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
         FieldSet("fiber_cable_id", "site_id", "location_id", name=_("Location")),
-        FieldSet("length_unit", "storage_method", name=_("Attributes")),
+        FieldSet("storage_method", name=_("Attributes")),
     )
 
 

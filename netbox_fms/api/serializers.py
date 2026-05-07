@@ -8,6 +8,7 @@ from dcim.api.serializers import (
 )
 from netbox.api.serializers import NetBoxModelSerializer
 from rest_framework import serializers
+from tenancy.api.serializers import TenantSerializer
 
 from ..models import (
     BufferTube,
@@ -55,6 +56,7 @@ class FiberCableTypeSerializer(NetBoxModelSerializer):
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
+            "mark_unit",
             "sheath_material",
             "jacket_color",
             "is_armored",
@@ -166,6 +168,7 @@ class FiberCableSerializer(NetBoxModelSerializer):
 
     cable = CableSerializer(nested=True)
     fiber_cable_type = FiberCableTypeSerializer(nested=True)
+    installed_by = TenantSerializer(nested=True, required=False, allow_null=True)
     glass_length = serializers.DecimalField(
         max_digits=14,
         decimal_places=4,
@@ -187,6 +190,9 @@ class FiberCableSerializer(NetBoxModelSerializer):
             "fiber_cable_type",
             "serial_number",
             "install_date",
+            "installed_by",
+            "start_mark",
+            "end_mark",
             "glass_length",
             "notes",
             "tags",
@@ -401,6 +407,7 @@ class SlackLoopSerializer(NetBoxModelSerializer):
     """Serializer for SlackLoop model."""
 
     loop_length = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    mark_unit = serializers.CharField(read_only=True, help_text="Unit, sourced from FiberCableType.mark_unit.")
 
     class Meta:
         model = SlackLoop
@@ -413,8 +420,8 @@ class SlackLoopSerializer(NetBoxModelSerializer):
             "location",
             "start_mark",
             "end_mark",
-            "length_unit",
             "loop_length",
+            "mark_unit",
             "storage_method",
             "notes",
             "tags",

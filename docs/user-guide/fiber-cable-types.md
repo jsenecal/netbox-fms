@@ -20,6 +20,7 @@ any number of [FiberCable](fiber-cables.md) instances from it.
 | **Strand count** | Yes | Total number of fiber strands in the cable. Must match the sum computed from component templates if any are defined. |
 | **Outer diameter** | No | Cable outer diameter in millimeters. Used by conduit-fill / pull-tension calculations. |
 | **Twist factor ratio** | No | Dimensionless ratio of glass-length excess over sheath length (helical pitch / lay factor). Typical values fall between 0.001 and 0.02. Used by `FiberCable.glass_length` to convert sheath distance to optical-fibre distance. |
+| **Mark unit** | No | Unit of the distance markings printed on the cable jacket by the manufacturer (e.g. metres, feet). Empty if the cable type has no sheath markings. Read by `FiberCable.start_mark` / `end_mark` and by every `SlackLoop` on cables of this type. |
 | **Sheath material** | No | Outer jacket material: LSZH, PE, MDPE, HDPE, PVC, or PVDF. |
 | **Jacket color** | No | Color of the cable's outer jacket. |
 | **Armored** | No | Whether the cable has armor. Defaults to false. |

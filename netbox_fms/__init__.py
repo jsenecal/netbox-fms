@@ -79,11 +79,11 @@ class NetBoxFMSConfig(PluginConfig):
             source="reference",
             queryset=lambda r: SlackLoop.objects.restrict(r.user, "view"),
             geometry_field="site",
-            feature_fields=["name", "site", "fiber_cable", "length", "length_unit"],
+            feature_fields=["name", "site", "fiber_cable", "loop_length"],
             popover_fields=["name", "fiber_cable"],
             style=LayerStyle(color="#ff9800", icon="mdi-rotate-right"),
             detail=LayerDetail(
-                fields=["name", "site", "fiber_cable", "length", "length_unit", "storage_method"],
+                fields=["name", "site", "fiber_cable", "loop_length", "storage_method"],
                 label_field="name",
             ),
             group="Fiber Management",

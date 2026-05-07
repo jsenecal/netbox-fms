@@ -50,6 +50,26 @@ remain `cable.length` (sheath distance).
 GraphQL. There is no dedicated database column -- the value is recomputed on
 read whenever the cable type's `twist_factor_ratio` changes.
 
+## Sheath Marks and Installer
+
+A FiberCable carries optional metadata about how it was installed and where
+its sheath markings start and end:
+
+| Field | Description |
+|-------|-------------|
+| **Start mark** | Sheath distance mark at the A-end of the cable. Read in the cable type's [`mark_unit`](fiber-cable-types.md#fields-reference). |
+| **End mark** | Sheath distance mark at the B-end of the cable. Same unit. |
+| **Installed by** | `tenancy.Tenant` representing the contractor or workforce that physically installed this cable. Distinct from `dcim.Cable.tenant` (the served customer / asset owner). |
+
+Both sheath marks are optional. They are useful as an absolute reference frame
+for slack loops, which record positions inside this same mark interval. When
+set, `FiberCable.save()` swaps `start_mark` and `end_mark` if they are
+inverted, so the pair always represents a forward interval.
+
+Sheath marks can only be set on cables whose type declares a `mark_unit`. If
+the cable type has no sheath markings (some short tight-buffer products do
+not), the marks must be left blank. `clean()` enforces this.
+
 ---
 
 ## Auto-Instantiation

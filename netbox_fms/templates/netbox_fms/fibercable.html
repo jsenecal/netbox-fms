@@ -65,10 +65,39 @@
                     <td>{{ object.install_date|placeholder }}</td>
                 </tr>
                 <tr>
+                    <th scope="row">{% trans "Installed by" %}</th>
+                    <td>{{ object.installed_by|linkify|placeholder }}</td>
+                </tr>
+                <tr>
                     <th scope="row">{% trans "Glass Length" %}</th>
                     <td>
                         {% if object.glass_length is not None %}
                             {{ object.glass_length }} {{ object.cable.length_unit|default:'' }}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+        <div class="card mt-3">
+            <h5 class="card-header">{% trans "Sheath Marks" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Start mark" %}</th>
+                    <td>
+                        {% if object.start_mark is not None %}
+                            {{ object.start_mark }} {{ object.fiber_cable_type.get_mark_unit_display|default:'' }}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "End mark" %}</th>
+                    <td>
+                        {% if object.end_mark is not None %}
+                            {{ object.end_mark }} {{ object.fiber_cable_type.get_mark_unit_display|default:'' }}
                         {% else %}
                             {{ ''|placeholder }}
                         {% endif %}

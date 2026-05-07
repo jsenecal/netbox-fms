@@ -74,6 +74,10 @@
                     <th scope="row">{% trans "Twist Factor Ratio" %}</th>
                     <td>{{ object.twist_factor_ratio|default_if_none:''|placeholder }}</td>
                 </tr>
+                <tr>
+                    <th scope="row">{% trans "Sheath Mark Unit" %}</th>
+                    <td>{{ object.get_mark_unit_display|placeholder }}</td>
+                </tr>
             </table>
         </div>
     </div>

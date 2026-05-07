@@ -21,7 +21,7 @@ class FiberCableTypeIndex(SearchIndex):
         ("part_number", 300),
         ("notes", 5000),
     )
-    display_attrs = ("manufacturer", "construction", "fiber_type", "strand_count", "outer_diameter")
+    display_attrs = ("manufacturer", "construction", "fiber_type", "strand_count", "outer_diameter", "mark_unit")
 
 
 @register_search
@@ -33,7 +33,7 @@ class FiberCableIndex(SearchIndex):
         ("serial_number", 300),
         ("notes", 5000),
     )
-    display_attrs = ("cable", "fiber_cable_type")
+    display_attrs = ("cable", "fiber_cable_type", "installed_by")
 
 
 @register_search
@@ -79,7 +79,7 @@ class SlackLoopIndex(SearchIndex):
 
     model = SlackLoop
     fields = (("notes", 5000),)
-    display_attrs = ("fiber_cable", "site", "start_mark", "end_mark", "length_unit")
+    display_attrs = ("fiber_cable", "site", "start_mark", "end_mark", "mark_unit")
 
 
 @register_search

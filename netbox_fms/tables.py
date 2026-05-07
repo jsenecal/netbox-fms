@@ -44,6 +44,7 @@ class FiberCableTypeTable(NetBoxTable):
     fire_rating = tables.Column(verbose_name=_("Fire Rating"))
     outer_diameter = tables.Column(verbose_name=_("Outer Diameter (mm)"))
     twist_factor_ratio = tables.Column(verbose_name=_("Twist Factor"))
+    mark_unit = tables.Column(verbose_name=_("Mark Unit"))
     instance_count = columns.LinkedCountColumn(
         viewname="plugins:netbox_fms:fibercable_list",
         url_params={"fiber_cable_type_id": "pk"},
@@ -64,6 +65,7 @@ class FiberCableTypeTable(NetBoxTable):
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
+            "mark_unit",
             "sheath_material",
             "jacket_color",
             "is_armored",
@@ -206,6 +208,9 @@ class FiberCableTable(NetBoxTable):
     fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Type"))
     serial_number = tables.Column(verbose_name=_("Serial Number"))
     install_date = tables.DateColumn(verbose_name=_("Install Date"))
+    installed_by = tables.Column(linkify=True, verbose_name=_("Installed by"))
+    start_mark = tables.Column(verbose_name=_("Start mark"))
+    end_mark = tables.Column(verbose_name=_("End mark"))
     strand_utilization = tables.Column(accessor="pk", orderable=False, verbose_name=_("Utilization"))
     actions = columns.ActionsColumn()
 
@@ -225,6 +230,9 @@ class FiberCableTable(NetBoxTable):
             "fiber_cable_type",
             "serial_number",
             "install_date",
+            "installed_by",
+            "start_mark",
+            "end_mark",
             "strand_utilization",
             "actions",
         )
@@ -506,7 +514,7 @@ class SlackLoopTable(NetBoxTable):
     start_mark = tables.Column(verbose_name=_("Start Mark"))
     end_mark = tables.Column(verbose_name=_("End Mark"))
     loop_length = tables.Column(accessor="loop_length", orderable=False, verbose_name=_("Loop Length"))
-    length_unit = tables.Column(verbose_name=_("Unit"))
+    mark_unit = tables.Column(accessor="mark_unit", orderable=False, verbose_name=_("Unit"))
     storage_method = tables.Column(verbose_name=_("Storage Method"))
     actions = columns.ActionsColumn()
 
@@ -521,7 +529,7 @@ class SlackLoopTable(NetBoxTable):
             "start_mark",
             "end_mark",
             "loop_length",
-            "length_unit",
+            "mark_unit",
             "storage_method",
             "actions",
         )
@@ -532,7 +540,7 @@ class SlackLoopTable(NetBoxTable):
             "start_mark",
             "end_mark",
             "loop_length",
-            "length_unit",
+            "mark_unit",
             "actions",
         )
 
