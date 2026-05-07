@@ -661,7 +661,7 @@ export class EditorState {
         y,
         hidden: false,
         cableId: cg.fiber_cable_id,
-        fiberType: cg.fiber_type,
+        fiberType: cg.fiber_type ?? undefined,
         strandCount: cg.strand_count,
         farDeviceName: cg.far_device_name,
         farDeviceUrl: cg.far_device_url,
