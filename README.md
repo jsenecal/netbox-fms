@@ -64,6 +64,13 @@ Full documentation: **[jsenecal.github.io/netbox-fms](https://jsenecal.github.io
 - [API Examples](https://jsenecal.github.io/netbox-fms/developer/api-examples/)
 - [Contributing](https://jsenecal.github.io/netbox-fms/developer/contributing/)
 
+## Related plugins
+
+netbox-fms is part of a three-plugin set that models the full optical transport stack:
+
+- **[netbox-pathways](https://github.com/jsenecal/netbox-pathways)** -- physical cable plant documentation with PostGIS. Models conduits, aerial spans, structures (poles, manholes, cabinets), and the geographic routes NetBox cables traverse. FMS describes *what is inside a fiber cable and how strands are spliced*; Pathways describes *where the cable physically runs*.
+- **[netbox-wdm](https://github.com/jsenecal/netbox-wdm)** -- WDM (Wavelength Division Multiplexing) device management. Models ITU channel plans, ROADM mappings, and wavelength services that ride on top of the fiber circuits FMS provisions.
+
 ## Contributing
 
 PRs welcome. Use conventional-commits PR titles (`feat:`, `fix:`, `chore:`, `docs:`, ...) -- release-drafter assembles release notes from them. Run `make setup` after cloning to install dev dependencies and the pre-commit hooks (including the AI-attribution-rejecting `commit-msg` hook).
