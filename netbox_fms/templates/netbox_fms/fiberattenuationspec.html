@@ -1,0 +1,29 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Attenuation Spec" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Cable Type" %}</th>
+                    <td>{{ object.fiber_cable_type|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Wavelength (nm)" %}</th>
+                    <td>{{ object.wavelength_nm }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Max Loss (dB/km)" %}</th>
+                    <td>{{ object.max_loss_db_per_km }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+{% plugin_full_width_page object %}
+{% endblock %}

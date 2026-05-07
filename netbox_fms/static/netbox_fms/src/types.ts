@@ -71,7 +71,7 @@ export interface CableGroupData {
   fiber_cable_id: number;
   cable_label: string;
   cable_url: string;
-  fiber_type: string;
+  fiber_type: string | null;
   strand_count: number;
   far_device_name: string | null;
   far_device_url: string | null;

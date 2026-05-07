@@ -65,7 +65,6 @@ class TestUpdateGlandLabelAction(TestCase):
             manufacturer=manufacturer,
             model="GL-FCT",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=4,
         )
         cable = Cable.objects.create()

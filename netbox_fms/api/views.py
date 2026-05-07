@@ -21,6 +21,7 @@ from ..filters import (
     CableElementFilterSet,
     CableElementTemplateFilterSet,
     ClosureCableEntryFilterSet,
+    FiberAttenuationSpecFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
@@ -41,6 +42,7 @@ from ..models import (
     CableElement,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -64,6 +66,7 @@ from .serializers import (
     CableElementSerializer,
     CableElementTemplateSerializer,
     ClosureCableEntrySerializer,
+    FiberAttenuationSpecSerializer,
     FiberCableSerializer,
     FiberCableTypeSerializer,
     FiberCircuitNodeSerializer,
@@ -90,6 +93,14 @@ class FiberCableTypeViewSet(NetBoxModelViewSet):
     )
     serializer_class = FiberCableTypeSerializer
     filterset_class = FiberCableTypeFilterSet
+
+
+class FiberAttenuationSpecViewSet(NetBoxModelViewSet):
+    """Manage per-wavelength attenuation specs."""
+
+    queryset = FiberAttenuationSpec.objects.prefetch_related("fiber_cable_type", "tags")
+    serializer_class = FiberAttenuationSpecSerializer
+    filterset_class = FiberAttenuationSpecFilterSet
 
 
 class BufferTubeTemplateViewSet(NetBoxModelViewSet):
@@ -502,7 +513,9 @@ class FiberCircuitPathViewSet(NetBoxModelViewSet):
             "circuit_url": path_obj.circuit.get_absolute_url(),
             "path_position": path_obj.position,
             "is_complete": path_obj.is_complete,
-            "total_calculated_loss_db": str(path_obj.calculated_loss_db) if path_obj.calculated_loss_db else None,
+            "total_calculated_loss_db": (
+                str(path_obj.get_calculated_loss_db()) if path_obj.get_calculated_loss_db() is not None else None
+            ),
             "total_actual_loss_db": str(path_obj.actual_loss_db) if path_obj.actual_loss_db else None,
             "wavelength_nm": path_obj.wavelength_nm,
             "hops": hops,
@@ -778,7 +791,7 @@ class ClosureStrandsAPIView(APIView):
                     "fiber_cable_id": fc.pk,
                     "cable_label": str(fc.cable) if fc.cable else f"FiberCable-{fc.pk}",
                     "cable_url": fc.get_absolute_url(),
-                    "fiber_type": fc.fiber_cable_type.get_fiber_type_display(),
+                    "fiber_type": fc.cable.get_type_display() if fc.cable else None,
                     "strand_count": fc.fiber_cable_type.strand_count,
                     "far_device_name": far_end["name"] if far_end else None,
                     "far_device_url": far_end["url"] if far_end else None,

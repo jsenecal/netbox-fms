@@ -16,6 +16,7 @@ from ..models import (
     CableElement,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -52,7 +53,6 @@ class FiberCableTypeSerializer(NetBoxModelSerializer):
             "model",
             "part_number",
             "construction",
-            "fiber_type",
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
@@ -74,6 +74,28 @@ class FiberCableTypeSerializer(NetBoxModelSerializer):
             "last_updated",
         )
         brief_fields = ("id", "url", "display", "manufacturer", "model", "construction", "strand_count")
+
+
+class FiberAttenuationSpecSerializer(NetBoxModelSerializer):
+    """Serializer for FiberAttenuationSpec model."""
+
+    fiber_cable_type = FiberCableTypeSerializer(nested=True)
+
+    class Meta:
+        model = FiberAttenuationSpec
+        fields = (
+            "id",
+            "url",
+            "display",
+            "fiber_cable_type",
+            "wavelength_nm",
+            "max_loss_db_per_km",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "wavelength_nm", "max_loss_db_per_km")
 
 
 class BufferTubeTemplateSerializer(NetBoxModelSerializer):
@@ -510,7 +532,17 @@ class FiberCircuitSerializer(NetBoxModelSerializer):
 
 
 class FiberCircuitPathSerializer(NetBoxModelSerializer):
-    """Serializer for FiberCircuitPath model."""
+    """Serializer for FiberCircuitPath model.
+
+    ``calculated_loss_db`` is a computed list of
+    ``[wavelength_nm, loss_db]`` pairs derived from each cable's
+    ``FiberAttenuationSpec`` rows and glass length; it is read-only.
+    """
+
+    calculated_loss_db = serializers.SerializerMethodField()
+
+    def get_calculated_loss_db(self, obj):
+        return [[wl, str(loss)] for wl, loss in obj.calculated_loss_db]
 
     class Meta:
         model = FiberCircuitPath

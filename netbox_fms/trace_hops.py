@@ -104,7 +104,7 @@ def build_hops(path_entries):
             if strand:
                 fc = strand.fiber_cable
                 fct = fc.fiber_cable_type if fc else None
-                hop["fiber_type"] = fct.get_fiber_type_display() if fct else None
+                hop["fiber_type"] = cable.get_type_display() if cable else None
                 hop["strand_count"] = fct.strand_count if fct else None
                 hop["strand_position"] = strand.position
                 hop["strand_color"] = strand.color

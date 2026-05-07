@@ -26,38 +26,6 @@ class ConstructionChoices(ChoiceSet):
     )
 
 
-class FiberTypeChoices(ChoiceSet):
-    """Choice set for fiber optic type classification."""
-
-    SMF_OS1 = "smf_os1"
-    SMF_OS2 = "smf_os2"
-    MMF_OM1 = "mmf_om1"
-    MMF_OM2 = "mmf_om2"
-    MMF_OM3 = "mmf_om3"
-    MMF_OM4 = "mmf_om4"
-    MMF_OM5 = "mmf_om5"
-
-    CHOICES = (
-        (
-            "Single-Mode",
-            (
-                (SMF_OS1, "SMF OS1"),
-                (SMF_OS2, "SMF OS2"),
-            ),
-        ),
-        (
-            "Multi-Mode",
-            (
-                (MMF_OM1, "MMF OM1"),
-                (MMF_OM2, "MMF OM2"),
-                (MMF_OM3, "MMF OM3"),
-                (MMF_OM4, "MMF OM4"),
-                (MMF_OM5, "MMF OM5"),
-            ),
-        ),
-    )
-
-
 class SheathMaterialChoices(ChoiceSet):
     """Choice set for cable sheath material."""
 

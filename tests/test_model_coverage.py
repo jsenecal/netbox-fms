@@ -10,7 +10,6 @@ from netbox_fms.choices import (
     CableElementTypeChoices,
     ConstructionChoices,
     FiberCircuitStatusChoices,
-    FiberTypeChoices,
 )
 from netbox_fms.models import (
     BufferTubeTemplate,
@@ -49,7 +48,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="URL-Test",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         url = fct.get_absolute_url()
@@ -61,7 +59,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="Str-Test",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         assert str(fct) == f"{base_fixtures['mfr']} Str-Test"
@@ -71,7 +68,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="NoTube",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         assert fct.get_strand_count_from_templates() == 0
@@ -81,7 +77,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="WithTube",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=24,
         )
         BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=12)
@@ -93,7 +88,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="ProfileNoTube",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         # Returns None or a valid key; just ensure no crash
@@ -105,7 +99,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="MixedTubes",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=18,
         )
         BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=12)
@@ -118,7 +111,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="ArmorNoType",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
             is_armored=True,
             armor_type="",
@@ -131,7 +123,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="TypeNoArmor",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
             is_armored=False,
             armor_type="steel_tape",
@@ -144,7 +135,6 @@ class TestFiberCableTypeEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="MismatchCount",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=6)
@@ -171,7 +161,6 @@ class TestFiberCableInstantiation:
             manufacturer=base_fixtures["mfr"],
             model="TB-12",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         cable = self._make_cable(base_fixtures)
@@ -191,7 +180,6 @@ class TestFiberCableInstantiation:
             manufacturer=base_fixtures["mfr"],
             model="LT-24",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=24,
         )
         BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=12)
@@ -212,7 +200,6 @@ class TestFiberCableInstantiation:
             manufacturer=base_fixtures["mfr"],
             model="RIT-24",
             construction=ConstructionChoices.RIBBON_IN_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=24,
         )
         tt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1)
@@ -239,7 +226,6 @@ class TestFiberCableInstantiation:
             manufacturer=base_fixtures["mfr"],
             model="CCR-24",
             construction=ConstructionChoices.RIBBON,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=24,
         )
         RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
@@ -262,7 +248,6 @@ class TestFiberCableInstantiation:
             manufacturer=base_fixtures["mfr"],
             model="CE-12",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         CableElementTemplate.objects.create(
@@ -281,7 +266,6 @@ class TestFiberCableInstantiation:
             manufacturer=base_fixtures["mfr"],
             model="URL-FC",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=4,
         )
         cable = self._make_cable(base_fixtures)
@@ -294,7 +278,6 @@ class TestFiberCableInstantiation:
             manufacturer=base_fixtures["mfr"],
             model="Str-FC",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=4,
         )
         cable = self._make_cable(base_fixtures)
@@ -314,7 +297,6 @@ class TestTemplateStrAndUrl:
             manufacturer=base_fixtures["mfr"],
             model="BTT-Test",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=12)
@@ -326,7 +308,6 @@ class TestTemplateStrAndUrl:
             manufacturer=base_fixtures["mfr"],
             model="RT-Test",
             construction=ConstructionChoices.RIBBON_IN_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1)
@@ -342,7 +323,6 @@ class TestTemplateStrAndUrl:
             manufacturer=base_fixtures["mfr"],
             model="RT-NoTube",
             construction=ConstructionChoices.RIBBON,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         rt = RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
@@ -354,7 +334,6 @@ class TestTemplateStrAndUrl:
             manufacturer=base_fixtures["mfr"],
             model="CET-Test",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         cet = CableElementTemplate.objects.create(
@@ -376,7 +355,6 @@ class TestInstanceStrAndUrl:
             manufacturer=base_fixtures["mfr"],
             model="Inst-Test",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=12)
@@ -408,7 +386,6 @@ class TestInstanceStrAndUrl:
             manufacturer=base_fixtures["mfr"],
             model="Rib-Inst",
             construction=ConstructionChoices.RIBBON,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
@@ -433,7 +410,6 @@ class TestBufferTubeTemplateClean:
             manufacturer=base_fixtures["mfr"],
             model="BTT-Clean",
             construction=ConstructionChoices.RIBBON_IN_TUBE,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=12,
         )
         btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=12)
@@ -456,7 +432,6 @@ class TestSlackLoopEdgeCases:
             manufacturer=base_fixtures["mfr"],
             model="SL-Type",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type=FiberTypeChoices.SMF_OS2,
             strand_count=4,
             mark_unit="m",
         )
@@ -533,17 +508,6 @@ class TestFiberCircuitPathClean:
         )
         return {**base_fixtures, "fp": fp, "circuit": circuit}
 
-    def test_loss_without_wavelength_raises(self, circuit_fixtures):
-        path = FiberCircuitPath(
-            circuit=circuit_fixtures["circuit"],
-            position=1,
-            origin=circuit_fixtures["fp"],
-            calculated_loss_db=Decimal("1.5"),
-            wavelength_nm=None,
-        )
-        with pytest.raises(ValidationError, match="wavelength"):
-            path.clean()
-
     def test_actual_loss_without_wavelength_raises(self, circuit_fixtures):
         path = FiberCircuitPath(
             circuit=circuit_fixtures["circuit"],
@@ -555,12 +519,11 @@ class TestFiberCircuitPathClean:
         with pytest.raises(ValidationError, match="wavelength"):
             path.clean()
 
-    def test_loss_with_wavelength_passes(self, circuit_fixtures):
+    def test_actual_loss_with_wavelength_passes(self, circuit_fixtures):
         path = FiberCircuitPath(
             circuit=circuit_fixtures["circuit"],
             position=1,
             origin=circuit_fixtures["fp"],
-            calculated_loss_db=Decimal("1.5"),
             actual_loss_db=Decimal("2.0"),
             wavelength_nm=1550,
         )

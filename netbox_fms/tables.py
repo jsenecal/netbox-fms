@@ -8,6 +8,7 @@ from .models import (
     CableElement,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -35,7 +36,6 @@ class FiberCableTypeTable(NetBoxTable):
     model = tables.Column(linkify=True, verbose_name=_("Model"))
     manufacturer = tables.Column(linkify=True, verbose_name=_("Manufacturer"))
     construction = tables.Column(verbose_name=_("Construction"))
-    fiber_type = tables.Column(verbose_name=_("Fiber Type"))
     strand_count = tables.Column(verbose_name=_("Strands"))
     jacket_color = columns.ColorColumn(verbose_name=_("Jacket Color"))
     sheath_material = tables.Column(verbose_name=_("Sheath"))
@@ -61,7 +61,6 @@ class FiberCableTypeTable(NetBoxTable):
             "model",
             "part_number",
             "construction",
-            "fiber_type",
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
@@ -80,12 +79,31 @@ class FiberCableTypeTable(NetBoxTable):
             "manufacturer",
             "model",
             "construction",
-            "fiber_type",
             "strand_count",
             "deployment",
             "instance_count",
             "actions",
         )
+
+
+# ---------------------------------------------------------------------------
+# FiberAttenuationSpec
+# ---------------------------------------------------------------------------
+
+
+class FiberAttenuationSpecTable(NetBoxTable):
+    """Table for displaying FiberAttenuationSpec rows."""
+
+    pk = columns.ToggleColumn()
+    fiber_cable_type = tables.Column(linkify=True, verbose_name=_("Cable Type"))
+    wavelength_nm = tables.Column(linkify=True, verbose_name=_("Wavelength (nm)"))
+    max_loss_db_per_km = tables.Column(verbose_name=_("Max Loss (dB/km)"))
+    actions = columns.ActionsColumn()
+
+    class Meta(NetBoxTable.Meta):
+        model = FiberAttenuationSpec
+        fields = ("pk", "id", "fiber_cable_type", "wavelength_nm", "max_loss_db_per_km", "actions")
+        default_columns = ("fiber_cable_type", "wavelength_nm", "max_loss_db_per_km", "actions")
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +609,6 @@ class FiberCircuitPathTable(NetBoxTable):
             "origin",
             "destination",
             "is_complete",
-            "calculated_loss_db",
             "actual_loss_db",
             "wavelength_nm",
         )

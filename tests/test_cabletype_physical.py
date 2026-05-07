@@ -26,7 +26,6 @@ class TestFiberCableTypePhysicalFields(TestCase):
             "manufacturer": self.manufacturer,
             "model": "TYPE-1",
             "construction": "loose_tube",
-            "fiber_type": "smf_os2",
             "strand_count": 12,
         }
         defaults.update(overrides)
@@ -61,7 +60,6 @@ class TestFiberCableGlassLength(TestCase):
             manufacturer=self.manufacturer,
             model=f"TYPE-GL-{twist_factor_ratio}-{length}",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
             twist_factor_ratio=twist_factor_ratio,
         )

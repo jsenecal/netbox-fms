@@ -9,6 +9,7 @@ from .types import (
     CableElementTemplateType,
     CableElementType,
     ClosureCableEntryType,
+    FiberAttenuationSpecType,
     FiberCableInstanceType,
     FiberCableTypeType,
     FiberCircuitPathType,
@@ -31,6 +32,9 @@ class NetBoxFMSQuery:
 
     fiber_cable_type: FiberCableTypeType = strawberry_django.field()
     fiber_cable_type_list: list[FiberCableTypeType] = strawberry_django.field()
+
+    fiber_attenuation_spec: FiberAttenuationSpecType = strawberry_django.field()
+    fiber_attenuation_spec_list: list[FiberAttenuationSpecType] = strawberry_django.field()
 
     buffer_tube_template: BufferTubeTemplateType = strawberry_django.field()
     buffer_tube_template_list: list[BufferTubeTemplateType] = strawberry_django.field()

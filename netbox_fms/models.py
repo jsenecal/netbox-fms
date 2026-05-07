@@ -14,7 +14,6 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
-    FiberTypeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     SheathMaterialChoices,
@@ -22,10 +21,11 @@ from .choices import (
     StorageMethodChoices,
     TrayRoleChoices,
 )
-from .constants import get_eia598_color
+from .constants import FIBER_CABLE_TYPES, get_eia598_color
 
 __all__ = (
     "FiberCableType",
+    "FiberAttenuationSpec",
     "BufferTubeTemplate",
     "RibbonTemplate",
     "CableElementTemplate",
@@ -79,11 +79,6 @@ class FiberCableType(NetBoxModel):
         verbose_name=_("construction"),
         max_length=50,
         choices=ConstructionChoices,
-    )
-    fiber_type = models.CharField(
-        verbose_name=_("fiber type"),
-        max_length=50,
-        choices=FiberTypeChoices,
     )
     strand_count = models.PositiveIntegerField(
         verbose_name=_("strand count"),
@@ -205,7 +200,6 @@ class FiberCableType(NetBoxModel):
     clone_fields = (
         "manufacturer",
         "construction",
-        "fiber_type",
         "strand_count",
         "mark_unit",
         "sheath_material",
@@ -284,6 +278,61 @@ class FiberCableType(NetBoxModel):
 
         key = f"trunk-{len(tubes)}c{fiber_counts[0]}p"
         return key if key in valid else None
+
+    def get_attenuation(self, wavelength_nm):
+        """Look up the maximum attenuation (dB/km) at a given wavelength.
+
+        Returns ``None`` when no ``FiberAttenuationSpec`` row exists for
+        this cable type at the requested wavelength.
+        """
+        spec = self.attenuation_specs.filter(wavelength_nm=wavelength_nm).first()
+        return spec.max_loss_db_per_km if spec else None
+
+
+class FiberAttenuationSpec(NetBoxModel):
+    """Manufacturer-published max attenuation (dB/km) for a FiberCableType
+    at a specific wavelength.
+
+    The parent ``FiberCableType.fiber_type`` already encodes singlemode
+    vs multimode, so the spec carries only wavelength + value. Multiple
+    rows per cable type let a single product cover several operating
+    wavelengths (e.g. SMF at 1310/1550/1625, MMF at 850/1300, CWDM/DWDM
+    grid points). The loss-budget engine consults these rows to compute
+    path loss from cable glass length.
+    """
+
+    fiber_cable_type = models.ForeignKey(
+        to="netbox_fms.FiberCableType",
+        on_delete=models.CASCADE,
+        related_name="attenuation_specs",
+        verbose_name=_("fiber cable type"),
+    )
+    wavelength_nm = models.PositiveSmallIntegerField(
+        verbose_name=_("wavelength (nm)"),
+        help_text=_("Operating wavelength in nanometres (e.g. 1310, 1550, 1625, 850, 1300)."),
+    )
+    max_loss_db_per_km = models.DecimalField(
+        verbose_name=_("max loss (dB/km)"),
+        max_digits=6,
+        decimal_places=4,
+        help_text=_("Manufacturer-specified maximum attenuation at this wavelength."),
+    )
+
+    clone_fields = ("fiber_cable_type",)
+
+    class Meta:
+        ordering = ("fiber_cable_type", "wavelength_nm")
+        unique_together = (("fiber_cable_type", "wavelength_nm"),)
+        verbose_name = _("fiber attenuation spec")
+        verbose_name_plural = _("fiber attenuation specs")
+
+    def __str__(self):
+        """Return cable type, wavelength, and value."""
+        return f"{self.fiber_cable_type} @ {self.wavelength_nm} nm: {self.max_loss_db_per_km} dB/km"
+
+    def get_absolute_url(self):
+        """Return the detail URL for this attenuation spec."""
+        return reverse("plugins:netbox_fms:fiberattenuationspec", args=[self.pk])
 
 
 class BufferTubeTemplate(TrackingModelMixin, NetBoxModel):
@@ -653,9 +702,43 @@ class FiberCable(NetBoxModel):
             return None
         return sheath * (Decimal("1") + Decimal(str(ratio)))
 
+    @property
+    def calculated_loss_db(self):
+        """Per-wavelength loss for this cable, sorted by wavelength.
+
+        Returns a list of ``(wavelength_nm, loss_db)`` tuples computed
+        as ``glass_length_km * spec.max_loss_db_per_km`` for each
+        ``FiberAttenuationSpec`` row on the cable type, quantised to
+        0.001 dB. Returns ``[]`` when ``glass_length`` is unresolvable
+        or no spec rows exist.
+        """
+        from decimal import ROUND_HALF_UP, Decimal
+
+        from utilities.conversion import to_meters
+
+        gl = self.glass_length
+        if gl is None or not self.fiber_cable_type_id or not self.cable_id:
+            return []
+        length_km = Decimal(to_meters(gl, self.cable.length_unit)) / Decimal(1000)
+        quant = Decimal("0.001")
+        result = [
+            (int(spec.wavelength_nm), (length_km * spec.max_loss_db_per_km).quantize(quant, rounding=ROUND_HALF_UP))
+            for spec in self.fiber_cable_type.attenuation_specs.all()
+        ]
+        return sorted(result)
+
     def clean(self):
-        """Validate sheath marks and mark-unit coupling."""
+        """Validate the linked Cable carries a fibre type and sheath marks are coherent."""
         super().clean()
+        if self.cable_id and self.cable.type and self.cable.type not in FIBER_CABLE_TYPES:
+            raise ValidationError(
+                {
+                    "cable": _(
+                        "FiberCable can only be linked to a Cable with a fibre type (SMF or MMF variant); got '%(t)s'."
+                    )
+                    % {"t": self.cable.type}
+                }
+            )
         if self.start_mark is not None and self.start_mark < 0:
             raise ValidationError({"start_mark": _("Start mark must be non-negative.")})
         if self.end_mark is not None and self.end_mark < 0:
@@ -1710,13 +1793,6 @@ class FiberCircuitPath(NetBoxModel):
     )
     path = models.JSONField(default=list, verbose_name=_("path"))
     is_complete = models.BooleanField(default=False, verbose_name=_("complete"))
-    calculated_loss_db = models.DecimalField(
-        verbose_name=_("calculated loss (dB)"),
-        max_digits=6,
-        decimal_places=3,
-        blank=True,
-        null=True,
-    )
     actual_loss_db = models.DecimalField(
         verbose_name=_("actual loss (dB)"),
         max_digits=6,
@@ -1745,11 +1821,53 @@ class FiberCircuitPath(NetBoxModel):
         """Return the detail URL for this fiber circuit path."""
         return reverse("plugins:netbox_fms:fibercircuitpath", args=[self.pk])
 
+    @property
+    def calculated_loss_db(self):
+        """Per-wavelength calculated loss across all cables in the path.
+
+        Returns a list of ``(wavelength_nm, loss_db)`` tuples, sorted by
+        wavelength. Each cable's contribution comes from
+        ``FiberCable.calculated_loss_db``; a wavelength is included only
+        when *every* cable in the path reports a value at it. Per-cable
+        losses are summed and quantised to 0.001 dB.
+        """
+        from decimal import ROUND_HALF_UP, Decimal
+
+        cable_nodes = self.nodes.filter(cable__isnull=False).select_related("cable__fiber_attributes__fiber_cable_type")
+        per_cable = []
+        for node in cable_nodes:
+            fc = getattr(node.cable, "fiber_attributes", None)
+            if fc is None:
+                return []
+            per_cable.append(dict(fc.calculated_loss_db))
+
+        if not per_cable:
+            return []
+
+        common_wavelengths = set.intersection(*(set(d.keys()) for d in per_cable))
+        quant = Decimal("0.001")
+        return [
+            (wl, sum((d[wl] for d in per_cable), start=Decimal(0)).quantize(quant, rounding=ROUND_HALF_UP))
+            for wl in sorted(common_wavelengths)
+        ]
+
+    def get_calculated_loss_db(self, wavelength_nm=None):
+        """Calculated loss (Decimal dB) at a single wavelength, or None.
+
+        Defaults to the path's own ``wavelength_nm`` field. Returns
+        ``None`` if no spec rows cover that wavelength or if the path
+        has no operating wavelength set.
+        """
+        wl = wavelength_nm if wavelength_nm is not None else self.wavelength_nm
+        if wl is None:
+            return None
+        return dict(self.calculated_loss_db).get(int(wl))
+
     def clean(self):
-        """Validate wavelength is set when loss values exist and path count does not exceed strand count."""
+        """Validate wavelength is set when an actual loss is recorded and path count fits."""
         super().clean()
-        if (self.calculated_loss_db is not None or self.actual_loss_db is not None) and self.wavelength_nm is None:
-            raise ValidationError({"wavelength_nm": _("Wavelength is required when loss values are set.")})
+        if self.actual_loss_db is not None and self.wavelength_nm is None:
+            raise ValidationError({"wavelength_nm": _("Wavelength is required when an actual loss is recorded.")})
         if self.circuit_id:
             existing = self.circuit.paths.exclude(pk=self.pk).count()
             if existing >= self.circuit.strand_count:

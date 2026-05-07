@@ -13,6 +13,7 @@ from ..models import (
     CableElement,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -30,6 +31,7 @@ from ..models import (
 
 __all__ = (
     "FiberCableTypeType",
+    "FiberAttenuationSpecType",
     "BufferTubeTemplateType",
     "RibbonTemplateType",
     "CableElementTemplateType",
@@ -57,7 +59,13 @@ class FiberCableTypeType(NetBoxObjectType):
     buffer_tube_templates: list[Annotated["BufferTubeTemplateType", strawberry.lazy(".types")]]
     ribbon_templates: list[Annotated["RibbonTemplateType", strawberry.lazy(".types")]]
     cable_element_templates: list[Annotated["CableElementTemplateType", strawberry.lazy(".types")]]
+    attenuation_specs: list[Annotated["FiberAttenuationSpecType", strawberry.lazy(".types")]]
     instances: list[Annotated["FiberCableInstanceType", strawberry.lazy(".types")]]
+
+
+@strawberry_django.type(FiberAttenuationSpec, fields="__all__")
+class FiberAttenuationSpecType(NetBoxObjectType):
+    """GraphQL type for FiberAttenuationSpec."""
 
 
 @strawberry_django.type(BufferTubeTemplate, fields="__all__")

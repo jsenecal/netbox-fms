@@ -22,7 +22,6 @@ class TestUnauthenticatedAccess(TestCase):
             manufacturer=manufacturer,
             model="Auth-FCT",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
         )
         cable = Cable.objects.create()
@@ -146,7 +145,6 @@ class TestHiddenFieldTampering(TestCase):
             manufacturer=manufacturer,
             model="Tamper-FCT",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=4,
         )
 

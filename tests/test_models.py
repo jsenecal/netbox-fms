@@ -169,7 +169,6 @@ class TestClosureCableEntry(TestCase):
             manufacturer=manufacturer,
             model="Test Cable Type",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
         )
         from dcim.models import Cable
@@ -250,7 +249,6 @@ class TestProvisionStrandsHelper(TestCase):
             manufacturer=manufacturer,
             model="Prov-FCT",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=4,
         )
 

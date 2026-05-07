@@ -29,7 +29,6 @@ class _Base(TestCase):
             manufacturer=cls.manufacturer,
             model="TYPE-MARKED",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
             mark_unit=CableLengthUnitChoices.UNIT_METER,
         )
@@ -37,7 +36,6 @@ class _Base(TestCase):
             manufacturer=cls.manufacturer,
             model="TYPE-UNMARKED",
             construction="tight_buffer",
-            fiber_type="smf_os2",
             strand_count=4,
             mark_unit="",
         )

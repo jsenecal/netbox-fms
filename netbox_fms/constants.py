@@ -24,3 +24,22 @@ def get_eia598_color(position):
     """
     idx = (position - 1) % len(EIA_598_COLORS)
     return EIA_598_COLORS[idx]
+
+
+# Subset of dcim.choices.CableTypeChoices values that this plugin treats as
+# fibre. A FiberCable can only be linked to a dcim.Cable whose ``type`` is
+# in this set. AOC (active optical cable) is intentionally excluded -- it is
+# transceiver-bonded and not managed as outside plant.
+FIBER_CABLE_TYPES = frozenset(
+    {
+        "smf",
+        "smf-os1",
+        "smf-os2",
+        "mmf",
+        "mmf-om1",
+        "mmf-om2",
+        "mmf-om3",
+        "mmf-om4",
+        "mmf-om5",
+    }
+)

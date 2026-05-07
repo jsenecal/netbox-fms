@@ -12,7 +12,6 @@ class TestGetStrandCountFromTemplates:
             manufacturer=mfr,
             model="RIT-24F",
             strand_count=24,
-            fiber_type="smf_os2",
             construction="ribbon_in_tube",
         )
         btt = BufferTubeTemplate.objects.create(
@@ -43,7 +42,6 @@ class TestGetStrandCountFromTemplates:
             manufacturer=mfr,
             model="LT-48F",
             strand_count=48,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 5):
@@ -95,7 +93,6 @@ class TestGetCableProfile:
             manufacturer=mfr,
             model="TB-48F",
             strand_count=48,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         assert fct.get_cable_profile() == "single-1c48p"
@@ -106,7 +103,6 @@ class TestGetCableProfile:
             manufacturer=mfr,
             model="TB-6F",
             strand_count=6,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         assert fct.get_cable_profile() == "single-1c6p"  # built-in NetBox profile
@@ -117,7 +113,6 @@ class TestGetCableProfile:
             manufacturer=mfr,
             model="TB-5F",
             strand_count=5,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         assert fct.get_cable_profile() is None  # no single-1c5p exists
@@ -128,7 +123,6 @@ class TestGetCableProfile:
             manufacturer=mfr,
             model="LT-144F",
             strand_count=144,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 13):
@@ -146,7 +140,6 @@ class TestGetCableProfile:
             manufacturer=mfr,
             model="RIT-48F",
             strand_count=48,
-            fiber_type="smf_os2",
             construction="ribbon_in_tube",
         )
         for i in range(1, 5):
@@ -171,7 +164,6 @@ class TestGetCableProfile:
             manufacturer=mfr,
             model="MX-18F",
             strand_count=18,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         BufferTubeTemplate.objects.create(
@@ -194,7 +186,6 @@ class TestGetCableProfile:
             manufacturer=mfr,
             model="NR-36F",
             strand_count=36,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 4):
@@ -242,7 +233,6 @@ class TestLinkCableTopologyGreenfield:
             manufacturer=mfr,
             model="GF-12F",
             strand_count=12,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         fc, warnings = link_cable_topology(cable, fct, device)
@@ -255,7 +245,6 @@ class TestLinkCableTopologyGreenfield:
             manufacturer=mfr,
             model="GF-48F",
             strand_count=48,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 5):
@@ -276,7 +265,6 @@ class TestLinkCableTopologyGreenfield:
             manufacturer=mfr,
             model="GF-6F",
             strand_count=6,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         fc, warnings = link_cable_topology(cable, fct, device)
@@ -292,7 +280,6 @@ class TestLinkCableTopologyGreenfield:
             manufacturer=mfr,
             model="GF-12F2",
             strand_count=12,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         fc, warnings = link_cable_topology(cable, fct, device)
@@ -307,7 +294,6 @@ class TestLinkCableTopologyGreenfield:
             manufacturer=mfr,
             model="GF-48F2",
             strand_count=48,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 5):
@@ -327,7 +313,6 @@ class TestLinkCableTopologyGreenfield:
             manufacturer=mfr,
             model="GF-36F",
             strand_count=36,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 4):
@@ -370,7 +355,6 @@ class TestLinkCableTopologyAdopt:
             manufacturer=mfr,
             model="AD-12F",
             strand_count=12,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         return device, cable, fct, fps
@@ -498,7 +482,6 @@ class TestCableTerminationConnectorPositions:
             manufacturer=mfr,
             model="CT-48F",
             strand_count=48,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 5):
@@ -529,7 +512,6 @@ class TestCableTerminationConnectorPositions:
             manufacturer=mfr,
             model="CT-12F",
             strand_count=12,
-            fiber_type="smf_os2",
             construction="tight_buffer",
         )
         fc, warnings = link_cable_topology(cable, fct, device)
@@ -553,7 +535,6 @@ class TestCableTerminationConnectorPositions:
             manufacturer=mfr,
             model="CT-24F",
             strand_count=24,
-            fiber_type="smf_os2",
             construction="loose_tube",
         )
         for i in range(1, 3):

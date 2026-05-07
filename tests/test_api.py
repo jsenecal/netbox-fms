@@ -373,7 +373,6 @@ class TestProvisionPortsAPI(TestCase):
             manufacturer=mfr,
             model="Test FCT",
             construction="tight_buffer",
-            fiber_type="os2",
             strand_count=2,
         )
         # Create a Cable (minimal)

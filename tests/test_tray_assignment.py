@@ -100,7 +100,6 @@ class TestTubeAssignment(TestCase):
             manufacturer=manufacturer,
             model="12F Cable",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
         )
         from dcim.models import Cable
@@ -180,7 +179,6 @@ class TestTubeAssignment(TestCase):
             manufacturer=Manufacturer.objects.first(),
             model="Other Cable",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
         )
         from dcim.models import Cable
@@ -215,7 +213,6 @@ class TestClosureCableEntryCascade(TestCase):
             manufacturer=manufacturer,
             model="Cable C",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
         )
         from dcim.models import Cable
@@ -284,7 +281,6 @@ class TestTubeAssignmentAPI(TestCase):
             manufacturer=manufacturer,
             model="API Cable",
             construction="loose_tube",
-            fiber_type="smf_os2",
             strand_count=12,
         )
         from dcim.models import Cable

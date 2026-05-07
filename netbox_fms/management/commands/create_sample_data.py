@@ -579,7 +579,6 @@ class Command(BaseCommand):
             defaults={
                 "part_number": part,
                 "construction": construction,
-                "fiber_type": "smf_os2",
                 "strand_count": strand_count,
                 "sheath_material": sheath,
                 "jacket_color": jacket_color,
@@ -629,7 +628,6 @@ class Command(BaseCommand):
             defaults={
                 "part_number": "288TCF-14180D20",
                 "construction": "loose_tube",
-                "fiber_type": "smf_os2",
                 "strand_count": 288,
                 "sheath_material": "pe",
                 "jacket_color": "000000",
@@ -658,7 +656,6 @@ class Command(BaseCommand):
             defaults={
                 "part_number": "144RCF-14180D20",
                 "construction": "ribbon_in_tube",
-                "fiber_type": "smf_os2",
                 "strand_count": 144,
                 "sheath_material": "pe",
                 "jacket_color": "000000",
@@ -694,7 +691,6 @@ class Command(BaseCommand):
             defaults={
                 "part_number": "096TCF-14180D20",
                 "construction": "loose_tube",
-                "fiber_type": "smf_os2",
                 "strand_count": 96,
                 "sheath_material": "pe",
                 "jacket_color": "000000",
@@ -722,7 +718,6 @@ class Command(BaseCommand):
             defaults={
                 "part_number": "048TCF-14180D20",
                 "construction": "loose_tube",
-                "fiber_type": "smf_os2",
                 "strand_count": 48,
                 "sheath_material": "pe",
                 "jacket_color": "000000",
@@ -750,7 +745,6 @@ class Command(BaseCommand):
             defaults={
                 "part_number": "024TCF-14190D20",
                 "construction": "tight_buffer",
-                "fiber_type": "smf_os2",
                 "strand_count": 24,
                 "sheath_material": "lszh",
                 "jacket_color": "ffff00",
@@ -768,7 +762,6 @@ class Command(BaseCommand):
             defaults={
                 "part_number": "012TCF-14190D20",
                 "construction": "tight_buffer",
-                "fiber_type": "smf_os2",
                 "strand_count": 12,
                 "sheath_material": "lszh",
                 "jacket_color": "ffff00",

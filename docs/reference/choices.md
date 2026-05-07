@@ -13,17 +13,13 @@ These are the valid values for choice fields used throughout the FMS plugin. Use
 | micro | Micro Cable |
 | blown_fiber | Blown Fiber |
 
-## FiberTypeChoices
+## Fibre classification (SMF/MMF, OS1/OS2/OM1-5)
 
-| Value | Label | Group |
-|-------|-------|-------|
-| smf_os1 | SMF OS1 | Single-Mode |
-| smf_os2 | SMF OS2 | Single-Mode |
-| mmf_om1 | MMF OM1 | Multi-Mode |
-| mmf_om2 | MMF OM2 | Multi-Mode |
-| mmf_om3 | MMF OM3 | Multi-Mode |
-| mmf_om4 | MMF OM4 | Multi-Mode |
-| mmf_om5 | MMF OM5 | Multi-Mode |
+The fibre type is read from NetBox's built-in `dcim.Cable.type`
+(`CableTypeChoices`) on the cable instance, not on the
+`FiberCableType` blueprint. A `FiberCable` can only be linked to
+a `dcim.Cable` whose `type` is one of: `smf`, `smf-os1`, `smf-os2`,
+`mmf`, `mmf-om1`, `mmf-om2`, `mmf-om3`, `mmf-om4`, `mmf-om5`.
 
 ## SheathMaterialChoices
 

@@ -21,7 +21,7 @@ class FiberCableTypeIndex(SearchIndex):
         ("part_number", 300),
         ("notes", 5000),
     )
-    display_attrs = ("manufacturer", "construction", "fiber_type", "strand_count", "outer_diameter", "mark_unit")
+    display_attrs = ("manufacturer", "construction", "strand_count", "outer_diameter", "mark_unit")
 
 
 @register_search

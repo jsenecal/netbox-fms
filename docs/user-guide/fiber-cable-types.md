@@ -135,7 +135,7 @@ the complete cable construction.
 Fiber cable types can be imported in bulk via CSV from the list view. Navigate
 to **FMS > Fiber Cable Types**, then click the **Import** button in the toolbar.
 The CSV must include all required fields (manufacturer, model, construction,
-fiber_type, strand_count) and may include any optional fields.
+strand_count) and may include any optional fields.
 
 Component templates (buffer tubes, ribbons, cable elements) must be added after
 the cable type records are imported, either through the UI or via the REST API.

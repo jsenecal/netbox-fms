@@ -6,6 +6,7 @@ from ..models import (
     BufferTubeTemplate,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -21,6 +22,7 @@ from ..models import (
 
 __all__ = (
     "FiberCableTypeFilter",
+    "FiberAttenuationSpecFilter",
     "BufferTubeTemplateFilter",
     "RibbonTemplateFilter",
     "CableElementTemplateFilter",
@@ -43,10 +45,18 @@ class FiberCableTypeFilter:
 
     id: int | None
     construction: str | None
-    fiber_type: str | None
     is_armored: bool | None
     deployment: str | None
     strand_count: int | None
+
+
+@strawberry_django.filters.filter(FiberAttenuationSpec)
+class FiberAttenuationSpecFilter:
+    """GraphQL filter for FiberAttenuationSpec."""
+
+    id: int | None
+    fiber_cable_type: int | None
+    wavelength_nm: int | None
 
 
 @strawberry_django.filters.filter(BufferTubeTemplate)

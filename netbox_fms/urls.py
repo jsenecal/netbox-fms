@@ -14,6 +14,36 @@ urlpatterns = [
     path("cable-types/<int:pk>/", views.FiberCableTypeView.as_view(), name="fibercabletype"),
     path("cable-types/<int:pk>/edit/", views.FiberCableTypeEditView.as_view(), name="fibercabletype_edit"),
     path("cable-types/<int:pk>/delete/", views.FiberCableTypeDeleteView.as_view(), name="fibercabletype_delete"),
+    # FiberAttenuationSpec
+    path("attenuation-specs/", views.FiberAttenuationSpecListView.as_view(), name="fiberattenuationspec_list"),
+    path("attenuation-specs/add/", views.FiberAttenuationSpecEditView.as_view(), name="fiberattenuationspec_add"),
+    path(
+        "attenuation-specs/import/",
+        views.FiberAttenuationSpecBulkImportView.as_view(),
+        name="fiberattenuationspec_import",
+    ),
+    path(
+        "attenuation-specs/edit/",
+        views.FiberAttenuationSpecBulkEditView.as_view(),
+        name="fiberattenuationspec_bulk_edit",
+    ),
+    path(
+        "attenuation-specs/delete/",
+        views.FiberAttenuationSpecBulkDeleteView.as_view(),
+        name="fiberattenuationspec_bulk_delete",
+    ),
+    path("attenuation-specs/<int:pk>/", include(get_model_urls("netbox_fms", "fiberattenuationspec"))),
+    path("attenuation-specs/<int:pk>/", views.FiberAttenuationSpecView.as_view(), name="fiberattenuationspec"),
+    path(
+        "attenuation-specs/<int:pk>/edit/",
+        views.FiberAttenuationSpecEditView.as_view(),
+        name="fiberattenuationspec_edit",
+    ),
+    path(
+        "attenuation-specs/<int:pk>/delete/",
+        views.FiberAttenuationSpecDeleteView.as_view(),
+        name="fiberattenuationspec_delete",
+    ),
     # BufferTubeTemplate
     path("buffer-tube-templates/", views.BufferTubeTemplateListView.as_view(), name="buffertubetemplate_list"),
     path("buffer-tube-templates/add/", views.BufferTubeTemplateEditView.as_view(), name="buffertubetemplate_add"),

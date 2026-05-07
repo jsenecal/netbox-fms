@@ -92,6 +92,7 @@ class TestGraphQLTypeImports:
 
         expected = {
             "FiberCableTypeType",
+            "FiberAttenuationSpecType",
             "BufferTubeTemplateType",
             "RibbonTemplateType",
             "CableElementTemplateType",
@@ -182,6 +183,7 @@ class TestGraphQLFilterImports:
 
         expected = {
             "FiberCableTypeFilter",
+            "FiberAttenuationSpecFilter",
             "BufferTubeTemplateFilter",
             "RibbonTemplateFilter",
             "CableElementTemplateFilter",
@@ -313,9 +315,7 @@ class TestGraphQLFilterInstantiation:
     def test_fiber_cable_type_filter_instantiation(self):
         from netbox_fms.graphql.filters import FiberCableTypeFilter
 
-        f = FiberCableTypeFilter(
-            id=None, construction=None, fiber_type=None, is_armored=None, deployment=None, strand_count=None
-        )
+        f = FiberCableTypeFilter(id=None, construction=None, is_armored=None, deployment=None, strand_count=None)
         assert f.id is None
 
     def test_fiber_cable_filter_instantiation(self):
