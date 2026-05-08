@@ -10,7 +10,6 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
-    FiberTypeChoices,
     FireRatingChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
@@ -23,6 +22,7 @@ from .models import (
     CableElement,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -73,7 +73,6 @@ class FiberCableTypeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         label=_("Manufacturer (slug)"),
     )
     construction = django_filters.MultipleChoiceFilter(choices=ConstructionChoices)
-    fiber_type = django_filters.MultipleChoiceFilter(choices=FiberTypeChoices)
     sheath_material = django_filters.MultipleChoiceFilter(choices=SheathMaterialChoices)
     is_armored = django_filters.BooleanFilter()
     armor_type = django_filters.MultipleChoiceFilter(choices=ArmorTypeChoices)
@@ -91,7 +90,6 @@ class FiberCableTypeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
             "model",
             "part_number",
             "construction",
-            "fiber_type",
             "strand_count",
             "sheath_material",
             "is_armored",
@@ -99,6 +97,21 @@ class FiberCableTypeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
             "deployment",
             "fire_rating",
         )
+
+
+class FiberAttenuationSpecFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
+    """FilterSet for FiberAttenuationSpec model."""
+
+    fiber_cable_type_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=FiberCableType.objects.all(),
+        field_name="fiber_cable_type",
+        label=_("Fiber Cable Type (ID)"),
+    )
+    wavelength_nm = django_filters.NumberFilter()
+
+    class Meta:
+        model = FiberAttenuationSpec
+        fields = ("id", "fiber_cable_type_id", "wavelength_nm", "max_loss_db_per_km")
 
 
 class BufferTubeTemplateFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):

@@ -23,6 +23,6 @@
         {% endif %}
     </div>
     <div class="trace-loss-summary mt-4 pt-3 border-top">
-        <small class="text-muted">{% trans "Path Loss" %}: {% if path.calculated_loss_db is not None %}{{ path.calculated_loss_db }} dB{% else %}&mdash;{% endif %} {% if path.wavelength_nm %}@ {{ path.wavelength_nm }} nm{% endif %} &middot; {% if path.is_complete %}{% trans "Complete" %}{% else %}{% trans "Incomplete" %}{% endif %}</small>
+        <small class="text-muted">{% trans "Path Loss" %}: {% with loss=path.get_calculated_loss_db %}{% if loss is not None %}{{ loss }} dB{% else %}&mdash;{% endif %}{% endwith %} {% if path.wavelength_nm %}@ {{ path.wavelength_nm }} nm{% endif %} &middot; {% if path.is_complete %}{% trans "Complete" %}{% else %}{% trans "Incomplete" %}{% endif %}</small>
     </div>
 </div>

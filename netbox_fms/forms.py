@@ -35,7 +35,6 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
-    FiberTypeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     SheathMaterialChoices,
@@ -48,6 +47,7 @@ from .models import (
     BufferTubeTemplate,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -79,7 +79,7 @@ class FiberCableTypeForm(NetBoxModelForm):
 
     fieldsets = (
         FieldSet("manufacturer", "model", "part_number", name=_("Cable Type")),
-        FieldSet("construction", "fiber_type", "strand_count", name=_("Fiber Properties")),
+        FieldSet("construction", "strand_count", name=_("Cable Construction")),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
@@ -100,7 +100,6 @@ class FiberCableTypeForm(NetBoxModelForm):
             "model",
             "part_number",
             "construction",
-            "fiber_type",
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
@@ -125,7 +124,6 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
     construction = forms.ChoiceField(choices=ConstructionChoices)
-    fiber_type = forms.ChoiceField(choices=FiberTypeChoices)
 
     class Meta:
         model = FiberCableType
@@ -134,7 +132,6 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
             "model",
             "part_number",
             "construction",
-            "fiber_type",
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",
@@ -157,7 +154,6 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all(), required=False)
     construction = forms.ChoiceField(choices=ConstructionChoices, required=False)
-    fiber_type = forms.ChoiceField(choices=FiberTypeChoices, required=False)
     sheath_material = forms.ChoiceField(choices=SheathMaterialChoices, required=False)
     deployment = forms.ChoiceField(choices=DeploymentChoices, required=False)
     fire_rating = forms.ChoiceField(choices=FireRatingChoices, required=False)
@@ -166,7 +162,7 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     mark_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
 
     fieldsets = (
-        FieldSet("manufacturer", "construction", "fiber_type"),
+        FieldSet("manufacturer", "construction"),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "deployment", "fire_rating"),
     )
@@ -191,7 +187,6 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
         label=_("Manufacturer"),
     )
     construction = forms.MultipleChoiceField(choices=ConstructionChoices, required=False)
-    fiber_type = forms.MultipleChoiceField(choices=FiberTypeChoices, required=False)
     sheath_material = forms.MultipleChoiceField(choices=SheathMaterialChoices, required=False)
     is_armored = forms.NullBooleanField(required=False, label=_("Armored"))
     deployment = forms.MultipleChoiceField(choices=DeploymentChoices, required=False)
@@ -199,8 +194,69 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
 
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
-        FieldSet("manufacturer_id", "construction", "fiber_type", name=_("Properties")),
+        FieldSet("manufacturer_id", "construction", name=_("Properties")),
         FieldSet("sheath_material", "is_armored", "deployment", "fire_rating", name=_("Physical")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# FiberAttenuationSpec
+# ---------------------------------------------------------------------------
+
+
+class FiberAttenuationSpecForm(NetBoxModelForm):
+    """Form for creating/editing a FiberAttenuationSpec."""
+
+    fiber_cable_type = DynamicModelChoiceField(
+        queryset=FiberCableType.objects.all(),
+        label=_("Fiber Cable Type"),
+    )
+
+    fieldsets = (
+        FieldSet("fiber_cable_type", "wavelength_nm", "max_loss_db_per_km", name=_("Attenuation Spec")),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = FiberAttenuationSpec
+        fields = ("fiber_cable_type", "wavelength_nm", "max_loss_db_per_km", "tags")
+
+
+class FiberAttenuationSpecImportForm(NetBoxModelImportForm):
+    """Import form for FiberAttenuationSpec."""
+
+    fiber_cable_type = DynamicModelChoiceField(queryset=FiberCableType.objects.all())
+
+    class Meta:
+        model = FiberAttenuationSpec
+        fields = ("fiber_cable_type", "wavelength_nm", "max_loss_db_per_km", "tags")
+
+
+class FiberAttenuationSpecBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for FiberAttenuationSpec."""
+
+    model = FiberAttenuationSpec
+
+    max_loss_db_per_km = forms.DecimalField(max_digits=6, decimal_places=4, required=False, label=_("Max loss (dB/km)"))
+
+    fieldsets = (FieldSet("max_loss_db_per_km"),)
+
+
+class FiberAttenuationSpecFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for FiberAttenuationSpec."""
+
+    model = FiberAttenuationSpec
+
+    fiber_cable_type_id = DynamicModelMultipleChoiceField(
+        queryset=FiberCableType.objects.all(),
+        required=False,
+        label=_("Fiber Cable Type"),
+    )
+    wavelength_nm = forms.IntegerField(required=False, label=_("Wavelength (nm)"))
+
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("fiber_cable_type_id", "wavelength_nm", name=_("Spec")),
     )
 
 
@@ -883,7 +939,7 @@ class FiberCircuitPathForm(NetBoxModelForm):
 
     fieldsets = (
         FieldSet("circuit", "position", "origin", "destination", name=_("Path")),
-        FieldSet("calculated_loss_db", "actual_loss_db", "wavelength_nm", name=_("Optical Parameters")),
+        FieldSet("actual_loss_db", "wavelength_nm", name=_("Optical Parameters")),
         FieldSet("tags", name=_("Additional")),
     )
 
@@ -894,7 +950,6 @@ class FiberCircuitPathForm(NetBoxModelForm):
             "position",
             "origin",
             "destination",
-            "calculated_loss_db",
             "actual_loss_db",
             "wavelength_nm",
             "tags",

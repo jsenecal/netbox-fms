@@ -24,6 +24,7 @@ from .filters import (
     CableElementFilterSet,
     CableElementTemplateFilterSet,
     ClosureCableEntryFilterSet,
+    FiberAttenuationSpecFilterSet,
     FiberCableFilterSet,
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
@@ -49,6 +50,10 @@ from .forms import (
     CircuitWizardStep4Form,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
+    FiberAttenuationSpecBulkEditForm,
+    FiberAttenuationSpecFilterForm,
+    FiberAttenuationSpecForm,
+    FiberAttenuationSpecImportForm,
     FiberCableBulkEditForm,
     FiberCableFilterForm,
     FiberCableForm,
@@ -95,6 +100,7 @@ from .models import (
     CableElement,
     CableElementTemplate,
     ClosureCableEntry,
+    FiberAttenuationSpec,
     FiberCable,
     FiberCableType,
     FiberCircuit,
@@ -124,6 +130,7 @@ from .tables import (
     CableElementTable,
     CableElementTemplateTable,
     ClosureCableEntryTable,
+    FiberAttenuationSpecTable,
     FiberCableTable,
     FiberCableTypeTable,
     FiberCircuitPathTable,
@@ -195,6 +202,64 @@ class FiberCableTypeBulkDeleteView(generic.BulkDeleteView):
     queryset = FiberCableType.objects.all()
     filterset = FiberCableTypeFilterSet
     table = FiberCableTypeTable
+
+
+# ---------------------------------------------------------------------------
+# FiberAttenuationSpec
+# ---------------------------------------------------------------------------
+
+
+class FiberAttenuationSpecListView(generic.ObjectListView):
+    """List per-wavelength attenuation specs."""
+
+    queryset = FiberAttenuationSpec.objects.all()
+    table = FiberAttenuationSpecTable
+    filterset = FiberAttenuationSpecFilterSet
+    filterset_form = FiberAttenuationSpecFilterForm
+
+
+@register_model_view(FiberAttenuationSpec)
+class FiberAttenuationSpecView(generic.ObjectView):
+    """Display a single attenuation spec."""
+
+    queryset = FiberAttenuationSpec.objects.all()
+
+
+class FiberAttenuationSpecEditView(generic.ObjectEditView):
+    """Create or edit an attenuation spec."""
+
+    queryset = FiberAttenuationSpec.objects.all()
+    form = FiberAttenuationSpecForm
+
+
+class FiberAttenuationSpecDeleteView(generic.ObjectDeleteView):
+    """Delete an attenuation spec."""
+
+    queryset = FiberAttenuationSpec.objects.all()
+
+
+class FiberAttenuationSpecBulkImportView(generic.BulkImportView):
+    """Bulk-import attenuation specs from CSV."""
+
+    queryset = FiberAttenuationSpec.objects.all()
+    model_form = FiberAttenuationSpecImportForm
+
+
+class FiberAttenuationSpecBulkEditView(generic.BulkEditView):
+    """Bulk edit attenuation specs."""
+
+    queryset = FiberAttenuationSpec.objects.all()
+    filterset = FiberAttenuationSpecFilterSet
+    table = FiberAttenuationSpecTable
+    form = FiberAttenuationSpecBulkEditForm
+
+
+class FiberAttenuationSpecBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete attenuation specs."""
+
+    queryset = FiberAttenuationSpec.objects.all()
+    filterset = FiberAttenuationSpecFilterSet
+    table = FiberAttenuationSpecTable
 
 
 # ---------------------------------------------------------------------------

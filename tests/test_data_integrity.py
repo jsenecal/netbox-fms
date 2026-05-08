@@ -20,7 +20,6 @@ def _make_cable_type(suffix=""):
         manufacturer=mfr,
         model=f"Test-12F{suffix}",
         strand_count=12,
-        fiber_type="sm",
         construction="loose",
         deployment="underground",
     )
@@ -69,7 +68,6 @@ class TestFiberCableTypeValidation:
             manufacturer=mfr,
             model="Mismatch-12F",
             strand_count=24,
-            fiber_type="sm",
             construction="loose",
             deployment="underground",
         )
@@ -94,7 +92,6 @@ class TestFiberCableTypeValidation:
             manufacturer=mfr,
             model="Match-12F",
             strand_count=12,
-            fiber_type="sm",
             construction="loose",
             deployment="underground",
         )
@@ -118,7 +115,6 @@ class TestFiberCableTypeValidation:
             manufacturer=mfr,
             model="Tight-6F",
             strand_count=6,
-            fiber_type="sm",
             construction="tight",
             deployment="underground",
         )
@@ -139,7 +135,6 @@ class TestBufferTubeTemplateValidation:
             manufacturer=mfr,
             model="BTT-Test",
             strand_count=12,
-            fiber_type="sm",
             construction="loose",
             deployment="underground",
         )
@@ -213,7 +208,6 @@ class TestRibbonTemplateUniqueness:
             manufacturer=mfr,
             model="RT-Test",
             strand_count=24,
-            fiber_type="sm",
             construction="ribbon",
             deployment="underground",
         )

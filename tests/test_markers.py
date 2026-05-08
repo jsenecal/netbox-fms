@@ -32,7 +32,6 @@ class TestTubeMarkers:
             manufacturer=mfr,
             model="MK-Tube-Copy",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type="smf_os2",
             strand_count=24,
         )
         # Unmarked tube
@@ -78,7 +77,6 @@ class TestStrandMarkers:
             manufacturer=mfr,
             model="MK-LT-48",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type="smf_os2",
             strand_count=48,
         )
         BufferTubeTemplate.objects.create(
@@ -120,7 +118,6 @@ class TestStrandMarkers:
             manufacturer=mfr,
             model="MK-NoInt",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type="smf_os2",
             strand_count=24,
         )
         BufferTubeTemplate.objects.create(
@@ -144,7 +141,6 @@ class TestStrandMarkers:
             manufacturer=mfr,
             model="MK-TB-48",
             construction=ConstructionChoices.TIGHT_BUFFER,
-            fiber_type="smf_os2",
             strand_count=48,
             strand_marker_interval=12,
             strand_marker_type="dash",
@@ -180,7 +176,6 @@ class TestStrandMarkers:
             manufacturer=mfr,
             model="MK-RIT",
             construction=ConstructionChoices.RIBBON_IN_TUBE,
-            fiber_type="smf_os2",
             strand_count=24,
         )
         tt = BufferTubeTemplate.objects.create(
@@ -223,7 +218,6 @@ class TestStrandMarkers:
             manufacturer=mfr,
             model="MK-Color",
             construction=ConstructionChoices.LOOSE_TUBE,
-            fiber_type="smf_os2",
             strand_count=24,
         )
         BufferTubeTemplate.objects.create(

@@ -7,6 +7,7 @@ from . import views
 
 router = NetBoxRouter()
 router.register("cable-types", views.FiberCableTypeViewSet)
+router.register("attenuation-specs", views.FiberAttenuationSpecViewSet)
 router.register("buffer-tube-templates", views.BufferTubeTemplateViewSet)
 router.register("ribbon-templates", views.RibbonTemplateViewSet)
 router.register("cable-element-templates", views.CableElementTemplateViewSet)

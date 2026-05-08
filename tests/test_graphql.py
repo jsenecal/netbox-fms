@@ -92,6 +92,7 @@ class TestGraphQLTypeImports:
 
         expected = {
             "FiberCableTypeType",
+            "FiberAttenuationSpecType",
             "BufferTubeTemplateType",
             "RibbonTemplateType",
             "CableElementTemplateType",
@@ -182,6 +183,7 @@ class TestGraphQLFilterImports:
 
         expected = {
             "FiberCableTypeFilter",
+            "FiberAttenuationSpecFilter",
             "BufferTubeTemplateFilter",
             "RibbonTemplateFilter",
             "CableElementTemplateFilter",
@@ -301,9 +303,9 @@ class TestGraphQLSchema:
         assert "slack_loop_list" in fields
 
     def test_query_field_count(self):
-        """Verify the query class has the expected number of field pairs (18 models x 2)."""
+        """Verify the query class has the expected number of field pairs (19 models x 2)."""
         fields = self._get_strawberry_field_names()
-        assert len(fields) == 36  # 18 models x (single + list)
+        assert len(fields) == 38  # 19 models x (single + list)
 
 
 @pytest.mark.django_db
@@ -313,9 +315,7 @@ class TestGraphQLFilterInstantiation:
     def test_fiber_cable_type_filter_instantiation(self):
         from netbox_fms.graphql.filters import FiberCableTypeFilter
 
-        f = FiberCableTypeFilter(
-            id=None, construction=None, fiber_type=None, is_armored=None, deployment=None, strand_count=None
-        )
+        f = FiberCableTypeFilter(id=None, construction=None, is_armored=None, deployment=None, strand_count=None)
         assert f.id is None
 
     def test_fiber_cable_filter_instantiation(self):

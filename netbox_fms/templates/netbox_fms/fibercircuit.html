@@ -83,7 +83,7 @@
                             <td>{{ path.origin|linkify }}</td>
                             <td>{% if path.destination %}{{ path.destination|linkify }}{% else %}&mdash;{% endif %}</td>
                             <td>{% if path.is_complete %}<span class="fms-badge fms-badge--live">&#10003;</span>{% else %}<span class="fms-badge fms-badge--draft">&mdash;</span>{% endif %}</td>
-                            <td>{% if path.calculated_loss_db is not None %}{{ path.calculated_loss_db }}{% else %}&mdash;{% endif %}</td>
+                            <td>{% with loss=path.get_calculated_loss_db %}{% if loss is not None %}{{ loss }}{% else %}&mdash;{% endif %}{% endwith %}</td>
                             <td>{% if path.actual_loss_db is not None %}{{ path.actual_loss_db }}{% else %}&mdash;{% endif %}</td>
                             <td>{% if path.wavelength_nm %}{{ path.wavelength_nm }}{% else %}&mdash;{% endif %}</td>
                             <td><a href="{{ path.get_absolute_url }}#trace" class="btn btn-sm btn-outline-secondary">{% trans "Trace" %}</a></td>

@@ -59,10 +59,6 @@
                     <td>{{ object.get_construction_display }}</td>
                 </tr>
                 <tr>
-                    <th scope="row">{% trans "Fiber Type" %}</th>
-                    <td>{{ object.get_fiber_type_display }}</td>
-                </tr>
-                <tr>
                     <th scope="row">{% trans "Strand Count" %}</th>
                     <td>{{ object.strand_count }}</td>
                 </tr>
@@ -146,5 +142,39 @@
     </div>
 </div>
 {% endif %}
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header d-flex justify-content-between align-items-center">
+                {% trans "Attenuation Specs" %}
+                {% if perms.netbox_fms.add_fiberattenuationspec %}
+                    <a class="btn btn-sm btn-primary" href="{% url 'plugins:netbox_fms:fiberattenuationspec_add' %}?fiber_cable_type={{ object.pk }}&return_url={{ object.get_absolute_url }}">
+                        <i class="mdi mdi-plus-thick"></i> {% trans "Add Spec" %}
+                    </a>
+                {% endif %}
+            </h5>
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>{% trans "Wavelength (nm)" %}</th>
+                        <th>{% trans "Max Loss (dB/km)" %}</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for spec in object.attenuation_specs.all %}
+                        <tr>
+                            <td>{{ spec.wavelength_nm }}</td>
+                            <td>{{ spec.max_loss_db_per_km }}</td>
+                            <td><a href="{{ spec.get_absolute_url }}">{% trans "View" %}</a></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="3" class="text-muted">{% trans "No attenuation specs defined." %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
 {% plugin_full_width_page object %}
 {% endblock %}

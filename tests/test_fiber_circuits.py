@@ -123,7 +123,7 @@ class TestFiberCircuitPath(TestCase):
         )
         assert path.destination is None
 
-    def test_loss_fields_nullable(self):
+    def test_loss_fields_default_state(self):
         path = FiberCircuitPath.objects.create(
             circuit=self.circuit,
             position=1,
@@ -131,18 +131,20 @@ class TestFiberCircuitPath(TestCase):
             path=[],
             is_complete=False,
         )
-        assert path.calculated_loss_db is None
+        # calculated_loss_db is a computed property: empty list when no
+        # cables / specs / glass length are available.
+        assert path.calculated_loss_db == []
         assert path.actual_loss_db is None
         assert path.wavelength_nm is None
 
-    def test_wavelength_required_when_loss_set(self):
+    def test_wavelength_required_when_actual_loss_set(self):
         path = FiberCircuitPath(
             circuit=self.circuit,
             position=1,
             origin=self.fp_a,
             path=[],
             is_complete=False,
-            calculated_loss_db=3.5,
+            actual_loss_db=3.5,
             wavelength_nm=None,
         )
         with self.assertRaises(ValidationError):

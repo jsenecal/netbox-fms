@@ -48,7 +48,7 @@ cable_types = response.json()
 
 for ct in cable_types["results"]:
     print(f"{ct['id']}: {ct['manufacturer']['display']} {ct['model']} "
-          f"({ct['construction']}, {ct['fiber_type']}, {ct['strand_count']}f)")
+          f"({ct['construction']}, {ct['strand_count']}f)")
 ```
 
 **Sample response**
@@ -70,7 +70,6 @@ for ct in cable_types["results"]:
       },
       "model": "ALTOS 048EUC-T4101D20",
       "construction": "loose_tube",
-      "fiber_type": "smf_os2",
       "strand_count": 48,
       "instance_count": 3,
       "tags": []
@@ -101,7 +100,6 @@ curl -s -X POST \
     "manufacturer": 5,
     "model": "ALTOS 096EUC-T4101D20",
     "construction": "loose_tube",
-    "fiber_type": "smf_os2",
     "strand_count": 96
   }' \
   "$NETBOX_URL/api/plugins/fms/cable-types/"
@@ -120,7 +118,6 @@ data = {
     "manufacturer": 5,
     "model": "ALTOS 096EUC-T4101D20",
     "construction": "loose_tube",
-    "fiber_type": "smf_os2",
     "strand_count": 96,
 }
 response = requests.post(
@@ -135,8 +132,10 @@ print(response.json()["id"])
 Valid values for `construction`: `loose_tube`, `tight_buffer`, `ribbon`, `ribbon_in_tube`,
 `micro`, `blown_fiber`.
 
-Valid values for `fiber_type`: `smf_os1`, `smf_os2`, `mmf_om1`, `mmf_om2`, `mmf_om3`,
-`mmf_om4`, `mmf_om5`.
+The fibre classification (SMF/MMF, OS1/OS2/OM1-5) is recorded on the linked
+`dcim.Cable.type` (NetBox built-in `CableTypeChoices`), not on the cable
+type. A `FiberCable` is rejected at validation time if its linked Cable
+does not carry a fibre `type`.
 
 ---
 

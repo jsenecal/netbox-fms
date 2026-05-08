@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `FiberAttenuationSpec` model -- per-wavelength manufacturer max attenuation (dB/km) attached to a `FiberCableType`. Multiple rows per cable type let one product cover several operating wavelengths (1310/1550/1625, 850/1300, CWDM/DWDM grid). Unique on `(fiber_cable_type, wavelength_nm)`. Full plugin checklist (forms, tables, filters, views, urls, REST + GraphQL, navigation, templates).
+- `FiberCableType.get_attenuation(wavelength_nm)` helper returning the max-loss spec value (Decimal dB/km) or `None`.
+- `FiberCable.calculated_loss_db` -- per-cable read-only `@property` returning `[(wavelength_nm, loss_db), ...]` tuples computed as `glass_length_km * spec.max_loss_db_per_km` for each spec on the cable type. Empty when `glass_length` is unresolvable or no specs exist.
+- `FiberCircuitPath.calculated_loss_db` is now a read-only `@property` returning `[(wavelength_nm, loss_db), ...]` tuples; it consumes per-cable values from `FiberCable.calculated_loss_db` and intersects wavelengths across all cables in the path.
+- `FiberCircuitPath.get_calculated_loss_db(wavelength_nm=None)` helper returning the Decimal loss at a single wavelength (defaults to the path's own `wavelength_nm`).
+- `FiberCable.clean()` now rejects a linked `dcim.Cable` whose `type` is not a fibre type (one of `FIBER_CABLE_TYPES`: SMF/MMF variants).
 - `FiberCableType.outer_diameter` (FloatField, mm-implicit) -- manufacturer spec for the cable's outer diameter; required input for conduit-fill and pull-tension calculations.
 - `FiberCableType.twist_factor_ratio` (FloatField, dimensionless) -- manufacturer spec for the helical pitch / lay factor; the ratio of glass-length excess over sheath length.
 - `FiberCableType.mark_unit` (CharField, `CableLengthUnitChoices`, blank) -- the unit of the distance markings printed on the cable jacket by the manufacturer. Empty means "no sheath markings on this cable type".
@@ -32,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- `FiberCableType.fiber_type` and the plugin's `FiberTypeChoices` -- this duplicated NetBox's built-in `dcim.Cable.type` (`CableTypeChoices`). The fibre classification (SMF/MMF, OS1/OS2/OM1..5) now lives only on the `dcim.Cable` instance; `FiberCable.clean()` validates the linked Cable carries a fibre `type` from `FIBER_CABLE_TYPES`. Detail templates that previously rendered `get_fiber_type_display` now read `cable.get_type_display`.
+- `FiberCircuitPath.calculated_loss_db` as a stored field -- replaced with a computed property (see Added). Forms no longer accept a manually entered value.
 - `SlackLoop.length_unit` -- redundant with `FiberCableType.mark_unit`. The marking unit is a manufacturer/type property, not a per-instance choice; the existing `length_unit` field is dropped and any pre-existing values are backfilled into the cable type's `mark_unit` (modal value per type) by the migration before the column is removed.
 
 ## [0.1.0] - 2026-02-18

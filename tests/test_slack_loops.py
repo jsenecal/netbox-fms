@@ -95,7 +95,6 @@ class TestSlackLoopModel:
         fct = FiberCableType.objects.create(
             manufacturer=mfr,
             model="SLM-FCT",
-            fiber_type="smf_os2",
             construction="tight_buffer",
             strand_count=1,
             mark_unit=CableLengthUnitChoices.UNIT_METER,
@@ -164,7 +163,6 @@ class TestSlackLoopModel:
         unmarked_fct = FiberCableType.objects.create(
             manufacturer=self.fct.manufacturer,
             model="SLM-Unmarked-FCT",
-            fiber_type="smf_os2",
             construction="tight_buffer",
             strand_count=1,
             mark_unit="",

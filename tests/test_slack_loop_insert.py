@@ -96,7 +96,6 @@ class TestInsertSlackLoopIntoClosure:
         self.fct = FiberCableType.objects.create(
             manufacturer=mfr,
             model="INS-FCT",
-            fiber_type="smf_os2",
             construction="tight_buffer",
             strand_count=1,
             mark_unit="m",
