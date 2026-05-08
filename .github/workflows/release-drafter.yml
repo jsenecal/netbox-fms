@@ -1,13 +1,18 @@
 name: Release Drafter
 
-# Only runs on the default branch -- release-drafter reads its config from the
-# default branch, so running it on PR events would always fail until the PR's
-# config changes are merged. Categorization at merge time still works because
-# release-drafter falls back to PR title matching when labels are absent, and
-# pr-title.yml enforces conventional-commits prefixes.
+# Two triggers:
+#   - push to main updates the draft release body and resolves the next
+#     version from the labels of PRs merged since the last release.
+#   - pull_request_target runs the autolabeler so PRs are categorized BEFORE
+#     they merge. pull_request_target uses the base branch's workflow + the
+#     base branch's release-drafter.yml, so a malformed config in a PR cannot
+#     break labeling. Only the autolabeler step has any effect on PR events;
+#     release-drafter detects the context and skips drafting.
 on:
   push:
     branches: [main]
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
 
 permissions:
   contents: read

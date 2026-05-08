@@ -1,5 +1,15 @@
 name-template: "v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
+
+# Use the latest tag (including Pre-releases) as the comparison base.
+# Without this, a history that only contains Pre-releases yields an empty
+# $PREVIOUS_TAG and the "Full changelog" compare link is malformed.
+include-pre-releases: true
+
+# Only PRs merged into the default branch end up in the draft.
+filter-by-commitish: true
+commitish: refs/heads/main
+
 template: |
   ## What's changed
 
@@ -7,21 +17,54 @@ template: |
 
   **Full changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
 
+# Categories are matched top-to-bottom; the first match wins. The deps PRs
+# (chore(deps): / build(deps): / fix(deps):) carry both their plain label and
+# the `dependencies` label, so:
+#   - Fixes is BEFORE Dependencies on purpose: a `fix(deps):` security bump
+#     surfaces under Fixes, where users actually look.
+#   - Dependencies is BEFORE CI/build and Other changes on purpose: routine
+#     `chore(deps):` / `build(deps):` bumps land under Dependencies, not
+#     buried in the catch-all bucket.
 categories:
+  - title: "Breaking changes"
+    labels: [breaking, major]
   - title: "Features"
-    labels: [enhancement, feat, feature]
+    labels: [feat, feature, enhancement]
   - title: "Fixes"
-    labels: [bug, fix, bugfix]
+    labels: [fix, bug, bugfix]
+  - title: "Performance"
+    labels: [perf]
   - title: "Documentation"
     labels: [docs, documentation]
-  - title: "Maintenance"
-    labels: [chore, refactor, ci, build, test, perf, revert]
+  - title: "Refactoring"
+    labels: [refactor]
+  - title: "Tests"
+    labels: [test]
+  - title: "Dependencies"
+    labels: [dependencies, deps]
+    collapse-after: 5
+  - title: "CI / build"
+    labels: [ci, build]
+  - title: "Other changes"
+    labels: [chore, revert]
+
+exclude-labels:
+  - skip-changelog
 
 change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
 change-title-escapes: '\<*_&'
 
-# title accepts a list of regex patterns (release-drafter v6 schema).
+# Autolabeler reads the PR title (after pr-title.yml has enforced
+# conventional-commits format) and applies one or more labels. `title:`
+# accepts a list of regex patterns (release-drafter v6+ schema). A breaking
+# change is detected via the `!` marker per Conventional Commits.
 autolabeler:
+  - label: breaking
+    title:
+      - '/^[a-z]+(\([^)]+\))?!:/i'
+  - label: dependencies
+    title:
+      - '/^(chore|build|fix)\(deps(-dev)?\):/i'
   - label: feat
     title:
       - '/^feat(\(.+\))?:/i'
@@ -57,7 +100,7 @@ version-resolver:
   major:
     labels: [major, breaking]
   minor:
-    labels: [feat, feature, minor]
+    labels: [feat, feature, minor, enhancement]
   patch:
-    labels: [fix, bug, chore, refactor, docs, ci, build, test, perf, revert, patch]
+    labels: [fix, bug, chore, refactor, docs, ci, build, test, perf, revert, patch, dependencies]
   default: patch
