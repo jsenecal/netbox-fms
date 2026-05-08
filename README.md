@@ -1,6 +1,6 @@
 # NetBox FMS -- Fiber Management System
 
-> **Under active development -- alpha.** netbox-pathways is pre-1.0 and changing fast. Models, migrations, REST/GeoJSON endpoints, and configuration keys may break between releases without deprecation cycles. Pin an exact version in production, expect to read the [CHANGELOG](CHANGELOG.md) before every upgrade, and back up your database before running migrations. Issue reports and PRs are very welcome.
+> **Under active development -- alpha.** netbox-fms is pre-1.0 and changing fast. Models, migrations, REST endpoints, and configuration keys may break between releases without deprecation cycles. Pin an exact version in production, expect to read the [CHANGELOG](CHANGELOG.md) before every upgrade, and back up your database before running migrations. Issue reports and PRs are very welcome.
 
 > A [NetBox](https://github.com/netbox-community/netbox) plugin for fiber cable management, splice planning, and circuit provisioning.
 
