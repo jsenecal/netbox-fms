@@ -303,9 +303,9 @@ class TestGraphQLSchema:
         assert "slack_loop_list" in fields
 
     def test_query_field_count(self):
-        """Verify the query class has the expected number of field pairs (18 models x 2)."""
+        """Verify the query class has the expected number of field pairs (19 models x 2)."""
         fields = self._get_strawberry_field_names()
-        assert len(fields) == 36  # 18 models x (single + list)
+        assert len(fields) == 38  # 19 models x (single + list)
 
 
 @pytest.mark.django_db
