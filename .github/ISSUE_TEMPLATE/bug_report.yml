@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a bug or unexpected behavior in this plugin
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in every required
+        field so the maintainers can reproduce the issue. Tracebacks and exact
+        version numbers help much more than a screenshot.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Run `pip show <plugin>` inside the NetBox venv, or check `pyproject.toml`.
+      placeholder: "0.5.2"
+    validations:
+      required: true
+  - type: input
+    id: netbox-version
+    attributes:
+      label: NetBox version
+      description: Shown at the bottom of the NetBox UI or via `GET /api/status/`.
+      placeholder: "4.5.10"
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12.x"
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal ordered steps that reliably trigger the bug.
+      placeholder: |
+        1. Navigate to ...
+        2. Click on ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include any tracebacks from the NetBox logs.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, related configuration, links to relevant code, anything else that might help.
+    validations:
+      required: false

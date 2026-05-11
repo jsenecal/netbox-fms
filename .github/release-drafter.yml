@@ -46,7 +46,7 @@ categories:
   - title: "CI / build"
     labels: [ci, build]
   - title: "Other changes"
-    labels: [chore, revert]
+    labels: [housekeeping, revert]
 
 exclude-labels:
   - skip-changelog
@@ -74,7 +74,7 @@ autolabeler:
   - label: docs
     title:
       - '/^docs(\(.+\))?:/i'
-  - label: chore
+  - label: housekeeping
     title:
       - '/^chore(\(.+\))?:/i'
   - label: refactor
@@ -102,5 +102,5 @@ version-resolver:
   minor:
     labels: [feat, feature, minor, enhancement]
   patch:
-    labels: [fix, bug, chore, refactor, docs, ci, build, test, perf, revert, patch, dependencies]
+    labels: [fix, bug, housekeeping, refactor, docs, ci, build, test, perf, revert, patch, dependencies]
   default: patch
