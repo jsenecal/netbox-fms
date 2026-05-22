@@ -50,7 +50,7 @@ jobs:
         netbox: ["4.5.4", "4.5.5"]
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.4
         env:
           POSTGRES_DB: netbox
           POSTGRES_USER: netbox
