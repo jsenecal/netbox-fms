@@ -8,6 +8,8 @@ include = ["netbox_fms", "netbox_fms.*"]
 [tool.setuptools.package-data]
 netbox_fms = [
     "templates/**/*",
+    "static/netbox_fms/css/*",
+    "static/netbox_fms/dist/*",
 ]
 
 [project]
