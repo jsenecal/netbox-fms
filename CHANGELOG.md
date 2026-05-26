@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FiberCircuitPath.calculated_loss_db` as a stored field -- replaced with a computed property (see Added). Forms no longer accept a manually entered value.
 - `SlackLoop.length_unit` -- redundant with `FiberCableType.mark_unit`. The marking unit is a manufacturer/type property, not a per-instance choice; the existing `length_unit` field is dropped and any pre-existing values are backfilled into the cable type's `mark_unit` (modal value per type) by the migration before the column is removed.
 
+### Fixed
+
+- PyPI wheel now ships the plugin's `static/` directory -- the built-in stylesheets (`css/splice_editor.css`, `css/fms-components.css`) and bundled JS (`dist/splice-editor.min.js`, `dist/fms-htmx.min.js`, `dist/trace-view.min.js`, plus sourcemaps). Previously `pyproject.toml` `package-data` only listed `templates/**/*`, so `pip install netbox-fms` produced an install with no static assets and `collectstatic` had nothing to copy, causing 404s on the splice editor page (#48). The TypeScript source, `node_modules/`, and esbuild config are intentionally excluded -- they are only needed to rebuild the assets, not to run them.
+
 ## [0.1.0] - 2026-02-18
 
 First public release of NetBox FMS, a fiber management plugin for NetBox 4.5+.
