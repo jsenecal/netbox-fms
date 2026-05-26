@@ -41,7 +41,7 @@ services:
 
   postgres:
     container_name: netbox-fms-postgres
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:17-3.4
     env_file: env/postgres.env
     volumes:
       - netbox-postgres-data:/var/lib/postgresql/data
