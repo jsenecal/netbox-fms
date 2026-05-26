@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-26
+
 ### Added
 
 - `FiberAttenuationSpec` model -- per-wavelength manufacturer max attenuation (dB/km) attached to a `FiberCableType`. Multiple rows per cable type let one product cover several operating wavelengths (1310/1550/1625, 850/1300, CWDM/DWDM grid). Unique on `(fiber_cable_type, wavelength_nm)`. Full plugin checklist (forms, tables, filters, views, urls, REST + GraphQL, navigation, templates).
