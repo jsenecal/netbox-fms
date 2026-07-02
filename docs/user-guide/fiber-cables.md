@@ -11,9 +11,9 @@ never need to create strands or tubes by hand.
 ## Creating a Fiber Cable
 
 1. **Ensure a `dcim.Cable` exists.** The cable must already be created in
-   NetBox between two devices (or between a device and a patch panel, splice
-   closure, etc.). FiberCable does not create the underlying cable record -- it
-   wraps one.
+   NetBox between two devices -- typically splice closures or other
+   fiber-terminating devices. FiberCable does not create the underlying cable
+   record -- it wraps one.
 
 2. **Navigate to FMS > Fiber Cables > Add.**
 

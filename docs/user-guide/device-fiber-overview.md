@@ -31,6 +31,16 @@ From the Fiber Overview tab, operators can link cable topology for cables connec
 
 This workflow bridges the gap between NetBox's native cable plant and the FMS fiber layer. See [Fiber Cables](fiber-cables.md) for a detailed description of the topology linking process.
 
+## Tray Assignments
+
+For closures with splice trays (modules whose type carries a [TrayProfile](splice-planning.md#trayprofile)), the Fiber Overview tab shows a tray assignments card listing each tray, its capacity, and the buffer tubes assigned to it. From this card an operator can:
+
+- **Assign** -- place an unassigned buffer tube onto a specific splice tray. Only trays with the Splice Tray role are offered.
+- **Unassign** -- remove a tube's tray assignment.
+- **Auto-assign** -- distribute all unassigned tubes across the closure's splice trays. Tubes at the same position across cables (e.g., T1 from Cable A and T1 from Cable B) are paired onto the same tray when its remaining `max_fibers` capacity allows.
+
+Tubes can only be assigned once their fiber cable has a ClosureCableEntry on the closure. See [Splice Planning: Preparing a Closure](splice-planning.md#preparing-a-closure) for the full setup sequence.
+
 ## Splice Editor Widget
 
 An embedded splice editor is available directly from the device view, enabling quick creation and editing of splice plan entries without navigating away. This is particularly useful when:

@@ -1,6 +1,13 @@
 # Quickstart
 
-This walkthrough takes you from an empty plugin to a fully modeled fiber cable with splice mappings. It assumes NetBox FMS is already installed (see [Installation](installation.md)).
+This walkthrough takes you from an empty plugin to a fully modeled fiber cable
+entering a splice closure, with tubes assigned to trays and a splice plan ready
+for entries. It assumes NetBox FMS is already installed (see
+[Installation](installation.md)).
+
+The plugin is closure-centric: splice plans, cable entries, and tray
+assignments all hang off a `dcim.Device` acting as a splice closure. Patch
+panels are not modeled by the plugin at this time.
 
 ## 1. Create a Manufacturer
 
@@ -21,20 +28,42 @@ A FiberCableType is the blueprint that describes how a cable is constructed.
 5. Choose the construction style. For a loose tube cable, add **BufferTubeTemplates** -- for example, 4 tubes with 12 fibers each.
 6. Save the cable type.
 
-## 3. Create Two Devices
+## 3. Create a Splice Closure Device
 
-Fiber cables connect between devices. If you do not already have devices in NetBox:
+A splice closure is a regular NetBox device. If you do not already have one:
 
-1. Navigate to **Devices > Devices** and create two devices (e.g., "Panel-A" and "Panel-B").
-2. Ensure each device has a device type with front ports defined, so that fiber strands can terminate to them.
+1. Navigate to **Devices > Device Types** and create a device type for the
+   closure model (e.g., "FOSC 450"), with a matching device role (e.g.,
+   "Splice Closure").
+2. Navigate to **Devices > Devices** and create the closure device at its site
+   (e.g., "Closure-A"). Repeat for the far end of the cable (another closure
+   or any fiber-terminating device).
 
-## 4. Create a Cable
+You do not need to pre-define front ports on the closure -- the plugin creates
+the per-strand ports when you link the cable topology (step 6).
 
-1. Navigate to **Devices** and select one of the devices.
-2. Under the device's interface or front port listing, click **Connect** to create a `dcim.Cable` between the two devices.
+## 4. Model the Closure's Splice Trays
+
+Splice trays are NetBox **Modules** installed in the closure, and the plugin
+needs to know which module types are trays:
+
+1. Navigate to **Devices > Module Types** and create a module type for each
+   tray product (e.g., "24F Splice Tray").
+2. Navigate to **FMS > Tray Profiles** and click **Add**. Select the module
+   type, set the **tray role** to **Splice Tray**, and set **max fibers** to
+   the tray's splice capacity. Use the **Express Basket** role for
+   pass-through storage baskets -- tubes can only be assigned to splice trays.
+3. On the closure device, create **Module Bays** (e.g., "Bay 1", "Bay 2") and
+   install a **Module** of the tray module type in each bay.
+
+## 5. Create a Cable
+
+1. Navigate to **Devices** and select one of the closure devices.
+2. Create a `dcim.Cable` between the two devices with a fiber cable type
+   (e.g., **SMF OS2**).
 3. Save the cable.
 
-## 5. Create a Fiber Cable
+## 6. Create a Fiber Cable
 
 This is where the plugin takes over.
 
@@ -50,25 +79,61 @@ On save, the plugin automatically instantiates the internal cable structure base
 
 Navigate to the new FiberCable's detail page to inspect the generated tubes and strands.
 
-## 6. Create a Splice Project and Plan
+Alternatively, use the **Link Topology** action on the closure's **Fiber
+Overview** tab. It performs the same FiberCable creation and additionally
+provisions the per-strand FrontPorts, per-tube RearPorts, and PortMappings on
+the closure, and sets the cable profile used by NetBox's trace engine. See
+[Fiber Cables](../user-guide/fiber-cables.md#linking-cable-topology).
 
-Splice projects organize the splicing work at a specific location (typically a fiber closure).
+## 7. Register the Cable at the Closure
 
-1. Navigate to **FMS > Splice Projects** and click **Add**.
-2. Give the project a name and associate it with a closure device.
-3. Save, then navigate to **FMS > Splice Plans** and click **Add**.
-4. Associate the plan with the splice project created above.
-5. Save.
+Each cable entering a closure is recorded with a **ClosureCableEntry**:
 
-## 7. Add Splice Plan Entries
+1. Navigate to **FMS > Closure Cable Entries** and click **Add** (or use the
+   inline gland editor on the closure's **Fiber Overview** tab).
+2. Select the closure device and the FiberCable, and give the entrance a label
+   (e.g., "Gland A").
+3. Save. A fiber cable can be registered once per closure.
 
-Splice plan entries define the fiber-to-fiber mappings inside a closure.
+This step is required before tubes from that cable can be assigned to trays.
 
-1. Open the splice plan and add **SplicePlanEntries**.
-2. Each entry maps a fiber strand from one cable to a fiber strand on another cable.
-3. Repeat for each fiber pair that will be spliced at this location.
+## 8. Assign Buffer Tubes to Trays
 
-Once complete, the splice plan provides a full record of which fibers are connected through the closure.
+Tube assignments record which tray each buffer tube is routed to inside the
+closure:
+
+1. On the closure's **Fiber Overview** tab, use **Assign** next to an
+   unassigned tube (or **Auto-assign**, which pairs same-position tubes from
+   different cables onto the same tray while capacity allows). Assignments can
+   also be managed under **FMS > Tube Assignments**.
+2. Only modules whose type has a **Splice Tray** profile are offered; express
+   baskets and plain modules are rejected.
+
+## 9. Create a Splice Plan
+
+Splice plans capture the desired splice state of a single closure:
+
+1. Navigate to **FMS > Splice Plans** and click **Add**.
+2. Give the plan a name and select the **closure** device.
+3. Optionally associate it with a **SpliceProject** (create one under
+   **FMS > Splice Projects**) to group related plans for a route or job.
+4. Save. The plan starts in **draft** status.
+
+## 10. Add Splice Plan Entries
+
+Splice plan entries define the fiber-to-fiber mappings inside the closure:
+
+1. Open the plan's **Visual Editor** tab and drag fiber endpoints together, or
+   add **SplicePlanEntries** manually.
+2. Each entry pairs two FrontPorts on the closure (**fiber A** and
+   **fiber B**) on a tray. Both ports must belong to the closure, and each
+   fiber's FrontPort must be assigned to a tray module before it can be used
+   in an entry.
+3. Entries can only be edited while the plan is in **draft** status.
+
+Once complete, submit the plan for approval and apply it from the closure's
+**Pending Work** tab. See [Splice Planning](../user-guide/splice-planning.md)
+for the full lifecycle.
 
 ## Next Steps
 

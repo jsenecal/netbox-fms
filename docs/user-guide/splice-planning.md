@@ -32,9 +32,13 @@ A SplicePlan represents the intended splice configuration for a single closure d
 
 A SplicePlanEntry maps one fiber to another within a splice plan. Each entry defines:
 
+- **tray** -- the `dcim.Module` (splice tray) owning fiber A; the canonical tray for this entry.
 - **fiber_a** -- a `dcim.FrontPort` representing one side of the splice.
 - **fiber_b** -- a `dcim.FrontPort` representing the other side of the splice.
+- **is_express** -- marks a fiber that passes through the closure without being physically spliced.
 - **change_note** -- a required message describing why this entry was added or modified in the current editing session.
+
+Both FrontPorts must belong to the plan's closure device, and the tray must match fiber A's parent module -- so every fiber used in a plan must first be assigned to a tray module (see [Preparing a Closure](#preparing-a-closure)).
 
 Each entry corresponds to a single physical fiber splice. A plan typically contains many entries, one for every fiber pair that will be spliced at the closure.
 
@@ -42,7 +46,41 @@ Entries can only be added or removed while the plan is in **draft** status. Once
 
 ### ClosureCableEntry
 
-A ClosureCableEntry manages cable gland and entrance assignments on closure devices. Each entry links a FiberCable to a specific entrance label on the closure, establishing which physical cable enters the closure at which port or gland position. This information is used during splice planning to identify which fibers are available at the closure and during draw.io export to label cable entrances on the diagram.
+A ClosureCableEntry manages cable gland and entrance assignments on closure devices. Each entry links a FiberCable to a specific entrance label on the closure, establishing which physical cable enters the closure at which port or gland position. This information is used during splice planning to identify which fibers are available at the closure and during draw.io export to label cable entrances on the diagram. A given FiberCable can be registered only once per closure, and a ClosureCableEntry must exist before that cable's buffer tubes can be assigned to trays.
+
+### TrayProfile
+
+A TrayProfile is an overlay on a `dcim.ModuleType` declaring it as splice hardware. It carries two attributes:
+
+- **tray_role** -- either **Splice Tray** (holds splices; accepts tube assignments) or **Express Basket** (pass-through slack storage; does not accept tube assignments).
+- **max_fibers** -- the number of splice positions in the tray, used by tube auto-assignment to respect capacity.
+
+Modules installed in a closure are only treated as trays when their module type has a TrayProfile.
+
+### TubeAssignment
+
+A TubeAssignment routes one BufferTube to one splice tray (a `dcim.Module`) inside a closure. Validation enforces that:
+
+- the tray belongs to the closure device,
+- the tray's module type has a TrayProfile with the **Splice Tray** role (express baskets are rejected),
+- the tube's fiber cable has a ClosureCableEntry on the closure, and
+- each tube is assigned to at most one tray per closure.
+
+Deleting a ClosureCableEntry automatically removes that cable's TubeAssignments on the closure.
+
+---
+
+## Preparing a Closure
+
+Before a closure device can host splice plans, it needs its physical structure modeled. This mirrors the setup performed once per closure in the field:
+
+1. **Create the closure device.** A splice closure is a regular `dcim.Device` with an appropriate device type and role (e.g., "Splice Closure").
+2. **Model the trays.** Create a `dcim.ModuleType` per tray product and mark it with a **TrayProfile** (role and capacity). Add module bays to the closure and install a module per physical tray.
+3. **Terminate cables and provision ports.** Link each incoming cable's topology (see [Fiber Cables](fiber-cables.md#linking-cable-topology)) so every strand has a FrontPort on the closure. Splice plan entries require each fiber's FrontPort to belong to a tray module.
+4. **Register cable entrances.** Create a **ClosureCableEntry** per cable, recording its gland or entrance label.
+5. **Assign tubes to trays.** Create **TubeAssignments** manually or use the auto-assign action on the closure's Fiber Overview tab, which pairs same-position tubes from different cables onto the same tray while capacity allows.
+
+Once this structure exists, plans can be authored, reviewed, and applied against the closure.
 
 ---
 
