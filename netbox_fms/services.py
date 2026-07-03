@@ -4,7 +4,7 @@ from dcim.models import Cable, CableTermination, Device, FrontPort, Module, Modu
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
-from .models import FiberCable, SplicePlanEntry
+from .models import ClosureCableEntry, FiberCable, SplicePlanEntry
 from .signals import fms_portmapping_bypass
 
 
@@ -205,6 +205,47 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                     positions=list(range(1, fiber_count + 1)),
                 )
 
+    return fc, warnings
+
+
+@transaction.atomic
+def create_closure_cable(*, device_a, device_b, fiber_cable_type, port_type="splice", cable_attrs=None):
+    """Create a dcim.Cable + FiberCable between two closures, greenfield.
+
+    Follows the create-then-terminate choreography: the Cable is created
+    unterminated via the ORM (Cable.clean() only requires both-end
+    terminations at creation through full_clean paths), the FiberCable is
+    created (auto-instantiating tubes/strands), ports are provisioned on
+    both devices, then a_terminations/b_terminations are assigned and the
+    cable re-saved so Cable.save() builds CableTerminations with
+    connector/positions for profile-based tracing. Registers the cable at
+    both closures with blank ClosureCableEntries.
+
+    Returns: (FiberCable, warnings_list)
+    """
+    if device_a == device_b:
+        raise ValueError("Cable ends must be different devices.")
+    warnings = []
+    cable = Cable(**(cable_attrs or {}))
+    cable.save()
+    fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fiber_cable_type)
+
+    provisioned_a = _provision_device_ports(fc, device_a, port_type, "front_port_a")
+    provisioned_b = _provision_device_ports(fc, device_b, port_type, "front_port_b")
+
+    profile_key = fiber_cable_type.get_cable_profile()
+    if profile_key:
+        cable.profile = profile_key
+    else:
+        warnings.append("Profile not found in registry; cable profile not set.")
+
+    cable.a_terminations = [rp for _, rp, _ in provisioned_a]
+    cable.b_terminations = [rp for _, rp, _ in provisioned_b]
+    cable.full_clean()
+    cable.save()
+
+    ClosureCableEntry.objects.create(closure=device_a, fiber_cable=fc)
+    ClosureCableEntry.objects.create(closure=device_b, fiber_cable=fc)
     return fc, warnings
 
 
