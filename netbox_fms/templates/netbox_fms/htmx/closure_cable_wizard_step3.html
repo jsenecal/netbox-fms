@@ -1,0 +1,68 @@
+{% load i18n %}
+
+<div class="card">
+    <h5 class="card-header">{% trans "Step 3: Review and Create" %}</h5>
+    <div class="card-body">
+        {% if wizard_error %}
+        <div class="alert alert-danger" role="alert">
+            <i class="mdi mdi-alert"></i> {% blocktrans with error=wizard_error %}Error creating cable: {{ error }}{% endblocktrans %}
+        </div>
+        {% endif %}
+        <table class="table table-hover attr-table">
+            <tr>
+                <th scope="row">{% trans "Ends" %}</th>
+                <td>{{ device }} &#8596; {{ far_device }}</td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Fiber Cable Type" %}</th>
+                <td>{{ fiber_cable_type }}</td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Port type" %}</th>
+                <td>{{ port_type }}</td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Label" %}</th>
+                <td>{{ cable_label|default:"&mdash;" }}</td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Will create, per device" %}</th>
+                <td>
+                    {% blocktrans with rps=rear_ports_per_device fps=strand_count %}{{ rps }} rear port(s), {{ fps }} front port(s){% endblocktrans %}
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Strands" %}</th>
+                <td>{{ strand_count }}</td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Cable profile" %}</th>
+                <td>
+                    {% if profile_key %}
+                        <code>{{ profile_key }}</code>
+                    {% else %}
+                        <span class="text-warning">{% trans "Not in registry -- tracing profile will not be set." %}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Gland entries" %}</th>
+                <td>{% trans "One blank entry per closure (label them on the Fiber Overview tab)." %}</td>
+            </tr>
+        </table>
+        <form hx-post="{% url 'plugins:netbox_fms:fiber_overview_add_cable' pk=device.pk %}" hx-target="#wizard-content">
+            {% csrf_token %}
+            <div class="text-end mt-3">
+                <a href="{% url 'plugins:netbox_fms:fiber_overview_add_cable' pk=device.pk %}?restart=1" class="btn btn-outline-secondary">
+                    {% trans "Start Over" %}
+                </a>
+                <button type="submit" name="_back" value="1" class="btn btn-outline-primary">
+                    <i class="mdi mdi-arrow-left"></i> {% trans "Back" %}
+                </button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="mdi mdi-plus-thick"></i> {% trans "Create Cable" %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
