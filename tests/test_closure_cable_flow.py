@@ -17,6 +17,8 @@ from dcim.models import (
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
+from netbox_fms.constants import FIBER_CABLE_TYPES
+from netbox_fms.forms import ClosureCableWizardStep1Form, ClosureCableWizardStep2Form
 from netbox_fms.models import BufferTubeTemplate, ClosureCableEntry, FiberCable, FiberCableType
 from netbox_fms.services import create_closure_cable
 
@@ -154,3 +156,39 @@ class TestCreateClosureCable(TestCase):
         assert FrontPort.objects.count() == 0
         assert PortMapping.objects.count() == 0
         assert ClosureCableEntry.objects.count() == 0
+
+
+class TestClosureCableWizardForms(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site, mfr, dt, role = _make_infra("WF")
+        cls.device_a = Device.objects.create(name="WF-A", site=site, device_type=dt, role=role)
+        cls.device_b = Device.objects.create(name="WF-B", site=site, device_type=dt, role=role)
+        cls.fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="WF-TB6", strand_count=6, construction="tight_buffer"
+        )
+
+    def test_step1_rejects_near_device_as_far_end(self):
+        form = ClosureCableWizardStep1Form(
+            {"far_end_device": self.device_a.pk, "fiber_cable_type": self.fct.pk, "port_type": "splice"},
+            near_device=self.device_a,
+        )
+        assert not form.is_valid()
+        assert "far_end_device" in form.errors
+
+    def test_step1_accepts_different_device(self):
+        form = ClosureCableWizardStep1Form(
+            {"far_end_device": self.device_b.pk, "fiber_cable_type": self.fct.pk, "port_type": "splice"},
+            near_device=self.device_a,
+        )
+        assert form.is_valid(), form.errors
+
+    def test_step2_type_choices_are_fiber_only(self):
+        values = {value for value, _label in ClosureCableWizardStep2Form().fields["type"].choices if value}
+        assert values == set(FIBER_CABLE_TYPES)  # AOC and copper excluded
+
+    def test_step2_length_requires_unit(self):
+        form = ClosureCableWizardStep2Form({"status": "connected", "length": "100"})
+        assert not form.is_valid()
+        form = ClosureCableWizardStep2Form({"status": "connected", "length": "100", "length_unit": "m"})
+        assert form.is_valid(), form.errors

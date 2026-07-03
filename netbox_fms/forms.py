@@ -1,4 +1,10 @@
-from dcim.choices import CableLengthUnitChoices, DeviceStatusChoices, PortTypeChoices
+from dcim.choices import (
+    CableLengthUnitChoices,
+    CableTypeChoices,
+    DeviceStatusChoices,
+    LinkStatusChoices,
+    PortTypeChoices,
+)
 from dcim.models import (
     Cable,
     Device,
@@ -22,6 +28,7 @@ from netbox.forms import (
     NetBoxModelImportForm,
 )
 from tenancy.models import Tenant
+from utilities.choices import unpack_grouped_choices
 from utilities.forms.fields import (
     ColorField,
     CommentField,
@@ -44,6 +51,7 @@ from .choices import (
     StorageMethodChoices,
     TrayRoleChoices,
 )
+from .constants import FIBER_CABLE_TYPES
 from .models import (
     BufferTube,
     BufferTubeTemplate,
@@ -1208,3 +1216,75 @@ class SpliceClosureCreateForm(forms.Form):
         required=False,
     )
     basket_count = forms.IntegerField(min_value=1, initial=1, required=False, label=_("Basket count"))
+
+
+def _fiber_type_choices():
+    """dcim CableTypeChoices restricted to the fiber subset the plugin accepts."""
+    fiber = [
+        (value, label)
+        for value, label in unpack_grouped_choices(CableTypeChoices.CHOICES)
+        if value in FIBER_CABLE_TYPES
+    ]
+    return add_blank_choice(fiber)
+
+
+class ClosureCableWizardStep1Form(forms.Form):
+    """Closure cable wizard step 1: FMS scope."""
+
+    far_end_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        label=_("Far end device"),
+        help_text=_("The closure or device at the other end of the cable."),
+    )
+    fiber_cable_type = DynamicModelChoiceField(
+        queryset=FiberCableType.objects.all(),
+        label=_("Fiber cable type"),
+    )
+    port_type = forms.ChoiceField(
+        choices=PortTypeChoices,
+        initial="splice",
+        label=_("Port type"),
+        help_text=_("Defaults to Splice. Override for special cases like MPO cassettes."),
+    )
+
+    def __init__(self, *args, near_device=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.near_device = near_device
+
+    def clean_far_end_device(self):
+        far_device = self.cleaned_data["far_end_device"]
+        if self.near_device is not None and far_device == self.near_device:
+            raise ValidationError(_("Far end must be a different device."))
+        return far_device
+
+
+class ClosureCableWizardStep2Form(forms.Form):
+    """Closure cable wizard step 2: native dcim.Cable attributes.
+
+    A plain Form, not a ModelForm -- a create-ModelForm over Cable would
+    trip Cable.clean()'s both-ends-required check in _post_clean() before
+    any ports exist.
+    """
+
+    type = forms.ChoiceField(choices=_fiber_type_choices, required=False, label=_("Type"))
+    status = forms.ChoiceField(
+        choices=LinkStatusChoices,
+        initial=LinkStatusChoices.STATUS_CONNECTED,
+        label=_("Status"),
+    )
+    tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False, label=_("Tenant"))
+    label = forms.CharField(max_length=100, required=False, label=_("Label"))
+    color = ColorField(required=False, label=_("Color"))
+    length = forms.DecimalField(max_digits=8, decimal_places=2, min_value=0, required=False, label=_("Length"))
+    length_unit = forms.ChoiceField(
+        choices=add_blank_choice(CableLengthUnitChoices),
+        required=False,
+        label=_("Length unit"),
+    )
+    description = forms.CharField(max_length=200, required=False, label=_("Description"))
+
+    def clean(self):
+        super().clean()
+        if self.cleaned_data.get("length") is not None and not self.cleaned_data.get("length_unit"):
+            raise ValidationError({"length_unit": _("Must specify a unit when setting a cable length.")})
+        return self.cleaned_data
