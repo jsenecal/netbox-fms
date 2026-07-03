@@ -1,6 +1,6 @@
 """Diff computation engine for splice plans and link topology services."""
 
-from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPort
+from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
@@ -430,3 +430,49 @@ def apply_diff(plan):
         plan.save(update_fields=["diff_stale"])
 
     return {"added": added, "removed": removed}
+
+
+@transaction.atomic
+def create_splice_closure(
+    *,
+    name,
+    site,
+    device_type,
+    role,
+    status,
+    tray_module_type,
+    tray_count,
+    basket_module_type=None,
+    basket_count=0,
+    location=None,
+):
+    """Create a splice closure Device with tray (and optional basket) modules.
+
+    All objects are full_clean()ed; any failure rolls back the entire closure.
+    Returns the created Device.
+    """
+    device = Device(
+        name=name,
+        site=site,
+        location=location,
+        device_type=device_type,
+        role=role,
+        status=status,
+    )
+    device.full_clean()
+    device.save()
+
+    def _add_modules(prefix, module_type, count):
+        for i in range(1, count + 1):
+            bay = ModuleBay(device=device, name=f"{prefix} {i}")
+            bay.full_clean()
+            bay.save()
+            module = Module(device=device, module_bay=bay, module_type=module_type)
+            module.full_clean()
+            module.save()
+
+    _add_modules("Tray", tray_module_type, tray_count)
+    if basket_module_type is not None:
+        _add_modules("Basket", basket_module_type, basket_count)
+
+    return device

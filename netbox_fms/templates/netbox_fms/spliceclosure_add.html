@@ -1,0 +1,33 @@
+{% extends 'base/layout.html' %}
+{% load form_helpers %}
+{% load i18n %}
+
+{% block title %}{% trans "Add Splice Closure" %}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-8">
+        <div class="card">
+            <h5 class="card-header"><i class="mdi mdi-auto-fix"></i> {% trans "Add Splice Closure" %}</h5>
+            <div class="card-body">
+                {% if not form.fields.tray_module_type.queryset.exists %}
+                <div class="alert alert-warning">
+                    {% blocktrans %}No splice tray module types are defined yet. Create a
+                    Tray Profile for your tray module types first.{% endblocktrans %}
+                    <a href="{% url 'plugins:netbox_fms:trayprofile_add' %}">{% trans "Add Tray Profile" %}</a>
+                </div>
+                {% endif %}
+                <form method="post">
+                    {% csrf_token %}
+                    {% render_form form %}
+                    <div class="text-end">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="mdi mdi-auto-fix"></i> {% trans "Create Closure" %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

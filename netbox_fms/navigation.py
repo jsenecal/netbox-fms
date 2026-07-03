@@ -166,6 +166,19 @@ menu = PluginMenu(
             "Splice Planning",
             (
                 PluginMenuItem(
+                    link="plugins:netbox_fms:spliceclosure_add",
+                    link_text="Add Splice Closure",
+                    permissions=["dcim.add_device"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:spliceclosure_add",
+                            title="Add Splice Closure",
+                            icon_class="mdi mdi-auto-fix",
+                            permissions=["dcim.add_device"],
+                        ),
+                    ),
+                ),
+                PluginMenuItem(
                     link="plugins:netbox_fms:spliceproject_list",
                     link_text="Splice Projects",
                     permissions=["netbox_fms.view_spliceproject"],
