@@ -28,40 +28,62 @@ A FiberCableType is the blueprint that describes how a cable is constructed.
 5. Choose the construction style. For a loose tube cable, add **BufferTubeTemplates** -- for example, 4 tubes with 12 fibers each.
 6. Save the cable type.
 
-## 3. Create a Splice Closure Device
+## 3. One-Time Catalog Setup for Closures
 
-A splice closure is a regular NetBox device. If you do not already have one:
+Before creating closure devices, the catalog needs one entry per hardware
+model (this is done once, then reused for every closure):
 
 1. Navigate to **Devices > Device Types** and create a device type for the
    closure model (e.g., "FOSC 450"), with a matching device role (e.g.,
    "Splice Closure").
-2. Navigate to **Devices > Devices** and create the closure device at its site
-   (e.g., "Closure-A"). Repeat for the far end of the cable (another closure
-   or any fiber-terminating device).
-
-You do not need to pre-define front ports on the closure -- the plugin creates
-the per-strand ports when you link the cable topology (step 6).
-
-## 4. Model the Closure's Splice Trays
-
-Splice trays are NetBox **Modules** installed in the closure, and the plugin
-needs to know which module types are trays:
-
-1. Navigate to **Devices > Module Types** and create a module type for each
+2. Navigate to **Devices > Module Types** and create a module type for each
    tray product (e.g., "24F Splice Tray").
-2. Navigate to **FMS > Tray Profiles** and click **Add**. Select the module
+3. Navigate to **FMS > Tray Profiles** and click **Add**. Select the module
    type, set the **tray role** to **Splice Tray**, and set **max fibers** to
    the tray's splice capacity. Use the **Express Basket** role for
    pass-through storage baskets -- tubes can only be assigned to splice trays.
-3. On the closure device, create **Module Bays** (e.g., "Bay 1", "Bay 2") and
-   install a **Module** of the tray module type in each bay.
+
+You do not need to define front ports anywhere -- the plugin creates the
+per-strand ports when you link the cable topology (step 6).
+
+## 4. Create the Splice Closure
+
+Navigate to **FMS > Add Splice Closure**. The wizard creates the device and
+its trays in one atomic action:
+
+1. Enter the device name (e.g., "Closure-A"), site, device type, and role.
+2. Pick the splice tray type and how many trays the closure holds; the
+   wizard creates a "Tray 1..N" module bay with an installed tray module for
+   each.
+3. Optionally pick an express basket type and count ("Basket 1..N").
+4. Save. Repeat for the far end of the cable (another closure or any
+   fiber-terminating device).
+
+The closure can also be assembled manually (device, module bays, modules) --
+the wizard is a convenience, not a requirement.
 
 ## 5. Create a Cable
 
-1. Navigate to **Devices** and select one of the closure devices.
-2. Create a `dcim.Cable` between the two devices with a fiber cable type
-   (e.g., **SMF OS2**).
-3. Save the cable.
+Create a `dcim.Cable` between the two devices with a fiber cable type (e.g.,
+**SMF OS2**). Where to terminate it depends on what the closure already has:
+
+- **The closure has rear ports** (defined on its device type or created
+  manually): open the closure device, find the rear port, click **Connect**,
+  and terminate the cable there. The plugin's topology linking will detect the
+  existing ports and offer to adopt them.
+- **The closure is bare** (no ports yet, the usual case for a new closure):
+  the cable must be created without closure-side terminations, which NetBox
+  validation does not allow through the web UI, the REST API, or bulk import
+  (a new cable requires both end terminations). Until a guided flow exists,
+  create it from a NetBox shell:
+
+  ```python
+  from dcim.models import Cable
+  cable = Cable.objects.create(type="smf-os2", label="Closure-A <-> Closure-B")
+  ```
+
+  The plugin creates the per-tube rear ports and terminates the cable onto
+  them in the next step -- you do not connect anything by hand.
 
 ## 6. Create a Fiber Cable
 
@@ -79,11 +101,17 @@ On save, the plugin automatically instantiates the internal cable structure base
 
 Navigate to the new FiberCable's detail page to inspect the generated tubes and strands.
 
-Alternatively, use the **Link Topology** action on the closure's **Fiber
-Overview** tab. It performs the same FiberCable creation and additionally
-provisions the per-strand FrontPorts, per-tube RearPorts, and PortMappings on
-the closure, and sets the cable profile used by NetBox's trace engine. See
-[Fiber Cables](../user-guide/fiber-cables.md#linking-cable-topology).
+The FiberCable itself carries no ports. To create the per-strand FrontPorts,
+per-tube RearPorts, and PortMappings on the closure, use one of:
+
+- **Link Topology** on the closure's **Fiber Overview** tab -- available for
+  cables that already terminate at the closure. It creates the FiberCable and
+  the ports in one operation, terminates the cable onto the new rear ports,
+  and sets the cable profile used by NetBox's trace engine. See
+  [Fiber Cables](../user-guide/fiber-cables.md#linking-cable-topology).
+- **Provision Ports** on the FiberCable's detail page -- pick the closure
+  device and port type, and the plugin creates the ports for every strand.
+  Use this when the cable was created without closure-side terminations.
 
 ## 7. Register the Cable at the Closure
 
