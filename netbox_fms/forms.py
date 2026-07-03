@@ -991,16 +991,12 @@ class CircuitWizardStep1Form(forms.Form):
     strand_count = forms.IntegerField(min_value=1, initial=1, label=_("Strand Count"))
     tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False, label=_("Tenant"))
 
-    fieldsets = (FieldSet("name", "cid", "strand_count", "tenant", name=_("Circuit Basics")),)
-
 
 class CircuitWizardStep2Form(forms.Form):
     """Step 2: Select origin and destination devices."""
 
     origin_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Origin Device"))
     destination_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Destination Device"))
-
-    fieldsets = (FieldSet("origin_device", "destination_device", name=_("Endpoints")),)
 
     def clean(self):
         super().clean()
