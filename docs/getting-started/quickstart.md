@@ -71,19 +71,23 @@ Create a `dcim.Cable` between the two devices with a fiber cable type (e.g.,
   manually): open the closure device, find the rear port, click **Connect**,
   and terminate the cable there. The plugin's topology linking will detect the
   existing ports and offer to adopt them.
-- **The closure is bare** (no ports yet, the usual case for a new closure):
-  the cable must be created without closure-side terminations, which NetBox
-  validation does not allow through the web UI, the REST API, or bulk import
-  (a new cable requires both end terminations). Until a guided flow exists,
-  create it from a NetBox shell:
+- **The closure is bare** (no ports yet): creating a cable without
+  closure-side terminations is **not supported**. NetBox validation requires
+  both end terminations on a new cable, and the web UI, REST API, and bulk
+  import all enforce it. Prefer the supported path above: give the closure
+  rear ports first, then connect the cable to them.
+
+  Advanced users can bypass this validation from a NetBox shell, at their
+  own risk (the ORM skips model validation entirely):
 
   ```python
   from dcim.models import Cable
   cable = Cable.objects.create(type="smf-os2", label="Closure-A <-> Closure-B")
   ```
 
-  The plugin creates the per-tube rear ports and terminates the cable onto
-  them in the next step -- you do not connect anything by hand.
+  If you do this, the plugin creates the per-tube rear ports and terminates
+  the cable onto them in the next step -- you do not connect anything by
+  hand.
 
 ## 6. Create a Fiber Cable
 
