@@ -2748,7 +2748,8 @@ class SpliceClosureCreateView(LoginRequiredMixin, View):
                     basket_count=form.cleaned_data["basket_count"] or 0,
                 )
             except ValidationError as e:
-                for field, errors in getattr(e, "error_dict", {"__all__": e.error_list}).items():
+                error_map = getattr(e, "error_dict", None) or {"__all__": list(e)}
+                for field, errors in error_map.items():
                     target = field if field in form.fields else None
                     for error in errors:
                         form.add_error(target, error)

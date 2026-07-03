@@ -135,6 +135,42 @@ class TestSpliceClosureCreateView(TestCase):
         user = User.objects.create_user("wizard-nobody", "n@test.com", "password")
         self.client.force_login(user)
         assert self.client.get(self.url).status_code == 403
+        assert self.client.post(self.url, {}).status_code == 403
+
+    def test_get_renders_form_for_permitted_user(self):
+        User = get_user_model()
+        admin = User.objects.create_superuser("wizard-getter", "g@test.com", "password")
+        self.client.force_login(admin)
+        response = self.client.get(self.url)
+        assert response.status_code == 200
+        assert isinstance(response.context["form"], SpliceClosureCreateForm)
+
+    def test_post_duplicate_name_maps_validation_error_to_field(self):
+        User = get_user_model()
+        admin = User.objects.create_superuser("wizard-dup", "d@test.com", "password")
+        self.client.force_login(admin)
+        Device.objects.create(name="Closure-V2", site=self.site, device_type=self.device_type, role=self.role)
+        response = self.client.post(
+            self.url,
+            {
+                "name": "Closure-V2",  # collides with the existing device
+                "site": self.site.pk,
+                "device_type": self.device_type.pk,
+                "role": self.role.pk,
+                "status": "active",
+                "tray_module_type": self.tray_mt.pk,
+                "tray_count": 1,
+            },
+        )
+        # ValidationError from Device.full_clean() is mapped onto the form;
+        # Device raises uniqueness as a non-field ('__all__') error
+        assert response.status_code == 200
+        form = response.context["form"]
+        assert form.non_field_errors()
+        assert "unique" in str(form.non_field_errors())
+        # the failed attempt created nothing
+        assert Device.objects.filter(name="Closure-V2").count() == 1
+        assert not ModuleBay.objects.filter(device__name="Closure-V2").exists()
 
     def test_post_creates_closure_and_redirects_to_fiber_overview(self):
         User = get_user_model()
