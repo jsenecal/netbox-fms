@@ -191,6 +191,8 @@ urlpatterns = [
     ),
     path("splice-plans/<int:pk>/apply/", views.SplicePlanApplyView.as_view(), name="spliceplan_apply"),
     path("splice-plans/<int:pk>/export/", views.SplicePlanExportDrawioView.as_view(), name="spliceplan_export"),
+    # Splice Closure wizard
+    path("splice-closures/add/", views.SpliceClosureCreateView.as_view(), name="spliceclosure_add"),
     # TrayProfile
     path("tray-profiles/", views.TrayProfileListView.as_view(), name="trayprofile_list"),
     path("tray-profiles/add/", views.TrayProfileEditView.as_view(), name="trayprofile_add"),

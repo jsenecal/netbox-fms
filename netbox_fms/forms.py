@@ -1,7 +1,9 @@
-from dcim.choices import CableLengthUnitChoices, PortTypeChoices
+from dcim.choices import CableLengthUnitChoices, DeviceStatusChoices, PortTypeChoices
 from dcim.models import (
     Cable,
     Device,
+    DeviceRole,
+    DeviceType,
     FrontPort,
     Location,
     Manufacturer,
@@ -1170,3 +1172,39 @@ class TubeAssignmentFilterForm(NetBoxModelFilterSetForm):
     closure_id = DynamicModelChoiceField(queryset=Device.objects.all(), required=False, label=_("Closure"))
 
     fieldsets = (FieldSet("q", "closure_id", "tag", name=_("Filters")),)
+
+
+class SpliceClosureCreateForm(forms.Form):
+    """Guided creation of a splice closure: device + tray/basket modules.
+
+    Tray/basket type fields are plain ModelChoiceFields (not Dynamic): the
+    dcim REST API cannot filter ModuleTypes by the plugin's TrayProfile role.
+    """
+
+    name = forms.CharField(label=_("Name"), max_length=64)
+    site = DynamicModelChoiceField(queryset=Site.objects.all(), label=_("Site"))
+    location = DynamicModelChoiceField(
+        queryset=Location.objects.all(),
+        label=_("Location"),
+        required=False,
+        query_params={"site_id": "$site"},
+    )
+    device_type = DynamicModelChoiceField(queryset=DeviceType.objects.all(), label=_("Device type"))
+    role = DynamicModelChoiceField(queryset=DeviceRole.objects.all(), label=_("Role"))
+    status = forms.ChoiceField(
+        choices=DeviceStatusChoices,
+        initial=DeviceStatusChoices.STATUS_ACTIVE,
+        label=_("Status"),
+    )
+    tray_module_type = forms.ModelChoiceField(
+        queryset=ModuleType.objects.filter(tray_profile__tray_role=TrayRoleChoices.SPLICE_TRAY),
+        label=_("Splice tray type"),
+        help_text=_("Module types marked as splice trays via a Tray Profile."),
+    )
+    tray_count = forms.IntegerField(min_value=1, initial=1, label=_("Tray count"))
+    basket_module_type = forms.ModelChoiceField(
+        queryset=ModuleType.objects.filter(tray_profile__tray_role=TrayRoleChoices.EXPRESS_BASKET),
+        label=_("Express basket type"),
+        required=False,
+    )
+    basket_count = forms.IntegerField(min_value=1, initial=1, required=False, label=_("Basket count"))

@@ -77,6 +77,7 @@ from .forms import (
     SlackLoopFilterForm,
     SlackLoopForm,
     SlackLoopImportForm,
+    SpliceClosureCreateForm,
     SplicePlanBulkEditForm,
     SplicePlanEntryFilterForm,
     SplicePlanEntryForm,
@@ -120,6 +121,7 @@ from .provisioning import create_circuit_from_proposal, find_fiber_paths
 from .services import (
     NeedsMappingConfirmation,
     apply_diff,
+    create_splice_closure,
     get_or_recompute_diff,
     import_live_state,
     link_cable_topology,
@@ -2703,3 +2705,54 @@ class AutoAssignTubesView(LoginRequiredMixin, View):
                 request, "netbox_fms/htmx/tray_assignments_card.html", {"device": device, "tray_data": tray_data}
             )
         return redirect(reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/")
+
+
+# ---------------------------------------------------------------------------
+# Splice Closure wizard
+# ---------------------------------------------------------------------------
+
+
+class SpliceClosureCreateView(LoginRequiredMixin, View):
+    """Guided creation of a splice closure device with tray modules."""
+
+    required_perms = ("dcim.add_device", "dcim.add_modulebay", "dcim.add_module")
+    template_name = "netbox_fms/spliceclosure_add.html"
+
+    def _check_perms(self, request):
+        return request.user.has_perms(self.required_perms)
+
+    def get(self, request):
+        """Render the closure creation form."""
+        if not self._check_perms(request):
+            return HttpResponse("Permission denied", status=403)
+        form = SpliceClosureCreateForm()
+        return render(request, self.template_name, {"form": form})
+
+    def post(self, request):
+        """Create the closure and redirect to its Fiber Overview tab."""
+        if not self._check_perms(request):
+            return HttpResponse("Permission denied", status=403)
+        form = SpliceClosureCreateForm(request.POST)
+        if form.is_valid():
+            try:
+                device = create_splice_closure(
+                    name=form.cleaned_data["name"],
+                    site=form.cleaned_data["site"],
+                    location=form.cleaned_data["location"],
+                    device_type=form.cleaned_data["device_type"],
+                    role=form.cleaned_data["role"],
+                    status=form.cleaned_data["status"],
+                    tray_module_type=form.cleaned_data["tray_module_type"],
+                    tray_count=form.cleaned_data["tray_count"],
+                    basket_module_type=form.cleaned_data["basket_module_type"],
+                    basket_count=form.cleaned_data["basket_count"] or 0,
+                )
+            except ValidationError as e:
+                for field, errors in getattr(e, "error_dict", {"__all__": e.error_list}).items():
+                    target = field if field in form.fields else None
+                    for error in errors:
+                        form.add_error(target, error)
+            else:
+                messages.success(request, _('Created splice closure "{name}".').format(name=device.name))
+                return redirect(reverse("dcim:device", kwargs={"pk": device.pk}) + "fiber-overview/")
+        return render(request, self.template_name, {"form": form})
