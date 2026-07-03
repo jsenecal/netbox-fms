@@ -14,8 +14,10 @@ from dcim.models import (
     RearPort,
     Site,
 )
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 
 from netbox_fms.constants import FIBER_CABLE_TYPES
 from netbox_fms.forms import ClosureCableWizardStep1Form, ClosureCableWizardStep2Form
@@ -192,3 +194,104 @@ class TestClosureCableWizardForms(TestCase):
         assert not form.is_valid()
         form = ClosureCableWizardStep2Form({"status": "connected", "length": "100", "length_unit": "m"})
         assert form.is_valid(), form.errors
+
+
+class TestClosureCableWizardView(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site, mfr, dt, role = _make_infra("WV")
+        cls.device_a = Device.objects.create(name="WV-A", site=site, device_type=dt, role=role)
+        cls.device_b = Device.objects.create(name="WV-B", site=site, device_type=dt, role=role)
+        cls.fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="WV-TB6", strand_count=6, construction="tight_buffer"
+        )
+        cls.url = reverse("plugins:netbox_fms:fiber_overview_add_cable", kwargs={"pk": cls.device_a.pk})
+
+    def test_permission_gate_returns_403(self):
+        User = get_user_model()
+        user = User.objects.create_user("ccw-nobody", "n@test.com", "password")
+        self.client.force_login(user)
+        assert self.client.get(self.url).status_code == 403
+        assert self.client.post(self.url, {}).status_code == 403
+
+    def test_full_wizard_walk_creates_cable(self):
+        User = get_user_model()
+        admin = User.objects.create_superuser("ccw-admin", "a@test.com", "password")
+        self.client.force_login(admin)
+
+        # Step 1 renders
+        response = self.client.get(self.url)
+        assert response.status_code == 200
+        assert response.context["current_step"] == 1
+
+        # Step 1 -> 2
+        response = self.client.post(
+            self.url,
+            {"far_end_device": self.device_b.pk, "fiber_cable_type": self.fct.pk, "port_type": "splice"},
+        )
+        assert response.status_code == 200
+        assert response.context["current_step"] == 2
+        # label pre-suggested from the device names
+        assert response.context["form"].initial["label"] == "WV-A <-> WV-B"
+
+        # Step 2 -> 3 (review)
+        response = self.client.post(self.url, {"status": "connected", "type": "smf-os2", "label": "WV-A <-> WV-B"})
+        assert response.status_code == 200
+        assert response.context["current_step"] == 3
+        assert response.context["strand_count"] == 6
+        assert response.context["rear_ports_per_device"] == 1
+
+        # Step 3 -> create
+        response = self.client.post(self.url, {})
+        assert response.status_code == 302
+        assert response.url.endswith(f"/dcim/devices/{self.device_a.pk}/fiber-overview/")
+
+        cable = Cable.objects.get(label="WV-A <-> WV-B")
+        assert cable.type == "smf-os2"
+        fc = FiberCable.objects.get(cable=cable)
+        assert CableTermination.objects.filter(cable=cable, cable_end="A").count() == 1
+        assert CableTermination.objects.filter(cable=cable, cable_end="B").count() == 1
+        assert ClosureCableEntry.objects.filter(fiber_cable=fc).count() == 2
+
+    def test_back_returns_to_previous_step(self):
+        User = get_user_model()
+        admin = User.objects.create_superuser("ccw-back", "b@test.com", "password")
+        self.client.force_login(admin)
+        self.client.post(
+            self.url,
+            {"far_end_device": self.device_b.pk, "fiber_cable_type": self.fct.pk, "port_type": "splice"},
+        )
+        response = self.client.post(self.url, {"_back": "1"})
+        assert response.status_code == 200
+        assert response.context["current_step"] == 1
+
+    def test_state_resets_when_switching_devices(self):
+        User = get_user_model()
+        admin = User.objects.create_superuser("ccw-switch", "s@test.com", "password")
+        self.client.force_login(admin)
+        # advance device A's wizard to step 2
+        self.client.post(
+            self.url,
+            {"far_end_device": self.device_b.pk, "fiber_cable_type": self.fct.pk, "port_type": "splice"},
+        )
+        # opening device B's wizard must start fresh at step 1
+        url_b = reverse("plugins:netbox_fms:fiber_overview_add_cable", kwargs={"pk": self.device_b.pk})
+        response = self.client.get(url_b)
+        assert response.status_code == 200
+        assert response.context["current_step"] == 1
+
+    def test_step3_service_error_rerenders_with_message(self):
+        User = get_user_model()
+        admin = User.objects.create_superuser("ccw-err", "e@test.com", "password")
+        self.client.force_login(admin)
+        self.client.post(
+            self.url,
+            {"far_end_device": self.device_b.pk, "fiber_cable_type": self.fct.pk, "port_type": "splice"},
+        )
+        self.client.post(self.url, {"status": "connected"})
+        with mock.patch("netbox_fms.views.create_closure_cable", side_effect=ValueError("boom")):
+            response = self.client.post(self.url, {})
+        assert response.status_code == 200
+        assert response.context["current_step"] == 3
+        assert response.context["wizard_error"] == "boom"
+        assert b"boom" in response.content

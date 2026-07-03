@@ -260,6 +260,11 @@ urlpatterns = [
         name="fiber_overview_link_topology",
     ),
     path(
+        "fiber-overview/<int:pk>/add-cable/",
+        views.ClosureCableWizardView.as_view(),
+        name="fiber_overview_add_cable",
+    ),
+    path(
         "fiber-overview/<int:pk>/tray-assignments/",
         views.TrayAssignmentsSectionView.as_view(),
         name="fiber_overview_tray_section",
