@@ -13,10 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray
   ModuleTypes marked with a TrayProfile.
+- Closure cable wizard: **Add Cable** on a closure's Fiber Overview tab
+  creates the dcim.Cable, FiberCable, per-tube rear ports, per-strand
+  front ports, port mappings, cable terminations, cable profile, and blank
+  gland entries at both end devices in one atomic three-step flow. This is
+  the first UI path that can create a cable between two bare closures.
 
 ### Changed
 
 - Docs: documented the full splice-closure preparation workflow (closure device, tray module types with TrayProfiles, module bays/modules, ClosureCableEntry before TubeAssignment, tray-module FrontPorts) in the quickstart and splice-planning guide; added TrayProfile and TubeAssignment to the splice-planning core objects and a Tray Assignments section to the device fiber overview guide. Removed patch-panel framing -- the plugin's workflows are closure-centric and patch panels are not modeled at this time. Fixed the quickstart incorrectly stating that a SpliceProject is associated with a closure (the SplicePlan targets the closure; the project is an optional grouping).
+
+### Removed
+
+- The Provision Ports flow: the modal on the FiberCable page, the
+  `provision_strands()` helper, and the `/api/plugins/fms/provision-ports/`
+  REST endpoint (breaking). It created ports without cable terminations,
+  leaving them invisible to the Fiber Overview and untraceable. Greenfield
+  port creation is handled by the closure cable wizard; adopting existing
+  ports remains covered by Link Topology.
 
 ## [0.2.0] - 2026-05-26
 
