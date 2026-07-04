@@ -159,6 +159,14 @@ menu = PluginMenu(
                     link="plugins:netbox_fms:fibercircuitpath_list",
                     link_text="Fiber Circuit Paths",
                     permissions=["netbox_fms.view_fibercircuitpath"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:fibercircuitpath_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_fibercircuitpath"],
+                        ),
+                    ),
                 ),
             ),
         ),
@@ -208,6 +216,14 @@ menu = PluginMenu(
                     link="plugins:netbox_fms:spliceplanentry_list",
                     link_text="Splice Plan Entries",
                     permissions=["netbox_fms.view_spliceplanentry"],
+                    buttons=(
+                        PluginMenuButton(
+                            link="plugins:netbox_fms:spliceplanentry_add",
+                            title="Add",
+                            icon_class="mdi mdi-plus-thick",
+                            permissions=["netbox_fms.add_spliceplanentry"],
+                        ),
+                    ),
                 ),
                 PluginMenuItem(
                     link="plugins:netbox_fms:closurecableentry_list",
