@@ -383,6 +383,60 @@ class TestLinkCableTopologyAdopt:
         assert len(exc_info.value.proposed_mapping) == 6
         assert len(exc_info.value.warnings) > 0
 
+    def _make_closure_with_multiple_rearports(self):
+        """Regression fixture for issue #64: one cable terminated on 4 RearPorts,
+        each with 12 positions and 12 mapped FrontPorts (48 ports total)."""
+        site = Site.objects.create(name="MR-Site", slug="mr-site")
+        mfr = Manufacturer.objects.create(name="MR-Mfr", slug="mr-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="MR-Closure", slug="mr-closure")
+        role = DeviceRole.objects.create(name="MR-Role", slug="mr-role")
+        device = Device.objects.create(name="MR-Closure", site=site, device_type=dt, role=role)
+        cable = Cable.objects.create()
+
+        from dcim.models import CableTermination, FrontPort, PortMapping, RearPort
+        from django.contrib.contenttypes.models import ContentType
+
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        fps = []
+        for t in range(1, 5):
+            rp = RearPort.objects.create(device=device, name=f"MR-RP{t}", type="splice", positions=12)
+            CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp.pk)
+            for i in range(1, 13):
+                fp = FrontPort.objects.create(device=device, name=f"MR-RP{t}-F{i}", type="splice")
+                PortMapping.objects.create(
+                    device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
+                )
+                fps.append(fp)
+
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="MR-48F",
+            strand_count=48,
+            construction="loose_tube",
+        )
+        for t in range(1, 5):
+            BufferTubeTemplate.objects.create(
+                fiber_cable_type=fct,
+                name=f"T{t}",
+                position=t,
+                fiber_count=12,
+            )
+        return device, cable, fct, fps
+
+    def test_multiple_rearports_proposes_and_links_all_strands(self):
+        device, cable, fct, fps = self._make_closure_with_multiple_rearports()
+        with pytest.raises(NeedsMappingConfirmation) as exc_info:
+            link_cable_topology(cable, fct, device)
+        expected = {pos: fps[pos - 1].pk for pos in range(1, 49)}
+        assert exc_info.value.proposed_mapping == expected
+        assert exc_info.value.warnings == []
+
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=exc_info.value.proposed_mapping)
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 48
+        from dcim.models import RearPort
+
+        assert RearPort.objects.filter(device=device).count() == 4  # no new RearPorts
+
 
 @pytest.mark.django_db
 class TestLinkTopologyView:
