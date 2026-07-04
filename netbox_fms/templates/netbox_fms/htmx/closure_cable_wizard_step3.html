@@ -1,3 +1,4 @@
+{% load helpers %}
 {% load i18n %}
 
 <div class="card">
@@ -23,7 +24,11 @@
             </tr>
             <tr>
                 <th scope="row">{% trans "Label" %}</th>
-                <td>{{ cable_label|default:"&mdash;" }}</td>
+                <td>{{ cable_label|placeholder }}</td>
+            </tr>
+            <tr>
+                <th scope="row">{% trans "Status" %}</th>
+                <td>{{ cable_status|placeholder }}</td>
             </tr>
             <tr>
                 <th scope="row">{% trans "Will create, per device" %}</th>
