@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Docs: documented the full splice-closure preparation workflow (closure device, tray module types with TrayProfiles, module bays/modules, ClosureCableEntry before TubeAssignment, tray-module FrontPorts) in the quickstart and splice-planning guide; added TrayProfile and TubeAssignment to the splice-planning core objects and a Tray Assignments section to the device fiber overview guide. Removed patch-panel framing -- the plugin's workflows are closure-centric and patch panels are not modeled at this time. Fixed the quickstart incorrectly stating that a SpliceProject is associated with a closure (the SplicePlan targets the closure; the project is an optional grouping).
 
+### Fixed
+
+- `create_sample_data` no longer passes the removed
+  `SlackLoop.length_unit` kwarg (which crashed both full and --simple
+  modes) and sets `mark_unit` on the sample cable types so slack loop
+  marks remain expressed in meters. (#56)
+
 ## [0.2.0] - 2026-05-26
 
 ### Added
