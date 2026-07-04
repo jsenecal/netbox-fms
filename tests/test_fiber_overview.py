@@ -133,7 +133,6 @@ class TestNavigationCleanup(TestCase):
 
         assert "Splice Entries" not in link_texts
         assert "Cable Entries" not in link_texts
-        assert "Provision Ports" not in link_texts
 
     def test_kept_items_in_menu(self):
         link_texts = self._get_link_texts()

@@ -1,11 +1,10 @@
 from collections import OrderedDict
 
-from dcim.models import CableTermination, Device, FrontPort, Module, PortMapping, RearPort
+from dcim.models import CableTermination, Device, FrontPort, Module
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count
-from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
@@ -73,7 +72,6 @@ from .serializers import (
     FiberCircuitPathSerializer,
     FiberCircuitSerializer,
     FiberStrandSerializer,
-    ProvisionPortsInputSerializer,
     RibbonSerializer,
     RibbonTemplateSerializer,
     SlackLoopSerializer,
@@ -822,69 +820,3 @@ class ClosureStrandsAPIView(APIView):
                 plan_version = plan_obj.last_updated.isoformat()
 
         return Response({"cables": cable_groups, "trays": trays, "plan_version": plan_version})
-
-
-class ProvisionPortsAPIView(APIView):
-    """API endpoint to provision ports for a fiber cable on a device."""
-
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def post(self, request):
-        """Create rear/front ports on a device and link them to fiber strands."""
-        serializer = ProvisionPortsInputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        fiber_cable = get_object_or_404(FiberCable, pk=serializer.validated_data["fiber_cable_id"])
-        device = get_object_or_404(Device, pk=serializer.validated_data["device_id"])
-        port_type = serializer.validated_data.get("port_type", "splice")
-
-        strands = fiber_cable.fiber_strands.select_related("buffer_tube").order_by("position")
-        strand_count = strands.count()
-
-        if strand_count == 0:
-            return Response({"error": "No strands on this fiber cable."}, status=status.HTTP_400_BAD_REQUEST)
-
-        cable_label = str(fiber_cable.cable) if fiber_cable.cable else f"FiberCable-{fiber_cable.pk}"
-
-        from ..signals import fms_portmapping_bypass
-
-        with fms_portmapping_bypass():
-            rear_port = RearPort(
-                device=device,
-                name=cable_label,
-                type=port_type,
-                positions=strand_count,
-            )
-            rear_port.save()
-
-            created_ports = []
-            for strand in strands:
-                fp = FrontPort(
-                    device=device,
-                    name=strand.name,
-                    type=port_type,
-                    color=strand.color,
-                )
-                fp.save()
-
-                PortMapping.objects.create(
-                    device=device,
-                    front_port=fp,
-                    rear_port=rear_port,
-                    front_port_position=1,
-                    rear_port_position=strand.position,
-                )
-
-                strand.front_port_a = fp
-                strand.save(update_fields=["front_port_a"])
-                created_ports.append(fp.pk)
-
-        return Response(
-            {
-                "rear_port_id": rear_port.pk,
-                "front_port_ids": created_ports,
-                "count": strand_count,
-            },
-            status=status.HTTP_201_CREATED,
-        )
