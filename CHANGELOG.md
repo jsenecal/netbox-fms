@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Docs: documented the full splice-closure preparation workflow (closure device, tray module types with TrayProfiles, module bays/modules, ClosureCableEntry before TubeAssignment, tray-module FrontPorts) in the quickstart and splice-planning guide; added TrayProfile and TubeAssignment to the splice-planning core objects and a Tray Assignments section to the device fiber overview guide. Removed patch-panel framing -- the plugin's workflows are closure-centric and patch panels are not modeled at this time. Fixed the quickstart incorrectly stating that a SpliceProject is associated with a closure (the SplicePlan targets the closure; the project is an optional grouping).
 
+### Fixed
+
+- "Apply all Approved Plans" on the closure Pending Work tab raised
+  `TransactionManagementError` ("select_for_update cannot be used outside
+  of a transaction") because the plan queryset was locked before entering
+  the atomic block. The whole apply-all operation now runs inside a single
+  transaction. ([#65](https://github.com/jsenecal/netbox-fms/issues/65))
+
 ## [0.2.0] - 2026-05-26
 
 ### Added

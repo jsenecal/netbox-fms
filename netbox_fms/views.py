@@ -2291,44 +2291,42 @@ class DevicePendingWorkView(generic.ObjectView):
         """Apply all approved plans atomically."""
         device = get_object_or_404(Device, pk=pk)
 
-        approved_plans = list(
-            SplicePlan.objects.filter(
-                closure=device,
-                status=SplicePlanStatusChoices.APPROVED,
-            ).select_for_update()
-        )
-
-        if not approved_plans:
-            messages.error(request, _("No approved plans to apply."))
-            return redirect(device.get_absolute_url())
-
-        # Verify all are still approved (race condition guard)
-        if any(p.status != SplicePlanStatusChoices.APPROVED for p in approved_plans):
-            messages.error(request, _("Some plans are no longer approved. Please review."))
-            return redirect(device.get_absolute_url())
-
-        # Block applying if any splices are protected by active fiber circuits
-        fp_ids = set()
-        for plan in approved_plans:
-            for entry in plan.entries.all():
-                fp_ids.add(entry.fiber_a_id)
-                fp_ids.add(entry.fiber_b_id)
-        if fp_ids:
-            protected_circuits = set(
-                FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
-                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-                .values_list("path__circuit__name", flat=True)
-            )
-            if protected_circuits:
-                names = ", ".join(sorted(protected_circuits))
-                messages.error(
-                    request,
-                    _("Cannot apply: splices are protected by circuit(s): {names}").format(names=names),
-                )
-                return redirect(device.get_absolute_url())
-
         try:
             with transaction.atomic():
+                # Lock the approved plans; select_for_update requires an
+                # enclosing transaction, and the row locks guard against a
+                # concurrent status change (issue #65).
+                approved_plans = list(
+                    SplicePlan.objects.filter(
+                        closure=device,
+                        status=SplicePlanStatusChoices.APPROVED,
+                    ).select_for_update()
+                )
+
+                if not approved_plans:
+                    messages.error(request, _("No approved plans to apply."))
+                    return redirect(device.get_absolute_url())
+
+                # Block applying if any splices are protected by active fiber circuits
+                fp_ids = set()
+                for plan in approved_plans:
+                    for entry in plan.entries.all():
+                        fp_ids.add(entry.fiber_a_id)
+                        fp_ids.add(entry.fiber_b_id)
+                if fp_ids:
+                    protected_circuits = set(
+                        FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
+                        .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
+                        .values_list("path__circuit__name", flat=True)
+                    )
+                    if protected_circuits:
+                        names = ", ".join(sorted(protected_circuits))
+                        messages.error(
+                            request,
+                            _("Cannot apply: splices are protected by circuit(s): {names}").format(names=names),
+                        )
+                        return redirect(device.get_absolute_url())
+
                 total_added = 0
                 total_removed = 0
 
