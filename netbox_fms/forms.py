@@ -844,36 +844,6 @@ class SlackLoopFilterForm(NetBoxModelFilterSetForm):
 
 
 # ---------------------------------------------------------------------------
-# Provision Ports
-# ---------------------------------------------------------------------------
-
-
-class ProvisionPortsForm(forms.Form):
-    """Form for provisioning front/rear ports on a device for a fiber cable."""
-
-    fiber_cable = DynamicModelChoiceField(
-        queryset=FiberCable.objects.all(),
-        label=_("Fiber Cable"),
-    )
-    device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        label=_("Device"),
-        help_text=_("The device (closure/panel) to provision ports on."),
-    )
-    port_type = forms.ChoiceField(
-        choices=PortTypeChoices,
-        label=_("Port Type"),
-        initial="splice",
-        help_text=_("Defaults to Splice. Override for special cases like MPO cassettes."),
-    )
-
-    fieldsets = (
-        FieldSet("device", name=_("Provision Ports")),
-        FieldSet("port_type", name=_("Advanced")),
-    )
-
-
-# ---------------------------------------------------------------------------
 # FiberCircuit
 # ---------------------------------------------------------------------------
 
@@ -1030,7 +1000,7 @@ class CircuitWizardStep4Form(forms.Form):
 
 
 # ---------------------------------------------------------------------------
-# Provision Ports / Link Topology
+# Link Topology
 # ---------------------------------------------------------------------------
 
 

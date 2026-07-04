@@ -246,8 +246,6 @@ urlpatterns = [
         views.FiberCircuitPathDeleteView.as_view(),
         name="fibercircuitpath_delete",
     ),
-    # Provision Ports
-    path("provision-ports/", views.ProvisionPortsView.as_view(), name="provision_ports"),
     # Fiber Overview HTMX actions
     path(
         "fiber-overview/<int:pk>/update-gland/",

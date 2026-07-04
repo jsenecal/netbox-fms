@@ -1,7 +1,7 @@
 import time
 
 from dcim.choices import LinkStatusChoices
-from dcim.models import Cable, CableTermination, Device, FrontPort, Module, PortMapping, RearPort
+from dcim.models import Cable, CableTermination, Device, FrontPort, Module, RearPort
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
@@ -73,7 +73,6 @@ from .forms import (
     FiberCircuitPathForm,
     InsertSlackLoopForm,
     LinkTopologyForm,
-    ProvisionPortsForm,
     RibbonTemplateBulkEditForm,
     RibbonTemplateForm,
     SlackLoopBulkEditForm,
@@ -1819,117 +1818,6 @@ class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
     """Delete a fiber circuit path."""
 
     queryset = FiberCircuitPath.objects.all()
-
-
-# ---------------------------------------------------------------------------
-# Provision Ports
-# ---------------------------------------------------------------------------
-
-
-@transaction.atomic
-def provision_strands(fiber_cable, device, port_type, module=None):
-    """
-    Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device.
-    If module is provided, all ports are created on that module (in addition to device).
-    """
-    strands = fiber_cable.fiber_strands.select_related("buffer_tube").order_by("position")
-    strand_count = strands.count()
-    if strand_count == 0:
-        raise ValueError("This fiber cable has no strands.")
-
-    cable_label = str(fiber_cable.cable) if fiber_cable.cable else f"FiberCable-{fiber_cable.pk}"
-
-    # PortMapping only has device, front_port, rear_port — no module field.
-    component_kwargs = {"device": device}
-    if module is not None:
-        component_kwargs["module"] = module
-
-    from .signals import fms_portmapping_bypass
-
-    with fms_portmapping_bypass():
-        rear_port = RearPort(
-            **component_kwargs,
-            name=cable_label,
-            type=port_type,
-            positions=strand_count,
-            color="",
-        )
-        rear_port.save()
-
-        for strand in strands:
-            fp = FrontPort(
-                **component_kwargs,
-                name=strand.name,
-                type=port_type,
-                color=strand.color,
-            )
-            fp.save()
-
-            PortMapping.objects.create(
-                device=device,
-                front_port=fp,
-                rear_port=rear_port,
-                front_port_position=1,
-                rear_port_position=strand.position,
-            )
-
-            strand.front_port_a = fp
-            strand.save(update_fields=["front_port_a"])
-
-
-class ProvisionPortsView(LoginRequiredMixin, View):
-    """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device (htmx modal)."""
-
-    def _get_context(self, request, form=None):
-        fiber_cable = get_object_or_404(
-            FiberCable, pk=request.GET.get("fiber_cable") or request.POST.get("fiber_cable")
-        )
-        if form is None:
-            form = ProvisionPortsForm(initial={"fiber_cable": fiber_cable.pk})
-        return {"form": form, "fiber_cable": fiber_cable}
-
-    def get(self, request):
-        """Render the provision ports form inside the htmx modal."""
-        ctx = self._get_context(request)
-        return render(request, "netbox_fms/provision_ports_modal.html", ctx)
-
-    def post(self, request):
-        """Create FrontPort/RearPort/PortMapping for the selected fiber cable and device."""
-        form = ProvisionPortsForm(request.POST)
-        ctx = self._get_context(request, form)
-        fiber_cable = ctx["fiber_cable"]
-        template = "netbox_fms/provision_ports_modal.html"
-
-        if not form.is_valid():
-            return render(request, template, ctx)
-
-        device = form.cleaned_data["device"]
-        port_type = form.cleaned_data["port_type"]
-
-        # Check for already provisioned strands on this device
-        already = fiber_cable.fiber_strands.filter(
-            Q(front_port_a__device=device) | Q(front_port_b__device=device)
-        ).exists()
-        if already:
-            messages.error(request, _("Some strands are already provisioned on this device."))
-            return render(request, template, ctx)
-
-        try:
-            provision_strands(fiber_cable, device, port_type)
-            strand_count = fiber_cable.fiber_strands.count()
-            messages.success(
-                request,
-                _('Provisioned {count} ports for "{cable}" on {device}.').format(
-                    count=strand_count, cable=fiber_cable, device=device
-                ),
-            )
-        except ValueError as e:
-            messages.error(request, str(e))
-            return render(request, template, ctx)
-
-        response = HttpResponse(status=204)
-        response["HX-Redirect"] = fiber_cable.get_absolute_url()
-        return response
 
 
 # ---------------------------------------------------------------------------
