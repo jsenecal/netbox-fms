@@ -1833,6 +1833,15 @@ def provision_strands(fiber_cable, device, port_type, module=None):
     if strand_count == 0:
         raise ValueError("This fiber cable has no strands.")
 
+    # Provision the A side first; once any strand has an A-side port, the next
+    # provisioning run targets the B side (issue #70).
+    if not strands.filter(front_port_a__isnull=False).exists():
+        side_field = "front_port_a"
+    elif not strands.filter(front_port_b__isnull=False).exists():
+        side_field = "front_port_b"
+    else:
+        raise ValueError("Both sides of this fiber cable are already provisioned.")
+
     cable_label = str(fiber_cable.cable) if fiber_cable.cable else f"FiberCable-{fiber_cable.pk}"
 
     # PortMapping only has device, front_port, rear_port — no module field.
@@ -1869,8 +1878,8 @@ def provision_strands(fiber_cable, device, port_type, module=None):
                 rear_port_position=strand.position,
             )
 
-            strand.front_port_a = fp
-            strand.save(update_fields=["front_port_a"])
+            setattr(strand, side_field, fp)
+            strand.save(update_fields=[side_field])
 
 
 class ProvisionPortsView(LoginRequiredMixin, View):

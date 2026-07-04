@@ -281,3 +281,40 @@ class TestProvisionStrandsHelper(TestCase):
 
         fps = FrontPort.objects.filter(device=self.device, module__isnull=True)
         assert fps.count() == 4
+
+    def _create_second_device(self):
+        site = Site.objects.get(slug="prov-test-site")
+        device_type = DeviceType.objects.get(slug="prov-closure")
+        role = DeviceRole.objects.get(slug="prov-role")
+        return Device.objects.create(name="Prov-Device-B", site=site, device_type=device_type, role=role)
+
+    def test_second_provision_populates_b_side(self):
+        """Regression for issue #70: provisioning a second device must fill
+        front_port_b instead of overwriting front_port_a."""
+        device_b = self._create_second_device()
+
+        cable = Cable.objects.create()
+        fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
+        provision_strands(fiber_cable, self.device, port_type="splice")
+        provision_strands(fiber_cable, device_b, port_type="splice")
+
+        for strand in fiber_cable.fiber_strands.all():
+            assert strand.front_port_a is not None
+            assert strand.front_port_a.device == self.device
+            assert strand.front_port_b is not None
+            assert strand.front_port_b.device == device_b
+
+    def test_provision_fails_when_both_sides_provisioned(self):
+        device_b = self._create_second_device()
+        site = Site.objects.get(slug="prov-test-site")
+        device_type = DeviceType.objects.get(slug="prov-closure")
+        role = DeviceRole.objects.get(slug="prov-role")
+        device_c = Device.objects.create(name="Prov-Device-C", site=site, device_type=device_type, role=role)
+
+        cable = Cable.objects.create()
+        fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
+        provision_strands(fiber_cable, self.device, port_type="splice")
+        provision_strands(fiber_cable, device_b, port_type="splice")
+
+        with self.assertRaises(ValueError):
+            provision_strands(fiber_cable, device_c, port_type="splice")
