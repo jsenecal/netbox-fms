@@ -30,6 +30,7 @@ from dcim.models import (
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models.signals import post_save
 
 from netbox_fms.choices import StorageMethodChoices, TrayRoleChoices
 from netbox_fms.models import (
@@ -49,6 +50,29 @@ from netbox_fms.models import (
     TubeAssignment,
 )
 from netbox_fms.signals import fms_portmapping_bypass
+
+
+def _bulk_create_components(model, instances):
+    """bulk_create() device components, then emit post_save for each.
+
+    bulk_create() skips post_save, so NetBox's CounterCacheFields (e.g.
+    Device.front_port_count) never increment and the device component tabs
+    (Front Ports, Interfaces, ...) are hidden via ViewTab hide_if_empty
+    even though the components exist. Mirror NetBox core's own pattern
+    (Module.save) by sending the signal manually. Refs #62.
+    """
+    objs = model.objects.bulk_create(instances)
+    for obj in objs:
+        post_save.send(
+            sender=model,
+            instance=obj,
+            created=True,
+            raw=False,
+            using="default",
+            update_fields=None,
+        )
+    return objs
+
 
 # EIA/TIA-598 colors (12 standard)
 EIA_COLORS = {
@@ -1009,7 +1033,7 @@ class Command(BaseCommand):
                             fps_to_create.append((fp, rp, pos_in_tube, strand))
 
                         # Bulk create FrontPorts
-                        fp_objects = FrontPort.objects.bulk_create([f[0] for f in fps_to_create])
+                        fp_objects = _bulk_create_components(FrontPort, [f[0] for f in fps_to_create])
                         pms_to_create = []
                         for fp_obj, (_, rp_ref, pos, strand) in zip(fp_objects, fps_to_create, strict=False):
                             pms_to_create.append(
@@ -1048,7 +1072,7 @@ class Command(BaseCommand):
                         )
                         fps_to_create.append((fp, rp, strand.position, strand))
 
-                    fp_objects = FrontPort.objects.bulk_create([f[0] for f in fps_to_create])
+                    fp_objects = _bulk_create_components(FrontPort, [f[0] for f in fps_to_create])
                     pms_to_create = []
                     for fp_obj, (_, rp_ref, pos, strand) in zip(fp_objects, fps_to_create, strict=False):
                         pms_to_create.append(
@@ -1335,7 +1359,7 @@ class Command(BaseCommand):
                     type=InterfaceTypeChoices.TYPE_10GE_SFP_PLUS,
                 )
             )
-        return Interface.objects.bulk_create(intfs)
+        return _bulk_create_components(Interface, intfs)
 
     def _patch_interfaces_to_odf(self, odf_device, interfaces):
         """Create patch cables from interfaces to available FrontPorts on ODF."""

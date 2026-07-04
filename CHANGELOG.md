@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional express basket bays in one atomic action. Requires tray
   ModuleTypes marked with a TrayProfile.
 
+### Fixed
+
+- `create_sample_data` provisioned FrontPorts and Interfaces with
+  `bulk_create()`, which skips `post_save` and leaves NetBox's device
+  counter caches (`front_port_count`, `interface_count`) at zero. Since
+  device component tabs hide when their counter badge is empty, the Front
+  Ports tab disappeared from provisioned devices even though the ports
+  existed. The command now emits `post_save` for each bulk-created
+  component, mirroring NetBox core's own pattern. (#62)
+
 ### Changed
 
 - Docs: documented the full splice-closure preparation workflow (closure device, tray module types with TrayProfiles, module bays/modules, ClosureCableEntry before TubeAssignment, tray-module FrontPorts) in the quickstart and splice-planning guide; added TrayProfile and TubeAssignment to the splice-planning core objects and a Tray Assignments section to the device fiber overview guide. Removed patch-panel framing -- the plugin's workflows are closure-centric and patch panels are not modeled at this time. Fixed the quickstart incorrectly stating that a SpliceProject is associated with a closure (the SplicePlan targets the closure; the project is an optional grouping).
