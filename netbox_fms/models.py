@@ -14,6 +14,7 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
+    FiberColorSchemeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     SheathMaterialChoices,
@@ -21,7 +22,7 @@ from .choices import (
     StorageMethodChoices,
     TrayRoleChoices,
 )
-from .constants import FIBER_CABLE_TYPES, get_eia598_color
+from .constants import FIBER_CABLE_TYPES, get_strand_color
 
 __all__ = (
     "FiberCableType",
@@ -83,6 +84,16 @@ class FiberCableType(NetBoxModel):
     strand_count = models.PositiveIntegerField(
         verbose_name=_("strand count"),
         help_text=_("Total number of fiber strands in the cable."),
+    )
+    color_scheme = models.CharField(
+        verbose_name=_("fiber color scheme"),
+        max_length=20,
+        choices=FiberColorSchemeChoices,
+        default=FiberColorSchemeChoices.EIA_598,
+        help_text=_(
+            "Color standard used to auto-assign strand colors when a FiberCable "
+            "of this type is created. Changing it later does not recolor existing cables."
+        ),
     )
 
     # Sheath / jacket
@@ -201,6 +212,7 @@ class FiberCableType(NetBoxModel):
         "manufacturer",
         "construction",
         "strand_count",
+        "color_scheme",
         "mark_unit",
         "sheath_material",
         "jacket_color",
@@ -821,7 +833,7 @@ class FiberCable(NetBoxModel):
                 # Loose tube: create fibers directly in tube
                 fibers = []
                 for i in range(1, tt.fiber_count + 1):
-                    hex_color, _ = get_eia598_color(i)
+                    hex_color, _ = get_strand_color(i, fct.color_scheme)
                     mk_count, mk_color, mk_type = self._strand_marker(i, tt)
                     fibers.append(
                         FiberStrand(
@@ -853,7 +865,7 @@ class FiberCable(NetBoxModel):
             # Tight buffer / simple cable: create fibers directly on cable
             fibers = []
             for i in range(1, fct.strand_count + 1):
-                hex_color, _ = get_eia598_color(i)
+                hex_color, _ = get_strand_color(i, fct.color_scheme)
                 mk_count, mk_color, mk_type = self._strand_marker(i, fct)
                 fibers.append(
                     FiberStrand(
@@ -877,7 +889,7 @@ class FiberCable(NetBoxModel):
         """Create fiber strands within a ribbon. Returns next strand position."""
         fibers = []
         for i in range(1, ribbon_template.fiber_count + 1):
-            hex_color, _ = get_eia598_color(i)
+            hex_color, _ = get_strand_color(i, self.fiber_cable_type.color_scheme)
             mk_count, mk_color, mk_type = self._strand_marker(i, ribbon_template)
             fibers.append(
                 FiberStrand(
