@@ -54,6 +54,7 @@ class FiberCableTypeSerializer(NetBoxModelSerializer):
             "part_number",
             "construction",
             "strand_count",
+            "color_scheme",
             "outer_diameter",
             "twist_factor_ratio",
             "mark_unit",

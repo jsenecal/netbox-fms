@@ -12,6 +12,7 @@ from netbox_fms.constants import (
 from netbox_fms.forms import (
     BufferTubeTemplateBulkEditForm,
     BufferTubeTemplateForm,
+    FiberCableTypeImportForm,
     RibbonTemplateBulkEditForm,
     RibbonTemplateForm,
 )
@@ -179,3 +180,33 @@ class TestSchemeAwareColorPicker:
         for form_cls in (BufferTubeTemplateBulkEditForm, RibbonTemplateBulkEditForm):
             groups = _picker_groups(form_cls())
             assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "Other"]
+
+
+@pytest.mark.django_db
+class TestImportFormColorScheme:
+    def test_blank_color_scheme_defaults_to_eia(self):
+        mfr, _ = Manufacturer.objects.get_or_create(name="NBR Mfr", slug="nbr-mfr")
+        form = FiberCableTypeImportForm(
+            data={
+                "manufacturer": mfr.pk,
+                "model": "CSV-12F",
+                "construction": "loose_tube",
+                "strand_count": 12,
+            }
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["color_scheme"] == FiberColorSchemeChoices.EIA_598
+
+    def test_explicit_nbr_accepted(self):
+        mfr, _ = Manufacturer.objects.get_or_create(name="NBR Mfr", slug="nbr-mfr")
+        form = FiberCableTypeImportForm(
+            data={
+                "manufacturer": mfr.pk,
+                "model": "CSV-NBR-12F",
+                "construction": "loose_tube",
+                "strand_count": 12,
+                "color_scheme": "nbr_14771",
+            }
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["color_scheme"] == FiberColorSchemeChoices.NBR_14771

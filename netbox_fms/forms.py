@@ -37,6 +37,7 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
+    FiberColorSchemeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     SheathMaterialChoices,
@@ -82,7 +83,7 @@ class FiberCableTypeForm(NetBoxModelForm):
 
     fieldsets = (
         FieldSet("manufacturer", "model", "part_number", name=_("Cable Type")),
-        FieldSet("construction", "strand_count", name=_("Cable Construction")),
+        FieldSet("construction", "strand_count", "color_scheme", name=_("Cable Construction")),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
@@ -104,6 +105,7 @@ class FiberCableTypeForm(NetBoxModelForm):
             "part_number",
             "construction",
             "strand_count",
+            "color_scheme",
             "outer_diameter",
             "twist_factor_ratio",
             "mark_unit",
@@ -127,6 +129,10 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
     construction = forms.ChoiceField(choices=ConstructionChoices)
+    color_scheme = forms.ChoiceField(choices=FiberColorSchemeChoices, required=False)
+
+    def clean_color_scheme(self):
+        return self.cleaned_data.get("color_scheme") or FiberColorSchemeChoices.EIA_598
 
     class Meta:
         model = FiberCableType
@@ -136,6 +142,7 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
             "part_number",
             "construction",
             "strand_count",
+            "color_scheme",
             "outer_diameter",
             "twist_factor_ratio",
             "mark_unit",
@@ -157,6 +164,7 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all(), required=False)
     construction = forms.ChoiceField(choices=ConstructionChoices, required=False)
+    color_scheme = forms.ChoiceField(choices=add_blank_choice(FiberColorSchemeChoices), required=False)
     sheath_material = forms.ChoiceField(choices=SheathMaterialChoices, required=False)
     deployment = forms.ChoiceField(choices=DeploymentChoices, required=False)
     fire_rating = forms.ChoiceField(choices=FireRatingChoices, required=False)
@@ -165,7 +173,7 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     mark_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
 
     fieldsets = (
-        FieldSet("manufacturer", "construction"),
+        FieldSet("manufacturer", "construction", "color_scheme"),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "deployment", "fire_rating"),
     )
@@ -190,6 +198,7 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
         label=_("Manufacturer"),
     )
     construction = forms.MultipleChoiceField(choices=ConstructionChoices, required=False)
+    color_scheme = forms.MultipleChoiceField(choices=FiberColorSchemeChoices, required=False)
     sheath_material = forms.MultipleChoiceField(choices=SheathMaterialChoices, required=False)
     is_armored = forms.NullBooleanField(required=False, label=_("Armored"))
     deployment = forms.MultipleChoiceField(choices=DeploymentChoices, required=False)
@@ -197,7 +206,7 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
 
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
-        FieldSet("manufacturer_id", "construction", name=_("Properties")),
+        FieldSet("manufacturer_id", "construction", "color_scheme", name=_("Properties")),
         FieldSet("sheath_material", "is_armored", "deployment", "fire_rating", name=_("Physical")),
     )
 
