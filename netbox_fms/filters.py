@@ -10,6 +10,7 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
+    FiberColorSchemeChoices,
     FireRatingChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
@@ -73,6 +74,7 @@ class FiberCableTypeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         label=_("Manufacturer (slug)"),
     )
     construction = django_filters.MultipleChoiceFilter(choices=ConstructionChoices)
+    color_scheme = django_filters.MultipleChoiceFilter(choices=FiberColorSchemeChoices)
     sheath_material = django_filters.MultipleChoiceFilter(choices=SheathMaterialChoices)
     is_armored = django_filters.BooleanFilter()
     armor_type = django_filters.MultipleChoiceFilter(choices=ArmorTypeChoices)
@@ -90,6 +92,7 @@ class FiberCableTypeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
             "model",
             "part_number",
             "construction",
+            "color_scheme",
             "strand_count",
             "sheath_material",
             "is_armored",

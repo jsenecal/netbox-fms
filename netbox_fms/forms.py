@@ -1,4 +1,10 @@
-from dcim.choices import CableLengthUnitChoices, DeviceStatusChoices, PortTypeChoices
+from dcim.choices import (
+    CableLengthUnitChoices,
+    CableTypeChoices,
+    DeviceStatusChoices,
+    LinkStatusChoices,
+    PortTypeChoices,
+)
 from dcim.models import (
     Cable,
     Device,
@@ -22,9 +28,11 @@ from netbox.forms import (
     NetBoxModelImportForm,
 )
 from tenancy.models import Tenant
+from utilities.choices import unpack_grouped_choices
 from utilities.forms.fields import (
     ColorField,
     CommentField,
+    CSVChoiceField,
     CSVModelChoiceField,
     DynamicModelChoiceField,
     DynamicModelMultipleChoiceField,
@@ -37,6 +45,7 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
+    FiberColorSchemeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     SheathMaterialChoices,
@@ -44,6 +53,7 @@ from .choices import (
     StorageMethodChoices,
     TrayRoleChoices,
 )
+from .constants import FIBER_CABLE_TYPES, get_grouped_color_choices
 from .models import (
     BufferTube,
     BufferTubeTemplate,
@@ -81,7 +91,7 @@ class FiberCableTypeForm(NetBoxModelForm):
 
     fieldsets = (
         FieldSet("manufacturer", "model", "part_number", name=_("Cable Type")),
-        FieldSet("construction", "strand_count", name=_("Cable Construction")),
+        FieldSet("construction", "strand_count", "color_scheme", name=_("Cable Construction")),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
@@ -103,6 +113,7 @@ class FiberCableTypeForm(NetBoxModelForm):
             "part_number",
             "construction",
             "strand_count",
+            "color_scheme",
             "outer_diameter",
             "twist_factor_ratio",
             "mark_unit",
@@ -125,7 +136,11 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
     """Import form for FiberCableType."""
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
-    construction = forms.ChoiceField(choices=ConstructionChoices)
+    construction = CSVChoiceField(choices=ConstructionChoices)
+    color_scheme = CSVChoiceField(choices=FiberColorSchemeChoices, required=False)
+
+    def clean_color_scheme(self):
+        return self.cleaned_data.get("color_scheme") or FiberColorSchemeChoices.EIA_598
 
     class Meta:
         model = FiberCableType
@@ -135,6 +150,7 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
             "part_number",
             "construction",
             "strand_count",
+            "color_scheme",
             "outer_diameter",
             "twist_factor_ratio",
             "mark_unit",
@@ -155,16 +171,17 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     model = FiberCableType
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all(), required=False)
-    construction = forms.ChoiceField(choices=ConstructionChoices, required=False)
-    sheath_material = forms.ChoiceField(choices=SheathMaterialChoices, required=False)
-    deployment = forms.ChoiceField(choices=DeploymentChoices, required=False)
-    fire_rating = forms.ChoiceField(choices=FireRatingChoices, required=False)
+    construction = forms.ChoiceField(choices=add_blank_choice(ConstructionChoices), required=False)
+    color_scheme = forms.ChoiceField(choices=add_blank_choice(FiberColorSchemeChoices), required=False)
+    sheath_material = forms.ChoiceField(choices=add_blank_choice(SheathMaterialChoices), required=False)
+    deployment = forms.ChoiceField(choices=add_blank_choice(DeploymentChoices), required=False)
+    fire_rating = forms.ChoiceField(choices=add_blank_choice(FireRatingChoices), required=False)
     outer_diameter = forms.FloatField(required=False, label=_("Outer diameter (mm)"))
     twist_factor_ratio = forms.FloatField(required=False, label=_("Twist factor ratio"))
-    mark_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
+    mark_unit = forms.ChoiceField(choices=add_blank_choice(CableLengthUnitChoices), required=False)
 
     fieldsets = (
-        FieldSet("manufacturer", "construction"),
+        FieldSet("manufacturer", "construction", "color_scheme"),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "deployment", "fire_rating"),
     )
@@ -189,6 +206,7 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
         label=_("Manufacturer"),
     )
     construction = forms.MultipleChoiceField(choices=ConstructionChoices, required=False)
+    color_scheme = forms.MultipleChoiceField(choices=FiberColorSchemeChoices, required=False)
     sheath_material = forms.MultipleChoiceField(choices=SheathMaterialChoices, required=False)
     is_armored = forms.NullBooleanField(required=False, label=_("Armored"))
     deployment = forms.MultipleChoiceField(choices=DeploymentChoices, required=False)
@@ -196,7 +214,7 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
 
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
-        FieldSet("manufacturer_id", "construction", name=_("Properties")),
+        FieldSet("manufacturer_id", "construction", "color_scheme", name=_("Properties")),
         FieldSet("sheath_material", "is_armored", "deployment", "fire_rating", name=_("Physical")),
     )
 
@@ -267,6 +285,31 @@ class FiberAttenuationSpecFilterForm(NetBoxModelFilterSetForm):
 # ---------------------------------------------------------------------------
 
 
+def _apply_scheme_color_choices(form):
+    """
+    Rebuild the form's ``color`` picker around the parent cable type's
+    color scheme. Falls back to showing every known scheme when the parent
+    cannot be resolved, and always appends the current off-palette value
+    so existing data stays selectable.
+    """
+    fct = None
+    if form.instance.pk:
+        fct = form.instance.fiber_cable_type
+    else:
+        raw = form.data.get("fiber_cable_type") or form.initial.get("fiber_cable_type")
+        if raw:
+            try:
+                fct = FiberCableType.objects.filter(pk=int(getattr(raw, "pk", raw))).first()
+            except (TypeError, ValueError):
+                fct = None
+    choices = get_grouped_color_choices(fct.color_scheme if fct else None)
+    current = form["color"].value()
+    known = {value for _label, options in choices for value, _l in options}
+    if current and current not in known:
+        choices.append((_("Current"), [(current, f"#{current}")]))
+    form.fields["color"].widget.choices = add_blank_choice(choices)
+
+
 class BufferTubeTemplateForm(NetBoxModelForm):
     """Form for creating/editing a BufferTubeTemplate."""
 
@@ -277,6 +320,10 @@ class BufferTubeTemplateForm(NetBoxModelForm):
     color = ColorField(required=False)
     marker_color = ColorField(required=False)
     strand_marker_color = ColorField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_scheme_color_choices(self)
 
     fieldsets = (
         FieldSet(
@@ -330,6 +377,10 @@ class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
     marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["color"].widget.choices = add_blank_choice(get_grouped_color_choices())
+
     fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
     nullable_fields = ("color", "marker_color", "marker_type")
 
@@ -355,6 +406,10 @@ class RibbonTemplateForm(NetBoxModelForm):
     color = ColorField(required=False)
     marker_color = ColorField(required=False)
     strand_marker_color = ColorField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_scheme_color_choices(self)
 
     fieldsets = (
         FieldSet(
@@ -410,6 +465,10 @@ class RibbonTemplateBulkEditForm(NetBoxModelBulkEditForm):
     marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["color"].widget.choices = add_blank_choice(get_grouped_color_choices())
+
     fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
     nullable_fields = ("color", "marker_color", "marker_type")
 
@@ -442,7 +501,7 @@ class CableElementTemplateBulkEditForm(NetBoxModelBulkEditForm):
 
     model = CableElementTemplate
 
-    element_type = forms.ChoiceField(choices=CableElementTypeChoices, required=False)
+    element_type = forms.ChoiceField(choices=add_blank_choice(CableElementTypeChoices), required=False)
 
     fieldsets = (FieldSet("element_type"),)
     nullable_fields = ()
@@ -778,7 +837,7 @@ class SlackLoopImportForm(NetBoxModelImportForm):
     """Import form for SlackLoop."""
 
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all())
-    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+    storage_method = CSVChoiceField(choices=StorageMethodChoices, required=False)
 
     class Meta:
         model = SlackLoop
@@ -800,7 +859,7 @@ class SlackLoopBulkEditForm(NetBoxModelBulkEditForm):
 
     site = DynamicModelChoiceField(queryset=Site.objects.all(), required=False)
     location = DynamicModelChoiceField(queryset=Location.objects.all(), required=False)
-    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+    storage_method = forms.ChoiceField(choices=add_blank_choice(StorageMethodChoices), required=False)
 
     fieldsets = (FieldSet("site", "location", "storage_method"),)
     nullable_fields = ("location", "storage_method")
@@ -832,36 +891,6 @@ class SlackLoopFilterForm(NetBoxModelFilterSetForm):
         FieldSet("q", "filter_id", "tag"),
         FieldSet("fiber_cable_id", "site_id", "location_id", name=_("Location")),
         FieldSet("storage_method", name=_("Attributes")),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Provision Ports
-# ---------------------------------------------------------------------------
-
-
-class ProvisionPortsForm(forms.Form):
-    """Form for provisioning front/rear ports on a device for a fiber cable."""
-
-    fiber_cable = DynamicModelChoiceField(
-        queryset=FiberCable.objects.all(),
-        label=_("Fiber Cable"),
-    )
-    device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        label=_("Device"),
-        help_text=_("The device (closure/panel) to provision ports on."),
-    )
-    port_type = forms.ChoiceField(
-        choices=PortTypeChoices,
-        label=_("Port Type"),
-        initial="splice",
-        help_text=_("Defaults to Splice. Override for special cases like MPO cassettes."),
-    )
-
-    fieldsets = (
-        FieldSet("device", name=_("Provision Ports")),
-        FieldSet("port_type", name=_("Advanced")),
     )
 
 
@@ -899,7 +928,7 @@ class FiberCircuitBulkEditForm(NetBoxModelBulkEditForm):
 
     model = FiberCircuit
 
-    status = forms.ChoiceField(choices=FiberCircuitStatusChoices, required=False)
+    status = forms.ChoiceField(choices=add_blank_choice(FiberCircuitStatusChoices), required=False)
     strand_count = forms.IntegerField(required=False)
     tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
     description = forms.CharField(required=False)
@@ -983,16 +1012,12 @@ class CircuitWizardStep1Form(forms.Form):
     strand_count = forms.IntegerField(min_value=1, initial=1, label=_("Strand Count"))
     tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False, label=_("Tenant"))
 
-    fieldsets = (FieldSet("name", "cid", "strand_count", "tenant", name=_("Circuit Basics")),)
-
 
 class CircuitWizardStep2Form(forms.Form):
     """Step 2: Select origin and destination devices."""
 
     origin_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Origin Device"))
     destination_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Destination Device"))
-
-    fieldsets = (FieldSet("origin_device", "destination_device", name=_("Endpoints")),)
 
     def clean(self):
         super().clean()
@@ -1026,7 +1051,7 @@ class CircuitWizardStep4Form(forms.Form):
 
 
 # ---------------------------------------------------------------------------
-# Provision Ports / Link Topology
+# Link Topology
 # ---------------------------------------------------------------------------
 
 
@@ -1115,7 +1140,7 @@ class TrayProfileBulkEditForm(NetBoxModelBulkEditForm):
     """Bulk edit form for TrayProfile."""
 
     model = TrayProfile
-    tray_role = forms.ChoiceField(choices=TrayRoleChoices, required=False, label=_("Tray Role"))
+    tray_role = forms.ChoiceField(choices=add_blank_choice(TrayRoleChoices), required=False, label=_("Tray Role"))
     description = forms.CharField(required=False, label=_("Description"))
 
 
@@ -1208,3 +1233,75 @@ class SpliceClosureCreateForm(forms.Form):
         required=False,
     )
     basket_count = forms.IntegerField(min_value=1, initial=1, required=False, label=_("Basket count"))
+
+
+def _fiber_type_choices():
+    """dcim CableTypeChoices restricted to the fiber subset the plugin accepts."""
+    fiber = [
+        (value, label)
+        for value, label in unpack_grouped_choices(CableTypeChoices.CHOICES)
+        if value in FIBER_CABLE_TYPES
+    ]
+    return add_blank_choice(fiber)
+
+
+class ClosureCableWizardStep1Form(forms.Form):
+    """Closure cable wizard step 1: FMS scope."""
+
+    far_end_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        label=_("Far end device"),
+        help_text=_("The closure or device at the other end of the cable."),
+    )
+    fiber_cable_type = DynamicModelChoiceField(
+        queryset=FiberCableType.objects.all(),
+        label=_("Fiber cable type"),
+    )
+    port_type = forms.ChoiceField(
+        choices=PortTypeChoices,
+        initial="splice",
+        label=_("Port type"),
+        help_text=_("Defaults to Splice. Override for special cases like MPO cassettes."),
+    )
+
+    def __init__(self, *args, near_device=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.near_device = near_device
+
+    def clean_far_end_device(self):
+        far_device = self.cleaned_data["far_end_device"]
+        if self.near_device is not None and far_device == self.near_device:
+            raise ValidationError(_("Far end must be a different device."))
+        return far_device
+
+
+class ClosureCableWizardStep2Form(forms.Form):
+    """Closure cable wizard step 2: native dcim.Cable attributes.
+
+    A plain Form, not a ModelForm -- a create-ModelForm over Cable would
+    trip Cable.clean()'s both-ends-required check in _post_clean() before
+    any ports exist.
+    """
+
+    type = forms.ChoiceField(choices=_fiber_type_choices, required=False, label=_("Type"))
+    status = forms.ChoiceField(
+        choices=LinkStatusChoices,
+        initial=LinkStatusChoices.STATUS_CONNECTED,
+        label=_("Status"),
+    )
+    tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False, label=_("Tenant"))
+    label = forms.CharField(max_length=100, required=False, label=_("Label"))
+    color = ColorField(required=False, label=_("Color"))
+    length = forms.DecimalField(max_digits=8, decimal_places=2, min_value=0, required=False, label=_("Length"))
+    length_unit = forms.ChoiceField(
+        choices=add_blank_choice(CableLengthUnitChoices),
+        required=False,
+        label=_("Length unit"),
+    )
+    description = forms.CharField(max_length=200, required=False, label=_("Description"))
+
+    def clean(self):
+        super().clean()
+        if self.cleaned_data.get("length") is not None and not self.cleaned_data.get("length_unit"):
+            raise ValidationError({"length_unit": _("Must specify a unit when setting a cable length.")})
+        return self.cleaned_data

@@ -36,6 +36,7 @@ class FiberCableTypeTable(NetBoxTable):
     model = tables.Column(linkify=True, verbose_name=_("Model"))
     manufacturer = tables.Column(linkify=True, verbose_name=_("Manufacturer"))
     construction = tables.Column(verbose_name=_("Construction"))
+    color_scheme = columns.ChoiceFieldColumn(verbose_name=_("Color Scheme"))
     strand_count = tables.Column(verbose_name=_("Strands"))
     jacket_color = columns.ColorColumn(verbose_name=_("Jacket Color"))
     sheath_material = tables.Column(verbose_name=_("Sheath"))
@@ -61,6 +62,7 @@ class FiberCableTypeTable(NetBoxTable):
             "model",
             "part_number",
             "construction",
+            "color_scheme",
             "strand_count",
             "outer_diameter",
             "twist_factor_ratio",

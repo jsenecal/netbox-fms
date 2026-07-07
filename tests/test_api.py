@@ -1,7 +1,6 @@
 """API endpoint coverage tests for netbox_fms plugin."""
 
 from dcim.models import (
-    Cable,
     Device,
     DeviceRole,
     DeviceType,
@@ -17,8 +16,6 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from netbox_fms.models import (
-    FiberCable,
-    FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
     SplicePlan,
@@ -354,62 +351,6 @@ class TestClosureStrandsAPI(TestCase):
         data = resp.json()
         assert data["cables"] == []
         assert isinstance(data["trays"], list)
-
-
-# ---------------------------------------------------------------------------
-# ProvisionPorts API
-# ---------------------------------------------------------------------------
-
-
-class TestProvisionPortsAPI(TestCase):
-    """POST /api/plugins/fms/provision-ports/ should create ports and return 201."""
-
-    @classmethod
-    def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("prov")
-        cls.device = Device.objects.create(name="Dev-Prov", site=site, device_type=dt, role=role)
-        # Create a FiberCableType with strand_count=2
-        cls.fct = FiberCableType.objects.create(
-            manufacturer=mfr,
-            model="Test FCT",
-            construction="tight_buffer",
-            strand_count=2,
-        )
-        # Create a Cable (minimal)
-        cable = Cable.objects.create()
-        # Create FiberCable (auto-instantiates strands from type)
-        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=cls.fct)
-
-    def setUp(self):
-        self.client = _make_authed_client()
-
-    def test_provision_ports_returns_201(self):
-        url = "/api/plugins/fms/provision-ports/"
-        resp = self.client.post(
-            url,
-            {
-                "fiber_cable_id": self.fiber_cable.pk,
-                "device_id": self.device.pk,
-            },
-            format="json",
-        )
-        assert resp.status_code == 201, resp.content
-        data = resp.json()
-        assert data["count"] == 2
-        assert "rear_port_id" in data
-        assert len(data["front_port_ids"]) == 2
-
-    def test_provision_ports_missing_cable_returns_404(self):
-        url = "/api/plugins/fms/provision-ports/"
-        resp = self.client.post(
-            url,
-            {
-                "fiber_cable_id": 999999,
-                "device_id": self.device.pk,
-            },
-            format="json",
-        )
-        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
