@@ -60,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Navigation: the Fiber Circuit Paths and Splice Plan Entries menu
   entries now show the create (+) button for users with the matching
   add permission. (#63)
+- "Apply all Approved Plans" on the closure Pending Work tab raised
+  `TransactionManagementError` ("select_for_update cannot be used outside
+  of a transaction") because the plan queryset was locked before entering
+  the atomic block. The whole apply-all operation now runs inside a single
+  transaction. ([#65](https://github.com/jsenecal/netbox-fms/issues/65))
 
 ## [0.2.0] - 2026-05-26
 
