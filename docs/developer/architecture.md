@@ -185,8 +185,8 @@ modules.
 
 - **`generate_drawio(plan)`** -- Creates mxGraph XML for a splice plan. Each
   splice tray becomes a separate page/tab in the diagram. Fibers are colored using
-  EIA/TIA-598 codes, and diff annotations (add/remove/unchanged) are applied to
-  splice connections.
+  each strand's stored color (assigned from the cable type's color scheme), and
+  diff annotations (add/remove/unchanged) are applied to splice connections.
 
 ### `constants.py` -- Fiber color schemes
 
