@@ -153,11 +153,27 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
     )
 
     if existing_term_rp_ids:
-        # Adopt path: collect FrontPorts mapped to these RearPorts
+        # Adopt path: collect FrontPorts mapped to these RearPorts. A cable may
+        # terminate on several RearPorts (one per tube/module), each mapping its
+        # own positions 1..N, so offset per-RearPort positions to global strand
+        # positions. Order RearPorts by termination connector when set, falling
+        # back to natural name order.
+        connector_by_rp = dict(
+            CableTermination.objects.filter(
+                cable=cable,
+                termination_type=rp_ct,
+                termination_id__in=existing_term_rp_ids,
+            ).values_list("termination_id", "connector")
+        )
+        rear_ports = list(RearPort.objects.filter(pk__in=existing_term_rp_ids))
+        rear_ports.sort(key=lambda rp: (connector_by_rp.get(rp.pk) is None, connector_by_rp.get(rp.pk) or 0))
+
         fps_by_position = {}
-        for rp_id in existing_term_rp_ids:
-            for pm in PortMapping.objects.filter(rear_port_id=rp_id).select_related("front_port"):
-                fps_by_position[pm.rear_port_position] = pm.front_port
+        offset = 0
+        for rp in rear_ports:
+            for pm in PortMapping.objects.filter(rear_port=rp).select_related("front_port"):
+                fps_by_position[offset + pm.rear_port_position] = pm.front_port
+            offset += rp.positions
 
         if port_mapping is None:
             proposed = propose_port_mapping(fiber_cable_type.strand_count, fps_by_position)

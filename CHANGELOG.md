@@ -72,6 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Ports tab disappeared from provisioned devices even though the ports
   existed. The command now emits `post_save` for each bulk-created
   component, mirroring NetBox core's own pattern. (#62)
+- Link Topology: cables terminated on multiple rear ports now map all
+  strands. Per-rear-port positions are offset into global strand
+  positions instead of clobbering each other, which previously linked
+  only the first module's front ports and reported a spurious count
+  mismatch. (#64)
 
 ## [0.2.0] - 2026-05-26
 
