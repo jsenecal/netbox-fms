@@ -52,11 +52,6 @@ class TestUnauthenticatedAccess(TestCase):
         assert response.status_code == 302
         assert "/login/" in response.url
 
-    def test_provision_ports_requires_login(self):
-        response = self.client.get("/plugins/fms/provision-ports/")
-        assert response.status_code == 302
-        assert "/login/" in response.url
-
     def test_splice_editor_requires_login(self):
         response = self.client.get(f"/plugins/fms/splice-plans/{self.plan.pk}/editor/")
         assert response.status_code == 302

@@ -45,6 +45,7 @@ class FiberCableTypeFilter:
 
     id: int | None
     construction: str | None
+    color_scheme: str | None
     is_armored: bool | None
     deployment: str | None
     strand_count: int | None
