@@ -57,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SlackLoop.length_unit` kwarg (which crashed both full and --simple
   modes) and sets `mark_unit` on the sample cable types so slack loop
   marks remain expressed in meters. (#56)
+- Navigation: the Fiber Circuit Paths and Splice Plan Entries menu
+  entries now show the create (+) button for users with the matching
+  add permission. (#63)
 
 ## [0.2.0] - 2026-05-26
 
