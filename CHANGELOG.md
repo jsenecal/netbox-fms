@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray
   ModuleTypes marked with a TrayProfile.
+- `FiberCableType.color_scheme` -- selects the fiber strand color standard
+  (EIA/TIA-598, the previous hardcoded behavior and still the default, or
+  ABNT NBR 14771 for Brazilian plant) used to auto-assign strand colors at
+  FiberCable creation. Changing the scheme later does not recolor existing
+  cables, mirroring component-template semantics. Exposed in forms, CSV
+  import, bulk edit, filters, table column, REST API, and GraphQL.
+  Buffer tube and ribbon template color pickers now group choices by the
+  parent type's standard (position-ordered, with an "Other" fallback
+  group). Fixes #60.
 
 ### Changed
 

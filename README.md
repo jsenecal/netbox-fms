@@ -18,6 +18,7 @@ Define fiber cable construction as reusable blueprints, auto-instantiate compone
 
 - **Cable type blueprints with auto-instantiation** -- Define fiber cable construction once as a FiberCableType, then create instances that automatically populate buffer tubes, ribbons, strands, and cable elements following NetBox's Device/DeviceType pattern.
 - **Four construction cases** -- Loose tube, ribbon-in-tube, central-core ribbon, and tight buffer cable designs with full template-driven instantiation.
+- **EIA/TIA-598 and ABNT NBR 14771 color schemes** -- Each FiberCableType selects the strand color standard applied when instances are created; tube and ribbon template color pickers follow the selected standard.
 - **Per-wavelength loss budgeting** -- Attach manufacturer max-attenuation specs (dB/km) to each FiberCableType at any wavelength. `FiberCircuitPath.calculated_loss_db` computes per-wavelength losses across the full cable path from spec values and each cable's `glass_length`.
 - **Splice planning** -- Map strand-to-strand connections in splice closures, compute diffs against live state, and export diagrams to draw.io for field crews.
 - **Fiber circuit provisioning** -- End-to-end provisioning with DAG-based pathfinding and multi-hop tracing.
