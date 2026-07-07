@@ -44,6 +44,7 @@ from .choices import (
     StorageMethodChoices,
     TrayRoleChoices,
 )
+from .constants import get_grouped_color_choices
 from .models import (
     BufferTube,
     BufferTubeTemplate,
@@ -267,6 +268,31 @@ class FiberAttenuationSpecFilterForm(NetBoxModelFilterSetForm):
 # ---------------------------------------------------------------------------
 
 
+def _apply_scheme_color_choices(form):
+    """
+    Rebuild the form's ``color`` picker around the parent cable type's
+    color scheme. Falls back to showing every known scheme when the parent
+    cannot be resolved, and always appends the current off-palette value
+    so existing data stays selectable.
+    """
+    fct = None
+    if form.instance.pk:
+        fct = form.instance.fiber_cable_type
+    else:
+        raw = form.data.get("fiber_cable_type") or form.initial.get("fiber_cable_type")
+        if raw:
+            try:
+                fct = FiberCableType.objects.filter(pk=int(getattr(raw, "pk", raw))).first()
+            except (TypeError, ValueError):
+                fct = None
+    choices = get_grouped_color_choices(fct.color_scheme if fct else None)
+    current = form["color"].value()
+    known = {value for _label, options in choices for value, _l in options}
+    if current and current not in known:
+        choices.append((_("Current"), [(current, f"#{current}")]))
+    form.fields["color"].widget.choices = add_blank_choice(choices)
+
+
 class BufferTubeTemplateForm(NetBoxModelForm):
     """Form for creating/editing a BufferTubeTemplate."""
 
@@ -277,6 +303,10 @@ class BufferTubeTemplateForm(NetBoxModelForm):
     color = ColorField(required=False)
     marker_color = ColorField(required=False)
     strand_marker_color = ColorField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_scheme_color_choices(self)
 
     fieldsets = (
         FieldSet(
@@ -330,6 +360,10 @@ class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
     marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["color"].widget.choices = add_blank_choice(get_grouped_color_choices())
+
     fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
     nullable_fields = ("color", "marker_color", "marker_type")
 
@@ -355,6 +389,10 @@ class RibbonTemplateForm(NetBoxModelForm):
     color = ColorField(required=False)
     marker_color = ColorField(required=False)
     strand_marker_color = ColorField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_scheme_color_choices(self)
 
     fieldsets = (
         FieldSet(
@@ -409,6 +447,10 @@ class RibbonTemplateBulkEditForm(NetBoxModelBulkEditForm):
     marker_color = ColorField(required=False)
     marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["color"].widget.choices = add_blank_choice(get_grouped_color_choices())
 
     fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
     nullable_fields = ("color", "marker_color", "marker_type")

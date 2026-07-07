@@ -9,6 +9,12 @@ from netbox_fms.constants import (
     get_grouped_color_choices,
     get_strand_color,
 )
+from netbox_fms.forms import (
+    BufferTubeTemplateBulkEditForm,
+    BufferTubeTemplateForm,
+    RibbonTemplateBulkEditForm,
+    RibbonTemplateForm,
+)
 from netbox_fms.models import (
     BufferTubeTemplate,
     FiberCable,
@@ -128,3 +134,48 @@ class TestGroupedColorChoices:
         assert "ffffff" not in other_values  # White is position 6 in EIA group
         assert "00ffff" not in other_values  # Aqua is position 12
         assert "9e9e9e" in other_values  # NetBox Grey is not in the palette
+
+
+def _picker_groups(form):
+    """Return the optgroups of the form's color widget, skipping the blank choice."""
+    return [(str(label), options) for label, options in form.fields["color"].widget.choices[1:]]
+
+
+@pytest.mark.django_db
+class TestSchemeAwareColorPicker:
+    def test_edit_form_uses_parent_scheme(self):
+        fct = _make_type("NBR-PICKER", "loose_tube", 12, FiberColorSchemeChoices.NBR_14771)
+        tt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=12)
+        groups = _picker_groups(BufferTubeTemplateForm(instance=tt))
+        assert groups[0][0] == "ABNT NBR 14771"
+        assert groups[0][1][0] == ("00ff00", "1 - Green")
+        assert [g[0] for g in groups] == ["ABNT NBR 14771", "Other"]
+
+    def test_add_form_with_initial_parent(self):
+        fct = _make_type("NBR-PICKER-ADD", "loose_tube", 12, FiberColorSchemeChoices.NBR_14771)
+        groups = _picker_groups(BufferTubeTemplateForm(initial={"fiber_cable_type": fct.pk}))
+        assert groups[0][0] == "ABNT NBR 14771"
+
+    def test_add_form_without_parent_shows_both_standards(self):
+        groups = _picker_groups(BufferTubeTemplateForm())
+        assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "Other"]
+
+    def test_off_palette_current_value_stays_selectable(self):
+        fct = _make_type("NBR-PICKER-OFF", "loose_tube", 12, FiberColorSchemeChoices.NBR_14771)
+        tt = BufferTubeTemplate.objects.create(
+            fiber_cable_type=fct, name="T1", position=1, fiber_count=12, color="123456"
+        )
+        groups = _picker_groups(BufferTubeTemplateForm(instance=tt))
+        all_values = {value for _label, options in groups for value, _l in options}
+        assert "123456" in all_values
+
+    def test_ribbon_form_uses_parent_scheme(self):
+        fct = _make_type("NBR-PICKER-RB", "ribbon", 12, FiberColorSchemeChoices.NBR_14771)
+        rt = RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
+        groups = _picker_groups(RibbonTemplateForm(instance=rt))
+        assert groups[0][0] == "ABNT NBR 14771"
+
+    def test_bulk_edit_forms_show_both_standards(self):
+        for form_cls in (BufferTubeTemplateBulkEditForm, RibbonTemplateBulkEditForm):
+            groups = _picker_groups(form_cls())
+            assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "Other"]
