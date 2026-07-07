@@ -19,15 +19,6 @@ EIA_598_COLORS = (
 )
 
 
-def get_eia598_color(position):
-    """
-    Return the (hex_color, name) tuple for a 1-indexed fiber/tube position.
-    Cycles through the 12-color palette for positions > 12.
-    """
-    idx = (position - 1) % len(EIA_598_COLORS)
-    return EIA_598_COLORS[idx]
-
-
 # ABNT NBR 14771 fiber color code (Brazilian standard).
 # Same 12 colors as EIA-598, different position order; position 10 is
 # named "Gray" (NBR "Cinza") but shares the EIA Slate hex.
