@@ -44,7 +44,7 @@ model (this is done once, then reused for every closure):
    pass-through storage baskets -- tubes can only be assigned to splice trays.
 
 You do not need to define front ports anywhere -- the plugin creates the
-per-strand ports when you link the cable topology (step 6).
+per-strand ports when you add the cable (step 5).
 
 ## 4. Create the Splice Closure
 
@@ -62,74 +62,48 @@ its trays in one atomic action:
 The closure can also be assembled manually (device, module bays, modules) --
 the wizard is a convenience, not a requirement.
 
-## 5. Create a Cable
+## 5. Add the Cable from the Closure
 
-Create a `dcim.Cable` between the two devices with a fiber cable type (e.g.,
-**SMF OS2**). Where to terminate it depends on what the closure already has:
+Open either closure's device page and switch to the **Fiber Overview** tab,
+then click **Add Cable**. The wizard creates the `dcim.Cable`, the
+FiberCable with its internal structure, and all ports in one atomic action:
 
-- **The closure has rear ports** (defined on its device type or created
-  manually): open the closure device, find the rear port, click **Connect**,
-  and terminate the cable there. The plugin's topology linking will detect the
-  existing ports and offer to adopt them.
-- **The closure is bare** (no ports yet): creating a cable without
-  closure-side terminations is **not supported**. NetBox validation requires
-  both end terminations on a new cable, and the web UI, REST API, and bulk
-  import all enforce it. Prefer the supported path above: give the closure
-  rear ports first, then connect the cable to them.
+1. **Scope** -- pick the far-end device (the other closure), the
+   FiberCableType defined earlier, and the port type (defaults to Splice).
+2. **Cable details** -- set the native cable attributes: fiber type (e.g.,
+   **SMF OS2**), status, label (pre-suggested from the device names),
+   color, length (with unit), tenant, and an optional description.
+3. **Review** -- check the per-device summary (rear ports per tube, front
+   ports per strand) and click **Create Cable**.
 
-  Advanced users can bypass this validation from a NetBox shell, at their
-  own risk (the ORM skips model validation entirely):
+On create, the plugin instantiates **BufferTubes** and **FiberStrands**
+(with EIA-598 standard colors) from the type's templates, creates the
+per-tube RearPorts and per-strand FrontPorts on both devices, terminates
+the cable on the rear ports, sets the cable profile used by NetBox's trace
+engine, and registers the cable at both closures with a blank gland entry.
 
-  ```python
-  from dcim.models import Cable
-  cable = Cable.objects.create(type="smf-os2", label="Closure-A <-> Closure-B")
-  ```
+If the cable already terminates on existing rear ports at the closure
+(defined on its device type or created manually), use **Link Topology** on
+the Fiber Overview tab instead -- it detects the existing ports and offers
+to adopt them. See
+[Fiber Cables](../user-guide/fiber-cables.md#linking-cable-topology).
 
-  If you do this, the plugin creates the per-tube rear ports and terminates
-  the cable onto them in the next step -- you do not connect anything by
-  hand.
+## 6. Label the Cable Entrance
 
-## 6. Create a Fiber Cable
+Each cable entering a closure is recorded with a **ClosureCableEntry**. The
+wizard already created a blank entry at each closure -- this step is just
+giving the entrance a label:
 
-This is where the plugin takes over.
+1. Open the blank entry via the inline gland editor on the closure's
+   **Fiber Overview** tab (or under **FMS > Closure Cable Entries**).
+2. Give the entrance a label (e.g., "Gland A") and save.
 
-1. Navigate to **FMS > Fiber Cables** and click **Add**.
-2. Select the **dcim.Cable** created in the previous step.
-3. Select the **FiberCableType** defined earlier.
-4. Save.
+For cables registered without the wizard, navigate to **FMS > Closure Cable
+Entries**, click **Add**, and select the closure device and the FiberCable
+first. A fiber cable can be registered once per closure, and registration is
+required before tubes from that cable can be assigned to trays.
 
-On save, the plugin automatically instantiates the internal cable structure based on the type's templates:
-
-- **BufferTubes** are created matching each BufferTubeTemplate.
-- **FiberStrands** are created inside each tube, automatically assigned EIA-598 standard colors.
-
-Navigate to the new FiberCable's detail page to inspect the generated tubes and strands.
-
-The FiberCable itself carries no ports. To create the per-strand FrontPorts,
-per-tube RearPorts, and PortMappings on the closure, use one of:
-
-- **Link Topology** on the closure's **Fiber Overview** tab -- available for
-  cables that already terminate at the closure. It creates the FiberCable and
-  the ports in one operation, terminates the cable onto the new rear ports,
-  and sets the cable profile used by NetBox's trace engine. See
-  [Fiber Cables](../user-guide/fiber-cables.md#linking-cable-topology).
-- **Provision Ports** on the FiberCable's detail page -- pick the closure
-  device and port type, and the plugin creates the ports for every strand.
-  Use this when the cable was created without closure-side terminations.
-
-## 7. Register the Cable at the Closure
-
-Each cable entering a closure is recorded with a **ClosureCableEntry**:
-
-1. Navigate to **FMS > Closure Cable Entries** and click **Add** (or use the
-   inline gland editor on the closure's **Fiber Overview** tab).
-2. Select the closure device and the FiberCable, and give the entrance a label
-   (e.g., "Gland A").
-3. Save. A fiber cable can be registered once per closure.
-
-This step is required before tubes from that cable can be assigned to trays.
-
-## 8. Assign Buffer Tubes to Trays
+## 7. Assign Buffer Tubes to Trays
 
 Tube assignments record which tray each buffer tube is routed to inside the
 closure:
@@ -141,7 +115,7 @@ closure:
 2. Only modules whose type has a **Splice Tray** profile are offered; express
    baskets and plain modules are rejected.
 
-## 9. Create a Splice Plan
+## 8. Create a Splice Plan
 
 Splice plans capture the desired splice state of a single closure:
 
@@ -151,7 +125,7 @@ Splice plans capture the desired splice state of a single closure:
    **FMS > Splice Projects**) to group related plans for a route or job.
 4. Save. The plan starts in **draft** status.
 
-## 10. Add Splice Plan Entries
+## 9. Add Splice Plan Entries
 
 Splice plan entries define the fiber-to-fiber mappings inside the closure:
 

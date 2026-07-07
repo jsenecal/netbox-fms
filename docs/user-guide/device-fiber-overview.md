@@ -11,6 +11,15 @@ The Fiber Overview tab consolidates the following information for the selected d
 - **Associated splice plans** -- one or more SplicePlan entries that reference strands terminating at the device. A single closure may have multiple active plans from different teams or projects.
 - **Closure cable entry (gland) assignments** -- for closure-type devices, the mapping of cables to physical entry points on the enclosure.
 
+## Add Cable
+
+The **Add Cable** button in the summary card header opens a three-step
+wizard that creates a fiber cable from this closure to a far-end device:
+scope (far end, FiberCableType, port type), cable details (type, status,
+label, color, length, tenant, description), then a review step showing how
+many rear and front ports will be created on each device. See
+[Fiber Cables](fiber-cables.md#creating-a-cable-from-a-closure).
+
 ## ClosureCableEntry Management
 
 Each `ClosureCableEntry` links a FiberCable to a specific entrance or gland label on a closure device. This tracks which cables enter through which physical openings on the closure, an essential detail for field technicians performing maintenance or troubleshooting.
