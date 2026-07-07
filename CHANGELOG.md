@@ -28,16 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parent type's standard (position-ordered, with an "Other" fallback
   group). Fixes #60.
 
-### Fixed
-
-- `create_sample_data` provisioned FrontPorts and Interfaces with
-  `bulk_create()`, which skips `post_save` and leaves NetBox's device
-  counter caches (`front_port_count`, `interface_count`) at zero. Since
-  device component tabs hide when their counter badge is empty, the Front
-  Ports tab disappeared from provisioned devices even though the ports
-  existed. The command now emits `post_save` for each bulk-created
-  component, mirroring NetBox core's own pattern. (#62)
-
 ### Changed
 
 - Import forms now declare choice fields as `CSVChoiceField` (`construction`
@@ -75,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a transaction") because the plan queryset was locked before entering
   the atomic block. The whole apply-all operation now runs inside a single
   transaction. ([#65](https://github.com/jsenecal/netbox-fms/issues/65))
+- `create_sample_data` provisioned FrontPorts and Interfaces with
+  `bulk_create()`, which skips `post_save` and leaves NetBox's device
+  counter caches (`front_port_count`, `interface_count`) at zero. Since
+  device component tabs hide when their counter badge is empty, the Front
+  Ports tab disappeared from provisioned devices even though the ports
+  existed. The command now emits `post_save` for each bulk-created
+  component, mirroring NetBox core's own pattern. (#62)
 
 ## [0.2.0] - 2026-05-26
 
