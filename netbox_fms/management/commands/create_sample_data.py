@@ -348,7 +348,6 @@ class Command(BaseCommand):
                     site=info["a_device"].site,
                     start_mark=Decimal(str(100 + i * 50)),
                     end_mark=Decimal(str(115 + i * 50)),
-                    length_unit=CableLengthUnitChoices.UNIT_METER,
                     storage_method=storage_cycle[len(loops) % len(storage_cycle)],
                 )
             )
@@ -583,6 +582,7 @@ class Command(BaseCommand):
                 "sheath_material": sheath,
                 "jacket_color": jacket_color,
                 "deployment": deployment,
+                "mark_unit": CableLengthUnitChoices.UNIT_METER,
             },
         )
         if created:
@@ -632,6 +632,7 @@ class Command(BaseCommand):
                 "sheath_material": "pe",
                 "jacket_color": "000000",
                 "deployment": "duct",
+                "mark_unit": CableLengthUnitChoices.UNIT_METER,
             },
         )
         if created:
@@ -660,6 +661,7 @@ class Command(BaseCommand):
                 "sheath_material": "pe",
                 "jacket_color": "000000",
                 "deployment": "duct",
+                "mark_unit": CableLengthUnitChoices.UNIT_METER,
             },
         )
         if created:
@@ -695,6 +697,7 @@ class Command(BaseCommand):
                 "sheath_material": "pe",
                 "jacket_color": "000000",
                 "deployment": "duct",
+                "mark_unit": CableLengthUnitChoices.UNIT_METER,
             },
         )
         if created:
@@ -722,6 +725,7 @@ class Command(BaseCommand):
                 "sheath_material": "pe",
                 "jacket_color": "000000",
                 "deployment": "duct",
+                "mark_unit": CableLengthUnitChoices.UNIT_METER,
             },
         )
         if created:
@@ -749,6 +753,7 @@ class Command(BaseCommand):
                 "sheath_material": "lszh",
                 "jacket_color": "ffff00",
                 "deployment": "indoor",
+                "mark_unit": CableLengthUnitChoices.UNIT_METER,
             },
         )
         if created:
@@ -766,6 +771,7 @@ class Command(BaseCommand):
                 "sheath_material": "lszh",
                 "jacket_color": "ffff00",
                 "deployment": "indoor",
+                "mark_unit": CableLengthUnitChoices.UNIT_METER,
             },
         )
         if created:
@@ -1415,7 +1421,6 @@ class Command(BaseCommand):
                         site=a_device.site,
                         start_mark=start,
                         end_mark=end,
-                        length_unit=CableLengthUnitChoices.UNIT_METER,
                         storage_method=storage_cycle[len(loops) % len(storage_cycle)],
                     )
                 )

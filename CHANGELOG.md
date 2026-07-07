@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TrayProfile now offer a blank "no change" option, matching the existing
   `marker_type` fields. Previously the first choice was preselected and
   applied to every selected object on save.
+- `create_sample_data` no longer passes the removed
+  `SlackLoop.length_unit` kwarg (which crashed both full and --simple
+  modes) and sets `mark_unit` on the sample cable types so slack loop
+  marks remain expressed in meters. (#56)
 
 ## [0.2.0] - 2026-05-26
 
