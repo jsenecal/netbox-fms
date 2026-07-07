@@ -32,6 +32,7 @@ from utilities.choices import unpack_grouped_choices
 from utilities.forms.fields import (
     ColorField,
     CommentField,
+    CSVChoiceField,
     CSVModelChoiceField,
     DynamicModelChoiceField,
     DynamicModelMultipleChoiceField,
@@ -44,6 +45,7 @@ from .choices import (
     ConstructionChoices,
     DeploymentChoices,
     FiberCircuitStatusChoices,
+    FiberColorSchemeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     SheathMaterialChoices,
@@ -51,7 +53,7 @@ from .choices import (
     StorageMethodChoices,
     TrayRoleChoices,
 )
-from .constants import FIBER_CABLE_TYPES
+from .constants import FIBER_CABLE_TYPES, get_grouped_color_choices
 from .models import (
     BufferTube,
     BufferTubeTemplate,
@@ -89,7 +91,7 @@ class FiberCableTypeForm(NetBoxModelForm):
 
     fieldsets = (
         FieldSet("manufacturer", "model", "part_number", name=_("Cable Type")),
-        FieldSet("construction", "strand_count", name=_("Cable Construction")),
+        FieldSet("construction", "strand_count", "color_scheme", name=_("Cable Construction")),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "jacket_color", name=_("Sheath / Jacket")),
         FieldSet("is_armored", "armor_type", name=_("Armor")),
@@ -111,6 +113,7 @@ class FiberCableTypeForm(NetBoxModelForm):
             "part_number",
             "construction",
             "strand_count",
+            "color_scheme",
             "outer_diameter",
             "twist_factor_ratio",
             "mark_unit",
@@ -133,7 +136,11 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
     """Import form for FiberCableType."""
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
-    construction = forms.ChoiceField(choices=ConstructionChoices)
+    construction = CSVChoiceField(choices=ConstructionChoices)
+    color_scheme = CSVChoiceField(choices=FiberColorSchemeChoices, required=False)
+
+    def clean_color_scheme(self):
+        return self.cleaned_data.get("color_scheme") or FiberColorSchemeChoices.EIA_598
 
     class Meta:
         model = FiberCableType
@@ -143,6 +150,7 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
             "part_number",
             "construction",
             "strand_count",
+            "color_scheme",
             "outer_diameter",
             "twist_factor_ratio",
             "mark_unit",
@@ -163,16 +171,17 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     model = FiberCableType
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all(), required=False)
-    construction = forms.ChoiceField(choices=ConstructionChoices, required=False)
-    sheath_material = forms.ChoiceField(choices=SheathMaterialChoices, required=False)
-    deployment = forms.ChoiceField(choices=DeploymentChoices, required=False)
-    fire_rating = forms.ChoiceField(choices=FireRatingChoices, required=False)
+    construction = forms.ChoiceField(choices=add_blank_choice(ConstructionChoices), required=False)
+    color_scheme = forms.ChoiceField(choices=add_blank_choice(FiberColorSchemeChoices), required=False)
+    sheath_material = forms.ChoiceField(choices=add_blank_choice(SheathMaterialChoices), required=False)
+    deployment = forms.ChoiceField(choices=add_blank_choice(DeploymentChoices), required=False)
+    fire_rating = forms.ChoiceField(choices=add_blank_choice(FireRatingChoices), required=False)
     outer_diameter = forms.FloatField(required=False, label=_("Outer diameter (mm)"))
     twist_factor_ratio = forms.FloatField(required=False, label=_("Twist factor ratio"))
-    mark_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
+    mark_unit = forms.ChoiceField(choices=add_blank_choice(CableLengthUnitChoices), required=False)
 
     fieldsets = (
-        FieldSet("manufacturer", "construction"),
+        FieldSet("manufacturer", "construction", "color_scheme"),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "deployment", "fire_rating"),
     )
@@ -197,6 +206,7 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
         label=_("Manufacturer"),
     )
     construction = forms.MultipleChoiceField(choices=ConstructionChoices, required=False)
+    color_scheme = forms.MultipleChoiceField(choices=FiberColorSchemeChoices, required=False)
     sheath_material = forms.MultipleChoiceField(choices=SheathMaterialChoices, required=False)
     is_armored = forms.NullBooleanField(required=False, label=_("Armored"))
     deployment = forms.MultipleChoiceField(choices=DeploymentChoices, required=False)
@@ -204,7 +214,7 @@ class FiberCableTypeFilterForm(NetBoxModelFilterSetForm):
 
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
-        FieldSet("manufacturer_id", "construction", name=_("Properties")),
+        FieldSet("manufacturer_id", "construction", "color_scheme", name=_("Properties")),
         FieldSet("sheath_material", "is_armored", "deployment", "fire_rating", name=_("Physical")),
     )
 
@@ -275,6 +285,31 @@ class FiberAttenuationSpecFilterForm(NetBoxModelFilterSetForm):
 # ---------------------------------------------------------------------------
 
 
+def _apply_scheme_color_choices(form):
+    """
+    Rebuild the form's ``color`` picker around the parent cable type's
+    color scheme. Falls back to showing every known scheme when the parent
+    cannot be resolved, and always appends the current off-palette value
+    so existing data stays selectable.
+    """
+    fct = None
+    if form.instance.pk:
+        fct = form.instance.fiber_cable_type
+    else:
+        raw = form.data.get("fiber_cable_type") or form.initial.get("fiber_cable_type")
+        if raw:
+            try:
+                fct = FiberCableType.objects.filter(pk=int(getattr(raw, "pk", raw))).first()
+            except (TypeError, ValueError):
+                fct = None
+    choices = get_grouped_color_choices(fct.color_scheme if fct else None)
+    current = form["color"].value()
+    known = {value for _label, options in choices for value, _l in options}
+    if current and current not in known:
+        choices.append((_("Current"), [(current, f"#{current}")]))
+    form.fields["color"].widget.choices = add_blank_choice(choices)
+
+
 class BufferTubeTemplateForm(NetBoxModelForm):
     """Form for creating/editing a BufferTubeTemplate."""
 
@@ -285,6 +320,10 @@ class BufferTubeTemplateForm(NetBoxModelForm):
     color = ColorField(required=False)
     marker_color = ColorField(required=False)
     strand_marker_color = ColorField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_scheme_color_choices(self)
 
     fieldsets = (
         FieldSet(
@@ -338,6 +377,10 @@ class BufferTubeTemplateBulkEditForm(NetBoxModelBulkEditForm):
     marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["color"].widget.choices = add_blank_choice(get_grouped_color_choices())
+
     fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
     nullable_fields = ("color", "marker_color", "marker_type")
 
@@ -363,6 +406,10 @@ class RibbonTemplateForm(NetBoxModelForm):
     color = ColorField(required=False)
     marker_color = ColorField(required=False)
     strand_marker_color = ColorField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _apply_scheme_color_choices(self)
 
     fieldsets = (
         FieldSet(
@@ -418,6 +465,10 @@ class RibbonTemplateBulkEditForm(NetBoxModelBulkEditForm):
     marker_type = forms.ChoiceField(choices=add_blank_choice(MarkerTypeChoices), required=False)
     fiber_count = forms.IntegerField(required=False)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["color"].widget.choices = add_blank_choice(get_grouped_color_choices())
+
     fieldsets = (FieldSet("color", "marker_count", "marker_color", "marker_type", "fiber_count"),)
     nullable_fields = ("color", "marker_color", "marker_type")
 
@@ -450,7 +501,7 @@ class CableElementTemplateBulkEditForm(NetBoxModelBulkEditForm):
 
     model = CableElementTemplate
 
-    element_type = forms.ChoiceField(choices=CableElementTypeChoices, required=False)
+    element_type = forms.ChoiceField(choices=add_blank_choice(CableElementTypeChoices), required=False)
 
     fieldsets = (FieldSet("element_type"),)
     nullable_fields = ()
@@ -786,7 +837,7 @@ class SlackLoopImportForm(NetBoxModelImportForm):
     """Import form for SlackLoop."""
 
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all())
-    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+    storage_method = CSVChoiceField(choices=StorageMethodChoices, required=False)
 
     class Meta:
         model = SlackLoop
@@ -808,7 +859,7 @@ class SlackLoopBulkEditForm(NetBoxModelBulkEditForm):
 
     site = DynamicModelChoiceField(queryset=Site.objects.all(), required=False)
     location = DynamicModelChoiceField(queryset=Location.objects.all(), required=False)
-    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+    storage_method = forms.ChoiceField(choices=add_blank_choice(StorageMethodChoices), required=False)
 
     fieldsets = (FieldSet("site", "location", "storage_method"),)
     nullable_fields = ("location", "storage_method")
@@ -877,7 +928,7 @@ class FiberCircuitBulkEditForm(NetBoxModelBulkEditForm):
 
     model = FiberCircuit
 
-    status = forms.ChoiceField(choices=FiberCircuitStatusChoices, required=False)
+    status = forms.ChoiceField(choices=add_blank_choice(FiberCircuitStatusChoices), required=False)
     strand_count = forms.IntegerField(required=False)
     tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
     description = forms.CharField(required=False)
@@ -1089,7 +1140,7 @@ class TrayProfileBulkEditForm(NetBoxModelBulkEditForm):
     """Bulk edit form for TrayProfile."""
 
     model = TrayProfile
-    tray_role = forms.ChoiceField(choices=TrayRoleChoices, required=False, label=_("Tray Role"))
+    tray_role = forms.ChoiceField(choices=add_blank_choice(TrayRoleChoices), required=False, label=_("Tray Role"))
     description = forms.CharField(required=False, label=_("Description"))
 
 

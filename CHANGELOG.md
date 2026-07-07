@@ -18,9 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   front ports, port mappings, cable terminations, cable profile, and blank
   gland entries at both end devices in one atomic three-step flow. This is
   the first UI path that can create a cable between two bare closures.
+- `FiberCableType.color_scheme` -- selects the fiber strand color standard
+  (EIA/TIA-598, the previous hardcoded behavior and still the default, or
+  ABNT NBR 14771 for Brazilian plant) used to auto-assign strand colors at
+  FiberCable creation. Changing the scheme later does not recolor existing
+  cables, mirroring component-template semantics. Exposed in forms, CSV
+  import, bulk edit, filters, table column, REST API, and GraphQL.
+  Buffer tube and ribbon template color pickers now group choices by the
+  parent type's standard (position-ordered, with an "Other" fallback
+  group). Fixes #60.
 
 ### Changed
 
+- Import forms now declare choice fields as `CSVChoiceField` (`construction`
+  and `color_scheme` on FiberCableType, `storage_method` on SlackLoop) so the
+  bulk-import UI documents the valid values for each column.
 - Docs: documented the full splice-closure preparation workflow (closure device, tray module types with TrayProfiles, module bays/modules, ClosureCableEntry before TubeAssignment, tray-module FrontPorts) in the quickstart and splice-planning guide; added TrayProfile and TubeAssignment to the splice-planning core objects and a Tray Assignments section to the device fiber overview guide. Removed patch-panel framing -- the plugin's workflows are closure-centric and patch panels are not modeled at this time. Fixed the quickstart incorrectly stating that a SpliceProject is associated with a closure (the SplicePlan targets the closure; the project is an optional grouping).
 
 ### Removed
@@ -34,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bulk edit forms no longer silently overwrite choice fields that were left
+  untouched: `construction`, `sheath_material`, `deployment`, `fire_rating`,
+  and `mark_unit` on FiberCableType, `element_type` on CableElementTemplate,
+  `storage_method` on SlackLoop, `status` on FiberCircuit, and `tray_role` on
+  TrayProfile now offer a blank "no change" option, matching the existing
+  `marker_type` fields. Previously the first choice was preselected and
+  applied to every selected object on save.
 - `create_sample_data` no longer passes the removed
   `SlackLoop.length_unit` kwarg (which crashed both full and --simple
   modes) and sets `mark_unit` on the sample cable types so slack loop

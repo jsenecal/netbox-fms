@@ -76,7 +76,7 @@ Created automatically by `FiberCable._instantiate_components()` when a new
 | `FiberCable` | Instance linked one-to-one with a `dcim.Cable`. Triggers component instantiation on creation. |
 | `BufferTube` | Physical buffer tube within a cable. |
 | `Ribbon` | Fiber ribbon, either inside a tube or directly in a cable. |
-| `FiberStrand` | Individual fiber strand. Automatically assigned EIA/TIA-598 colors. |
+| `FiberStrand` | Individual fiber strand. Automatically assigned colors based on FiberCableType's color_scheme. |
 | `CableElement` | Non-fiber element instance (strength member, tracer wire, etc.). |
 
 #### 3. Splice planning
@@ -185,16 +185,21 @@ modules.
 
 - **`generate_drawio(plan)`** -- Creates mxGraph XML for a splice plan. Each
   splice tray becomes a separate page/tab in the diagram. Fibers are colored using
-  EIA/TIA-598 codes, and diff annotations (add/remove/unchanged) are applied to
-  splice connections.
+  each strand's stored color (assigned from the cable type's color scheme), and
+  diff annotations (add/remove/unchanged) are applied to splice connections.
 
-### `constants.py` -- EIA/TIA-598 color palette
+### `constants.py` -- Fiber color schemes
 
 - **`EIA_598_COLORS`** -- Tuple of 12 `(hex_color, name)` pairs following the
   EIA/TIA-598 standard fiber color code (Blue, Orange, Green, Brown, Slate, White,
   Red, Black, Yellow, Violet, Rose, Aqua).
-- **`get_eia598_color(position)`** -- Returns the color tuple for a 1-indexed
-  fiber position, cycling through the 12-color palette for positions beyond 12.
+- **`NBR_14771_COLORS`** -- Tuple of 12 `(hex_color, name)` pairs following the
+  ABNT NBR-14771 Brazilian standard (same colors, different position order).
+- **`COLOR_SCHEME_PALETTES`** -- Dict mapping scheme choices to color tuples,
+  enabling multi-standard support.
+- **`get_strand_color(position, scheme)`** -- Returns the color tuple for a
+  1-indexed fiber position under the given color scheme, cycling through the
+  12-color palette for positions beyond 12.
 
 ### `cable_profiles.py` -- High-count fiber cable profiles
 
