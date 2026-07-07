@@ -1,3 +1,5 @@
+from .choices import FiberColorSchemeChoices
+
 # EIA/TIA-598 standard fiber color code.
 # Used for buffer tube and fiber strand identification.
 # Index 0 = position 1, etc.
@@ -24,6 +26,39 @@ def get_eia598_color(position):
     """
     idx = (position - 1) % len(EIA_598_COLORS)
     return EIA_598_COLORS[idx]
+
+
+# ABNT NBR 14771 fiber color code (Brazilian standard).
+# Same 12 colors as EIA-598, different position order; position 10 is
+# named "Gray" (NBR "Cinza") but shares the EIA Slate hex.
+NBR_14771_COLORS = (
+    ("00ff00", "Green"),
+    ("ffff00", "Yellow"),
+    ("ffffff", "White"),
+    ("0000ff", "Blue"),
+    ("ff0000", "Red"),
+    ("ee82ee", "Violet"),
+    ("8b4513", "Brown"),
+    ("ff69b4", "Rose"),
+    ("000000", "Black"),
+    ("708090", "Gray"),
+    ("ff8000", "Orange"),
+    ("00ffff", "Aqua"),
+)
+
+COLOR_SCHEME_PALETTES = {
+    FiberColorSchemeChoices.EIA_598: EIA_598_COLORS,
+    FiberColorSchemeChoices.NBR_14771: NBR_14771_COLORS,
+}
+
+
+def get_strand_color(position, scheme):
+    """
+    Return the (hex_color, name) tuple for a 1-indexed fiber position under
+    the given color scheme. Cycles through the palette for positions > 12.
+    """
+    palette = COLOR_SCHEME_PALETTES[scheme]
+    return palette[(position - 1) % len(palette)]
 
 
 # Subset of dcim.choices.CableTypeChoices values that this plugin treats as
