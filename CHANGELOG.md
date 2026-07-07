@@ -25,7 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Import forms now declare choice fields as `CSVChoiceField` (`construction`
+  and `color_scheme` on FiberCableType, `storage_method` on SlackLoop) so the
+  bulk-import UI documents the valid values for each column.
 - Docs: documented the full splice-closure preparation workflow (closure device, tray module types with TrayProfiles, module bays/modules, ClosureCableEntry before TubeAssignment, tray-module FrontPorts) in the quickstart and splice-planning guide; added TrayProfile and TubeAssignment to the splice-planning core objects and a Tray Assignments section to the device fiber overview guide. Removed patch-panel framing -- the plugin's workflows are closure-centric and patch panels are not modeled at this time. Fixed the quickstart incorrectly stating that a SpliceProject is associated with a closure (the SplicePlan targets the closure; the project is an optional grouping).
+
+### Fixed
+
+- Bulk edit forms no longer silently overwrite choice fields that were left
+  untouched: `construction`, `sheath_material`, `deployment`, `fire_rating`,
+  and `mark_unit` on FiberCableType, `element_type` on CableElementTemplate,
+  `storage_method` on SlackLoop, `status` on FiberCircuit, and `tray_role` on
+  TrayProfile now offer a blank "no change" option, matching the existing
+  `marker_type` fields. Previously the first choice was preselected and
+  applied to every selected object on save.
 
 ## [0.2.0] - 2026-05-26
 

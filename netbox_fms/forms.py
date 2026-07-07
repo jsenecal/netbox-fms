@@ -25,6 +25,7 @@ from tenancy.models import Tenant
 from utilities.forms.fields import (
     ColorField,
     CommentField,
+    CSVChoiceField,
     CSVModelChoiceField,
     DynamicModelChoiceField,
     DynamicModelMultipleChoiceField,
@@ -128,8 +129,8 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
     """Import form for FiberCableType."""
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
-    construction = forms.ChoiceField(choices=ConstructionChoices)
-    color_scheme = forms.ChoiceField(choices=FiberColorSchemeChoices, required=False)
+    construction = CSVChoiceField(choices=ConstructionChoices)
+    color_scheme = CSVChoiceField(choices=FiberColorSchemeChoices, required=False)
 
     def clean_color_scheme(self):
         return self.cleaned_data.get("color_scheme") or FiberColorSchemeChoices.EIA_598
@@ -163,14 +164,14 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     model = FiberCableType
 
     manufacturer = DynamicModelChoiceField(queryset=Manufacturer.objects.all(), required=False)
-    construction = forms.ChoiceField(choices=ConstructionChoices, required=False)
+    construction = forms.ChoiceField(choices=add_blank_choice(ConstructionChoices), required=False)
     color_scheme = forms.ChoiceField(choices=add_blank_choice(FiberColorSchemeChoices), required=False)
-    sheath_material = forms.ChoiceField(choices=SheathMaterialChoices, required=False)
-    deployment = forms.ChoiceField(choices=DeploymentChoices, required=False)
-    fire_rating = forms.ChoiceField(choices=FireRatingChoices, required=False)
+    sheath_material = forms.ChoiceField(choices=add_blank_choice(SheathMaterialChoices), required=False)
+    deployment = forms.ChoiceField(choices=add_blank_choice(DeploymentChoices), required=False)
+    fire_rating = forms.ChoiceField(choices=add_blank_choice(FireRatingChoices), required=False)
     outer_diameter = forms.FloatField(required=False, label=_("Outer diameter (mm)"))
     twist_factor_ratio = forms.FloatField(required=False, label=_("Twist factor ratio"))
-    mark_unit = forms.ChoiceField(choices=CableLengthUnitChoices, required=False)
+    mark_unit = forms.ChoiceField(choices=add_blank_choice(CableLengthUnitChoices), required=False)
 
     fieldsets = (
         FieldSet("manufacturer", "construction", "color_scheme"),
@@ -493,7 +494,7 @@ class CableElementTemplateBulkEditForm(NetBoxModelBulkEditForm):
 
     model = CableElementTemplate
 
-    element_type = forms.ChoiceField(choices=CableElementTypeChoices, required=False)
+    element_type = forms.ChoiceField(choices=add_blank_choice(CableElementTypeChoices), required=False)
 
     fieldsets = (FieldSet("element_type"),)
     nullable_fields = ()
@@ -829,7 +830,7 @@ class SlackLoopImportForm(NetBoxModelImportForm):
     """Import form for SlackLoop."""
 
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all())
-    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+    storage_method = CSVChoiceField(choices=StorageMethodChoices, required=False)
 
     class Meta:
         model = SlackLoop
@@ -851,7 +852,7 @@ class SlackLoopBulkEditForm(NetBoxModelBulkEditForm):
 
     site = DynamicModelChoiceField(queryset=Site.objects.all(), required=False)
     location = DynamicModelChoiceField(queryset=Location.objects.all(), required=False)
-    storage_method = forms.ChoiceField(choices=StorageMethodChoices, required=False)
+    storage_method = forms.ChoiceField(choices=add_blank_choice(StorageMethodChoices), required=False)
 
     fieldsets = (FieldSet("site", "location", "storage_method"),)
     nullable_fields = ("location", "storage_method")
@@ -950,7 +951,7 @@ class FiberCircuitBulkEditForm(NetBoxModelBulkEditForm):
 
     model = FiberCircuit
 
-    status = forms.ChoiceField(choices=FiberCircuitStatusChoices, required=False)
+    status = forms.ChoiceField(choices=add_blank_choice(FiberCircuitStatusChoices), required=False)
     strand_count = forms.IntegerField(required=False)
     tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False)
     description = forms.CharField(required=False)
@@ -1166,7 +1167,7 @@ class TrayProfileBulkEditForm(NetBoxModelBulkEditForm):
     """Bulk edit form for TrayProfile."""
 
     model = TrayProfile
-    tray_role = forms.ChoiceField(choices=TrayRoleChoices, required=False, label=_("Tray Role"))
+    tray_role = forms.ChoiceField(choices=add_blank_choice(TrayRoleChoices), required=False, label=_("Tray Role"))
     description = forms.CharField(required=False, label=_("Description"))
 
 
