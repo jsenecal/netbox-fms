@@ -10,13 +10,18 @@
     <div class="col">
         <div class="card">
             <h2 class="card-header">{% trans "Fiber Management Summary" %}
-                {% if show_on_map_url %}
                 <div class="card-actions">
+                    {% if perms.netbox_fms.add_fibercable and perms.dcim.add_cable and perms.dcim.add_rearport and perms.dcim.add_frontport %}
+                    <a href="{% url 'plugins:netbox_fms:fiber_overview_add_cable' pk=device.pk %}" class="btn btn-ghost-primary btn-sm">
+                        <i class="mdi mdi-plus-thick"></i> {% trans "Add Cable" %}
+                    </a>
+                    {% endif %}
+                    {% if show_on_map_url %}
                     <a href="{{ show_on_map_url }}" class="btn btn-ghost-info btn-sm" title="{% trans 'Show on Map' %}">
                         <i class="mdi mdi-map-marker"></i> {% trans "Show on Map" %}
                     </a>
+                    {% endif %}
                 </div>
-                {% endif %}
             </h2>
             <div class="card-body">
                 {# Stats bar #}

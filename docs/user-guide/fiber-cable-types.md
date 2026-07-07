@@ -31,6 +31,47 @@ any number of [FiberCable](fiber-cables.md) instances from it.
 
 ---
 
+## Fiber Color Schemes
+
+Every FiberCableType declares a **fiber color scheme** -- the national
+standard used to color-identify strands inside the cable. When a
+FiberCable of this type is created, strand colors are assigned
+automatically following the selected standard. Pick the scheme that
+matches the manufacturer's market: `EIA/TIA-598` (default) for most
+international plant, `ABNT NBR 14771` for Brazilian plant.
+
+| Position | EIA/TIA-598 | ABNT NBR 14771 |
+|----------|-------------|----------------|
+| 1        | Blue        | Green          |
+| 2        | Orange      | Yellow         |
+| 3        | Green       | White          |
+| 4        | Brown       | Blue           |
+| 5        | Slate       | Red            |
+| 6        | White       | Violet         |
+| 7        | Red         | Brown          |
+| 8        | Black       | Rose           |
+| 9        | Yellow      | Black          |
+| 10       | Violet      | Gray           |
+| 11       | Rose        | Orange         |
+| 12       | Aqua        | Aqua           |
+
+Positions beyond 12 cycle through the palette again (position 13 repeats
+position 1); use strand markers to distinguish repeats.
+
+The scheme is read **at instantiation time only**. Changing it on a cable
+type does not recolor strands of existing FiberCables -- the same
+semantics as editing buffer tube or ribbon templates. Individual strand
+colors on already-created cables can still be corrected through the REST
+API.
+
+Buffer tube and ribbon template forms group their color dropdown by the
+parent type's standard, listing the standard's colors in position order
+(for example `1 - Green` under NBR 14771). An `Other` group keeps the
+generic NetBox colors available for off-palette hardware, and any
+existing nonstandard value on the object remains selectable.
+
+---
+
 ## Creating a Fiber Cable Type
 
 Follow these steps to define a new cable type through the NetBox UI.

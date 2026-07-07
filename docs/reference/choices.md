@@ -21,6 +21,13 @@ The fibre type is read from NetBox's built-in `dcim.Cable.type`
 a `dcim.Cable` whose `type` is one of: `smf`, `smf-os1`, `smf-os2`,
 `mmf`, `mmf-om1`, `mmf-om2`, `mmf-om3`, `mmf-om4`, `mmf-om5`.
 
+## FiberColorSchemeChoices
+
+| Value | Label |
+|-------|-------|
+| eia_598 | EIA/TIA-598 |
+| nbr_14771 | ABNT NBR 14771 |
+
 ## SheathMaterialChoices
 
 | Value | Label |
