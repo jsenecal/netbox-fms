@@ -26,6 +26,18 @@ class ConstructionChoices(ChoiceSet):
     )
 
 
+class FiberColorSchemeChoices(ChoiceSet):
+    """Choice set for the fiber strand color standard of a cable type."""
+
+    EIA_598 = "eia_598"
+    NBR_14771 = "nbr_14771"
+
+    CHOICES = (
+        (EIA_598, "EIA/TIA-598"),
+        (NBR_14771, "ABNT NBR 14771"),
+    )
+
+
 class SheathMaterialChoices(ChoiceSet):
     """Choice set for cable sheath material."""
 

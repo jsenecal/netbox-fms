@@ -12,7 +12,8 @@ from .services import compute_diff
 def generate_drawio(plan):
     """
     Generate a draw.io XML file for a splice plan.
-    One page/tab per tray. Fibers colored by EIA-598, diff annotations.
+    One page/tab per tray. Fibers colored by each strand's stored color
+    (assigned from the cable type's color scheme), diff annotations.
     """
     diff = compute_diff(plan)
 
