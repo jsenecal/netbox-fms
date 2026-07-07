@@ -148,12 +148,31 @@ For a full color table and details on the cycling behavior, see
 
 ---
 
+## Creating a Cable from a Closure
+
+The **Add Cable** button on a closure's **Fiber Overview** tab launches a
+three-step wizard that creates everything at once: the `dcim.Cable`, the
+FiberCable and its internal structure, per-tube RearPorts and per-strand
+FrontPorts on *both* end devices, the cable terminations (with the
+connector/position data the trace engine needs), the cable profile, and a
+blank ClosureCableEntry at each closure.
+
+This is the supported path for greenfield cables -- closures that do not
+have ports yet. NetBox itself refuses to create a cable without both end
+terminations, so the wizard is the only UI route from two bare closures to
+a connected fiber cable.
+
+Requires the `netbox_fms.add_fibercable`, `dcim.add_cable`,
+`dcim.add_rearport`, and `dcim.add_frontport` permissions.
+
 ## Linking Cable Topology
 
 The `link_cable_topology()` service automates the creation of a FiberCable and
 its associated port infrastructure on termination devices. It is designed for
 scenarios where you want to go from a bare `dcim.Cable` to a fully modeled
-fiber plant in a single operation.
+fiber plant in a single operation. With the Add Cable wizard covering
+greenfield creation, Link Topology's role is the adopt case: cables that
+already terminate on existing rear ports at the closure.
 
 ### What It Does
 

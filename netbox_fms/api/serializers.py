@@ -611,11 +611,3 @@ class CableGroupSerializer(serializers.Serializer):
     cable_label = serializers.CharField()
     tubes = TubeGroupSerializer(many=True)
     loose_strands = ClosureStrandSerializer(many=True)
-
-
-class ProvisionPortsInputSerializer(serializers.Serializer):
-    """Serializer for port provisioning request input."""
-
-    fiber_cable_id = serializers.IntegerField()
-    device_id = serializers.IntegerField()
-    port_type = serializers.CharField(default="splice")

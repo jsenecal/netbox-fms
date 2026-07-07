@@ -1,6 +1,7 @@
 import time
 
-from dcim.models import Cable, CableTermination, Device, FrontPort, Module, PortMapping, RearPort
+from dcim.choices import LinkStatusChoices
+from dcim.models import Cable, CableTermination, Device, FrontPort, Module, RearPort
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
@@ -50,6 +51,8 @@ from .forms import (
     CircuitWizardStep4Form,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
+    ClosureCableWizardStep1Form,
+    ClosureCableWizardStep2Form,
     FiberAttenuationSpecBulkEditForm,
     FiberAttenuationSpecFilterForm,
     FiberAttenuationSpecForm,
@@ -70,7 +73,6 @@ from .forms import (
     FiberCircuitPathForm,
     InsertSlackLoopForm,
     LinkTopologyForm,
-    ProvisionPortsForm,
     RibbonTemplateBulkEditForm,
     RibbonTemplateForm,
     SlackLoopBulkEditForm,
@@ -121,6 +123,7 @@ from .provisioning import create_circuit_from_proposal, find_fiber_paths
 from .services import (
     NeedsMappingConfirmation,
     apply_diff,
+    create_closure_cable,
     create_splice_closure,
     get_or_recompute_diff,
     import_live_state,
@@ -1818,117 +1821,6 @@ class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
 
 
 # ---------------------------------------------------------------------------
-# Provision Ports
-# ---------------------------------------------------------------------------
-
-
-@transaction.atomic
-def provision_strands(fiber_cable, device, port_type, module=None):
-    """
-    Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device.
-    If module is provided, all ports are created on that module (in addition to device).
-    """
-    strands = fiber_cable.fiber_strands.select_related("buffer_tube").order_by("position")
-    strand_count = strands.count()
-    if strand_count == 0:
-        raise ValueError("This fiber cable has no strands.")
-
-    cable_label = str(fiber_cable.cable) if fiber_cable.cable else f"FiberCable-{fiber_cable.pk}"
-
-    # PortMapping only has device, front_port, rear_port — no module field.
-    component_kwargs = {"device": device}
-    if module is not None:
-        component_kwargs["module"] = module
-
-    from .signals import fms_portmapping_bypass
-
-    with fms_portmapping_bypass():
-        rear_port = RearPort(
-            **component_kwargs,
-            name=cable_label,
-            type=port_type,
-            positions=strand_count,
-            color="",
-        )
-        rear_port.save()
-
-        for strand in strands:
-            fp = FrontPort(
-                **component_kwargs,
-                name=strand.name,
-                type=port_type,
-                color=strand.color,
-            )
-            fp.save()
-
-            PortMapping.objects.create(
-                device=device,
-                front_port=fp,
-                rear_port=rear_port,
-                front_port_position=1,
-                rear_port_position=strand.position,
-            )
-
-            strand.front_port_a = fp
-            strand.save(update_fields=["front_port_a"])
-
-
-class ProvisionPortsView(LoginRequiredMixin, View):
-    """Provision dcim FrontPort/RearPort/PortMapping for a FiberCable on a Device (htmx modal)."""
-
-    def _get_context(self, request, form=None):
-        fiber_cable = get_object_or_404(
-            FiberCable, pk=request.GET.get("fiber_cable") or request.POST.get("fiber_cable")
-        )
-        if form is None:
-            form = ProvisionPortsForm(initial={"fiber_cable": fiber_cable.pk})
-        return {"form": form, "fiber_cable": fiber_cable}
-
-    def get(self, request):
-        """Render the provision ports form inside the htmx modal."""
-        ctx = self._get_context(request)
-        return render(request, "netbox_fms/provision_ports_modal.html", ctx)
-
-    def post(self, request):
-        """Create FrontPort/RearPort/PortMapping for the selected fiber cable and device."""
-        form = ProvisionPortsForm(request.POST)
-        ctx = self._get_context(request, form)
-        fiber_cable = ctx["fiber_cable"]
-        template = "netbox_fms/provision_ports_modal.html"
-
-        if not form.is_valid():
-            return render(request, template, ctx)
-
-        device = form.cleaned_data["device"]
-        port_type = form.cleaned_data["port_type"]
-
-        # Check for already provisioned strands on this device
-        already = fiber_cable.fiber_strands.filter(
-            Q(front_port_a__device=device) | Q(front_port_b__device=device)
-        ).exists()
-        if already:
-            messages.error(request, _("Some strands are already provisioned on this device."))
-            return render(request, template, ctx)
-
-        try:
-            provision_strands(fiber_cable, device, port_type)
-            strand_count = fiber_cable.fiber_strands.count()
-            messages.success(
-                request,
-                _('Provisioned {count} ports for "{cable}" on {device}.').format(
-                    count=strand_count, cable=fiber_cable, device=device
-                ),
-            )
-        except ValueError as e:
-            messages.error(request, str(e))
-            return render(request, template, ctx)
-
-        response = HttpResponse(status=204)
-        response["HX-Redirect"] = fiber_cable.get_absolute_url()
-        return response
-
-
-# ---------------------------------------------------------------------------
 # Splice Editor
 # ---------------------------------------------------------------------------
 
@@ -2757,3 +2649,199 @@ class SpliceClosureCreateView(LoginRequiredMixin, View):
                 messages.success(request, _('Created splice closure "{name}".').format(name=device.name))
                 return redirect(reverse("dcim:device", kwargs={"pk": device.pk}) + "fiber-overview/")
         return render(request, self.template_name, {"form": form})
+
+
+# ---------------------------------------------------------------------------
+# Closure cable wizard
+# ---------------------------------------------------------------------------
+
+
+class ClosureCableWizardView(LoginRequiredMixin, View):
+    """3-step htmx wizard creating a fiber cable between two closures."""
+
+    SESSION_KEY = "closure_cable_wizard"
+    SESSION_TTL = 3600  # 1 hour
+    required_perms = (
+        "netbox_fms.add_fibercable",
+        "dcim.add_cable",
+        "dcim.add_rearport",
+        "dcim.add_frontport",
+    )
+
+    def _check_perms(self, request):
+        return request.user.has_perms(self.required_perms)
+
+    def _get_state(self, request, device):
+        state = request.session.get(self.SESSION_KEY, {})
+        expired = state and time.time() - state.get("timestamp", 0) > self.SESSION_TTL
+        if expired or (state and state.get("device_id") not in (None, device.pk)):
+            request.session.pop(self.SESSION_KEY, None)
+            return {}
+        return state
+
+    def _set_state(self, request, state):
+        state["timestamp"] = time.time()
+        request.session[self.SESSION_KEY] = state
+        request.session.modified = True
+
+    def _clear_state(self, request):
+        request.session.pop(self.SESSION_KEY, None)
+
+    def get(self, request, pk):
+        """Render the wizard at its current step."""
+        if not self._check_perms(request):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        if request.GET.get("restart"):
+            self._clear_state(request)
+            return redirect("plugins:netbox_fms:fiber_overview_add_cable", pk=pk)
+        state = self._get_state(request, device)
+        return self._render_step(request, device, state.get("step", 1), state)
+
+    def post(self, request, pk):
+        """Advance (or rewind) the wizard."""
+        if not self._check_perms(request):
+            return HttpResponse("Permission denied", status=403)
+        device = get_object_or_404(Device, pk=pk)
+        state = self._get_state(request, device)
+        step = state.get("step", 1)
+        if request.POST.get("_back"):
+            state["step"] = max(1, step - 1)
+            self._set_state(request, state)
+            return self._render_step(request, device, state["step"], state)
+        if step == 1:
+            return self._process_step1(request, device, state)
+        if step == 2:
+            return self._process_step2(request, device, state)
+        if step == 3:
+            return self._process_step3(request, device, state)
+        return self._render_step(request, device, 1, {})
+
+    def _render_step(self, request, device, step, state, form=None, error=None):
+        ctx = {"device": device, "state": state, "current_step": step, "wizard_error": error}
+        if step == 1:
+            ctx["form"] = form or ClosureCableWizardStep1Form(
+                near_device=device,
+                initial={
+                    "far_end_device": state.get("far_end_device_id"),
+                    "fiber_cable_type": state.get("fiber_cable_type_id"),
+                    "port_type": state.get("port_type", "splice"),
+                },
+            )
+        elif step == 2:
+            initial = {
+                name: state[f"cable_{name}"]
+                for name in ClosureCableWizardStep2Form.base_fields
+                if f"cable_{name}" in state
+            }
+            if not initial.get("label"):
+                far_device = Device.objects.filter(pk=state.get("far_end_device_id")).first()
+                if far_device:
+                    initial["label"] = f"{device.name} <-> {far_device.name}"
+            ctx["form"] = form or ClosureCableWizardStep2Form(initial=initial)
+        elif step == 3:
+            review = self._build_review(state)
+            if review is None:
+                messages.error(request, _("Session expired. Please start over."))
+                self._clear_state(request)
+                return redirect("plugins:netbox_fms:fiber_overview_add_cable", pk=device.pk)
+            ctx.update(review)
+        template = f"netbox_fms/htmx/closure_cable_wizard_step{step}.html"
+        if request.headers.get("HX-Request"):
+            return render(request, template, ctx)
+        return render(request, "netbox_fms/closure_cable_wizard.html", {**ctx, "step_template": template})
+
+    def _build_review(self, state):
+        far_device = Device.objects.filter(pk=state.get("far_end_device_id")).first()
+        fct = FiberCableType.objects.filter(pk=state.get("fiber_cable_type_id")).first()
+        if far_device is None or fct is None:
+            return None
+        tube_count = fct.buffer_tube_templates.count()
+        return {
+            "far_device": far_device,
+            "fiber_cable_type": fct,
+            "port_type": state.get("port_type", "splice"),
+            "tube_count": tube_count,
+            "strand_count": fct.strand_count,
+            "rear_ports_per_device": tube_count or 1,
+            "profile_key": fct.get_cable_profile(),
+            "cable_label": state.get("cable_label", ""),
+            "cable_status": state.get("cable_status", ""),
+        }
+
+    def _process_step1(self, request, device, state):
+        form = ClosureCableWizardStep1Form(request.POST, near_device=device)
+        if not form.is_valid():
+            return self._render_step(request, device, 1, state, form=form)
+        state.update(
+            {
+                "device_id": device.pk,
+                "step": 2,
+                "far_end_device_id": form.cleaned_data["far_end_device"].pk,
+                "fiber_cable_type_id": form.cleaned_data["fiber_cable_type"].pk,
+                "port_type": form.cleaned_data["port_type"],
+            }
+        )
+        self._set_state(request, state)
+        return self._render_step(request, device, 2, state)
+
+    def _process_step2(self, request, device, state):
+        form = ClosureCableWizardStep2Form(request.POST)
+        if not form.is_valid():
+            return self._render_step(request, device, 2, state, form=form)
+        for name, value in form.cleaned_data.items():
+            if name == "tenant":
+                state["cable_tenant"] = value.pk if value else None
+            elif name == "length":
+                # Decimal is not JSON-serializable for the session store
+                state["cable_length"] = str(value) if value is not None else None
+            else:
+                state[f"cable_{name}"] = value
+        state["step"] = 3
+        self._set_state(request, state)
+        return self._render_step(request, device, 3, state)
+
+    def _process_step3(self, request, device, state):
+        far_device = Device.objects.filter(pk=state.get("far_end_device_id")).first()
+        fct = FiberCableType.objects.filter(pk=state.get("fiber_cable_type_id")).first()
+        if far_device is None or fct is None:
+            messages.error(request, _("Session expired. Please start over."))
+            self._clear_state(request)
+            return redirect("plugins:netbox_fms:fiber_overview_add_cable", pk=device.pk)
+        cable_attrs = {
+            "type": state.get("cable_type") or "",
+            "status": state.get("cable_status") or LinkStatusChoices.STATUS_CONNECTED,
+            "tenant_id": state.get("cable_tenant"),
+            "label": state.get("cable_label") or "",
+            "color": state.get("cable_color") or "",
+            "description": state.get("cable_description") or "",
+        }
+        if state.get("cable_length"):
+            cable_attrs["length"] = state["cable_length"]
+            cable_attrs["length_unit"] = state.get("cable_length_unit") or ""
+        try:
+            fc, warnings = create_closure_cable(
+                device_a=device,
+                device_b=far_device,
+                fiber_cable_type=fct,
+                port_type=state.get("port_type", "splice"),
+                cable_attrs=cable_attrs,
+            )
+        except (ValidationError, ValueError) as e:
+            error_text = "; ".join(e.messages) if isinstance(e, ValidationError) else str(e)
+            return self._render_step(request, device, 3, state, error=error_text)
+        for warning in warnings:
+            messages.warning(request, warning)
+        messages.success(
+            request,
+            _('Created fiber cable "{cable}" between {a} and {b}.').format(
+                cable=fc.cable, a=device.name, b=far_device.name
+            ),
+        )
+        self._clear_state(request)
+        target = reverse("dcim:device", kwargs={"pk": device.pk}) + "fiber-overview/"
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = target
+            return response
+        return redirect(target)
