@@ -1,3 +1,5 @@
+from django.utils.translation import gettext_lazy as _
+
 from .choices import FiberColorSchemeChoices
 
 # EIA/TIA-598 standard fiber color code.
@@ -69,3 +71,31 @@ FIBER_CABLE_TYPES = frozenset(
         "mmf-om5",
     }
 )
+
+
+def get_grouped_color_choices(scheme=None):
+    """
+    Build optgrouped color choices for component color pickers.
+
+    When ``scheme`` is a known color scheme, its palette is the primary
+    optgroup (options labelled "position - name"); otherwise every known
+    scheme gets a group. A trailing "Other" group carries the NetBox
+    generic colors not already present in a scheme group, so off-palette
+    values stay selectable.
+    """
+    from netbox.choices import ColorChoices
+
+    scheme_labels = dict(FiberColorSchemeChoices.CHOICES)
+    schemes = [scheme] if scheme in COLOR_SCHEME_PALETTES else list(COLOR_SCHEME_PALETTES)
+    groups = []
+    used = set()
+    for s in schemes:
+        options = [
+            (hex_color, f"{position} - {name}")
+            for position, (hex_color, name) in enumerate(COLOR_SCHEME_PALETTES[s], start=1)
+        ]
+        groups.append((scheme_labels[s], options))
+        used.update(hex_color for hex_color, _label in options)
+    other = [(value, label) for value, label in ColorChoices.CHOICES if value not in used]
+    groups.append((_("Other"), other))
+    return groups

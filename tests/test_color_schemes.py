@@ -6,6 +6,7 @@ from netbox_fms.constants import (
     COLOR_SCHEME_PALETTES,
     EIA_598_COLORS,
     NBR_14771_COLORS,
+    get_grouped_color_choices,
     get_strand_color,
 )
 from netbox_fms.models import (
@@ -104,3 +105,26 @@ class TestColorSchemeInstantiation:
 
     def test_clone_fields_include_scheme(self):
         assert "color_scheme" in FiberCableType.clone_fields
+
+
+class TestGroupedColorChoices:
+    def test_known_scheme_yields_primary_plus_other(self):
+        groups = get_grouped_color_choices(FiberColorSchemeChoices.NBR_14771)
+        assert len(groups) == 2
+        label, options = groups[0]
+        assert str(label) == "ABNT NBR 14771"
+        assert options[0] == ("00ff00", "1 - Green")
+        assert options[11] == ("00ffff", "12 - Aqua")
+        assert len(options) == 12
+        assert str(groups[1][0]) == "Other"
+
+    def test_unknown_scheme_yields_both_standards(self):
+        groups = get_grouped_color_choices(None)
+        assert [str(g[0]) for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "Other"]
+
+    def test_other_group_excludes_standard_hexes(self):
+        groups = get_grouped_color_choices(FiberColorSchemeChoices.EIA_598)
+        other_values = [value for value, _label in groups[-1][1]]
+        assert "ffffff" not in other_values  # White is position 6 in EIA group
+        assert "00ffff" not in other_values  # Aqua is position 12
+        assert "9e9e9e" in other_values  # NetBox Grey is not in the palette
