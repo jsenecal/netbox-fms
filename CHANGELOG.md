@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parent type's standard (position-ordered, with an "Other" fallback
   group). Fixes #60.
 
+- `closure_id` filter on BufferTube (REST API and UI): tubes of fiber
+  cables entering a given closure, via ClosureCableEntry. The Tube
+  Assignment form's Buffer Tube dropdown now chains on the selected
+  Closure so only tubes of cables entering that closure are offered. (#58)
+
 ### Changed
 
 - Import forms now declare choice fields as `CSVChoiceField` (`construction`
