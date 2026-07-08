@@ -3,7 +3,18 @@
 from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.test import TestCase
 
-from netbox_fms.models import BufferTube, ClosureCableEntry, FiberCable, FiberCableType, FiberStrand, TubeAssignment
+from netbox_fms.api.serializers import TubeAssignmentSerializer
+from netbox_fms.choices import TrayRoleChoices
+from netbox_fms.forms import TubeAssignmentForm, TubeAssignmentImportForm
+from netbox_fms.models import (
+    BufferTube,
+    ClosureCableEntry,
+    FiberCable,
+    FiberCableType,
+    FiberStrand,
+    TrayProfile,
+    TubeAssignment,
+)
 from netbox_fms.services import clear_tube_assignment_ports, sync_tube_assignment_ports
 from tests.conftest import make_front_port
 
@@ -21,6 +32,7 @@ class PortSyncTestCase(TestCase):
         cls.far_end = Device.objects.create(name="PS-FarEnd", site=site, device_type=dt, role=role)
 
         mt = ModuleType.objects.create(manufacturer=mfr, model="PS Tray")
+        TrayProfile.objects.create(module_type=mt, tray_role=TrayRoleChoices.SPLICE_TRAY)
         bay1 = ModuleBay.objects.create(device=cls.closure, name="Bay 1")
         bay2 = ModuleBay.objects.create(device=cls.closure, name="Bay 2")
         cls.tray1 = Module.objects.create(device=cls.closure, module_bay=bay1, module_type=mt)
@@ -159,3 +171,79 @@ class TestSignalWiring(PortSyncTestCase):
         TubeAssignment.objects.filter(closure=self.closure).delete()
         self._refresh_ports()
         assert all(p.module_id is None for p in self.near_ports)
+
+
+class TestConfirmReassign(PortSyncTestCase):
+    def _form_data(self, **overrides):
+        data = {
+            "closure": self.closure.pk,
+            "tray": self.tray1.pk,
+            "buffer_tube": self.tube.pk,
+        }
+        data.update(overrides)
+        return data
+
+    def test_form_blocks_conflict_without_flag(self):
+        self.near_ports[0].module = self.tray2
+        self.near_ports[0].save()
+        form = TubeAssignmentForm(data=self._form_data())
+        assert not form.is_valid()
+        assert "PS-N1" in str(form.errors)
+
+    def test_form_allows_conflict_with_flag(self):
+        self.near_ports[0].module = self.tray2
+        self.near_ports[0].save()
+        form = TubeAssignmentForm(data=self._form_data(confirm_reassign=True))
+        assert form.is_valid(), form.errors
+        form.save()
+        self._refresh_ports()
+        assert self.near_ports[0].module_id == self.tray1.pk
+
+    def test_form_clean_passes_without_conflicts(self):
+        form = TubeAssignmentForm(data=self._form_data())
+        assert form.is_valid(), form.errors
+
+    def test_serializer_blocks_conflict_without_flag(self):
+        self.near_ports[0].module = self.tray2
+        self.near_ports[0].save()
+        ser = TubeAssignmentSerializer(
+            data={"closure": self.closure.pk, "tray": self.tray1.pk, "buffer_tube": self.tube.pk}
+        )
+        assert not ser.is_valid()
+        assert "PS-N1" in str(ser.errors)
+
+    def test_serializer_allows_conflict_with_flag(self):
+        self.near_ports[0].module = self.tray2
+        self.near_ports[0].save()
+        ser = TubeAssignmentSerializer(
+            data={
+                "closure": self.closure.pk,
+                "tray": self.tray1.pk,
+                "buffer_tube": self.tube.pk,
+                "confirm_reassign": True,
+            }
+        )
+        assert ser.is_valid(), ser.errors
+        ser.save()
+        self._refresh_ports()
+        assert self.near_ports[0].module_id == self.tray1.pk
+
+    def test_serializer_partial_update_falls_back_to_instance(self):
+        ta = self._assignment()
+        self.near_ports[0].refresh_from_db()
+        self.near_ports[0].module = self.tray2
+        self.near_ports[0].save()
+        ser = TubeAssignmentSerializer(instance=ta, data={"position": 5}, partial=True)
+        assert not ser.is_valid()
+        assert "PS-N1" in str(ser.errors)
+        ser = TubeAssignmentSerializer(instance=ta, data={"position": 5, "confirm_reassign": True}, partial=True)
+        assert ser.is_valid(), ser.errors
+
+    def test_import_form_blocks_conflict_without_flag(self):
+        self.near_ports[0].module = self.tray2
+        self.near_ports[0].save()
+        form = TubeAssignmentImportForm(
+            data={"closure": self.closure.pk, "tray": self.tray1.pk, "buffer_tube": self.tube.pk}
+        )
+        assert not form.is_valid()
+        assert "PS-N1" in str(form.errors)
