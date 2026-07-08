@@ -1563,6 +1563,24 @@ class TubeAssignment(NetBoxModel):
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:tubeassignment", args=[self.pk])
 
+    def conflicting_front_ports(self):
+        """Target ports already owned by a module other than this assignment's tray.
+
+        "Allowed" modules are: none (device level), the target tray, and --
+        on updates -- the tray currently stored in the DB for this
+        assignment. Anything else is a conflict the user must confirm.
+        """
+        from .services import _tube_assignment_target_ports
+
+        allowed = {None, self.tray_id}
+        if self.pk:
+            allowed.add(TubeAssignment.objects.filter(pk=self.pk).values_list("tray_id", flat=True).first())
+        return [
+            port
+            for port in _tube_assignment_target_ports(self.closure_id, self.buffer_tube_id)
+            if port.module_id not in allowed
+        ]
+
     def clean(self):
         super().clean()
         from django.core.exceptions import ValidationError
