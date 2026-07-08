@@ -115,3 +115,47 @@ class TestConflictDetection(PortSyncTestCase):
         port.save()
         ta = self._assignment(save=False)
         assert ta.conflicting_front_ports() == []
+
+
+class TestSignalWiring(PortSyncTestCase):
+    def test_create_moves_ports(self):
+        self._assignment()
+        self._refresh_ports()
+        assert all(p.module_id == self.tray1.pk for p in self.near_ports)
+
+    def test_tray_change_moves_ports(self):
+        ta = self._assignment()
+        ta.tray = self.tray2
+        ta.save()
+        self._refresh_ports()
+        assert all(p.module_id == self.tray2.pk for p in self.near_ports)
+
+    def test_buffer_tube_change_releases_old_tube_ports(self):
+        cable2 = FiberCable.objects.create(
+            cable=Cable.objects.create(), fiber_cable_type=self.fiber_cable.fiber_cable_type
+        )
+        tube2 = BufferTube.objects.create(fiber_cable=cable2, name="PS-T2", position=1)
+        other_port = make_front_port(device=self.closure, name="PS-N-T2")
+        strand2 = FiberStrand.objects.filter(fiber_cable=cable2, position=1).first()
+        strand2.buffer_tube = tube2
+        strand2.front_port_a = other_port
+        strand2.save()
+        ta = self._assignment()
+        ta.buffer_tube = tube2
+        ta.save()
+        self._refresh_ports()
+        other_port.refresh_from_db()
+        assert all(p.module_id is None for p in self.near_ports)
+        assert other_port.module_id == self.tray1.pk
+
+    def test_delete_returns_ports_to_device_level(self):
+        ta = self._assignment()
+        ta.delete()
+        self._refresh_ports()
+        assert all(p.module_id is None for p in self.near_ports)
+
+    def test_bulk_queryset_delete_returns_ports(self):
+        self._assignment()
+        TubeAssignment.objects.filter(closure=self.closure).delete()
+        self._refresh_ports()
+        assert all(p.module_id is None for p in self.near_ports)
