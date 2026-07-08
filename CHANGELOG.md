@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The "Fiber Cable" card on NetBox's Cable detail page now links to the FMS
+  FiberCable instance, so Cable -> FiberCable navigation is one click away
+  (the reverse link already existed). (#57)
 - Import forms now declare choice fields as `CSVChoiceField` (`construction`
   and `color_scheme` on FiberCableType, `storage_method` on SlackLoop) so the
   bulk-import UI documents the valid values for each column.
