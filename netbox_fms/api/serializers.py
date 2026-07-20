@@ -483,6 +483,12 @@ class TubeAssignmentSerializer(NetBoxModelSerializer):
     closure = DeviceSerializer(nested=True)
     tray = ModuleSerializer(nested=True)
     buffer_tube = BufferTubeSerializer(nested=True)
+    confirm_reassign = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text="Move front ports that already belong to another module onto the selected tray.",
+    )
 
     class Meta:
         model = TubeAssignment
@@ -495,12 +501,39 @@ class TubeAssignmentSerializer(NetBoxModelSerializer):
             "buffer_tube",
             "position",
             "notes",
+            "confirm_reassign",
             "tags",
             "custom_fields",
             "created",
             "last_updated",
         )
         brief_fields = ("id", "url", "display", "closure", "tray", "buffer_tube")
+
+    def validate(self, data):
+        confirm = data.pop("confirm_reassign", False)
+        data = super().validate(data)
+        if confirm:
+            return data
+        instance = self.instance
+        candidate = TubeAssignment(
+            pk=instance.pk if instance else None,
+            closure=data.get("closure") or (instance.closure if instance else None),
+            tray=data.get("tray") or (instance.tray if instance else None),
+            buffer_tube=data.get("buffer_tube") or (instance.buffer_tube if instance else None),
+        )
+        if candidate.closure_id and candidate.tray_id and candidate.buffer_tube_id:
+            conflicts = candidate.conflicting_front_ports()
+            if conflicts:
+                names = ", ".join(sorted(port.name for port in conflicts))
+                raise serializers.ValidationError(
+                    {
+                        "confirm_reassign": (
+                            f"The following front ports already belong to another module: {names}. "
+                            "Set confirm_reassign to move them."
+                        )
+                    }
+                )
+        return data
 
 
 # ---------------------------------------------------------------------------
