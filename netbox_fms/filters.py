@@ -188,6 +188,12 @@ class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         field_name="installed_by",
         label=_("Installed by (ID)"),
     )
+    terminated_device_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        field_name="cable__terminations___device",
+        label=_("Terminated at device (ID)"),
+        distinct=True,
+    )
 
     search_fields = (
         "serial_number__icontains",
@@ -198,7 +204,15 @@ class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
 
     class Meta:
         model = FiberCable
-        fields = ("id", "cable_id", "fiber_cable_type_id", "serial_number", "install_date", "installed_by_id")
+        fields = (
+            "id",
+            "cable_id",
+            "fiber_cable_type_id",
+            "serial_number",
+            "install_date",
+            "installed_by_id",
+            "terminated_device_id",
+        )
 
 
 class BufferTubeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):

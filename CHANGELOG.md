@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parent type's standard (position-ordered, with an "Other" fallback
   group). Fixes #60.
 
+- `terminated_device_id` filter on FiberCable (REST API and UI): cables with
+  a dcim termination on the given device. The Closure Cable Entry form's
+  Fiber Cable dropdown now chains on the selected Closure so only cables
+  physically terminated at that closure are offered. (#92)
+
 ### Changed
 
 - Import forms now declare choice fields as `CSVChoiceField` (`construction`
