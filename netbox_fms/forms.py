@@ -767,7 +767,11 @@ class ClosureCableEntryForm(NetBoxModelForm):
     """Form for creating/editing a ClosureCableEntry."""
 
     closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
-    fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
+    fiber_cable = DynamicModelChoiceField(
+        queryset=FiberCable.objects.all(),
+        label=_("Fiber Cable"),
+        query_params={"terminated_device_id": "$closure"},
+    )
 
     fieldsets = (
         FieldSet("closure", "fiber_cable", "entrance_label", name=_("Cable Entry")),
