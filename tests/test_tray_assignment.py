@@ -310,3 +310,50 @@ class TestTubeAssignmentAPI(TestCase):
         response = self.client.get(url)
         assert response.status_code == 200
         assert response.json()["count"] == 1
+
+
+class TestBufferTubeClosureFilter(TestCase):
+    """BufferTubeFilterSet.closure_id narrows tubes to cables entering a closure (#58)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Cable
+
+        site = Site.objects.create(name="BTF Site", slug="btf-site")
+        mfr = Manufacturer.objects.create(name="BTF Mfr", slug="btf-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="BTF Closure", slug="btf-closure")
+        role = DeviceRole.objects.create(name="BTF Role", slug="btf-role")
+        cls.closure_a = Device.objects.create(name="BTF-A", site=site, device_type=dt, role=role)
+        cls.closure_b = Device.objects.create(name="BTF-B", site=site, device_type=dt, role=role)
+
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="BTF-12F",
+            construction="loose_tube",
+            strand_count=12,
+        )
+        cable_a = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+        cable_b = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+        cls.tube_a = BufferTube.objects.create(fiber_cable=cable_a, name="BTF-T-A", position=1)
+        cls.tube_b = BufferTube.objects.create(fiber_cable=cable_b, name="BTF-T-B", position=1)
+
+        ClosureCableEntry.objects.create(closure=cls.closure_a, fiber_cable=cable_a, entrance_label="Gland A")
+        ClosureCableEntry.objects.create(closure=cls.closure_b, fiber_cable=cable_b, entrance_label="Gland B")
+
+    def test_closure_id_returns_only_entering_cables_tubes(self):
+        from netbox_fms.filters import BufferTubeFilterSet
+
+        qs = BufferTubeFilterSet({"closure_id": [self.closure_a.pk]}, queryset=BufferTube.objects.all()).qs
+        assert set(qs) == {self.tube_a}
+
+    def test_unfiltered_returns_all_tubes(self):
+        from netbox_fms.filters import BufferTubeFilterSet
+
+        qs = BufferTubeFilterSet({}, queryset=BufferTube.objects.all()).qs
+        assert {self.tube_a, self.tube_b} <= set(qs)
+
+    def test_form_buffer_tube_field_chains_on_closure(self):
+        from netbox_fms.forms import TubeAssignmentForm
+
+        field = TubeAssignmentForm().fields["buffer_tube"]
+        assert field.query_params == {"closure_id": "$closure"}

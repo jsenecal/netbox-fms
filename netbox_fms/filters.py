@@ -223,12 +223,18 @@ class BufferTubeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         field_name="fiber_cable",
         label=_("Fiber Cable (ID)"),
     )
+    closure_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        field_name="fiber_cable__closure_entries__closure",
+        label=_("Closure (ID)"),
+        distinct=True,
+    )
 
     search_fields = ("name__icontains",)
 
     class Meta:
         model = BufferTube
-        fields = ("id", "fiber_cable_id", "name", "position")
+        fields = ("id", "fiber_cable_id", "closure_id", "name", "position")
 
 
 class RibbonFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):

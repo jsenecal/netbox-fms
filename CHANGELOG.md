@@ -32,9 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a dcim termination on the given device. The Closure Cable Entry form's
   Fiber Cable dropdown now chains on the selected Closure so only cables
   physically terminated at that closure are offered. (#92)
+- `closure_id` filter on BufferTube (REST API and UI): tubes of fiber
+  cables entering a given closure, via ClosureCableEntry. The Tube
+  Assignment form's Buffer Tube dropdown now chains on the selected
+  Closure so only tubes of cables entering that closure are offered. (#58)
 
 ### Changed
 
+- The "Fiber Cable" card on NetBox's Cable detail page now links to the FMS
+  FiberCable instance, so Cable -> FiberCable navigation is one click away
+  (the reverse link already existed). (#57)
 - Import forms now declare choice fields as `CSVChoiceField` (`construction`
   and `color_scheme` on FiberCableType, `storage_method` on SlackLoop) so the
   bulk-import UI documents the valid values for each column.
