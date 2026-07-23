@@ -83,6 +83,7 @@ class NetBoxFMSConfig(PluginConfig):
             popover_fields=["name", "fiber_cable"],
             style=LayerStyle(color="#ff9800", icon="mdi-rotate-right"),
             detail=LayerDetail(
+                url_template="/plugins/fms/slack-loops/{id}/",
                 fields=["name", "site", "fiber_cable", "loop_length", "storage_method"],
                 label_field="name",
             ),
