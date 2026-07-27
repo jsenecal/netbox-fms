@@ -54,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Slack Loops layer on the netbox-pathways interactive map now declares a
+  `url_template`, so the map sidebar's detail pane shows a "View Details" link
+  to the slack loop instance. Refs jsenecal/netbox-pathways#81.
 - Bulk edit forms no longer silently overwrite choice fields that were left
   untouched: `construction`, `sheath_material`, `deployment`, `fire_rating`,
   and `mark_unit` on FiberCableType, `element_type` on CableElementTemplate,
