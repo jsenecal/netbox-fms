@@ -56,3 +56,48 @@ class TestDrawioExport(TestCase):
         SplicePlanEntry.objects.create(plan=plan, tray=self.tray, fiber_a=self.fp1, fiber_b=self.fp2)
         xml = generate_drawio(plan)
         assert "#00CC00" in xml or "green" in xml.lower() or "strokeColor=#00" in xml
+
+
+class TestExportOrdering(TestCase):
+    """Tray ports export in strand order even when names sort the other way."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.mfr = Manufacturer.objects.create(name="EO Mfr", slug="eo-mfr")
+        site = Site.objects.create(name="EO Site", slug="eo-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="EO Closure", slug="eo-closure")
+        role = DeviceRole.objects.create(name="EO Role", slug="eo-role")
+        cls.dev_a = Device.objects.create(name="EO-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="EO-B", site=site, device_type=dt, role=role)
+        mt = ModuleType.objects.create(manufacturer=cls.mfr, model="EO Tray")
+        bay = ModuleBay.objects.create(device=cls.dev_a, name="Tray 1")
+        cls.tray = Module.objects.create(device=cls.dev_a, module_bay=bay, module_type=mt)
+
+    def test_ports_ordered_by_strand_not_name(self):
+        from dcim.models import FrontPort
+
+        from netbox_fms.models import BufferTubeTemplate, FiberCableType, TubeAssignment
+        from netbox_fms.services import create_closure_cable
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="EO-1",
+            construction="loose_tube",
+            strand_count=3,
+            # Reverse lexical order: strand 1 -> Z9, strand 3 -> Z7.
+            front_port_name_template="Z{{ 10 - strand }}",
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=3)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "EO"},
+        )
+        TubeAssignment.objects.create(closure=self.dev_a, tray=self.tray, buffer_tube=fc.buffer_tubes.get(position=1))
+        plan = SplicePlan.objects.create(name="EO Plan", closure=self.dev_a)
+
+        xml = generate_drawio(plan)
+        order = [port.name for port in FrontPort.objects.filter(device=self.dev_a, module=self.tray)]
+        positions = [xml.index(name) for name in ["Z9", "Z8", "Z7"]]
+        assert positions == sorted(positions), f"cells out of strand order: {order}"
