@@ -7,7 +7,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from netbox_fms import naming
 from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
-from netbox_fms.services import link_cable_topology
+from netbox_fms.services import create_closure_cable, link_cable_topology
 
 
 class Stub:
@@ -282,3 +282,84 @@ class TestPortNameBackCompat(TestCase):
         fp = FrontPort.objects.filter(device=self.dev_a).order_by("name").first()
         assert fp.name == "NSV:B1F1"
         assert fp.label.endswith("F1")
+
+
+class TestRenameSignal(TestCase):
+    """Relabelling a cable re-renders port names through the template."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="RS Mfr", slug="rs-mfr")
+        site = Site.objects.create(name="RS Site", slug="rs-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="RS Closure", slug="rs-closure")
+        role = DeviceRole.objects.create(name="RS Role", slug="rs-role")
+        cls.dev_a = Device.objects.create(name="RS-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="RS-B", site=site, device_type=dt, role=role)
+
+    def test_relabel_uses_custom_template(self):
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="RS-1",
+            construction="loose_tube",
+            strand_count=2,
+            front_port_name_template="{{ cable }}#{{ strand }}",
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "OLD"},
+        )
+        fc.cable.label = "NEW"
+        fc.cable.save()
+        names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert names == ["NEW#1", "NEW#2"]
+
+    def test_render_failure_does_not_break_cable_save(self):
+        """A broken template must not propagate out of a Cable save."""
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="RS-2", construction="loose_tube", strand_count=2
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "SAFE"},
+        )
+        # Bypass clean() to plant a template that only fails at render time.
+        FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="{{ strand.no_such }}")
+        fc.cable.label = "SAFE2"
+        fc.cable.save()  # must not raise
+        assert fc.cable.label == "SAFE2"
+
+    def test_end_token_differs_between_cable_sides(self):
+        """The {{ end }} token must render 'A' on device_a's ports and 'B' on device_b's.
+
+        create_closure_cable itself hardcodes front_port_a/front_port_b by which
+        device it is provisioning, without ever computing a cable end -- that
+        computation now happens inside _rename_ports_for_cable via
+        _determine_cable_end, triggered by the final cable.save() in
+        create_closure_cable. This is the only test in the suite that exercises
+        the {{ end }} token or the "B"/both-ends path at all.
+        """
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="RS-3",
+            construction="tight_buffer",
+            strand_count=2,
+            front_port_name_template="{{ cable }}-{{ end }}{{ strand }}",
+        )
+        create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "END"},
+        )
+        names_a = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        names_b = sorted(FrontPort.objects.filter(device=self.dev_b).values_list("name", flat=True))
+        assert names_a == ["END-A1", "END-A2"]
+        assert names_b == ["END-B1", "END-B2"]

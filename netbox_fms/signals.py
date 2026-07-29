@@ -1,9 +1,14 @@
 """Signal handlers for splice plan diff cache invalidation and PortMapping protection."""
 
 import contextvars
+import logging
 
 from django.core.exceptions import ValidationError
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
+
+from . import naming
+
+logger = logging.getLogger("netbox.plugins.netbox_fms")
 
 _fms_bypass = contextvars.ContextVar("fms_bypass", default=False)
 
@@ -83,22 +88,25 @@ def _invalidate_plans_for_cable(cable):
 
 
 def _rename_ports_for_cable(cable):
-    """Rebuild RearPort/FrontPort names from structural data for a cable.
+    """Rebuild RearPort/FrontPort names and labels from the cable type's naming templates.
 
     Uses FiberCable -> FiberStrand -> FrontPort -> PortMapping -> RearPort
     to discover ports, avoiding dependency on CableTerminations which may be
     rebuilt during Cable.save().
+
+    Runs on every ``Cable`` post_save, so a template render failure must
+    never propagate: it is caught, logged, and the ports are left unchanged
+    rather than breaking an unrelated cable save.
     """
     from dcim.models import FrontPort, PortMapping, RearPort
 
     from .models import FiberCable
+    from .services import _determine_cable_end
 
     try:
         fc = FiberCable.objects.get(cable=cable)
     except FiberCable.DoesNotExist:
         return
-
-    label = str(cable)
 
     # Collect all FrontPort IDs linked to this FiberCable's strands
     fp_ids = set()
@@ -135,40 +143,70 @@ def _rename_ports_for_cable(cable):
             if strand and strand.buffer_tube:
                 tube_positions[rp_id] = strand.buffer_tube.position
 
+    fct = fc.fiber_cable_type
+    tubes_by_position = {t.position: t for t in fc.buffer_tubes.all()}
+    strand_by_fp = {}
+    for strand in fc.fiber_strands.select_related("ribbon").all():
+        for fp_id in (strand.front_port_a_id, strand.front_port_b_id):
+            if fp_id:
+                strand_by_fp[fp_id] = strand
+
     rps_to_update = []
     fps_to_update = []
 
-    for rp_id, rp in rps.items():
-        tube_pos = tube_positions.get(rp_id)
+    try:
+        for rp_id, rp in rps.items():
+            tube = tubes_by_position.get(tube_positions.get(rp_id))
+            device = rp.device
+            end = _determine_cable_end(cable, device)
+            rp_ctx = naming.port_context(
+                cable=cable,
+                cable_type=fct,
+                device=device,
+                end=end,
+                color_scheme=fct.color_scheme,
+                tube=tube,
+                tray=None,
+                tray_position=None,
+            )
+            new_name = fct.resolve_rear_port_name(**rp_ctx)
+            new_label = fct.resolve_rear_port_label(**rp_ctx)
+            if rp.name != new_name or rp.label != new_label:
+                rp.name = new_name
+                rp.label = new_label
+                rps_to_update.append(rp)
 
-        if is_tubed and tube_pos:
-            new_name = f"{label}:T{tube_pos}"
-        else:
-            new_name = label
-        new_name = new_name[:64]
-
-        if rp.name != new_name:
-            rp.name = new_name
-            rps_to_update.append(rp)
-
-        for pm in pms:
-            if pm.rear_port_id != rp_id:
-                continue
-            fp = pm.front_port
-            if is_tubed and tube_pos:
-                fp_new = f"{label}:T{tube_pos}:F{pm.rear_port_position}"
-            else:
-                fp_new = f"{label}:F{pm.rear_port_position}"
-            fp_new = fp_new[:64]
-
-            if fp.name != fp_new:
-                fp.name = fp_new
-                fps_to_update.append(fp)
+            for pm in pms:
+                if pm.rear_port_id != rp_id:
+                    continue
+                fp = pm.front_port
+                strand = strand_by_fp.get(fp.pk)
+                fp_ctx = naming.port_context(
+                    cable=cable,
+                    cable_type=fct,
+                    device=device,
+                    end=end,
+                    color_scheme=fct.color_scheme,
+                    tube=tube,
+                    strand=strand,
+                    strand_local=pm.rear_port_position,
+                    tray=None,
+                    tray_position=None,
+                )
+                fp_new = fct.resolve_front_port_name(**fp_ctx)
+                fp_label = fct.resolve_front_port_label(**fp_ctx)
+                if fp.name != fp_new or fp.label != fp_label:
+                    fp.name = fp_new
+                    fp.label = fp_label
+                    fps_to_update.append(fp)
+    except naming.NamingError:
+        logger.exception("Naming template failed for cable %s; port names left unchanged", cable)
+        return
 
     if rps_to_update:
-        RearPort.objects.bulk_update(rps_to_update, ["name"])
+        RearPort.objects.bulk_update(rps_to_update, ["name", "label"])
     if fps_to_update:
-        FrontPort.objects.bulk_update(fps_to_update, ["name"])
+        FrontPort.objects.bulk_update(fps_to_update, ["name", "label"])
 
 
 def _cable_post_save(sender, instance, **kwargs):
