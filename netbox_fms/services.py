@@ -4,6 +4,7 @@ from dcim.models import Cable, CableTermination, Device, FrontPort, Module, Modu
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
+from . import naming
 from .models import ClosureCableEntry, FiberCable, SplicePlanEntry
 from .signals import fms_portmapping_bypass
 
@@ -61,8 +62,9 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     tube) and one FrontPort per strand, joined by PortMappings. Tubeless
     cable: a single RearPort covering all strands. Each strand's
     ``fk_field`` ("front_port_a" or "front_port_b") is pointed at its new
-    FrontPort. Does NOT create CableTerminations -- callers terminate the
-    cable on the returned RearPorts themselves.
+    FrontPort. Names and labels come from the cable type's templates. Does
+    NOT create CableTerminations -- callers terminate the cable on the
+    returned RearPorts themselves.
 
     Returns: list of (buffer_tube_or_None, rear_port, fiber_count) tuples,
     in tube-position order.
@@ -70,24 +72,47 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     provisioned = []
     tubes = list(fc.buffer_tubes.all().order_by("position"))
     strands = list(fc.fiber_strands.all().order_by("position"))
-    cable_label = str(fc.cable)
+    fct = fc.fiber_cable_type
+    end = "A" if fk_field == "front_port_a" else "B"
+
+    def _ctx(tube, strand=None, local=None):
+        return naming.port_context(
+            cable=fc.cable,
+            cable_type=fct,
+            device=device,
+            end=end,
+            color_scheme=fct.color_scheme,
+            tube=tube,
+            strand=strand,
+            strand_local=local,
+        )
+
+    def _make_rear_port(tube, positions):
+        ctx = _ctx(tube)
+        return RearPort.objects.create(
+            device=device,
+            name=fct.resolve_rear_port_name(**ctx),
+            label=fct.resolve_rear_port_label(**ctx),
+            type=port_type,
+            positions=positions,
+        )
+
+    def _make_front_port(tube, strand, local):
+        ctx = _ctx(tube, strand, local)
+        return FrontPort.objects.create(
+            device=device,
+            name=fct.resolve_front_port_name(**ctx),
+            label=fct.resolve_front_port_label(**ctx),
+            type=port_type,
+        )
 
     with fms_portmapping_bypass():
         if tubes:
             for tube in tubes:
                 tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
-                rp = RearPort.objects.create(
-                    device=device,
-                    name=f"{cable_label}:T{tube.position}"[:64],
-                    type=port_type,
-                    positions=len(tube_strands),
-                )
+                rp = _make_rear_port(tube, len(tube_strands))
                 for i, strand in enumerate(tube_strands, start=1):
-                    fp = FrontPort.objects.create(
-                        device=device,
-                        name=f"{cable_label}:T{tube.position}:F{strand.position}"[:64],
-                        type=port_type,
-                    )
+                    fp = _make_front_port(tube, strand, i)
                     PortMapping.objects.create(
                         device=device,
                         front_port=fp,
@@ -99,18 +124,9 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                     strand.save(update_fields=[fk_field])
                 provisioned.append((tube, rp, len(tube_strands)))
         else:
-            rp = RearPort.objects.create(
-                device=device,
-                name=cable_label[:64],
-                type=port_type,
-                positions=len(strands),
-            )
+            rp = _make_rear_port(None, len(strands))
             for i, strand in enumerate(strands, start=1):
-                fp = FrontPort.objects.create(
-                    device=device,
-                    name=f"{cable_label}:F{strand.position}"[:64],
-                    type=port_type,
-                )
+                fp = _make_front_port(None, strand, i)
                 PortMapping.objects.create(
                     device=device,
                     front_port=fp,

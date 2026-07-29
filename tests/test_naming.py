@@ -1,12 +1,13 @@
 """Unit tests for the naming template engine."""
 
 import pytest
-from dcim.models import Cable, Manufacturer
+from dcim.models import Cable, FrontPort, Manufacturer, RearPort
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from netbox_fms import naming
 from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
+from netbox_fms.services import link_cable_topology
 
 
 class Stub:
@@ -224,3 +225,60 @@ class TestStrandNameBackCompat(TestCase):
         fc = self._cable_for(fct)
         names = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
         assert names == ["1/1", "2/2", "3/1", "4/2"]
+
+
+class TestPortNameBackCompat(TestCase):
+    """Default templates must reproduce the pre-template port names exactly.
+
+    Uses ``link_cable_topology`` rather than ``create_closure_cable``: the latter's
+    final ``cable.save()`` triggers ``signals._rename_ports_for_cable``, which still
+    rebuilds names with its own pre-template, tube-local formula (that rebuild is
+    Task 5's job). ``link_cable_topology``'s greenfield path never re-saves the
+    cable after provisioning, so its port names are exactly what
+    ``_provision_device_ports`` -- the unit under test here -- produced.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="PN Mfr", slug="pn-mfr")
+        site = Site.objects.create(name="PN Site", slug="pn-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="PN Closure", slug="pn-closure")
+        role = DeviceRole.objects.create(name="PN Role", slug="pn-role")
+        cls.dev_a = Device.objects.create(name="PN-A", site=site, device_type=dt, role=role)
+
+    def _tubed_type(self, **kwargs):
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model=f"PN-{len(kwargs)}", construction="loose_tube", strand_count=4, **kwargs
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T2", position=2, fiber_count=2)
+        return fct
+
+    def test_default_port_names(self):
+        fct = self._tubed_type()
+        cable = Cable.objects.create(type="smf-os2", label="NST")
+        link_cable_topology(cable, fct, self.dev_a)
+        fp_names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert fp_names == ["NST:T1:F1", "NST:T1:F2", "NST:T2:F3", "NST:T2:F4"]
+        rp_names = sorted(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert rp_names == ["NST:T1", "NST:T2"]
+
+    def test_labels_stay_blank_by_default(self):
+        fct = self._tubed_type()
+        cable = Cable.objects.create(type="smf-os2", label="NSU")
+        link_cable_topology(cable, fct, self.dev_a)
+        labels = set(FrontPort.objects.filter(device=self.dev_a).values_list("label", flat=True))
+        assert labels == {""}
+
+    def test_custom_name_and_label_templates(self):
+        fct = self._tubed_type(
+            front_port_name_template="{{ cable }}:B{{ tube }}F{{ strand }}",
+            front_port_label_template="{{ tube_color }} F{{ strand_local }}",
+        )
+        cable = Cable.objects.create(type="smf-os2", label="NSV")
+        link_cable_topology(cable, fct, self.dev_a)
+        fp = FrontPort.objects.filter(device=self.dev_a).order_by("name").first()
+        assert fp.name == "NSV:B1F1"
+        assert fp.label.endswith("F1")
