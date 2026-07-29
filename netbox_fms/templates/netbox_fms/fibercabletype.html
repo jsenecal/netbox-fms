@@ -137,11 +137,11 @@
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Front Port Label Template" %}</th>
-                    <td>{% if object.front_port_label_template %}<pre>{{ object.front_port_label_template }}</pre>{% else %}<span class="text-muted">{% trans "Inherited" %}</span>{% endif %}</td>
+                    <td>{% if object.front_port_label_template %}<pre>{{ object.front_port_label_template }}</pre>{% else %}<span class="text-muted">{% trans "Not set -- no label applied" %}</span>{% endif %}</td>
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Rear Port Label Template" %}</th>
-                    <td>{% if object.rear_port_label_template %}<pre>{{ object.rear_port_label_template }}</pre>{% else %}<span class="text-muted">{% trans "Inherited" %}</span>{% endif %}</td>
+                    <td>{% if object.rear_port_label_template %}<pre>{{ object.rear_port_label_template }}</pre>{% else %}<span class="text-muted">{% trans "Not set -- no label applied" %}</span>{% endif %}</td>
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Strand Name Template" %}</th>
