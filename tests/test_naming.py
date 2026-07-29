@@ -471,3 +471,146 @@ class TestTrayGuardSkipsRename(TestCase):
             port.refresh_from_db()
             assert port.name == f"HAND-{position}", "port name must be untouched with no tray token in the template"
             assert port.module_id == self.tray.pk, "module_id must still move to the assigned tray"
+
+
+class TestSnapshotOrdering(TestCase):
+    """Regression tests for change-logging ordering (review finding 1).
+
+    ``port.snapshot()`` must run before any field on that port is mutated,
+    or NetBox's changelog "before" state ends up equal to the "after" state
+    and the actual change is silently dropped from history. Asserting only
+    final field values (as the rest of this file and PR #90's suite do)
+    cannot catch that class of bug -- these tests inspect the captured
+    ``_prechange_snapshot`` itself, via a transient ``post_save`` receiver,
+    since the ``FrontPort`` instance that calls ``snapshot()`` lives inside
+    ``services.py`` and is not otherwise reachable from the test.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Module, ModuleBay, ModuleType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="SO Mfr", slug="so-mfr")
+        site = Site.objects.create(name="SO Site", slug="so-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="SO Closure", slug="so-closure")
+        role = DeviceRole.objects.create(name="SO Role", slug="so-role")
+        cls.closure = Device.objects.create(name="SO-Closure", site=site, device_type=dt, role=role)
+        mt = ModuleType.objects.create(manufacturer=cls.mfr, model="SO Tray")
+        bay1 = ModuleBay.objects.create(device=cls.closure, name="Tray 1")
+        bay2 = ModuleBay.objects.create(device=cls.closure, name="Tray 2")
+        cls.tray1 = Module.objects.create(device=cls.closure, module_bay=bay1, module_type=mt)
+        cls.tray2 = Module.objects.create(device=cls.closure, module_bay=bay2, module_type=mt)
+
+    def _make_assignment_fixture(self, front_port_name_template=""):
+        from netbox_fms.models import BufferTube
+        from tests.conftest import make_front_port
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model=f"SO-{front_port_name_template!r}",
+            construction="loose_tube",
+            strand_count=1,
+            front_port_name_template=front_port_name_template,
+        )
+        fc = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+        tube = BufferTube.objects.create(fiber_cable=fc, name="SO-T1", position=1)
+        port = make_front_port(device=self.closure, name="SO-N1")
+        strand = fc.fiber_strands.get(position=1)
+        strand.buffer_tube = tube
+        strand.front_port_a = port
+        strand.save()
+        return tube, port
+
+    def _capture_front_port_saves(self, port_pk):
+        """Connect a transient post_save receiver; returns (captures list, disconnect callback)."""
+        from django.db.models.signals import post_save
+
+        captures = []
+
+        def _capture(sender, instance, **kwargs):
+            if instance.pk == port_pk:
+                captures.append(
+                    {
+                        "prechange": dict(getattr(instance, "_prechange_snapshot", {}) or {}),
+                        "module_id": instance.module_id,
+                        "name": instance.name,
+                    }
+                )
+
+        post_save.connect(_capture, sender=FrontPort, dispatch_uid="test-capture-frontport-save", weak=False)
+        return captures, lambda: post_save.disconnect(sender=FrontPort, dispatch_uid="test-capture-frontport-save")
+
+    def test_sync_prechange_snapshot_holds_old_module_not_new(self):
+        """Assigning a tube to a tray must snapshot the port's OLD module/name, not the post-sync values.
+
+        Uses the initial (device-level -> tray) assignment rather than a
+        retarget between two trays, because retargeting runs both
+        ``clear_tube_assignment_ports`` (old tray -> device level, via
+        ``_tube_assignment_pre_save``) and ``sync_tube_assignment_ports``
+        (device level -> new tray) as two separate saves; checking only the
+        first save keeps this test's cause and effect direct.
+        """
+        from netbox_fms.models import TubeAssignment
+
+        tube, port = self._make_assignment_fixture(
+            front_port_name_template="{% if tray %}{{ tray }}:{% endif %}F{{ strand }}"
+        )
+        assert port.module_id is None
+        assert port.name == "SO-N1"
+
+        captures, disconnect = self._capture_front_port_saves(port.pk)
+        try:
+            TubeAssignment.objects.create(closure=self.closure, tray=self.tray1, buffer_tube=tube)
+        finally:
+            disconnect()
+
+        assert captures, "sync_tube_assignment_ports should have saved the port"
+        prechange = captures[-1]["prechange"]
+        assert prechange["module"] is None, "prechange snapshot must record the OLD module (None), not the new tray"
+        assert prechange["name"] == "SO-N1", "prechange snapshot must record the OLD name, not the rendered one"
+        assert captures[-1]["module_id"] == self.tray1.pk
+        assert captures[-1]["name"] == "Tray 1:F1"
+
+    def test_clear_prechange_snapshot_holds_old_module_not_none(self):
+        """Deleting a TubeAssignment must snapshot the tray it was on, not the cleared value."""
+        from netbox_fms.models import TubeAssignment
+
+        tube, port = self._make_assignment_fixture(
+            front_port_name_template="{% if tray %}{{ tray }}:{% endif %}F{{ strand }}"
+        )
+        assignment = TubeAssignment.objects.create(closure=self.closure, tray=self.tray1, buffer_tube=tube)
+        port.refresh_from_db()
+        assert port.module_id == self.tray1.pk
+
+        captures, disconnect = self._capture_front_port_saves(port.pk)
+        try:
+            assignment.delete()
+        finally:
+            disconnect()
+
+        assert captures, "clear_tube_assignment_ports should have saved the port"
+        prechange = captures[-1]["prechange"]
+        assert prechange["module"] == self.tray1.pk, "prechange snapshot must record the OLD (assigned) module"
+        assert prechange["name"] == "Tray 1:F1", "prechange snapshot must record the OLD name, not the cleared one"
+        assert captures[-1]["module_id"] is None
+        assert captures[-1]["name"] == "F1"
+
+    def test_sync_no_tray_token_still_snapshots_old_module(self):
+        """The guard-off path (no tray token) must still preserve changelog ordering."""
+        from netbox_fms.models import TubeAssignment
+
+        tube, port = self._make_assignment_fixture(front_port_name_template="")
+        assert port.module_id is None
+        original_name = port.name
+
+        captures, disconnect = self._capture_front_port_saves(port.pk)
+        try:
+            TubeAssignment.objects.create(closure=self.closure, tray=self.tray1, buffer_tube=tube)
+        finally:
+            disconnect()
+
+        assert captures, "sync_tube_assignment_ports should have saved the port"
+        prechange = captures[-1]["prechange"]
+        assert prechange["module"] is None, "prechange snapshot must record the OLD module (None), not the new tray"
+        assert captures[-1]["module_id"] == self.tray1.pk
+        assert captures[-1]["name"] == original_name, "no tray token means the name must never be touched"

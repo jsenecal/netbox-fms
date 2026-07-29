@@ -612,38 +612,63 @@ def _strand_for_port(port, buffer_tube_id):
     )
 
 
+def _cable_type_uses_tray(buffer_tube_id):
+    """Whether buffer_tube_id's cable type has a tray-aware front-port template.
+
+    Resolved in one query so the guard can be decided once per assignment,
+    before the port loop, rather than re-fetching a fresh FiberCableType
+    (and re-parsing its templates via the cached_property) on every row.
+    """
+    from .models import BufferTube
+
+    tube = BufferTube.objects.filter(pk=buffer_tube_id).select_related("fiber_cable__fiber_cable_type").first()
+    return bool(tube and tube.fiber_cable.fiber_cable_type.naming_uses_tray)
+
+
 def sync_tube_assignment_ports(assignment):
     """Place the tube's closure-side strand front ports on the assignment's tray.
 
     Overwrites unconditionally; conflict blocking happens at form/serializer
     validation. Saves ports individually so NetBox change logging records
-    each move.
+    each move -- ``snapshot()`` is called before any field is mutated so the
+    changelog's "before" state is preserved.
 
     Also re-renders each port's name and label, but only when the cable
     type's front-port templates actually reference ``{{ tray }}`` /
-    ``{{ tray_position }}`` (``FiberCableType.naming_uses_tray``). Ports
-    adopted from a DeviceType template or hand-named outside FMS never had
-    their name touched by this function before tray-aware templates
-    existed; if the cable type configured no such template, that must stay
-    true, so the rename is skipped entirely and this function behaves
-    exactly as it did before the tray token existed.
+    ``{{ tray_position }}`` (``FiberCableType.naming_uses_tray``, resolved
+    once via ``_cable_type_uses_tray`` before the loop). Ports adopted from
+    a DeviceType template or hand-named outside FMS never had their name
+    touched by this function before tray-aware templates existed; if the
+    cable type configured no such template, that must stay true -- no
+    strand lookup, no render, no name/label mutation, exactly PR #90's
+    original loop body.
     """
     tray_name = assignment.tray.module_bay.name if assignment.tray else None
+    uses_tray = _cable_type_uses_tray(assignment.buffer_tube_id)
+
     for port in _tube_assignment_target_ports(assignment.closure_id, assignment.buffer_tube_id):
+        new_name = new_label = None
+        if uses_tray:
+            strand = _strand_for_port(port, assignment.buffer_tube_id)
+            if strand is not None:
+                try:
+                    new_name, new_label = render_port_strings(
+                        port, strand, strand.buffer_tube, tray_name, assignment.position
+                    )
+                except naming.NamingError:
+                    new_name, new_label = port.name, port.label
+
         changed = port.module_id != assignment.tray_id
+        if new_name is not None and (new_name, new_label) != (port.name, port.label):
+            changed = True
+        if not changed:
+            continue
+
+        port.snapshot()
         port.module_id = assignment.tray_id
-        strand = _strand_for_port(port, assignment.buffer_tube_id)
-        if strand is not None and strand.fiber_cable.fiber_cable_type.naming_uses_tray:
-            try:
-                name, label = render_port_strings(port, strand, strand.buffer_tube, tray_name, assignment.position)
-            except naming.NamingError:
-                name, label = port.name, port.label
-            if (name, label) != (port.name, port.label):
-                port.name, port.label = name, label
-                changed = True
-        if changed:
-            port.snapshot()
-            port.save()
+        if new_name is not None:
+            port.name, port.label = new_name, new_label
+        port.save()
 
 
 def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
@@ -651,24 +676,32 @@ def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
 
     Only touches ports still sitting on the given tray; ports moved
     elsewhere by hand are left alone. Takes ids so it can run from a
-    post_delete signal.
+    post_delete signal. ``snapshot()`` is called before any field is
+    mutated so the changelog's "before" state is preserved.
 
     Also re-renders each port's name and label back to their device-level
-    form, gated by ``FiberCableType.naming_uses_tray`` for the same reason
-    as ``sync_tube_assignment_ports``: cable types with no tray-aware
-    template must never have FMS touch a port's name.
+    form, gated by ``_cable_type_uses_tray`` (resolved once, not per port)
+    for the same reason as ``sync_tube_assignment_ports``: cable types with
+    no tray-aware template must never have FMS touch a port's name, and
+    must never incur the extra per-port strand query either.
     """
+    uses_tray = _cable_type_uses_tray(buffer_tube_id)
+
     for port in _tube_assignment_target_ports(closure_id, buffer_tube_id):
         if port.module_id != tray_id:
             continue
-        port.module_id = None
-        strand = _strand_for_port(port, buffer_tube_id)
-        if strand is not None and strand.fiber_cable.fiber_cable_type.naming_uses_tray:
-            try:
-                name, label = render_port_strings(port, strand, strand.buffer_tube, None, None)
-            except naming.NamingError:
-                name, label = port.name, port.label
-            if (name, label) != (port.name, port.label):
-                port.name, port.label = name, label
+
+        new_name = new_label = None
+        if uses_tray:
+            strand = _strand_for_port(port, buffer_tube_id)
+            if strand is not None:
+                try:
+                    new_name, new_label = render_port_strings(port, strand, strand.buffer_tube, None, None)
+                except naming.NamingError:
+                    new_name, new_label = port.name, port.label
+
         port.snapshot()
+        port.module_id = None
+        if new_name is not None:
+            port.name, port.label = new_name, new_label
         port.save()
