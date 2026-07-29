@@ -1189,7 +1189,11 @@ class TubeAssignmentForm(NetBoxModelForm):
     tray = DynamicModelChoiceField(
         queryset=Module.objects.all(), label=_("Tray"), query_params={"device_id": "$closure"}
     )
-    buffer_tube = DynamicModelChoiceField(queryset=BufferTube.objects.all(), label=_("Buffer Tube"))
+    buffer_tube = DynamicModelChoiceField(
+        queryset=BufferTube.objects.all(),
+        label=_("Buffer Tube"),
+        query_params={"closure_id": "$closure"},
+    )
     confirm_reassign = forms.BooleanField(
         required=False,
         label=_("Confirm reassignment"),
