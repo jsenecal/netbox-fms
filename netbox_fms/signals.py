@@ -97,6 +97,10 @@ def _rename_ports_for_cable(cable):
     Runs on every ``Cable`` post_save, so a template render failure must
     never propagate: it is caught, logged, and the ports are left unchanged
     rather than breaking an unrelated cable save.
+
+    ``end`` is normally "A" or "B", but ``_determine_cable_end`` can return
+    "AB" for a self-looping cable (both sides terminated on the same
+    device); that value flows straight into the ``{{ end }}`` token.
     """
     from dcim.models import FrontPort, PortMapping, RearPort
 
@@ -153,12 +157,15 @@ def _rename_ports_for_cable(cable):
 
     rps_to_update = []
     fps_to_update = []
+    end_by_device_id = {}
 
     try:
         for rp_id, rp in rps.items():
             tube = tubes_by_position.get(tube_positions.get(rp_id))
             device = rp.device
-            end = _determine_cable_end(cable, device)
+            if device.pk not in end_by_device_id:
+                end_by_device_id[device.pk] = _determine_cable_end(cable, device)
+            end = end_by_device_id[device.pk]
             rp_ctx = naming.port_context(
                 cable=cable,
                 cable_type=fct,

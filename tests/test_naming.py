@@ -332,9 +332,18 @@ class TestRenameSignal(TestCase):
         )
         # Bypass clean() to plant a template that only fails at render time.
         FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="{{ strand.no_such }}")
+
+        rp_names_before = dict(RearPort.objects.filter(device__in=[self.dev_a, self.dev_b]).values_list("pk", "name"))
+        fp_names_before = dict(FrontPort.objects.filter(device__in=[self.dev_a, self.dev_b]).values_list("pk", "name"))
+
         fc.cable.label = "SAFE2"
         fc.cable.save()  # must not raise
         assert fc.cable.label == "SAFE2"
+
+        rp_names_after = dict(RearPort.objects.filter(device__in=[self.dev_a, self.dev_b]).values_list("pk", "name"))
+        fp_names_after = dict(FrontPort.objects.filter(device__in=[self.dev_a, self.dev_b]).values_list("pk", "name"))
+        assert rp_names_after == rp_names_before, "RearPort names must be untouched when the render guard fires"
+        assert fp_names_after == fp_names_before, "FrontPort names must be untouched when the render guard fires"
 
     def test_end_token_differs_between_cable_sides(self):
         """The {{ end }} token must render 'A' on device_a's ports and 'B' on device_b's.
