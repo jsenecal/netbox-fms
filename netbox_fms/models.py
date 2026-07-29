@@ -1,3 +1,5 @@
+from functools import cached_property
+
 from dcim.choices import CableLengthUnitChoices
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -8,6 +10,7 @@ from utilities.fields import ColorField, CounterCacheField
 from utilities.querysets import RestrictedQuerySet
 from utilities.tracking import TrackingModelMixin
 
+from . import naming
 from .choices import (
     ArmorTypeChoices,
     CableElementTypeChoices,
@@ -195,6 +198,49 @@ class FiberCableType(NetBoxModel):
         blank=True,
     )
 
+    front_port_name_template = models.TextField(
+        blank=True,
+        verbose_name=_("front port name template"),
+        help_text=_(
+            "Jinja template for generated FrontPort names. Blank inherits the "
+            "plugin default. Renders to at most 64 characters."
+        ),
+    )
+    rear_port_name_template = models.TextField(
+        blank=True,
+        verbose_name=_("rear port name template"),
+        help_text=_(
+            "Jinja template for generated RearPort names. Blank inherits the "
+            "plugin default. Renders to at most 64 characters."
+        ),
+    )
+    front_port_label_template = models.TextField(
+        blank=True,
+        verbose_name=_("front port label template"),
+        help_text=_(
+            "Jinja template for generated FrontPort labels. Blank leaves labels "
+            "unset. Setting a label changes how the port is displayed everywhere "
+            "in NetBox, not only in FMS views."
+        ),
+    )
+    rear_port_label_template = models.TextField(
+        blank=True,
+        verbose_name=_("rear port label template"),
+        help_text=_(
+            "Jinja template for generated RearPort labels. Blank leaves labels "
+            "unset. Setting a label changes how the port is displayed everywhere "
+            "in NetBox, not only in FMS views."
+        ),
+    )
+    strand_name_template = models.TextField(
+        blank=True,
+        verbose_name=_("strand name template"),
+        help_text=_(
+            "Jinja template for generated FiberStrand names. Blank inherits the "
+            "plugin default. Run the rerender_names command after changing this."
+        ),
+    )
+
     buffer_tube_template_count = CounterCacheField(
         to_model="netbox_fms.BufferTubeTemplate",
         to_field="fiber_cable_type",
@@ -222,6 +268,11 @@ class FiberCableType(NetBoxModel):
         "fire_rating",
         "outer_diameter",
         "twist_factor_ratio",
+        "front_port_name_template",
+        "rear_port_name_template",
+        "front_port_label_template",
+        "rear_port_label_template",
+        "strand_name_template",
     )
 
     class Meta:
@@ -259,6 +310,13 @@ class FiberCableType(NetBoxModel):
                         ).format(declared=self.strand_count, computed=template_count)
                     }
                 )
+
+        # Naming templates
+        for target, spec in naming.TARGETS.items():
+            try:
+                naming.validate(target, getattr(self, spec.field))
+            except naming.NamingError as exc:
+                raise ValidationError({spec.field: str(exc)}) from exc
 
     def get_strand_count_from_templates(self):
         """Compute total fiber count from buffer tube templates."""
@@ -299,6 +357,31 @@ class FiberCableType(NetBoxModel):
         """
         spec = self.attenuation_specs.filter(wavelength_nm=wavelength_nm).first()
         return spec.max_loss_db_per_km if spec else None
+
+    @cached_property
+    def _compiled_naming(self):
+        """Compiled naming templates, built once per instance."""
+        return naming.compile_for(self)
+
+    def resolve_front_port_name(self, **ctx):
+        """Render the FrontPort name template with the given context."""
+        return naming.render(naming.FRONT_PORT_NAME, self._compiled_naming, ctx)
+
+    def resolve_rear_port_name(self, **ctx):
+        """Render the RearPort name template with the given context."""
+        return naming.render(naming.REAR_PORT_NAME, self._compiled_naming, ctx)
+
+    def resolve_front_port_label(self, **ctx):
+        """Render the FrontPort label template with the given context."""
+        return naming.render(naming.FRONT_PORT_LABEL, self._compiled_naming, ctx)
+
+    def resolve_rear_port_label(self, **ctx):
+        """Render the RearPort label template with the given context."""
+        return naming.render(naming.REAR_PORT_LABEL, self._compiled_naming, ctx)
+
+    def resolve_strand_name(self, **ctx):
+        """Render the FiberStrand name template with the given context."""
+        return naming.render(naming.STRAND_NAME, self._compiled_naming, ctx)
 
 
 class FiberAttenuationSpec(NetBoxModel):

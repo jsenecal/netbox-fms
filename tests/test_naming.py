@@ -1,9 +1,12 @@
 """Unit tests for the naming template engine."""
 
 import pytest
-from django.test import SimpleTestCase, override_settings
+from dcim.models import Manufacturer
+from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from netbox_fms import naming
+from netbox_fms.models import FiberCableType
 
 
 class Stub:
@@ -129,3 +132,37 @@ class TestColorName(SimpleTestCase):
 
     def test_blank_returns_none(self):
         assert naming.color_name("", "eia_598") is None
+
+
+class TestCableTypeValidation(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.mfr = Manufacturer.objects.create(name="Naming Mfr", slug="naming-mfr")
+
+    def _cable_type(self, **kwargs):
+        return FiberCableType(
+            manufacturer=self.mfr,
+            model="NT-12",
+            construction="loose_tube",
+            strand_count=12,
+            **kwargs,
+        )
+
+    def test_syntax_error_raises_on_the_right_field(self):
+        fct = self._cable_type(front_port_name_template="{{ cable ")
+        with self.assertRaises(ValidationError) as ctx:
+            fct.full_clean()
+        assert "front_port_name_template" in ctx.exception.message_dict
+
+    def test_strand_token_rejected_on_rear_template(self):
+        fct = self._cable_type(rear_port_name_template="{{ strand }}")
+        with self.assertRaises(ValidationError) as ctx:
+            fct.full_clean()
+        assert "rear_port_name_template" in ctx.exception.message_dict
+
+    def test_blank_templates_are_valid(self):
+        self._cable_type().full_clean()
+
+    def test_resolve_methods_use_the_override(self):
+        fct = self._cable_type(front_port_name_template="X-{{ strand }}")
+        assert fct.resolve_front_port_name(strand=9) == "X-9"
