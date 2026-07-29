@@ -122,6 +122,35 @@
         </div>
     </div>
 </div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Naming Templates" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Front Port Name Template" %}</th>
+                    <td>{% if object.front_port_name_template %}<pre>{{ object.front_port_name_template }}</pre>{% else %}<span class="text-muted">{% trans "Inherited" %}</span>{% endif %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Rear Port Name Template" %}</th>
+                    <td>{% if object.rear_port_name_template %}<pre>{{ object.rear_port_name_template }}</pre>{% else %}<span class="text-muted">{% trans "Inherited" %}</span>{% endif %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Front Port Label Template" %}</th>
+                    <td>{% if object.front_port_label_template %}<pre>{{ object.front_port_label_template }}</pre>{% else %}<span class="text-muted">{% trans "Inherited" %}</span>{% endif %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Rear Port Label Template" %}</th>
+                    <td>{% if object.rear_port_label_template %}<pre>{{ object.rear_port_label_template }}</pre>{% else %}<span class="text-muted">{% trans "Inherited" %}</span>{% endif %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Strand Name Template" %}</th>
+                    <td>{% if object.strand_name_template %}<pre>{{ object.strand_name_template }}</pre>{% else %}<span class="text-muted">{% trans "Inherited" %}</span>{% endif %}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
 {% if object.construction_image %}
 <div class="row mb-3">
     <div class="col col-md-12">
