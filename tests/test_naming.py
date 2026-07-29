@@ -1,8 +1,11 @@
 """Unit tests for the naming template engine."""
 
+from io import StringIO
+
 import pytest
 from dcim.models import Cable, FrontPort, Manufacturer, RearPort
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from netbox_fms import naming
@@ -614,3 +617,57 @@ class TestSnapshotOrdering(TestCase):
         assert prechange["module"] is None, "prechange snapshot must record the OLD module (None), not the new tray"
         assert captures[-1]["module_id"] == self.tray1.pk
         assert captures[-1]["name"] == original_name, "no tray token means the name must never be touched"
+
+
+class TestRerenderCommand(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="RR Mfr", slug="rr-mfr")
+        site = Site.objects.create(name="RR Site", slug="rr-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="RR Closure", slug="rr-closure")
+        role = DeviceRole.objects.create(name="RR Role", slug="rr-role")
+        cls.dev_a = Device.objects.create(name="RR-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="RR-B", site=site, device_type=dt, role=role)
+
+    def _build(self, label):
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model=f"RR-{label}", construction="loose_tube", strand_count=2
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": label},
+        )
+        return fct, fc
+
+    def test_dry_run_writes_nothing(self):
+        fct, fc = self._build("DRY")
+        FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
+        before = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        out = StringIO()
+        call_command("rerender_names", "--dry-run", stdout=out)
+        after = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert after == before
+        assert "->" in out.getvalue()
+
+    def test_applies_strand_template(self):
+        fct, fc = self._build("APP")
+        FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
+        call_command("rerender_names", stdout=StringIO())
+        after = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert after == ["S1", "S2"]
+
+    def test_collision_refused(self):
+        """A template that renders the same name for every port is refused."""
+        fct, fc = self._build("COL")
+        FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="SAME")
+        before = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        err = StringIO()
+        call_command("rerender_names", stdout=StringIO(), stderr=err)
+        after = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert after == before
+        assert "collision" in err.getvalue().lower()
