@@ -1,12 +1,12 @@
 """Unit tests for the naming template engine."""
 
 import pytest
-from dcim.models import Manufacturer
+from dcim.models import Cable, Manufacturer
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from netbox_fms import naming
-from netbox_fms.models import FiberCableType
+from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
 
 
 class Stub:
@@ -166,3 +166,61 @@ class TestCableTypeValidation(TestCase):
     def test_resolve_methods_use_the_override(self):
         fct = self._cable_type(front_port_name_template="X-{{ strand }}")
         assert fct.resolve_front_port_name(strand=9) == "X-9"
+
+
+class TestStrandNameBackCompat(TestCase):
+    """Default templates must reproduce the pre-template strand names exactly."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.mfr = Manufacturer.objects.create(name="BC Mfr", slug="bc-mfr")
+
+    def _cable_for(self, fct):
+        cable = Cable.objects.create(type="smf-os2", label="BC")
+        return FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+
+    def test_loose_tube_names(self):
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="BC-LT", construction="loose_tube", strand_count=4
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T2", position=2, fiber_count=2)
+        fc = self._cable_for(fct)
+        names = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert names == ["T1-F1", "T1-F2", "T2-F1", "T2-F2"]
+
+    def test_tight_buffer_names(self):
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="BC-TB", construction="tight_buffer", strand_count=3
+        )
+        fc = self._cable_for(fct)
+        names = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert names == ["F1", "F2", "F3"]
+
+    def test_ribbon_names(self):
+        """Ribbon-in-tube strand names take the R<n>-F<n> form."""
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="BC-RIB", construction="ribbon_in_tube", strand_count=4
+        )
+        tt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1)
+        RibbonTemplate.objects.create(
+            fiber_cable_type=fct, buffer_tube_template=tt, name="R1", position=1, fiber_count=4
+        )
+        fc = self._cable_for(fct)
+        names = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert names == ["R1-F1", "R1-F2", "R1-F3", "R1-F4"]
+
+    def test_strand_local_differs_from_strand(self):
+        """Second tube restarts local numbering but not global position."""
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="BC-LOCAL",
+            construction="loose_tube",
+            strand_count=4,
+            strand_name_template="{{ strand }}/{{ strand_local }}",
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T2", position=2, fiber_count=2)
+        fc = self._cable_for(fct)
+        names = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert names == ["1/1", "2/2", "3/1", "4/2"]

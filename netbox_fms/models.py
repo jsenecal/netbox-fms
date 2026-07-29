@@ -363,6 +363,20 @@ class FiberCableType(NetBoxModel):
         """Compiled naming templates, built once per instance."""
         return naming.compile_for(self)
 
+    def __getstate__(self):
+        """Exclude the compiled naming cache: Jinja2 ``Template`` objects cannot be (deep)copied.
+
+        Once ``_compiled_naming`` has been populated, ``copy.deepcopy(instance)`` fails with
+        ``Template.__new__() missing 1 required positional argument: 'source'`` because Jinja2
+        templates are not generically copyable. Django's ``TestData`` deep-copies ``setUpTestData``
+        class attributes before every test method, so any test holding a ``FiberCableType`` whose
+        naming has been resolved would hit this. The cache is cheap to rebuild via the
+        ``cached_property`` on next access, so drop it from the pickled/copied state instead.
+        """
+        state = super().__getstate__()
+        state.pop("_compiled_naming", None)
+        return state
+
     def resolve_front_port_name(self, **ctx):
         """Render the FrontPort name template with the given context."""
         return naming.render(naming.FRONT_PORT_NAME, self._compiled_naming, ctx)
@@ -916,13 +930,24 @@ class FiberCable(NetBoxModel):
                 # Loose tube: create fibers directly in tube
                 fibers = []
                 for i in range(1, tt.fiber_count + 1):
-                    hex_color, _ = get_strand_color(i, fct.color_scheme)
+                    hex_color, _color_name = get_strand_color(i, fct.color_scheme)
                     mk_count, mk_color, mk_type = self._strand_marker(i, tt)
                     fibers.append(
                         FiberStrand(
                             fiber_cable=self,
                             buffer_tube=tube,
-                            name=f"{tube.name}-F{i}",
+                            name=fct.resolve_strand_name(
+                                **naming.strand_context(
+                                    cable=self.cable,
+                                    cable_type=fct,
+                                    tube=tube,
+                                    ribbon=None,
+                                    position=strand_position,
+                                    local=i,
+                                    strand_color_hex=hex_color,
+                                    color_scheme=fct.color_scheme,
+                                )
+                            ),
                             position=strand_position,
                             color=hex_color,
                             marker_count=mk_count,
@@ -948,12 +973,23 @@ class FiberCable(NetBoxModel):
             # Tight buffer / simple cable: create fibers directly on cable
             fibers = []
             for i in range(1, fct.strand_count + 1):
-                hex_color, _ = get_strand_color(i, fct.color_scheme)
+                hex_color, _color_name = get_strand_color(i, fct.color_scheme)
                 mk_count, mk_color, mk_type = self._strand_marker(i, fct)
                 fibers.append(
                     FiberStrand(
                         fiber_cable=self,
-                        name=f"F{i}",
+                        name=fct.resolve_strand_name(
+                            **naming.strand_context(
+                                cable=self.cable,
+                                cable_type=fct,
+                                tube=None,
+                                ribbon=None,
+                                position=i,
+                                local=i,
+                                strand_color_hex=hex_color,
+                                color_scheme=fct.color_scheme,
+                            )
+                        ),
                         position=i,
                         color=hex_color,
                         marker_count=mk_count,
@@ -970,16 +1006,28 @@ class FiberCable(NetBoxModel):
 
     def _create_fibers_in_ribbon(self, ribbon, buffer_tube, ribbon_template, start_position):
         """Create fiber strands within a ribbon. Returns next strand position."""
+        fct = self.fiber_cable_type
         fibers = []
         for i in range(1, ribbon_template.fiber_count + 1):
-            hex_color, _ = get_strand_color(i, self.fiber_cable_type.color_scheme)
+            hex_color, _color_name = get_strand_color(i, fct.color_scheme)
             mk_count, mk_color, mk_type = self._strand_marker(i, ribbon_template)
             fibers.append(
                 FiberStrand(
                     fiber_cable=self,
                     buffer_tube=buffer_tube,
                     ribbon=ribbon,
-                    name=f"{ribbon.name}-F{i}",
+                    name=fct.resolve_strand_name(
+                        **naming.strand_context(
+                            cable=self.cable,
+                            cable_type=fct,
+                            tube=buffer_tube,
+                            ribbon=ribbon,
+                            position=start_position,
+                            local=i,
+                            strand_color_hex=hex_color,
+                            color_scheme=fct.color_scheme,
+                        )
+                    ),
                     position=start_position,
                     color=hex_color,
                     marker_count=mk_count,
