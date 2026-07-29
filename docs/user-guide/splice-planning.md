@@ -68,6 +68,17 @@ A TubeAssignment routes one BufferTube to one splice tray (a `dcim.Module`) insi
 
 Deleting a ClosureCableEntry automatically removes that cable's TubeAssignments on the closure.
 
+Assigning a tube to a tray also places the tube's strand front ports on
+the tray module in NetBox (only the ports on the assignment's closure;
+the far end is untouched). Changing the tray or tube moves the ports
+accordingly, and deleting the assignment returns them to the device. If a
+port already belongs to another module, the form lists the conflicts and
+requires the "Confirm reassignment" checkbox (REST: `confirm_reassign`)
+before overwriting. Splice state is read from front ports on tray
+modules, so this placement is what makes applied splices visible.
+
+Assignments created before this feature are not back-filled automatically: re-save an assignment (or change its tray) to sync its ports. Delete the tube assignment before deleting a tray module -- FrontPorts belong to the module once placed, so deleting the module deletes them.
+
 ---
 
 ## Preparing a Closure

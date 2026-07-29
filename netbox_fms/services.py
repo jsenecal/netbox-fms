@@ -543,3 +543,50 @@ def create_splice_closure(
         _add_modules("Basket", basket_module_type, basket_count)
 
     return device
+
+
+def _tube_assignment_target_ports(closure_id, buffer_tube_id):
+    """FrontPorts of the tube's strands that live on the closure device.
+
+    Each strand contributes at most one port (front_port_a or front_port_b,
+    whichever terminates on the closure); strands without a port there are
+    skipped.
+    """
+    from .models import FiberStrand
+
+    ports = []
+    strands = FiberStrand.objects.filter(buffer_tube_id=buffer_tube_id).select_related("front_port_a", "front_port_b")
+    for strand in strands:
+        for port in (strand.front_port_a, strand.front_port_b):
+            if port is not None and port.device_id == closure_id:
+                ports.append(port)
+                break
+    return ports
+
+
+def sync_tube_assignment_ports(assignment):
+    """Place the tube's closure-side strand front ports on the assignment's tray.
+
+    Overwrites unconditionally; conflict blocking happens at form/serializer
+    validation. Saves ports individually so NetBox change logging records
+    each move.
+    """
+    for port in _tube_assignment_target_ports(assignment.closure_id, assignment.buffer_tube_id):
+        if port.module_id != assignment.tray_id:
+            port.snapshot()
+            port.module_id = assignment.tray_id
+            port.save()
+
+
+def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
+    """Return the tube's closure-side ports to device level.
+
+    Only touches ports still sitting on the given tray; ports moved
+    elsewhere by hand are left alone. Takes ids so it can run from a
+    post_delete signal.
+    """
+    for port in _tube_assignment_target_ports(closure_id, buffer_tube_id):
+        if port.module_id == tray_id:
+            port.snapshot()
+            port.module_id = None
+            port.save()
