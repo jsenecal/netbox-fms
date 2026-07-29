@@ -1015,12 +1015,14 @@ class Command(BaseCommand):
             side_rps[cable_end] = [rp for _, rp, _ in provisioned]
 
             for tube_idx, (tube, rp, _fiber_count) in enumerate(provisioned):
+                # Tray placement only applies when the device has trays; EIA color
+                # applies unconditionally -- trayless devices (e.g. wall-box panels
+                # on drop cables) still get colored FrontPorts, they just aren't
+                # placed on a Module.
                 tray = trays[tube_idx % len(trays)] if trays else None
-                if tray is None:
-                    continue
-
-                rp.module = tray
-                rp.save(update_fields=["module"])
+                if tray is not None:
+                    rp.module = tray
+                    rp.save(update_fields=["module"])
 
                 if tube is not None:
                     tube_strands = fc.fiber_strands.filter(buffer_tube=tube).order_by("position")
@@ -1032,11 +1034,13 @@ class Command(BaseCommand):
                     fp = getattr(strand, fk_field)
                     if fp is None:
                         continue
-                    fp.module = tray
                     fp.color = EIA_COLORS.get(pos_in_tube, "cccccc")
+                    if tray is not None:
+                        fp.module = tray
                     fps_to_update.append(fp)
                 if fps_to_update:
-                    FrontPort.objects.bulk_update(fps_to_update, ["module", "color"])
+                    update_fields = ["module", "color"] if tray is not None else ["color"]
+                    FrontPort.objects.bulk_update(fps_to_update, update_fields)
 
         # Set cable profile and terminations — Cable.save() calls update_terminations()
         # which creates CableTerminations with connector/positions for profile-based tracing

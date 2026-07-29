@@ -60,3 +60,30 @@ class TestSampleDataCounterSync(TestCase):
 
         self.device_a.refresh_from_db()
         assert self.device_a.interface_count == 2
+
+    def test_provisioned_front_ports_get_color_without_trays(self):
+        """Trayless devices (e.g. wall-box drop-cable panels) still get an EIA color.
+
+        Regression test: device_a/device_b here have no Module trays (neither
+        setUpTestData nor this test calls _create_tray_modules), matching real
+        sample-data devices like Bldg-Elm and the Bldg-<closure> spur endpoints
+        that are passed to _create_ports_and_link_strands without ever getting
+        tray modules. Color assignment must not be gated on tray presence.
+        """
+        cable = Cable.objects.create(type="smf-os2")
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
+
+        self._command()._create_ports_and_link_strands(
+            {
+                "cable": cable,
+                "fiber_cable": fc,
+                "a_device": self.device_a,
+                "b_device": self.device_b,
+            }
+        )
+
+        ports = FrontPort.objects.filter(device=self.device_a)
+        assert ports.exists()
+        for port in ports:
+            assert port.module is None
+            assert port.color, f"{port.name} has no color"
