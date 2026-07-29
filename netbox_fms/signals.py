@@ -87,6 +87,25 @@ def _invalidate_plans_for_cable(cable):
         ).update(diff_stale=True)
 
 
+def _tray_name_for(front_port):
+    """Tray module bay name for a FrontPort, or None if it is not on a tray."""
+    module = front_port.module
+    return module.module_bay.name if module else None
+
+
+def _tray_position_for(front_port):
+    """TubeAssignment position for a FrontPort's tray, or None."""
+    from .models import TubeAssignment
+
+    if not front_port.module_id:
+        return None
+    return (
+        TubeAssignment.objects.filter(closure_id=front_port.device_id, tray_id=front_port.module_id)
+        .values_list("position", flat=True)
+        .first()
+    )
+
+
 def _rename_ports_for_cable(cable):
     """Rebuild RearPort/FrontPort names and labels from the cable type's naming templates.
 
@@ -173,8 +192,8 @@ def _rename_ports_for_cable(cable):
                 end=end,
                 color_scheme=fct.color_scheme,
                 tube=tube,
-                tray=None,
-                tray_position=None,
+                tray=_tray_name_for(rp),
+                tray_position=_tray_position_for(rp),
             )
             new_name = fct.resolve_rear_port_name(**rp_ctx)
             new_label = fct.resolve_rear_port_label(**rp_ctx)
@@ -197,8 +216,8 @@ def _rename_ports_for_cable(cable):
                     tube=tube,
                     strand=strand,
                     strand_local=pm.rear_port_position,
-                    tray=None,
-                    tray_position=None,
+                    tray=_tray_name_for(fp),
+                    tray_position=_tray_position_for(fp),
                 )
                 fp_new = fct.resolve_front_port_name(**fp_ctx)
                 fp_label = fct.resolve_front_port_label(**fp_ctx)

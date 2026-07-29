@@ -2,7 +2,7 @@
 
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
+from django.db import models, transaction
 
 from . import naming
 from .models import ClosureCableEntry, FiberCable, SplicePlanEntry
@@ -580,17 +580,69 @@ def _tube_assignment_target_ports(closure_id, buffer_tube_id):
     return ports
 
 
+def render_port_strings(port, strand, tube, tray, tray_position):
+    """Return (name, label) for a FrontPort under its cable type's templates."""
+    fc = strand.fiber_cable
+    fct = fc.fiber_cable_type
+    end = "A" if strand.front_port_a_id == port.pk else "B"
+    ctx = naming.port_context(
+        cable=fc.cable,
+        cable_type=fct,
+        device=port.device,
+        end=end,
+        color_scheme=fct.color_scheme,
+        tube=tube,
+        strand=strand,
+        strand_local=None,
+        tray=tray,
+        tray_position=tray_position,
+    )
+    return fct.resolve_front_port_name(**ctx), fct.resolve_front_port_label(**ctx)
+
+
+def _strand_for_port(port, buffer_tube_id):
+    """The FiberStrand of ``buffer_tube_id`` terminating at ``port``, or None."""
+    from .models import FiberStrand
+
+    return (
+        FiberStrand.objects.filter(buffer_tube_id=buffer_tube_id)
+        .filter(models.Q(front_port_a=port) | models.Q(front_port_b=port))
+        .select_related("fiber_cable__fiber_cable_type", "ribbon")
+        .first()
+    )
+
+
 def sync_tube_assignment_ports(assignment):
     """Place the tube's closure-side strand front ports on the assignment's tray.
 
     Overwrites unconditionally; conflict blocking happens at form/serializer
     validation. Saves ports individually so NetBox change logging records
     each move.
+
+    Also re-renders each port's name and label, but only when the cable
+    type's front-port templates actually reference ``{{ tray }}`` /
+    ``{{ tray_position }}`` (``FiberCableType.naming_uses_tray``). Ports
+    adopted from a DeviceType template or hand-named outside FMS never had
+    their name touched by this function before tray-aware templates
+    existed; if the cable type configured no such template, that must stay
+    true, so the rename is skipped entirely and this function behaves
+    exactly as it did before the tray token existed.
     """
+    tray_name = assignment.tray.module_bay.name if assignment.tray else None
     for port in _tube_assignment_target_ports(assignment.closure_id, assignment.buffer_tube_id):
-        if port.module_id != assignment.tray_id:
+        changed = port.module_id != assignment.tray_id
+        port.module_id = assignment.tray_id
+        strand = _strand_for_port(port, assignment.buffer_tube_id)
+        if strand is not None and strand.fiber_cable.fiber_cable_type.naming_uses_tray:
+            try:
+                name, label = render_port_strings(port, strand, strand.buffer_tube, tray_name, assignment.position)
+            except naming.NamingError:
+                name, label = port.name, port.label
+            if (name, label) != (port.name, port.label):
+                port.name, port.label = name, label
+                changed = True
+        if changed:
             port.snapshot()
-            port.module_id = assignment.tray_id
             port.save()
 
 
@@ -600,9 +652,23 @@ def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
     Only touches ports still sitting on the given tray; ports moved
     elsewhere by hand are left alone. Takes ids so it can run from a
     post_delete signal.
+
+    Also re-renders each port's name and label back to their device-level
+    form, gated by ``FiberCableType.naming_uses_tray`` for the same reason
+    as ``sync_tube_assignment_ports``: cable types with no tray-aware
+    template must never have FMS touch a port's name.
     """
     for port in _tube_assignment_target_ports(closure_id, buffer_tube_id):
-        if port.module_id == tray_id:
-            port.snapshot()
-            port.module_id = None
-            port.save()
+        if port.module_id != tray_id:
+            continue
+        port.module_id = None
+        strand = _strand_for_port(port, buffer_tube_id)
+        if strand is not None and strand.fiber_cable.fiber_cable_type.naming_uses_tray:
+            try:
+                name, label = render_port_strings(port, strand, strand.buffer_tube, None, None)
+            except naming.NamingError:
+                name, label = port.name, port.label
+            if (name, label) != (port.name, port.label):
+                port.name, port.label = name, label
+        port.snapshot()
+        port.save()

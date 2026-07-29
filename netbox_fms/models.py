@@ -363,6 +363,17 @@ class FiberCableType(NetBoxModel):
         """Compiled naming templates, built once per instance."""
         return naming.compile_for(self)
 
+    @cached_property
+    def naming_uses_tray(self):
+        """True if either front-port template references a tray token.
+
+        Delegates to ``naming.uses_tray``, parsed statically via jinja2's
+        ``meta`` module. Unlike ``_compiled_naming``, this caches a plain
+        ``bool``, which ``copy.deepcopy`` handles natively -- it does not
+        need excluding in ``__getstate__``.
+        """
+        return naming.uses_tray(self)
+
     def __getstate__(self):
         """Exclude the compiled naming cache: Jinja2 ``Template`` objects cannot be (deep)copied.
 
@@ -372,6 +383,9 @@ class FiberCableType(NetBoxModel):
         class attributes before every test method, so any test holding a ``FiberCableType`` whose
         naming has been resolved would hit this. The cache is cheap to rebuild via the
         ``cached_property`` on next access, so drop it from the pickled/copied state instead.
+
+        ``naming_uses_tray`` caches a plain ``bool`` (not a Jinja2 object), so it is left in
+        the pickled/copied state deliberately -- there is nothing unpicklable to strip.
         """
         state = super().__getstate__()
         state.pop("_compiled_naming", None)

@@ -8,7 +8,7 @@ without database fixtures and avoids a circular import, since
 
 from collections import namedtuple
 
-from jinja2 import StrictUndefined, TemplateError, TemplateSyntaxError
+from jinja2 import StrictUndefined, TemplateError, TemplateSyntaxError, meta
 from jinja2.sandbox import SandboxedEnvironment
 from netbox.plugins.utils import get_plugin_config
 
@@ -24,6 +24,7 @@ __all__ = (
     "REAR_PORT_NAME",
     "STRAND_NAME",
     "TARGETS",
+    "TRAY_TOKENS",
     "NamingError",
     "color_name",
     "compile_for",
@@ -32,6 +33,7 @@ __all__ = (
     "render",
     "resolve_source",
     "strand_context",
+    "uses_tray",
     "validate",
 )
 
@@ -134,6 +136,27 @@ def resolve_source(target, fiber_cable_type):
     if configured is not None:
         return configured
     return spec.default
+
+
+TRAY_TOKENS = frozenset({"tray", "tray_position"})
+
+
+def uses_tray(fiber_cable_type):
+    """True if either front-port template references a tray token.
+
+    Parsed statically via ``jinja2.meta`` so ``{% if tray %}`` counts, and so
+    a literal "tray" appearing in surrounding text does not. Only the two
+    FRONT port targets are checked: ``_tube_assignment_target_ports`` (the
+    tube-assignment sync path this guards) returns FrontPorts only, so
+    rear-port templates are irrelevant here.
+    """
+    for target in (FRONT_PORT_NAME, FRONT_PORT_LABEL):
+        source = resolve_source(target, fiber_cable_type)
+        if not source.strip():
+            continue
+        if TRAY_TOKENS & meta.find_undeclared_variables(_ENV.parse(source)):
+            return True
+    return False
 
 
 def compile_for(fiber_cable_type):

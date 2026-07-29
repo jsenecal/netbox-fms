@@ -372,3 +372,102 @@ class TestRenameSignal(TestCase):
         names_b = sorted(FrontPort.objects.filter(device=self.dev_b).values_list("name", flat=True))
         assert names_a == ["END-A1", "END-A2"]
         assert names_b == ["END-B1", "END-B2"]
+
+
+class TestTrayToken(TestCase):
+    """{{ tray }} is blank at provisioning and fills in on tube assignment."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Module, ModuleBay, ModuleType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="TT Mfr", slug="tt-mfr")
+        site = Site.objects.create(name="TT Site", slug="tt-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="TT Closure", slug="tt-closure")
+        role = DeviceRole.objects.create(name="TT Role", slug="tt-role")
+        cls.dev_a = Device.objects.create(name="TT-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="TT-B", site=site, device_type=dt, role=role)
+        mt = ModuleType.objects.create(manufacturer=cls.mfr, model="TT Tray")
+        bay = ModuleBay.objects.create(device=cls.dev_a, name="Tray 1")
+        cls.tray = Module.objects.create(device=cls.dev_a, module_bay=bay, module_type=mt)
+
+    def test_tray_lifecycle(self):
+        from netbox_fms.models import TubeAssignment
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="TT-1",
+            construction="loose_tube",
+            strand_count=2,
+            front_port_name_template="{% if tray %}{{ tray }}:{% endif %}F{{ strand }}",
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "TT"},
+        )
+        # Provisioned before any assignment exists: tray is blank.
+        assert sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["F1", "F2"]
+
+        tube = fc.buffer_tubes.get(position=1)
+        assignment = TubeAssignment.objects.create(closure=self.dev_a, tray=self.tray, buffer_tube=tube)
+        names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert names == ["Tray 1:F1", "Tray 1:F2"]
+
+        assignment.delete()
+        names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert names == ["F1", "F2"]
+
+
+class TestTrayGuardSkipsRename(TestCase):
+    """Cable types with no tray token must not have FMS rename ports on tube assignment.
+
+    Models the adopt path PR #90's own suite exercises: FrontPorts that came from a
+    DeviceType template or were named by hand, never provisioned by FMS. Regression
+    test for the behaviour caught by tests/test_tube_assignment_port_sync.py -- an
+    unconditional re-render would silently overwrite an operator's port name the
+    moment a tube is assigned to a tray, even though they configured no template
+    that references one.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Module, ModuleBay, ModuleType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="TG Mfr", slug="tg-mfr")
+        site = Site.objects.create(name="TG Site", slug="tg-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="TG Closure", slug="tg-closure")
+        role = DeviceRole.objects.create(name="TG Role", slug="tg-role")
+        cls.closure = Device.objects.create(name="TG-Closure", site=site, device_type=dt, role=role)
+        mt = ModuleType.objects.create(manufacturer=cls.mfr, model="TG Tray")
+        bay = ModuleBay.objects.create(device=cls.closure, name="Tray 1")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
+
+    def test_no_tray_token_leaves_names_untouched(self):
+        from netbox_fms.models import BufferTube, TubeAssignment
+        from tests.conftest import make_front_port
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="TG-1", construction="loose_tube", strand_count=2
+        )
+        assert not fct.naming_uses_tray
+
+        fc = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+        tube = BufferTube.objects.create(fiber_cable=fc, name="TG-T1", position=1)
+
+        hand_named_ports = {}
+        for strand in fc.fiber_strands.all().order_by("position"):
+            port = make_front_port(device=self.closure, name=f"HAND-{strand.position}")
+            strand.buffer_tube = tube
+            strand.front_port_a = port
+            strand.save()
+            hand_named_ports[strand.position] = port
+
+        TubeAssignment.objects.create(closure=self.closure, tray=self.tray, buffer_tube=tube)
+
+        for position, port in hand_named_ports.items():
+            port.refresh_from_db()
+            assert port.name == f"HAND-{position}", "port name must be untouched with no tray token in the template"
+            assert port.module_id == self.tray.pk, "module_id must still move to the assigned tray"
