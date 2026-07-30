@@ -119,7 +119,15 @@ def _rename_ports_for_cable(cable):
 
     ``end`` is normally "A" or "B", but ``_determine_cable_end`` can return
     "AB" for a self-looping cable (both sides terminated on the same
-    device); that value flows straight into the ``{{ end }}`` token.
+    device). That device-level value now reaches a REAR port's ``{{ end }}``
+    only: a RearPort spans a whole tube and has no strand, so nothing finer
+    is available for it. A FrontPort's end is derived from its strand
+    instead -- "A" when the strand's ``front_port_a`` is this port, else
+    "B" -- matching ``_provision_device_ports`` and
+    ``services.render_port_strings``, the other two paths that write front
+    port names, so a front port's name cannot flip-flop depending on which
+    path last touched it. A FrontPort with no strand falls back to the
+    device-level value.
     """
     from dcim.models import FrontPort, PortMapping, RearPort
 
@@ -211,11 +219,14 @@ def _rename_ports_for_cable(cable):
                     continue
                 fp = pm.front_port
                 strand = strand_by_fp.get(fp.pk)
+                # A front port sits on one end of one strand, so its end is
+                # the strand's, never the device-level "AB".
+                fp_end = end if strand is None else ("A" if strand.front_port_a_id == fp.pk else "B")
                 fp_ctx = naming.port_context(
                     cable=cable,
                     cable_type=fct,
                     device=device,
-                    end=end,
+                    end=fp_end,
                     color_scheme=fct.color_scheme,
                     tube=tube,
                     strand=strand,

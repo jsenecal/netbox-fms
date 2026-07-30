@@ -1025,3 +1025,123 @@ class TestRerenderCommands(TestCase):
         call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=err)
 
         assert "rerender_strand_names" not in err.getvalue()
+
+
+class TestSelfLoopingCableEnd(TestCase):
+    """{{ end }} on a front port must read the same on all three paths that write it.
+
+    ``_determine_cable_end`` returns "AB" when a cable has both its A and B
+    terminations on RearPorts of one device -- a self-looping cable. That
+    device-level value is right for a RearPort, which spans a whole tube and
+    has no strand, but a FrontPort belongs to exactly one strand end:
+    ``_provision_device_ports`` and ``services.render_port_strings`` both
+    derive "A"/"B" from the strand and never produce "AB". Left alone, the
+    cable-save signal would rewrite a provisioned "...A" to "...AB" and the
+    next ``rerender_port_names`` run would put it back, the same flip-flop
+    bug class already caught on this branch with ``strand_local`` and the
+    rear-port tray tokens.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="SL Mfr", slug="sl-mfr")
+        site = Site.objects.create(name="SL Site", slug="sl-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="SL Closure", slug="sl-closure")
+        role = DeviceRole.objects.create(name="SL Role", slug="sl-role")
+        cls.dev = Device.objects.create(name="SL-A", site=site, device_type=dt, role=role)
+
+    def _self_loop(self, label):
+        """Build a cable with both of its ends on RearPorts of a single device.
+
+        ``create_closure_cable`` refuses ``device_a == device_b``, so the
+        cable is assembled here: FMS provisions the A side normally, and the
+        B side is terminated on a plain loop-back RearPort of the same
+        device. Only one side is FMS-provisioned on purpose -- provisioning
+        both would render two RearPorts of one device down to the same "AB"
+        name and trip the ``(device, name)`` unique constraint, which is a
+        separate limitation, not what this test is about.
+
+        Returns ``(fct, fc)``.
+        """
+        from dcim.models import CableTermination
+        from django.contrib.contenttypes.models import ContentType
+
+        from netbox_fms.services import _provision_device_ports
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model=f"SL-{label}",
+            construction="loose_tube",
+            strand_count=2,
+            front_port_name_template="{{ cable }}-{{ end }}{{ strand }}",
+            rear_port_name_template="RP-{{ end }}-T{{ tube }}",
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+
+        cable = Cable.objects.create(type="smf-os2", label=label)
+        loop_back = RearPort.objects.create(device=self.dev, name=f"{label}-LOOPBACK", type="splice", positions=2)
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        for tube, rp, fiber_count in _provision_device_ports(fc, self.dev, "splice", "front_port_a"):
+            CableTermination.objects.create(
+                cable=cable,
+                cable_end="A",
+                termination_type=rp_ct,
+                termination_id=rp.pk,
+                connector=tube.position,
+                positions=list(range(1, fiber_count + 1)),
+            )
+        CableTermination.objects.create(
+            cable=cable,
+            cable_end="B",
+            termination_type=rp_ct,
+            termination_id=loop_back.pk,
+            connector=1,
+            positions=[1, 2],
+        )
+        return fct, FiberCable.objects.get(pk=fc.pk)
+
+    def _front_names(self):
+        return sorted(FrontPort.objects.filter(device=self.dev).values_list("name", flat=True))
+
+    def test_front_port_end_agrees_across_every_write_path(self):
+        from netbox_fms.services import _determine_cable_end
+
+        fct, fc = self._self_loop("LOOP")
+
+        # Guard the fixture: without this the test could pass while never
+        # reaching the "AB" branch it exists to pin.
+        assert _determine_cable_end(fc.cable, self.dev) == "AB", "fixture must be a self-looping cable"
+
+        after_provision = self._front_names()
+
+        fc.cable.save()
+        after_save = self._front_names()
+
+        call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=StringIO())
+        after_command = self._front_names()
+
+        assert after_provision == ["LOOP-A1", "LOOP-A2"]
+        assert after_save == after_provision, "the cable-save path must agree with provisioning on {{ end }}"
+        assert after_command == after_provision, "rerender_port_names must agree with provisioning on {{ end }}"
+
+    def test_rear_port_end_still_renders_both_ends(self):
+        """The device-level "AB" is correct for a RearPort and must survive.
+
+        A RearPort has no strand, so ``_determine_cable_end`` is the only
+        thing that can supply its ``{{ end }}``; both paths that write rear
+        port names already agree on it.
+        """
+        fct, fc = self._self_loop("BOTH")
+
+        fc.cable.save()
+        after_save = sorted(RearPort.objects.filter(device=self.dev).values_list("name", flat=True))
+
+        call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=StringIO())
+        after_command = sorted(RearPort.objects.filter(device=self.dev).values_list("name", flat=True))
+
+        assert "RP-AB-T1" in after_save, "a self-looping cable's rear port must still render end as AB"
+        assert after_command == after_save, "rerender_port_names must agree with the cable-save path on rear ports"
