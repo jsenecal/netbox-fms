@@ -817,6 +817,24 @@ class TestRerenderCommand(TestCase):
         assert list(fc_one.fiber_strands.order_by("position").values_list("name", flat=True)) == ["S1", "S2"]
         assert list(fc_two.fiber_strands.order_by("position").values_list("name", flat=True)) == untouched
 
+    def test_strand_local_agrees_with_the_cable_save_path(self):
+        """rerender_names must recover the real local index, not render "None".
+
+        The command and the cable-save signal write the same ports; if they
+        disagree on ``strand_local`` a port's name flip-flops depending on
+        which path last ran.
+        """
+        fct, fc = self._build("LOC")
+        FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="{{ cable }}:F{{ strand_local }}")
+
+        call_command("rerender_names", "--targets", "port-names", stdout=StringIO(), stderr=StringIO())
+        after_command = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert after_command == ["LOC:F1", "LOC:F2"]
+
+        fc.cable.save()
+        after_save = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert after_save == after_command
+
     def test_collision_refused(self):
         """A template that renders the same name for every port is refused."""
         fct, fc = self._build("COL")

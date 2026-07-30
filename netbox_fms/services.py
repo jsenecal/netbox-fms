@@ -591,10 +591,18 @@ def render_port_strings(port, strand, tube, tray, tray_position):
     Either element is ``None`` when the cable type configures no template for
     that target (see ``naming.render``); callers writing to an existing port
     must skip the assignment rather than blanking the stored value.
+
+    ``strand_local`` is recovered from the port's stored
+    ``PortMapping.rear_port_position``: ``_provision_device_ports`` writes the
+    same per-tube index into that column as it passes as ``strand_local``, so
+    it is the authoritative record of the original local index. Costs one
+    extra query per port; ``None`` when the port has no PortMapping (adopted
+    ports that FMS never provisioned).
     """
     fc = strand.fiber_cable
     fct = fc.fiber_cable_type
     end = "A" if strand.front_port_a_id == port.pk else "B"
+    strand_local = PortMapping.objects.filter(front_port=port).values_list("rear_port_position", flat=True).first()
     ctx = naming.port_context(
         cable=fc.cable,
         cable_type=fct,
@@ -603,7 +611,7 @@ def render_port_strings(port, strand, tube, tray, tray_position):
         color_scheme=fct.color_scheme,
         tube=tube,
         strand=strand,
-        strand_local=None,
+        strand_local=strand_local,
         tray=tray,
         tray_position=tray_position,
     )
