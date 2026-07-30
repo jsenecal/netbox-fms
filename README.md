@@ -17,7 +17,7 @@ Define fiber cable construction as reusable blueprints, auto-instantiate compone
 ## Features
 
 - **Cable type blueprints with auto-instantiation** -- Define fiber cable construction once as a FiberCableType, then create instances that automatically populate buffer tubes, ribbons, strands, and cable elements following NetBox's Device/DeviceType pattern.
-- **Configurable naming templates** -- Jinja2 templates, per FiberCableType or plugin-wide, control the generated names and labels of FrontPorts, RearPorts, and FiberStrands; a `rerender_names` management command re-renders existing objects after a template change.
+- **Configurable naming templates** -- Jinja2 templates, per FiberCableType or plugin-wide, control the generated names and labels of FrontPorts, RearPorts, and FiberStrands; `rerender_strand_names` and `rerender_port_names` management commands re-render existing objects after a template change.
 - **Four construction cases** -- Loose tube, ribbon-in-tube, central-core ribbon, and tight buffer cable designs with full template-driven instantiation.
 - **EIA/TIA-598 and ABNT NBR 14771 color schemes** -- Each FiberCableType selects the strand color standard applied when instances are created; tube and ribbon template color pickers follow the selected standard.
 - **Per-wavelength loss budgeting** -- Attach manufacturer max-attenuation specs (dB/km) to each FiberCableType at any wavelength. `FiberCircuitPath.calculated_loss_db` computes per-wavelength losses across the full cable path from spec values and each cable's `glass_length`.

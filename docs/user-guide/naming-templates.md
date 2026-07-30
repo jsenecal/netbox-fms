@@ -218,7 +218,7 @@ The limit is enforced at two different points, in two different ways:
   saved with that template.
 - **At real render time** (cable/strand provisioning, the automatic
   re-render on every `dcim.Cable` save, tray assignment, and the
-  `rerender_names` command), the same 64-character limit is applied by
+  `rerender_*` commands), the same 64-character limit is applied by
   slicing the rendered string: `template.render(**scoped)[:64]`. Real-world
   values -- a long device name, a long cable label -- can be longer than the
   short dummy strings used at validation time, so a template that validated
@@ -255,7 +255,7 @@ unless you specifically want this everywhere-in-NetBox display change.
 are distinct states, and only the second one writes. With the label
 templates left blank -- the default -- FMS never touches a port's `label`
 on any path: not on a `dcim.Cable` save, not on tube assignment, not in
-`rerender_names`. Labels that arrived from a DeviceType template, an
+`rerender_port_names`. Labels that arrived from a DeviceType template, an
 import, or an operator's edit are preserved exactly.
 
 Configure a label template and it becomes authoritative for that target,
@@ -265,51 +265,88 @@ port that is not on a tray. The same rule applies to the name templates.
 
 ---
 
-## Run `rerender_names` after changing a template
+## Re-render existing objects after changing a template
 
 Changing a naming template on a FiberCableType (or in `PLUGINS_CONFIG`)
 only affects **future** renders. `_rename_ports_for_cable` recomputes a
 cable's RearPort/FrontPort names and labels automatically, but only on
 every `dcim.Cable` `post_save` -- so a template change by itself does
-nothing to cables that are not re-saved. Skipping the re-render command
-after a template edit leaves the install split: cables saved (or
-re-saved) after the change carry the new names, and every other cable
-keeps its old ones, silently, with no error anywhere.
+nothing to cables that are not re-saved. Skipping the re-render after a
+template edit leaves the install split: cables saved (or re-saved) after
+the change carry the new names, and every other cable keeps its old ones,
+silently, with no error anywhere.
 
-Run the command after editing any of the five template fields:
+Two management commands cover the five targets, each named for the objects
+it writes:
+
+| Command | Re-renders |
+|---------|------------|
+| `rerender_strand_names` | `FiberStrand.name` |
+| `rerender_port_names` | FrontPort **and RearPort** `name` and `label` |
 
 ```bash
-python manage.py rerender_names
+python manage.py rerender_strand_names
+python manage.py rerender_port_names
 ```
 
-Flags:
+Both accept the same flags:
 
 | Flag | Effect |
 |------|--------|
 | `--cable-type <pk-or-model>` | Limit the run to one FiberCableType, by primary key or `model` name. |
-| `--targets <list>` | Comma-separated subset of `strands`, `port-names`, `port-labels` (default: all three). |
 | `--dry-run` | Report what would change without writing anything. |
 | `--limit <N>` | Process at most N FiberCable instances. |
+
+`rerender_port_names` adds one more:
+
+| Flag | Effect |
+|------|--------|
+| `--targets <list>` | Comma-separated subset of `names`, `labels` (default: both). |
 
 Example -- preview strand-name changes for one cable type only:
 
 ```bash
-python manage.py rerender_names --cable-type "Corning ALTOS 288F" --targets strands --dry-run
+python manage.py rerender_strand_names --cable-type "Corning ALTOS 288F" --dry-run
 ```
 
-The command refuses to write a device's port names if the render would
-produce a duplicate `name` on that device, printing the collision instead
-of saving it -- resolve the underlying template or data conflict and
-re-run.
+Example -- re-render only the port labels, leaving every port name alone:
 
-**Scope note, verified against the command source:** `rerender_names`
-re-renders `FiberStrand` names and **FrontPort** names/labels only. It does
-not re-render RearPort names or labels -- there is no RearPort handling in
-its `port-names` / `port-labels` targets. After changing
-`rear_port_name_template` or `rear_port_label_template`, re-save the
-affected `dcim.Cable` objects (which retriggers the same
-`_rename_ports_for_cable` path that keeps RearPorts and FrontPorts in sync
-on every cable save) rather than relying on `rerender_names` to reach them.
+```bash
+python manage.py rerender_port_names --targets labels
+```
+
+### Run `rerender_strand_names` first when port templates use `strand_name`
+
+`{{ strand_name }}` renders from the `FiberStrand.name` column **as
+currently stored**, not from the strand template. If you changed
+`strand_name_template` and a port template references `{{ strand_name }}`,
+run the strand command first, or the port names will embed the old strand
+names:
+
+```bash
+python manage.py rerender_strand_names
+python manage.py rerender_port_names
+```
+
+`rerender_port_names` detects this case for you: before processing a cable
+type whose selected port templates reference `strand_name` (parsed
+statically with `jinja2.meta`, the same way the tray-token guard below
+works), it prints a warning naming that cable type and telling you to run
+`rerender_strand_names` first. It is a warning, not a refusal -- the run
+continues, because a re-render against current strand names is stale at
+worst, never wrong.
+
+### Collisions
+
+`rerender_port_names` refuses to write a device's port names if the render
+would produce a duplicate `name` on that device, printing the collision
+instead of saving it -- resolve the underlying template or data conflict
+and re-run.
+
+Names are compared per device **and per model**. `FrontPort` and `RearPort`
+are separate tables, each carrying its own `(device, name)` uniqueness
+constraint, so a FrontPort and a RearPort on one device may legitimately
+share a name and that is not reported as a collision.
 
 ---
 
@@ -348,8 +385,9 @@ names or renames a FrontPort agrees on its value.
   within each tube and passes that index directly.
 - **The automatic re-render on every `dcim.Cable` save** recovers it from
   the stored `PortMapping.rear_port_position`.
-- **The tube-assignment sync and clear paths, and the `rerender_names`
-  command**, all go through the shared `render_port_strings()` helper,
+- **The tube-assignment sync and clear paths, and the
+  `rerender_port_names` command**, all go through the shared
+  `render_port_strings()` helper,
   which looks the same value up from the port's `PortMapping` (one extra
   query per port).
 

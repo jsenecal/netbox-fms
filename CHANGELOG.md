@@ -44,11 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   FiberStrand names, configurable per FiberCableType or plugin-wide. Defaults
   reproduce previous behavior exactly. With no label template configured --
   the default -- FMS never writes a port's `label` on any path (cable save,
-  tube assignment, `rerender_names`), so labels set by a DeviceType template,
-  an import, or by hand are preserved; a configured template is authoritative
-  for its target, including when it renders empty. New `rerender_names`
-  management command re-renders existing objects after a template change
-  (#69).
+  tube assignment, re-render commands), so labels set by a DeviceType
+  template, an import, or by hand are preserved; a configured template is
+  authoritative for its target, including when it renders empty. Two
+  management commands re-render existing objects after a template change:
+  `rerender_strand_names` (FiberStrand names) and `rerender_port_names`
+  (FrontPort and RearPort names and labels). Both take `--cable-type`,
+  `--dry-run` and `--limit`; `rerender_port_names` also takes
+  `--targets names,labels`, and warns when a port template references
+  `{{ strand_name }}`, since `rerender_strand_names` should run first in
+  that case (#69).
 
 ### Changed
 

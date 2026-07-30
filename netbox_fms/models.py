@@ -237,7 +237,8 @@ class FiberCableType(NetBoxModel):
         verbose_name=_("strand name template"),
         help_text=_(
             "Jinja template for generated FiberStrand names. Blank inherits the "
-            "plugin default. Run the rerender_names command after changing this."
+            "plugin default. Run the rerender_strand_names command after "
+            "changing this."
         ),
     )
 
