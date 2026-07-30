@@ -965,6 +965,44 @@ class TestRerenderCommands(TestCase):
         assert list(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["SHARE-X"]
         assert list(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["SHARE-X"]
 
+    def test_rear_port_tray_render_agrees_with_the_cable_save_path(self):
+        """The command and the cable-save signal must render a tray-placed RearPort alike.
+
+        FMS never assigns ``RearPort.module`` itself, but ``tray`` and
+        ``tray_position`` are in ``naming._REAR_TOKENS``, so a rear-port
+        template may reference them, and a RearPort inherits ``module`` from
+        NetBox's ``ModularComponentModel`` -- an operator can place one on a
+        tray through the UI. If the command rendered ``tray`` as ``None``
+        while ``_rename_ports_for_cable`` rendered the real tray name, that
+        port's name would flip-flop depending on which path last wrote it,
+        the same bug class already caught on this branch with
+        ``strand_local``.
+
+        Asserting only that the command renders the tray would pass even if
+        the signal diverged, so this pins the two against each other.
+        """
+        from dcim.models import Module, ModuleBay, ModuleType
+
+        fct, fc = self._build("RTRAY", strand_count=1)
+        mt = ModuleType.objects.create(manufacturer=self.mfr, model="RR Tray")
+        bay = ModuleBay.objects.create(device=self.dev_a, name="Tray 3")
+        tray = Module.objects.create(device=self.dev_a, module_bay=bay, module_type=mt)
+
+        rp = RearPort.objects.get(device=self.dev_a)
+        RearPort.objects.filter(pk=rp.pk).update(module=tray)
+        FiberCableType.objects.filter(pk=fct.pk).update(
+            rear_port_name_template="{% if tray %}{{ tray }}:{% endif %}RP{{ tube }}"
+        )
+
+        fc.cable.save()
+        after_save = RearPort.objects.get(pk=rp.pk).name
+
+        call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=StringIO())
+        after_command = RearPort.objects.get(pk=rp.pk).name
+
+        assert after_save == "Tray 3:RP1", "the cable-save path must render the real tray name"
+        assert after_command == after_save, "rerender_port_names must agree with the cable-save path"
+
     # -- the ordering warning --------------------------------------------
 
     def test_warns_when_a_port_template_reads_strand_name(self):

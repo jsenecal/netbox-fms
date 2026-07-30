@@ -132,6 +132,13 @@ class Command(RerenderCommand):
         already walks. Every FrontPort mapped to one RearPort belongs to the
         same buffer tube by construction, so any of them supplies the tube.
 
+        The tray tokens are resolved per rear port, matching
+        ``_rename_ports_for_cable`` exactly. FMS never assigns
+        ``RearPort.module``, but an operator can through the NetBox UI, and
+        ``tray``/``tray_position`` are both in ``naming._REAR_TOKENS`` -- so
+        rendering ``None`` here while the cable-save signal renders the real
+        tray would make such a port's name flip-flop between the two paths.
+
         Returns ``{port: (name, label)}``, or ``None`` if a template failed.
         """
         if not tube_by_fp_id:
@@ -139,7 +146,11 @@ class Command(RerenderCommand):
 
         rear_ports = {}
         tube_by_rp_id = {}
-        pms = PortMapping.objects.filter(front_port_id__in=tube_by_fp_id).select_related("rear_port__device")
+        # rear_port__module__module_bay so _tray_name_for costs no extra query;
+        # _tray_position_for short-circuits on the (normal) module_id=None case.
+        pms = PortMapping.objects.filter(front_port_id__in=tube_by_fp_id).select_related(
+            "rear_port__device", "rear_port__module__module_bay"
+        )
         for pm in pms:
             rear_ports[pm.rear_port_id] = pm.rear_port
             if tube_by_rp_id.get(pm.rear_port_id) is None:
@@ -155,7 +166,14 @@ class Command(RerenderCommand):
             if device.pk not in end_by_device_id:
                 end_by_device_id[device.pk] = _determine_cable_end(fc.cable, device)
             try:
-                name, label = render_rear_port_strings(rp, fc, tube_by_rp_id.get(rp_id), end_by_device_id[device.pk])
+                name, label = render_rear_port_strings(
+                    rp,
+                    fc,
+                    tube_by_rp_id.get(rp_id),
+                    end_by_device_id[device.pk],
+                    _tray_name_for(rp),
+                    _tray_position_for(rp),
+                )
             except naming.NamingError as exc:
                 self.stderr.write(f"{fc}: rear port template failed: {exc}")
                 return None

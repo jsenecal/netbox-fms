@@ -354,9 +354,15 @@ share a name and that is not reported as a collision.
 
 `tray` and `tray_position` are only populated by the code paths that
 explicitly thread splice-tray placement through: the automatic re-render on
-every `dcim.Cable` save, and the tube-assignment sync/clear paths described
-below. They are `None` at initial port provisioning, before any tube has
-been assigned to a tray.
+every `dcim.Cable` save, `rerender_port_names`, and the tube-assignment
+sync/clear paths described below. They are `None` at initial port
+provisioning, before any tube has been assigned to a tray.
+
+Both tokens are available to **rear**-port templates as well as front-port
+ones. FMS never places a RearPort on a tray itself, but a RearPort inherits
+`module` from NetBox's `ModularComponentModel`, so an operator can; both the
+cable-save re-render and `rerender_port_names` read the port's real
+placement, so the two agree on the rendered name either way.
 
 The **tube-assignment path** in particular (assigning a buffer tube to a
 splice tray, moving it to a different tray, or clearing the assignment) is

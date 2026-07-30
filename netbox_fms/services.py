@@ -635,20 +635,37 @@ def render_port_strings(port, strand, tube, tray, tray_position):
     return fct.resolve_front_port_name(**ctx), fct.resolve_front_port_label(**ctx)
 
 
-def render_rear_port_strings(port, fiber_cable, tube, end):
+def render_rear_port_strings(port, fiber_cable, tube, end, tray=None, tray_position=None):
     """Return (name, label) for a RearPort under its cable type's templates.
 
     Mirrors ``render_port_strings``, minus the strand tokens: a RearPort spans
-    a whole buffer tube and has no single strand, and is never placed on a
-    tray, so ``strand``/``strand_local``/``tray``/``tray_position`` are all
-    left at ``None``. ``end`` is passed in rather than derived because
-    ``_determine_cable_end`` runs queries and callers naming several rear
-    ports on one device should resolve it once.
+    a whole buffer tube and has no single strand, so ``strand`` and
+    ``strand_local`` are left at ``None``.
+
+    ``tray``/``tray_position`` ARE accepted, even though FMS never assigns
+    ``RearPort.module`` itself. ``_REAR_TOKENS`` includes both tokens, so a
+    rear-port template may reference them and validate cleanly, and a
+    ``RearPort`` inherits ``module`` from NetBox's ``ModularComponentModel``,
+    so an operator can place one on a tray through the NetBox UI. Callers must
+    pass the port's real tray placement, exactly as ``_rename_ports_for_cable``
+    does -- rendering ``None`` here instead would make a port's name flip-flop
+    depending on which path last wrote it.
+
+    ``end`` is passed in rather than derived because ``_determine_cable_end``
+    runs queries and callers naming several rear ports on one device should
+    resolve it once.
 
     Either element is ``None`` when no template is configured for that target;
     the same "leave the stored value alone" rule as ``render_port_strings``.
     """
-    fct, ctx = _port_render_context(fiber_cable=fiber_cable, device=port.device, end=end, tube=tube)
+    fct, ctx = _port_render_context(
+        fiber_cable=fiber_cable,
+        device=port.device,
+        end=end,
+        tube=tube,
+        tray=tray,
+        tray_position=tray_position,
+    )
     return fct.resolve_rear_port_name(**ctx), fct.resolve_rear_port_label(**ctx)
 
 
