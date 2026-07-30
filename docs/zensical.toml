@@ -18,6 +18,7 @@ nav = [
     { "Core Concepts" = "user-guide/concepts.md" },
     { "Fiber Cable Types" = "user-guide/fiber-cable-types.md" },
     { "Fiber Cables" = "user-guide/fiber-cables.md" },
+    { "Naming Templates" = "user-guide/naming-templates.md" },
     { "Splice Planning" = "user-guide/splice-planning.md" },
     { "Fiber Circuits" = "user-guide/fiber-circuits.md" },
     { "Device Fiber Overview" = "user-guide/device-fiber-overview.md" },

@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cables entering a given closure, via ClosureCableEntry. The Tube
   Assignment form's Buffer Tube dropdown now chains on the selected
   Closure so only tubes of cables entering that closure are offered. (#58)
+- Jinja naming templates for generated FrontPort/RearPort names and labels and
+  FiberStrand names, configurable per FiberCableType or plugin-wide. Defaults
+  reproduce previous behavior exactly; port labels remain unset unless a
+  template is configured. New `rerender_names` management command re-renders
+  existing objects after a template change (#69).
 
 ### Changed
 
