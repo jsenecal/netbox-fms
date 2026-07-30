@@ -34,6 +34,7 @@ __all__ = (
     "render",
     "resolve_source",
     "strand_context",
+    "uses_tokens",
     "uses_tray",
     "validate",
 )
@@ -142,22 +143,31 @@ def resolve_source(target, fiber_cable_type):
 TRAY_TOKENS = frozenset({"tray", "tray_position"})
 
 
-def uses_tray(fiber_cable_type):
-    """True if either front-port template references a tray token.
+def uses_tokens(fiber_cable_type, targets, tokens):
+    """True if any of ``targets``' resolved templates references any of ``tokens``.
 
     Parsed statically via ``jinja2.meta`` so ``{% if tray %}`` counts, and so
-    a literal "tray" appearing in surrounding text does not. Only the two
-    FRONT port targets are checked: ``_tube_assignment_target_ports`` (the
-    tube-assignment sync path this guards) returns FrontPorts only, so
-    rear-port templates are irrelevant here.
+    a literal "tray" appearing in surrounding text does not. Blank sources are
+    skipped: a target with no configured template references nothing.
     """
-    for target in (FRONT_PORT_NAME, FRONT_PORT_LABEL):
+    wanted = frozenset(tokens)
+    for target in targets:
         source = resolve_source(target, fiber_cable_type)
         if not source.strip():
             continue
-        if TRAY_TOKENS & meta.find_undeclared_variables(_ENV.parse(source)):
+        if wanted & meta.find_undeclared_variables(_ENV.parse(source)):
             return True
     return False
+
+
+def uses_tray(fiber_cable_type):
+    """True if either front-port template references a tray token.
+
+    Only the two FRONT port targets are checked: ``_tube_assignment_target_ports``
+    (the tube-assignment sync path this guards) returns FrontPorts only, so
+    rear-port templates are irrelevant here.
+    """
+    return uses_tokens(fiber_cable_type, (FRONT_PORT_NAME, FRONT_PORT_LABEL), TRAY_TOKENS)
 
 
 def compile_for(fiber_cable_type):
