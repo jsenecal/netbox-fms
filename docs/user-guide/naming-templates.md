@@ -249,6 +249,20 @@ schema. This is the single most surprising consequence of configuring
 naming templates. Leave the label templates blank (the built-in default)
 unless you specifically want this everywhere-in-NetBox display change.
 
+### A blank label template never writes the label column
+
+"No label template configured" and "a label template that rendered empty"
+are distinct states, and only the second one writes. With the label
+templates left blank -- the default -- FMS never touches a port's `label`
+on any path: not on a `dcim.Cable` save, not on tube assignment, not in
+`rerender_names`. Labels that arrived from a DeviceType template, an
+import, or an operator's edit are preserved exactly.
+
+Configure a label template and it becomes authoritative for that target,
+including when it renders to an empty string -- for example
+`{% if tray %}{{ tray }}{% endif %}` deliberately blanks the label of a
+port that is not on a tray. The same rule applies to the name templates.
+
 ---
 
 ## Run `rerender_names` after changing a template
@@ -325,28 +339,30 @@ configured to care about tray placement.
 
 ---
 
-## The `strand_local` caveat on re-render paths
+## `strand_local` on re-render paths
 
-`{{ strand_local }}` is correctly computed at two points: initial port
-provisioning, and the automatic re-render on every `dcim.Cable` save
-(which recovers the original local index from the stored
-`PortMapping.rear_port_position`).
+`{{ strand_local }}` is safe in front-port templates: every path that
+names or renames a FrontPort agrees on its value.
 
-Everywhere else that re-renders an existing FrontPort --
-the tube-assignment sync path (`sync_tube_assignment_ports`), the
-tube-assignment clear path (`clear_tube_assignment_ports`), and the
-`rerender_names` command's FrontPort re-render step -- goes through the
-shared `render_port_strings()` helper, which passes `strand_local=None`
-explicitly. Jinja renders an unguarded `{{ strand_local }}` reference to
-`None`'s string form, so a template such as `...F{{ strand_local }}`
-produces `...FNone` on those paths, verified directly against
-`render_port_strings()` in `netbox_fms/services.py`. Avoid `strand_local`
-in `front_port_name_template` / `front_port_label_template` if tube
-assignments or `rerender_names` will ever run against the cable type; use
-`strand` (the cable-wide position, which every re-render path computes
-correctly) in front-port templates instead, and reserve `strand_local` for
-`strand_name_template`, whose own re-render paths (initial instantiation
-and `rerender_names --targets strands`) always pass the real local index.
+- **Initial provisioning** (`_provision_device_ports`) numbers the strands
+  within each tube and passes that index directly.
+- **The automatic re-render on every `dcim.Cable` save** recovers it from
+  the stored `PortMapping.rear_port_position`.
+- **The tube-assignment sync and clear paths, and the `rerender_names`
+  command**, all go through the shared `render_port_strings()` helper,
+  which looks the same value up from the port's `PortMapping` (one extra
+  query per port).
+
+`PortMapping.rear_port_position` is authoritative here because
+`_provision_device_ports` writes the very index it rendered with into that
+column, so the lookup reproduces the original number rather than guessing
+at one.
+
+`strand_local` renders as `None` only for a FrontPort with no PortMapping
+at all -- a port adopted from outside FMS, which was never provisioned
+with a local index in the first place. Guard such templates with
+`{% if strand_local %}` if the cable type is used on the adopt path, or
+use `strand` (the cable-wide position, always available) instead.
 
 ---
 

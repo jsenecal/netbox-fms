@@ -42,9 +42,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Closure so only tubes of cables entering that closure are offered. (#58)
 - Jinja naming templates for generated FrontPort/RearPort names and labels and
   FiberStrand names, configurable per FiberCableType or plugin-wide. Defaults
-  reproduce previous behavior exactly; port labels remain unset unless a
-  template is configured. New `rerender_names` management command re-renders
-  existing objects after a template change (#69).
+  reproduce previous behavior exactly. With no label template configured --
+  the default -- FMS never writes a port's `label` on any path (cable save,
+  tube assignment, `rerender_names`), so labels set by a DeviceType template,
+  an import, or by hand are preserved; a configured template is authoritative
+  for its target, including when it renders empty. New `rerender_names`
+  management command re-renders existing objects after a template change
+  (#69).
 
 ### Changed
 
