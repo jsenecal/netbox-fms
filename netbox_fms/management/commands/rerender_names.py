@@ -8,7 +8,7 @@ from django.db import transaction
 from netbox_fms import naming
 from netbox_fms.models import FiberCableType
 from netbox_fms.services import render_port_strings
-from netbox_fms.signals import _tray_name_for, _tray_position_for, fms_portmapping_bypass
+from netbox_fms.signals import _tray_name_for, _tray_position_for
 
 TARGET_CHOICES = ("strands", "port-names", "port-labels")
 
@@ -77,9 +77,9 @@ class Command(BaseCommand):
             except naming.NamingError as exc:
                 self.stderr.write(f"{fc}: strand template failed: {exc}")
                 return
-            if new_name != strand.name:
-                self.stdout.write(f"strand {strand.pk}: {strand.name} -> {new_name}")
-                strand.name = new_name
+            old_name = strand.name
+            if naming.apply_rendered(strand, name=new_name):
+                self.stdout.write(f"strand {strand.pk}: {old_name} -> {strand.name}")
                 pending.append(strand)
         if pending and not dry_run:
             FiberStrand.objects.bulk_update(pending, ["name"], batch_size=500)
@@ -103,14 +103,16 @@ class Command(BaseCommand):
                 except naming.NamingError as exc:
                     self.stderr.write(f"{fc}: port template failed: {exc}")
                     return
+                # None means "leave this target alone": either it is not in
+                # --targets, or the cable type configures no template for it.
                 proposed[port] = (
-                    name if "port-names" in targets else port.name,
-                    label if "port-labels" in targets else port.label,
+                    name if "port-names" in targets else None,
+                    label if "port-labels" in targets else None,
                 )
 
         by_device = {}
         for port, (name, _label) in proposed.items():
-            by_device.setdefault(port.device_id, []).append(name)
+            by_device.setdefault(port.device_id, []).append(port.name if name is None else name)
         for device_id, names in by_device.items():
             dupes = [n for n, count in Counter(names).items() if count > 1]
             if dupes:
@@ -118,11 +120,20 @@ class Command(BaseCommand):
                 return
 
         pending = []
+        fields = set()
         for port, (name, label) in proposed.items():
-            if (port.name, port.label) != (name, label):
-                self.stdout.write(f"port {port.pk}: {port.name} -> {name}")
-                port.name, port.label = name, label
-                pending.append(port)
+            old_name, old_label = port.name, port.label
+            changed = naming.apply_rendered(port, name=name, label=label)
+            if not changed:
+                continue
+            if "name" in changed:
+                self.stdout.write(f"port {port.pk}: {old_name} -> {port.name}")
+            if "label" in changed:
+                self.stdout.write(f"port {port.pk}: label {old_label} -> {port.label}")
+            fields |= changed
+            pending.append(port)
         if pending and not dry_run:
-            with fms_portmapping_bypass(), transaction.atomic():
-                FrontPort.objects.bulk_update(pending, ["name", "label"], batch_size=500)
+            # Only the columns a render actually changed: a run with no label
+            # template configured must not write the label column at all.
+            with transaction.atomic():
+                FrontPort.objects.bulk_update(pending, sorted(fields), batch_size=500)

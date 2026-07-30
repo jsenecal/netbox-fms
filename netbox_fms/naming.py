@@ -26,6 +26,7 @@ __all__ = (
     "TARGETS",
     "TRAY_TOKENS",
     "NamingError",
+    "apply_rendered",
     "color_name",
     "compile_for",
     "dummy_contexts",
@@ -169,16 +170,43 @@ def compile_for(fiber_cable_type):
 
 
 def render(target, compiled, context):
-    """Render one target, scoped to its tokens and truncated to its max length."""
+    """Render one target, scoped to its tokens and truncated to its max length.
+
+    Returns ``None`` -- not ``""`` -- when the target has no configured
+    template. "No template configured" and "the configured template rendered
+    empty" are different states: the first must leave whatever value the field
+    already holds alone, the second is a deliberate blanking. Callers writing
+    to an existing object must skip the assignment on ``None``; callers
+    creating a new object must coerce it to ``""``.
+    """
     template = compiled.get(target)
     if template is None:
-        return ""
+        return None
     spec = TARGETS[target]
     scoped = {key: value for key, value in context.items() if key in spec.tokens}
     try:
         return template.render(**scoped)[: spec.max_length]
     except TemplateError as exc:
         raise NamingError(f"{target}: {exc}") from exc
+
+
+def apply_rendered(obj, name=None, label=None):
+    """Assign rendered ``name``/``label`` onto an existing object.
+
+    A ``None`` value means "no template configured for that target" (see
+    :func:`render`) and is skipped, leaving the stored value alone. Returns
+    the set of field names actually modified, which is what a caller should
+    feed to ``bulk_update`` -- passing a field no render touched would write
+    back stale in-memory values.
+    """
+    changed = set()
+    if name is not None and obj.name != name:
+        obj.name = name
+        changed.add("name")
+    if label is not None and obj.label != label:
+        obj.label = label
+        changed.add("label")
+    return changed
 
 
 def dummy_contexts(target):

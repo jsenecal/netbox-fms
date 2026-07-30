@@ -176,6 +176,8 @@ def _rename_ports_for_cable(cable):
 
     rps_to_update = []
     fps_to_update = []
+    rp_fields = set()
+    fp_fields = set()
     end_by_device_id = {}
 
     try:
@@ -195,11 +197,13 @@ def _rename_ports_for_cable(cable):
                 tray=_tray_name_for(rp),
                 tray_position=_tray_position_for(rp),
             )
-            new_name = fct.resolve_rear_port_name(**rp_ctx)
-            new_label = fct.resolve_rear_port_label(**rp_ctx)
-            if rp.name != new_name or rp.label != new_label:
-                rp.name = new_name
-                rp.label = new_label
+            changed = naming.apply_rendered(
+                rp,
+                name=fct.resolve_rear_port_name(**rp_ctx),
+                label=fct.resolve_rear_port_label(**rp_ctx),
+            )
+            if changed:
+                rp_fields |= changed
                 rps_to_update.append(rp)
 
             for pm in pms:
@@ -219,20 +223,26 @@ def _rename_ports_for_cable(cable):
                     tray=_tray_name_for(fp),
                     tray_position=_tray_position_for(fp),
                 )
-                fp_new = fct.resolve_front_port_name(**fp_ctx)
-                fp_label = fct.resolve_front_port_label(**fp_ctx)
-                if fp.name != fp_new or fp.label != fp_label:
-                    fp.name = fp_new
-                    fp.label = fp_label
+                changed = naming.apply_rendered(
+                    fp,
+                    name=fct.resolve_front_port_name(**fp_ctx),
+                    label=fct.resolve_front_port_label(**fp_ctx),
+                )
+                if changed:
+                    fp_fields |= changed
                     fps_to_update.append(fp)
     except naming.NamingError:
         logger.exception("Naming template failed for cable %s; port names left unchanged", cable)
         return
 
+    # Only update the columns some render actually changed. With no label
+    # template configured (the default) that is ["name"] alone, exactly as it
+    # was before naming templates existed -- pre-existing port labels, such as
+    # those on ports adopted from a DeviceType template, are never touched.
     if rps_to_update:
-        RearPort.objects.bulk_update(rps_to_update, ["name", "label"])
+        RearPort.objects.bulk_update(rps_to_update, sorted(rp_fields))
     if fps_to_update:
-        FrontPort.objects.bulk_update(fps_to_update, ["name", "label"])
+        FrontPort.objects.bulk_update(fps_to_update, sorted(fp_fields))
 
 
 def _cable_post_save(sender, instance, **kwargs):

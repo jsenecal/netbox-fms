@@ -392,24 +392,36 @@ class FiberCableType(NetBoxModel):
         return state
 
     def resolve_front_port_name(self, **ctx):
-        """Render the FrontPort name template with the given context."""
+        """Render the FrontPort name template, or None if none is configured."""
         return naming.render(naming.FRONT_PORT_NAME, self._compiled_naming, ctx)
 
     def resolve_rear_port_name(self, **ctx):
-        """Render the RearPort name template with the given context."""
+        """Render the RearPort name template, or None if none is configured."""
         return naming.render(naming.REAR_PORT_NAME, self._compiled_naming, ctx)
 
     def resolve_front_port_label(self, **ctx):
-        """Render the FrontPort label template with the given context."""
+        """Render the FrontPort label template, or None if none is configured.
+
+        None is the common case: both label targets default to blank, so an
+        install that configured no label template gets None here and callers
+        must leave the existing label untouched.
+        """
         return naming.render(naming.FRONT_PORT_LABEL, self._compiled_naming, ctx)
 
     def resolve_rear_port_label(self, **ctx):
-        """Render the RearPort label template with the given context."""
+        """Render the RearPort label template, or None if none is configured."""
         return naming.render(naming.REAR_PORT_LABEL, self._compiled_naming, ctx)
 
     def resolve_strand_name(self, **ctx):
-        """Render the FiberStrand name template with the given context."""
-        return naming.render(naming.STRAND_NAME, self._compiled_naming, ctx)
+        """Render the FiberStrand name template with the given context.
+
+        Unlike the port resolvers, this never returns None. STRAND_NAME's
+        built-in default is non-blank and a blank cable-type override falls
+        back to it, so "no template configured" can only arise from an
+        explicitly blank PLUGINS_CONFIG entry; that is coerced to "" here so
+        strand creation, which writes a NOT NULL column, keeps working.
+        """
+        return naming.render(naming.STRAND_NAME, self._compiled_naming, ctx) or ""
 
 
 class FiberAttenuationSpec(NetBoxModel):

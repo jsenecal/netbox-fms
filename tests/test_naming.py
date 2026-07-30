@@ -59,9 +59,17 @@ class TestDefaults(SimpleTestCase):
         ctx = {"ribbon_name": None, "tube_name": None, "strand_local": 7}
         assert naming.render(naming.STRAND_NAME, self.compiled, ctx) == "F7"
 
-    def test_labels_default_blank(self):
-        assert naming.render(naming.FRONT_PORT_LABEL, self.compiled, {}) == ""
-        assert naming.render(naming.REAR_PORT_LABEL, self.compiled, {}) == ""
+    def test_labels_default_to_no_template(self):
+        """Blank default -> None, the signal to leave any stored label alone."""
+        assert naming.render(naming.FRONT_PORT_LABEL, self.compiled, {}) is None
+        assert naming.render(naming.REAR_PORT_LABEL, self.compiled, {}) is None
+
+    def test_configured_template_rendering_empty_is_not_none(self):
+        """An empty render from a real template is a deliberate blank, not "unset"."""
+        fct = blank_type()
+        fct.front_port_label_template = "{% if tube %}T{{ tube }}{% endif %}"
+        compiled = naming.compile_for(fct)
+        assert naming.render(naming.FRONT_PORT_LABEL, compiled, {"tube": None}) == ""
 
 
 class TestResolution(SimpleTestCase):
@@ -170,6 +178,32 @@ class TestCableTypeValidation(TestCase):
     def test_resolve_methods_use_the_override(self):
         fct = self._cable_type(front_port_name_template="X-{{ strand }}")
         assert fct.resolve_front_port_name(strand=9) == "X-9"
+
+    def test_unconfigured_label_resolves_to_none(self):
+        """None, not "", is what tells a caller to leave the stored label alone."""
+        fct = self._cable_type()
+        assert fct.resolve_front_port_label(strand=9) is None
+        assert fct.resolve_rear_port_label() is None
+
+    def test_deepcopy_survives_a_populated_naming_cache(self):
+        """``__getstate__`` must keep dropping the uncopyable Jinja cache.
+
+        Django's ``TestData`` deep-copies ``setUpTestData`` attributes before
+        every test method, so a FiberCableType whose ``_compiled_naming`` has
+        been populated must stay deep-copyable. Renaming that attribute without
+        updating ``__getstate__`` otherwise fails far away from this class,
+        with Jinja2's opaque ``Template.__new__()`` TypeError.
+        """
+        import copy
+
+        fct = self._cable_type(front_port_name_template="D-{{ strand }}")
+        assert fct.resolve_front_port_name(strand=4) == "D-4"
+        assert "_compiled_naming" in fct.__dict__, "cache must be populated for this test to mean anything"
+
+        clone = copy.deepcopy(fct)
+
+        assert "_compiled_naming" not in clone.__dict__
+        assert clone.resolve_front_port_name(strand=5) == "D-5"
 
 
 class TestStrandNameBackCompat(TestCase):
@@ -619,6 +653,72 @@ class TestSnapshotOrdering(TestCase):
         assert captures[-1]["name"] == original_name, "no tray token means the name must never be touched"
 
 
+class TestLabelPreservation(TestCase):
+    """With no label template configured, FMS must never write a port label.
+
+    ``TestPortNameBackCompat.test_labels_stay_blank_by_default`` only covers
+    greenfield ports, whose labels are blank anyway; it cannot catch a
+    re-render path that blanks a label an operator already set. These do:
+    the ports here carry non-blank labels (the shape of ports adopted from a
+    DeviceType template) before the write path under test runs.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="LP Mfr", slug="lp-mfr")
+        site = Site.objects.create(name="LP Site", slug="lp-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="LP Closure", slug="lp-closure")
+        role = DeviceRole.objects.create(name="LP Role", slug="lp-role")
+        cls.dev_a = Device.objects.create(name="LP-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="LP-B", site=site, device_type=dt, role=role)
+
+    def _build(self, label, **kwargs):
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model=f"LP-{label}",
+            construction="loose_tube",
+            strand_count=2,
+            **kwargs,
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": label},
+        )
+        return fct, fc
+
+    def test_existing_labels_survive_cable_save(self):
+        _fct, fc = self._build("KEEP")
+        fp = FrontPort.objects.filter(device=self.dev_a).order_by("name").first()
+        rp = RearPort.objects.filter(device=self.dev_a).order_by("name").first()
+        # Bypass save() so the pre-existing labels are planted without touching names.
+        FrontPort.objects.filter(pk=fp.pk).update(label="Rack-A-01")
+        RearPort.objects.filter(pk=rp.pk).update(label="Rack-A-RP")
+
+        fc.cable.label = "KEEP2"
+        fc.cable.save()
+
+        fp.refresh_from_db()
+        rp.refresh_from_db()
+        assert fp.label == "Rack-A-01", "FrontPort label must survive a cable save with no label template"
+        assert rp.label == "Rack-A-RP", "RearPort label must survive a cable save with no label template"
+
+    def test_configured_label_template_still_writes(self):
+        """The no-op guard must not stop a configured label template from applying."""
+        fct, fc = self._build("SET")
+        FiberCableType.objects.filter(pk=fct.pk).update(front_port_label_template="L{{ strand }}")
+
+        fc.cable.label = "SET2"
+        fc.cable.save()
+
+        labels = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("label", flat=True))
+        assert labels == ["L1", "L2"]
+
+
 class TestRerenderCommand(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -660,6 +760,62 @@ class TestRerenderCommand(TestCase):
         call_command("rerender_names", stdout=StringIO())
         after = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
         assert after == ["S1", "S2"]
+
+    def _port_state(self, *devices):
+        """Every FrontPort/RearPort name and label on the given devices, from the DB."""
+        return {
+            "front": dict(FrontPort.objects.filter(device__in=devices).values_list("pk", "name")),
+            "front_labels": dict(FrontPort.objects.filter(device__in=devices).values_list("pk", "label")),
+            "rear": dict(RearPort.objects.filter(device__in=devices).values_list("pk", "name")),
+            "rear_labels": dict(RearPort.objects.filter(device__in=devices).values_list("pk", "label")),
+        }
+
+    def test_no_template_change_writes_nothing(self):
+        """The no-op promise: a run with no template edits must change nothing.
+
+        Includes a port carrying a non-blank label, the state an adopted
+        DeviceType-template port arrives in. A run that blanks it is exactly
+        the regression this pins.
+        """
+        _fct, fc = self._build("NOOP")
+        fp = FrontPort.objects.filter(device=self.dev_a).order_by("name").first()
+        FrontPort.objects.filter(pk=fp.pk).update(label="Bay-7")
+
+        before = self._port_state(self.dev_a, self.dev_b)
+        strands_before = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+
+        call_command("rerender_names", stdout=StringIO(), stderr=StringIO())
+
+        assert self._port_state(self.dev_a, self.dev_b) == before
+        assert list(fc.fiber_strands.order_by("position").values_list("name", flat=True)) == strands_before
+
+    def test_targets_restricts_to_strands(self):
+        """--targets strands must not touch port names or labels."""
+        fct, fc = self._build("TGT")
+        FiberCableType.objects.filter(pk=fct.pk).update(
+            strand_name_template="S{{ strand }}",
+            front_port_name_template="P{{ strand }}",
+            front_port_label_template="L{{ strand }}",
+        )
+        before = self._port_state(self.dev_a, self.dev_b)
+
+        call_command("rerender_names", "--targets", "strands", stdout=StringIO(), stderr=StringIO())
+
+        assert list(fc.fiber_strands.order_by("position").values_list("name", flat=True)) == ["S1", "S2"]
+        assert self._port_state(self.dev_a, self.dev_b) == before
+
+    def test_cable_type_restricts_to_one_type(self):
+        """--cable-type must leave every other cable type's objects untouched."""
+        fct_one, fc_one = self._build("CT1")
+        fct_two, fc_two = self._build("CT2")
+        for fct in (fct_one, fct_two):
+            FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
+        untouched = list(fc_two.fiber_strands.order_by("position").values_list("name", flat=True))
+
+        call_command("rerender_names", "--cable-type", fct_one.model, stdout=StringIO(), stderr=StringIO())
+
+        assert list(fc_one.fiber_strands.order_by("position").values_list("name", flat=True)) == ["S1", "S2"]
+        assert list(fc_two.fiber_strands.order_by("position").values_list("name", flat=True)) == untouched
 
     def test_collision_refused(self):
         """A template that renders the same name for every port is refused."""

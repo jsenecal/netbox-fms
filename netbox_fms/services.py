@@ -87,12 +87,17 @@ def _provision_device_ports(fc, device, port_type, fk_field):
             strand_local=local,
         )
 
+    # Greenfield creates: an unconfigured template renders None, but name and
+    # label are both NOT NULL, so coerce to "" -- Django's own field default.
+    def _blank(value):
+        return "" if value is None else value
+
     def _make_rear_port(tube, positions):
         ctx = _ctx(tube)
         return RearPort.objects.create(
             device=device,
-            name=fct.resolve_rear_port_name(**ctx),
-            label=fct.resolve_rear_port_label(**ctx),
+            name=_blank(fct.resolve_rear_port_name(**ctx)),
+            label=_blank(fct.resolve_rear_port_label(**ctx)),
             type=port_type,
             positions=positions,
         )
@@ -101,8 +106,8 @@ def _provision_device_ports(fc, device, port_type, fk_field):
         ctx = _ctx(tube, strand, local)
         return FrontPort.objects.create(
             device=device,
-            name=fct.resolve_front_port_name(**ctx),
-            label=fct.resolve_front_port_label(**ctx),
+            name=_blank(fct.resolve_front_port_name(**ctx)),
+            label=_blank(fct.resolve_front_port_label(**ctx)),
             type=port_type,
         )
 
@@ -581,7 +586,12 @@ def _tube_assignment_target_ports(closure_id, buffer_tube_id):
 
 
 def render_port_strings(port, strand, tube, tray, tray_position):
-    """Return (name, label) for a FrontPort under its cable type's templates."""
+    """Return (name, label) for a FrontPort under its cable type's templates.
+
+    Either element is ``None`` when the cable type configures no template for
+    that target (see ``naming.render``); callers writing to an existing port
+    must skip the assignment rather than blanking the stored value.
+    """
     fc = strand.fiber_cable
     fct = fc.fiber_cable_type
     end = "A" if strand.front_port_a_id == port.pk else "B"
@@ -656,18 +666,21 @@ def sync_tube_assignment_ports(assignment):
                         port, strand, strand.buffer_tube, tray_name, assignment.position
                     )
                 except naming.NamingError:
-                    new_name, new_label = port.name, port.label
+                    new_name = new_label = None
 
+        # None means "no template configured" for that target, so it never
+        # counts as a change and is never assigned.
         changed = port.module_id != assignment.tray_id
-        if new_name is not None and (new_name, new_label) != (port.name, port.label):
+        if new_name is not None and new_name != port.name:
+            changed = True
+        if new_label is not None and new_label != port.label:
             changed = True
         if not changed:
             continue
 
         port.snapshot()
         port.module_id = assignment.tray_id
-        if new_name is not None:
-            port.name, port.label = new_name, new_label
+        naming.apply_rendered(port, name=new_name, label=new_label)
         port.save()
 
 
@@ -698,10 +711,9 @@ def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
                 try:
                     new_name, new_label = render_port_strings(port, strand, strand.buffer_tube, None, None)
                 except naming.NamingError:
-                    new_name, new_label = port.name, port.label
+                    new_name = new_label = None
 
         port.snapshot()
         port.module_id = None
-        if new_name is not None:
-            port.name, port.label = new_name, new_label
+        naming.apply_rendered(port, name=new_name, label=new_label)
         port.save()
