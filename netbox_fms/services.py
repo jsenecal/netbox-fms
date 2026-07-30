@@ -585,6 +585,28 @@ def _tube_assignment_target_ports(closure_id, buffer_tube_id):
     return ports
 
 
+def _port_render_context(*, fiber_cable, device, end, tube, **extra):
+    """Return (cable_type, context) for a port of ``fiber_cable`` on ``device``.
+
+    The shared half of ``render_port_strings`` and ``render_rear_port_strings``:
+    everything a port render needs that does not depend on which end of the
+    front/rear pair is being named. ``extra`` carries the front-port-only
+    tokens (``strand``, ``strand_local``, ``tray``, ``tray_position``), which
+    ``naming.port_context`` defaults to ``None`` for a rear port.
+    """
+    fct = fiber_cable.fiber_cable_type
+    ctx = naming.port_context(
+        cable=fiber_cable.cable,
+        cable_type=fct,
+        device=device,
+        end=end,
+        color_scheme=fct.color_scheme,
+        tube=tube,
+        **extra,
+    )
+    return fct, ctx
+
+
 def render_port_strings(port, strand, tube, tray, tray_position):
     """Return (name, label) for a FrontPort under its cable type's templates.
 
@@ -599,16 +621,11 @@ def render_port_strings(port, strand, tube, tray, tray_position):
     extra query per port; ``None`` when the port has no PortMapping (adopted
     ports that FMS never provisioned).
     """
-    fc = strand.fiber_cable
-    fct = fc.fiber_cable_type
-    end = "A" if strand.front_port_a_id == port.pk else "B"
     strand_local = PortMapping.objects.filter(front_port=port).values_list("rear_port_position", flat=True).first()
-    ctx = naming.port_context(
-        cable=fc.cable,
-        cable_type=fct,
+    fct, ctx = _port_render_context(
+        fiber_cable=strand.fiber_cable,
         device=port.device,
-        end=end,
-        color_scheme=fct.color_scheme,
+        end="A" if strand.front_port_a_id == port.pk else "B",
         tube=tube,
         strand=strand,
         strand_local=strand_local,
@@ -616,6 +633,23 @@ def render_port_strings(port, strand, tube, tray, tray_position):
         tray_position=tray_position,
     )
     return fct.resolve_front_port_name(**ctx), fct.resolve_front_port_label(**ctx)
+
+
+def render_rear_port_strings(port, fiber_cable, tube, end):
+    """Return (name, label) for a RearPort under its cable type's templates.
+
+    Mirrors ``render_port_strings``, minus the strand tokens: a RearPort spans
+    a whole buffer tube and has no single strand, and is never placed on a
+    tray, so ``strand``/``strand_local``/``tray``/``tray_position`` are all
+    left at ``None``. ``end`` is passed in rather than derived because
+    ``_determine_cable_end`` runs queries and callers naming several rear
+    ports on one device should resolve it once.
+
+    Either element is ``None`` when no template is configured for that target;
+    the same "leave the stored value alone" rule as ``render_port_strings``.
+    """
+    fct, ctx = _port_render_context(fiber_cable=fiber_cable, device=port.device, end=end, tube=tube)
+    return fct.resolve_rear_port_name(**ctx), fct.resolve_rear_port_label(**ctx)
 
 
 def _strand_for_port(port, buffer_tube_id):

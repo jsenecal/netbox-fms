@@ -719,7 +719,32 @@ class TestLabelPreservation(TestCase):
         assert labels == ["L1", "L2"]
 
 
-class TestRerenderCommand(TestCase):
+class TestUsesTokens(SimpleTestCase):
+    """``naming.uses_tokens`` is the static detector both re-render guards read."""
+
+    def _fct(self, **templates):
+        fct = blank_type()
+        fct.__dict__.update(templates)
+        return fct
+
+    def test_detects_a_referenced_token(self):
+        fct = self._fct(front_port_name_template="{{ strand_name }}-x")
+        assert naming.uses_tokens(fct, (naming.FRONT_PORT_NAME,), {naming.STRAND_NAME})
+
+    def test_literal_text_is_not_a_reference(self):
+        """Static parsing, not substring matching: the word alone must not count."""
+        fct = self._fct(front_port_name_template="strand_name is not a token here")
+        assert not naming.uses_tokens(fct, (naming.FRONT_PORT_NAME,), {naming.STRAND_NAME})
+
+    def test_only_the_named_targets_are_checked(self):
+        fct = self._fct(front_port_label_template="{{ strand_name }}")
+        assert not naming.uses_tokens(fct, (naming.FRONT_PORT_NAME,), {naming.STRAND_NAME})
+        assert naming.uses_tokens(fct, (naming.FRONT_PORT_LABEL,), {naming.STRAND_NAME})
+
+
+class TestRerenderCommands(TestCase):
+    """The ``rerender_strand_names`` / ``rerender_port_names`` command pair."""
+
     @classmethod
     def setUpTestData(cls):
         from dcim.models import Device, DeviceRole, DeviceType, Site
@@ -731,11 +756,11 @@ class TestRerenderCommand(TestCase):
         cls.dev_a = Device.objects.create(name="RR-A", site=site, device_type=dt, role=role)
         cls.dev_b = Device.objects.create(name="RR-B", site=site, device_type=dt, role=role)
 
-    def _build(self, label):
+    def _build(self, label, strand_count=2):
         fct = FiberCableType.objects.create(
-            manufacturer=self.mfr, model=f"RR-{label}", construction="loose_tube", strand_count=2
+            manufacturer=self.mfr, model=f"RR-{label}", construction="loose_tube", strand_count=strand_count
         )
-        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=strand_count)
         fc, _ = create_closure_cable(
             device_a=self.dev_a,
             device_b=self.dev_b,
@@ -743,23 +768,6 @@ class TestRerenderCommand(TestCase):
             cable_attrs={"type": "smf-os2", "label": label},
         )
         return fct, fc
-
-    def test_dry_run_writes_nothing(self):
-        fct, fc = self._build("DRY")
-        FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
-        before = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
-        out = StringIO()
-        call_command("rerender_names", "--dry-run", stdout=out)
-        after = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
-        assert after == before
-        assert "->" in out.getvalue()
-
-    def test_applies_strand_template(self):
-        fct, fc = self._build("APP")
-        FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
-        call_command("rerender_names", stdout=StringIO())
-        after = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
-        assert after == ["S1", "S2"]
 
     def _port_state(self, *devices):
         """Every FrontPort/RearPort name and label on the given devices, from the DB."""
@@ -770,36 +778,37 @@ class TestRerenderCommand(TestCase):
             "rear_labels": dict(RearPort.objects.filter(device__in=devices).values_list("pk", "label")),
         }
 
-    def test_no_template_change_writes_nothing(self):
-        """The no-op promise: a run with no template edits must change nothing.
+    # -- rerender_strand_names -------------------------------------------
 
-        Includes a port carrying a non-blank label, the state an adopted
-        DeviceType-template port arrives in. A run that blanks it is exactly
-        the regression this pins.
-        """
-        _fct, fc = self._build("NOOP")
-        fp = FrontPort.objects.filter(device=self.dev_a).order_by("name").first()
-        FrontPort.objects.filter(pk=fp.pk).update(label="Bay-7")
+    def test_strand_dry_run_writes_nothing(self):
+        fct, fc = self._build("DRY")
+        FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
+        before = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        out = StringIO()
+        call_command("rerender_strand_names", "--dry-run", stdout=out)
+        after = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert after == before
+        assert "->" in out.getvalue()
 
-        before = self._port_state(self.dev_a, self.dev_b)
-        strands_before = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+    def test_applies_strand_template(self):
+        fct, fc = self._build("APP")
+        FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
+        call_command("rerender_strand_names", stdout=StringIO())
+        after = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+        assert after == ["S1", "S2"]
 
-        call_command("rerender_names", stdout=StringIO(), stderr=StringIO())
-
-        assert self._port_state(self.dev_a, self.dev_b) == before
-        assert list(fc.fiber_strands.order_by("position").values_list("name", flat=True)) == strands_before
-
-    def test_targets_restricts_to_strands(self):
-        """--targets strands must not touch port names or labels."""
+    def test_strand_command_never_touches_ports(self):
+        """The split's contract: strand names are the strand command's business alone."""
         fct, fc = self._build("TGT")
         FiberCableType.objects.filter(pk=fct.pk).update(
             strand_name_template="S{{ strand }}",
             front_port_name_template="P{{ strand }}",
             front_port_label_template="L{{ strand }}",
+            rear_port_name_template="RP{{ tube }}",
         )
         before = self._port_state(self.dev_a, self.dev_b)
 
-        call_command("rerender_names", "--targets", "strands", stdout=StringIO(), stderr=StringIO())
+        call_command("rerender_strand_names", stdout=StringIO(), stderr=StringIO())
 
         assert list(fc.fiber_strands.order_by("position").values_list("name", flat=True)) == ["S1", "S2"]
         assert self._port_state(self.dev_a, self.dev_b) == before
@@ -812,13 +821,100 @@ class TestRerenderCommand(TestCase):
             FiberCableType.objects.filter(pk=fct.pk).update(strand_name_template="S{{ strand }}")
         untouched = list(fc_two.fiber_strands.order_by("position").values_list("name", flat=True))
 
-        call_command("rerender_names", "--cable-type", fct_one.model, stdout=StringIO(), stderr=StringIO())
+        call_command("rerender_strand_names", "--cable-type", fct_one.model, stdout=StringIO(), stderr=StringIO())
 
         assert list(fc_one.fiber_strands.order_by("position").values_list("name", flat=True)) == ["S1", "S2"]
         assert list(fc_two.fiber_strands.order_by("position").values_list("name", flat=True)) == untouched
 
+    # -- rerender_port_names ---------------------------------------------
+
+    def test_port_dry_run_writes_nothing(self):
+        """--dry-run must leave every name AND label column exactly as it was."""
+        fct, _fc = self._build("PDRY")
+        FiberCableType.objects.filter(pk=fct.pk).update(
+            front_port_name_template="P{{ strand }}",
+            front_port_label_template="L{{ strand }}",
+            rear_port_name_template="RP{{ tube }}",
+            rear_port_label_template="RL{{ tube }}",
+        )
+        before = self._port_state(self.dev_a, self.dev_b)
+        out = StringIO()
+
+        call_command("rerender_port_names", "--dry-run", stdout=out, stderr=StringIO())
+
+        assert self._port_state(self.dev_a, self.dev_b) == before
+        assert "->" in out.getvalue()
+
+    def test_rerenders_rear_port_names(self):
+        """The gap this pair closes: the old single command never reached RearPorts."""
+        fct, _fc = self._build("RP")
+        FiberCableType.objects.filter(pk=fct.pk).update(rear_port_name_template="RP-{{ device }}-T{{ tube }}")
+
+        call_command("rerender_port_names", stdout=StringIO(), stderr=StringIO())
+
+        assert list(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["RP-RR-A-T1"]
+        assert list(RearPort.objects.filter(device=self.dev_b).values_list("name", flat=True)) == ["RP-RR-B-T1"]
+
+    def test_rear_port_label_survives_with_no_label_template(self):
+        """The None protocol, for rear ports: no rear label template means no label write.
+
+        The run must still rewrite the rear port's NAME, so the port is in the
+        bulk_update batch -- that is what makes a label leak possible at all.
+        """
+        fct, _fc = self._build("RPL")
+        rp = RearPort.objects.filter(device=self.dev_a).first()
+        RearPort.objects.filter(pk=rp.pk).update(label="Rack-A-RP")
+        FiberCableType.objects.filter(pk=fct.pk).update(rear_port_name_template="RP{{ tube }}")
+
+        call_command("rerender_port_names", stdout=StringIO(), stderr=StringIO())
+
+        rp.refresh_from_db()
+        assert rp.name == "RP1", "the rear port name must have been re-rendered"
+        assert rp.label == "Rack-A-RP", "an operator-set rear port label must survive a run with no label template"
+
+    def test_no_template_change_writes_nothing(self):
+        """The no-op promise: a run with no template edits must change nothing.
+
+        Includes ports carrying non-blank labels, the state adopted
+        DeviceType-template ports arrive in. A run that blanks them is exactly
+        the regression this pins.
+        """
+        _fct, fc = self._build("NOOP")
+        fp = FrontPort.objects.filter(device=self.dev_a).order_by("name").first()
+        rp = RearPort.objects.filter(device=self.dev_a).order_by("name").first()
+        FrontPort.objects.filter(pk=fp.pk).update(label="Bay-7")
+        RearPort.objects.filter(pk=rp.pk).update(label="Bay-7-RP")
+
+        before = self._port_state(self.dev_a, self.dev_b)
+        strands_before = list(fc.fiber_strands.order_by("position").values_list("name", flat=True))
+
+        call_command("rerender_port_names", stdout=StringIO(), stderr=StringIO())
+        call_command("rerender_strand_names", stdout=StringIO(), stderr=StringIO())
+
+        assert self._port_state(self.dev_a, self.dev_b) == before
+        assert list(fc.fiber_strands.order_by("position").values_list("name", flat=True)) == strands_before
+
+    def test_targets_labels_only_leaves_names_alone(self):
+        """--targets labels re-renders labels without touching names."""
+        fct, _fc = self._build("LBL")
+        FiberCableType.objects.filter(pk=fct.pk).update(
+            front_port_name_template="P{{ strand }}",
+            front_port_label_template="L{{ strand }}",
+            rear_port_name_template="RP{{ tube }}",
+            rear_port_label_template="RL{{ tube }}",
+        )
+        names_before = self._port_state(self.dev_a, self.dev_b)
+
+        call_command("rerender_port_names", "--targets", "labels", stdout=StringIO(), stderr=StringIO())
+
+        after = self._port_state(self.dev_a, self.dev_b)
+        assert after["front"] == names_before["front"]
+        assert after["rear"] == names_before["rear"]
+        assert sorted(after["front_labels"].values()) == ["L1", "L1", "L2", "L2"]
+        assert sorted(after["rear_labels"].values()) == ["RL1", "RL1"]
+
     def test_strand_local_agrees_with_the_cable_save_path(self):
-        """rerender_names must recover the real local index, not render "None".
+        """The command must recover the real local index, not render "None".
 
         The command and the cable-save signal write the same ports; if they
         disagree on ``strand_local`` a port's name flip-flops depending on
@@ -827,7 +923,7 @@ class TestRerenderCommand(TestCase):
         fct, fc = self._build("LOC")
         FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="{{ cable }}:F{{ strand_local }}")
 
-        call_command("rerender_names", "--targets", "port-names", stdout=StringIO(), stderr=StringIO())
+        call_command("rerender_port_names", "--targets", "names", stdout=StringIO(), stderr=StringIO())
         after_command = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
         assert after_command == ["LOC:F1", "LOC:F2"]
 
@@ -836,12 +932,58 @@ class TestRerenderCommand(TestCase):
         assert after_save == after_command
 
     def test_collision_refused(self):
-        """A template that renders the same name for every port is refused."""
-        fct, fc = self._build("COL")
+        """A template that renders the same name for every front port is refused."""
+        fct, _fc = self._build("COL")
         FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="SAME")
         before = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
         err = StringIO()
-        call_command("rerender_names", stdout=StringIO(), stderr=err)
+
+        call_command("rerender_port_names", stdout=StringIO(), stderr=err)
+
         after = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
         assert after == before
         assert "collision" in err.getvalue().lower()
+
+    def test_front_and_rear_may_share_a_name(self):
+        """FrontPort and RearPort are separate tables with separate unique constraints.
+
+        Each declares its own ``(device, name)`` constraint, so one device can
+        legitimately hold a FrontPort and a RearPort of the same name. Merging
+        the two into one collision group would refuse a write the database
+        accepts.
+        """
+        fct, _fc = self._build("SHARE", strand_count=1)
+        FiberCableType.objects.filter(pk=fct.pk).update(
+            front_port_name_template="{{ cable }}-X",
+            rear_port_name_template="{{ cable }}-X",
+        )
+        err = StringIO()
+
+        call_command("rerender_port_names", stdout=StringIO(), stderr=err)
+
+        assert "collision" not in err.getvalue().lower()
+        assert list(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["SHARE-X"]
+        assert list(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["SHARE-X"]
+
+    # -- the ordering warning --------------------------------------------
+
+    def test_warns_when_a_port_template_reads_strand_name(self):
+        """Splitting the command made strand-before-port ordering the operator's job."""
+        fct, _fc = self._build("ORD")
+        FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="{{ strand_name }}-p")
+        err = StringIO()
+
+        call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=err)
+
+        message = err.getvalue()
+        assert "rerender_strand_names" in message
+        assert str(fct) in message
+
+    def test_no_warning_without_a_strand_name_reference(self):
+        fct, _fc = self._build("NOORD")
+        FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="P{{ strand }}")
+        err = StringIO()
+
+        call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=err)
+
+        assert "rerender_strand_names" not in err.getvalue()
