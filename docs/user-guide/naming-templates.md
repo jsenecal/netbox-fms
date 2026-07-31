@@ -252,6 +252,25 @@ The limit is enforced at two different points, in two different ways:
   cleanly can still **silently truncate** in production. Overflow is never
   rejected at render time, only at validation time.
 
+### Templates set in `PLUGINS_CONFIG`
+
+`FiberCableType.clean()` only sees the cable type's own fields. A template
+set plugin-wide in `PLUGINS_CONFIG` never passes through a form or
+serializer, so it is checked separately:
+
+- **At startup**, the plugin validates every naming template in
+  `PLUGINS_CONFIG` and logs an error naming the offending setting key and the
+  Jinja message. It does **not** raise -- a bad setting must not stop NetBox
+  from booting.
+- **At render time**, a malformed plugin-wide template raises the plugin's
+  own `NamingError`, which every render path already guards. Cable saves and
+  tube assignments then log the failure and leave the affected names
+  unchanged rather than failing the save.
+
+Provisioning a new cable is the one exception: it creates ports that have no
+name yet, so it surfaces the error instead of writing blank names. Fix the
+setting (watch the NetBox log for the startup error) and retry.
+
 ---
 
 ## The label warning: setting a label changes `str(port)` everywhere

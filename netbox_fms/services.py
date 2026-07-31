@@ -1,5 +1,7 @@
 """Diff computation engine for splice plans and link topology services."""
 
+import logging
+
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
@@ -7,6 +9,8 @@ from django.db import models, transaction
 from . import naming
 from .models import ClosureCableEntry, FiberCable, SplicePlanEntry
 from .signals import fms_portmapping_bypass
+
+logger = logging.getLogger("netbox.plugins.netbox_fms")
 
 
 class NeedsMappingConfirmation(Exception):  # noqa: N818
@@ -687,11 +691,27 @@ def _cable_type_uses_tray(buffer_tube_id):
     Resolved in one query so the guard can be decided once per assignment,
     before the port loop, rather than re-fetching a fresh FiberCableType
     (and re-parsing its templates via the cached_property) on every row.
+
+    A template that will not even parse -- only reachable from PLUGINS_CONFIG,
+    since cable-type fields are validated by ``FiberCableType.clean()`` --
+    answers False after logging: "cannot tell" must degrade to "do not touch
+    any name", not to a 500 on every tube assignment save.
     """
     from .models import BufferTube
 
     tube = BufferTube.objects.filter(pk=buffer_tube_id).select_related("fiber_cable__fiber_cable_type").first()
-    return bool(tube and tube.fiber_cable.fiber_cable_type.naming_uses_tray)
+    if tube is None:
+        return False
+    try:
+        return bool(tube.fiber_cable.fiber_cable_type.naming_uses_tray)
+    except naming.NamingError:
+        logger.exception(
+            "Naming template failed to parse for buffer tube %s (cable type %s); "
+            "treating it as tray-unaware, so port names are left unchanged",
+            buffer_tube_id,
+            tube.fiber_cable.fiber_cable_type,
+        )
+        return False
 
 
 def sync_tube_assignment_ports(assignment):

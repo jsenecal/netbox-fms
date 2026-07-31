@@ -32,8 +32,31 @@ class NetBoxFMSConfig(PluginConfig):
 
         connect_counters(FiberCableType)
 
+        self._check_naming_templates()
         self._register_map_layers()
         logger.info("%s plugin loaded", self.name)
+
+    @staticmethod
+    def _check_naming_templates():
+        """Report malformed naming templates set in PLUGINS_CONFIG, at startup.
+
+        Cable-type template fields go through ``FiberCableType.clean()``;
+        plugin-wide ones never see a form or serializer, so without this they
+        would first surface as a render failure on some unrelated cable save.
+
+        Logs and returns -- it must never raise. A bad plugin setting has to be
+        reported, not turned into a failure to boot NetBox; the per-render
+        ``NamingError`` guards leave the affected names unchanged meanwhile.
+        """
+        from . import naming
+
+        for setting_key, message in naming.validate_plugin_config():
+            logger.error(
+                "Invalid netbox_fms naming template in PLUGINS_CONFIG setting '%s': %s "
+                "Generated names for this target will be left unchanged until it is fixed.",
+                setting_key,
+                message,
+            )
 
     @staticmethod
     def _register_map_layers():

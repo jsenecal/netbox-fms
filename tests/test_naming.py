@@ -94,6 +94,112 @@ class TestResolution(SimpleTestCase):
         assert source == "TYPE-{{ strand }}"
 
 
+MALFORMED = "{{ cable "
+
+
+class TestPluginConfigSyntaxGuard(SimpleTestCase):
+    """A malformed PLUGINS_CONFIG template must surface as a NamingError.
+
+    ``naming.validate`` only runs from ``FiberCableType.clean()``, which covers
+    the model's own fields. A template set plugin-wide never passes through a
+    form or serializer, so it reaches ``compile_for``/``uses_tokens``
+    unvalidated -- and a raw ``jinja2.TemplateSyntaxError`` is not a
+    ``NamingError``, so every caller's ``except NamingError`` guard would miss
+    it and the cable save, tube assignment or provisioning would raise.
+    """
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": MALFORMED}})
+    def test_compile_for_raises_naming_error(self):
+        with pytest.raises(naming.NamingError, match="syntax"):
+            naming.compile_for(blank_type())
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": MALFORMED}})
+    def test_uses_tokens_raises_naming_error(self):
+        with pytest.raises(naming.NamingError, match="syntax"):
+            naming.uses_tray(blank_type())
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_name_template": MALFORMED}})
+    def test_validate_plugin_config_names_the_setting(self):
+        problems = naming.validate_plugin_config()
+        assert [key for key, _msg in problems] == ["rear_port_name_template"]
+        assert "syntax" in problems[0][1]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": "{{ cable }}:F{{ strand }}"}})
+    def test_validate_plugin_config_clean_config(self):
+        assert naming.validate_plugin_config() == []
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_name_template": MALFORMED}})
+    def test_startup_check_logs_without_raising(self):
+        """A bad setting must be reported at startup, never block NetBox booting."""
+        from netbox_fms import NetBoxFMSConfig
+
+        with self.assertLogs("netbox_fms", level="ERROR") as captured:
+            NetBoxFMSConfig._check_naming_templates()
+        joined = "\n".join(captured.output)
+        assert "rear_port_name_template" in joined
+        assert "syntax" in joined
+
+
+class TestMalformedPluginConfigDegrades(TestCase):
+    """A malformed plugin-wide template must not break an unrelated cable save."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="MC Mfr", slug="mc-mfr")
+        site = Site.objects.create(name="MC Site", slug="mc-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="MC Closure", slug="mc-closure")
+        role = DeviceRole.objects.create(name="MC Role", slug="mc-role")
+        cls.dev_a = Device.objects.create(name="MC-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="MC-B", site=site, device_type=dt, role=role)
+
+    def test_cable_save_survives_and_leaves_names_alone(self):
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="MC-1", construction="loose_tube", strand_count=2
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "MCS"},
+        )
+        before = dict(FrontPort.objects.filter(device=self.dev_a).values_list("pk", "name"))
+
+        with override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": MALFORMED}}):
+            fc.cable.description = "touched"
+            fc.cable.save()  # must not raise
+
+        after = dict(FrontPort.objects.filter(device=self.dev_a).values_list("pk", "name"))
+        assert after == before
+
+    def test_tube_assignment_survives(self):
+        from dcim.models import Module, ModuleBay, ModuleType
+
+        from netbox_fms.models import TubeAssignment
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="MC-2", construction="loose_tube", strand_count=2
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "MCT"},
+        )
+        mt = ModuleType.objects.create(manufacturer=self.mfr, model="MC Tray")
+        bay = ModuleBay.objects.create(device=self.dev_a, name="Tray 1")
+        tray = Module.objects.create(device=self.dev_a, module_bay=bay, module_type=mt)
+        tube = fc.buffer_tubes.get(position=1)
+
+        with override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": MALFORMED}}):
+            TubeAssignment.objects.create(closure=self.dev_a, tray=tray, buffer_tube=tube, position=1)
+
+        assert FrontPort.objects.filter(device=self.dev_a, module=tray).count() == 2
+
+
 class TestValidation(SimpleTestCase):
     def test_syntax_error_rejected(self):
         with pytest.raises(naming.NamingError, match="syntax"):

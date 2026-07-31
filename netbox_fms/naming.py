@@ -37,6 +37,7 @@ __all__ = (
     "uses_tokens",
     "uses_tray",
     "validate",
+    "validate_plugin_config",
 )
 
 
@@ -150,6 +151,24 @@ def resolve_source(target, fiber_cable_type):
 TRAY_TOKENS = frozenset({"tray", "tray_position"})
 
 
+def _syntax_guard(target, func, source):
+    """Run a Jinja parse/compile, re-raising a syntax error as :class:`NamingError`.
+
+    ``FiberCableType.clean()`` validates the model's own template fields, but a
+    template supplied through ``PLUGINS_CONFIG`` never passes through a form or
+    serializer, so a malformed one reaches the renderer intact. A raw
+    ``TemplateSyntaxError`` is not a ``NamingError``, so the cable post_save
+    guard would miss it and every FMS cable save, tube assignment and
+    provisioning would raise. Normalising it here is what makes that guard --
+    and the equivalent guards in the services and management-command paths --
+    degrade to "leave the names alone" instead.
+    """
+    try:
+        return func(source)
+    except TemplateSyntaxError as exc:
+        raise NamingError(f"{target}: template syntax error: {exc.message}") from exc
+
+
 def uses_tokens(fiber_cable_type, targets, tokens):
     """True if any of ``targets``' resolved templates references any of ``tokens``.
 
@@ -162,7 +181,8 @@ def uses_tokens(fiber_cable_type, targets, tokens):
         source = resolve_source(target, fiber_cable_type)
         if not source.strip():
             continue
-        if wanted & meta.find_undeclared_variables(_ENV.parse(source)):
+        parsed = _syntax_guard(target, _ENV.parse, source)
+        if wanted & meta.find_undeclared_variables(parsed):
             return True
     return False
 
@@ -178,12 +198,38 @@ def uses_tray(fiber_cable_type):
 
 
 def compile_for(fiber_cable_type):
-    """Compile every target's template once. A blank source compiles to None."""
+    """Compile every target's template once. A blank source compiles to None.
+
+    Raises :class:`NamingError` -- never a raw ``TemplateSyntaxError`` -- so a
+    malformed ``PLUGINS_CONFIG`` template is caught by the callers' existing
+    ``except NamingError`` guards. See :func:`_syntax_guard`.
+    """
     compiled = {}
     for target in TARGETS:
         source = resolve_source(target, fiber_cable_type)
-        compiled[target] = _ENV.from_string(source) if source.strip() else None
+        compiled[target] = _syntax_guard(target, _ENV.from_string, source) if source.strip() else None
     return compiled
+
+
+def validate_plugin_config():
+    """Validate every naming template set in ``PLUGINS_CONFIG``.
+
+    Returns a list of ``(setting_key, message)`` pairs, empty when the config
+    is clean. Never raises: a bad plugin setting must be reported, not turned
+    into a failure to boot NetBox. Cable-type template fields are validated by
+    ``FiberCableType.clean()``; this covers the plugin-wide layer, which no
+    form or serializer ever sees.
+    """
+    problems = []
+    for target, spec in TARGETS.items():
+        source = get_plugin_config("netbox_fms", spec.field, None)
+        if source is None:
+            continue
+        try:
+            validate(target, source)
+        except NamingError as exc:
+            problems.append((spec.field, str(exc)))
+    return problems
 
 
 def render(target, compiled, context):
