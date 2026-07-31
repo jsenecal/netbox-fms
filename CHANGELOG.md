@@ -57,7 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--dry-run` and `--limit`; `rerender_port_names` also takes
   `--targets names,labels`, and warns when a port template references
   `{{ strand_name }}`, since `rerender_strand_names` should run first in
-  that case (#69).
+  that case. `rerender_port_names` refuses a device whose proposed names
+  would duplicate each other or collide with a port on that device it is not
+  renaming -- typically one belonging to another fiber cable -- rather than
+  failing on the database constraint partway through the run. Templates set
+  plugin-wide in `PLUGINS_CONFIG` are validated at startup and reported in
+  the log, naming the setting key; a malformed one leaves generated names
+  unchanged instead of breaking cable saves and tube assignments (#69).
 
 ### Changed
 
