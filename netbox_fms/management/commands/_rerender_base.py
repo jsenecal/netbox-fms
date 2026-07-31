@@ -87,11 +87,22 @@ class RerenderCommand(BaseCommand):
         return changed
 
     def check_collisions(self, proposed):
-        """Report and refuse any device whose proposed names duplicate. True if clean.
+        """Report and refuse any device whose proposed names collide. True if clean.
 
         ``proposed`` maps a port instance to its ``(name, label)`` render; a
         ``None`` name means the stored one is kept, so that is what gets
         compared.
+
+        Two kinds of collision are checked:
+
+        1. Within this cable's own proposal -- two of these ports asking for
+           one name.
+        2. Against names already stored on the same device, excluding the
+           ports this run is renaming. ``proposed`` only ever holds one
+           FiberCable's ports, so without this a rename onto a name owned by a
+           DIFFERENT cable's port passes the guard and dies on the database
+           unique constraint partway through the walk, with earlier cables
+           already committed.
 
         Names are grouped per (device, model), never merged across models:
         FrontPort and RearPort are separate tables, each carrying its own
@@ -104,13 +115,28 @@ class RerenderCommand(BaseCommand):
         by_key = {}
         for port, (name, _label) in proposed.items():
             key = (port.device_id, type(port).__name__)
-            by_key.setdefault(key, []).append(port.name if name is None else name)
+            group = by_key.setdefault(key, {"model": type(port), "pks": [], "names": []})
+            group["pks"].append(port.pk)
+            group["names"].append(port.name if name is None else name)
 
         clean = True
-        for (device_id, model_name), names in sorted(by_key.items()):
-            dupes = sorted(n for n, count in Counter(names).items() if count > 1)
+        for (device_id, model_name), group in sorted(by_key.items()):
+            dupes = sorted(n for n, count in Counter(group["names"]).items() if count > 1)
             if dupes:
                 self.stderr.write(f"Refusing device {device_id}: {model_name} name collision on {', '.join(dupes)}")
+                clean = False
+
+            taken = sorted(
+                group["model"]
+                .objects.filter(device_id=device_id, name__in=set(group["names"]))
+                .exclude(pk__in=group["pks"])
+                .values_list("name", flat=True)
+            )
+            if taken:
+                self.stderr.write(
+                    f"Refusing device {device_id}: {model_name} name collision on {', '.join(taken)} "
+                    f"-- already used by a port outside this run"
+                )
                 clean = False
         return clean
 

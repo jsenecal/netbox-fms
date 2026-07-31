@@ -745,6 +745,19 @@ def sync_tube_assignment_ports(assignment):
                         port, strand, strand.buffer_tube, tray_name, assignment.position
                     )
                 except naming.NamingError:
+                    # Matches the cable-save signal's guard: keep the tray move,
+                    # drop the rename, but never silently. Without the log a port
+                    # keeps a name describing a tray it is no longer on, or never
+                    # picks one up, with nothing in the record to say why.
+                    logger.exception(
+                        "Naming template failed for tube assignment %s (closure %s, tray %s, tube %s) "
+                        "on front port %s; its name and label are left unchanged",
+                        assignment.pk,
+                        assignment.closure_id,
+                        assignment.tray_id,
+                        assignment.buffer_tube_id,
+                        port.pk,
+                    )
                     new_name = new_label = None
 
         # None means "no template configured" for that target, so it never
@@ -790,6 +803,18 @@ def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
                 try:
                     new_name, new_label = render_port_strings(port, strand, strand.buffer_tube, None, None)
                 except naming.NamingError:
+                    # The port still leaves the tray, but keeps its tray-flavoured
+                    # name. Log it: a stale "Tray 1:..." name on an unassigned port
+                    # is exactly the state an operator needs a trace for.
+                    logger.exception(
+                        "Naming template failed while clearing tube assignment "
+                        "(closure %s, tray %s, tube %s) on front port %s; "
+                        "its name and label keep their tray-assigned values",
+                        closure_id,
+                        tray_id,
+                        buffer_tube_id,
+                        port.pk,
+                    )
                     new_name = new_label = None
 
         port.snapshot()

@@ -146,6 +146,14 @@ def _rename_ports_for_cable(cable):
     port names, so a front port's name cannot flip-flop depending on which
     path last touched it. A FrontPort with no strand falls back to the
     device-level value.
+
+    ``tube`` follows the same rule. The rear-port context uses the tube
+    inferred from the RearPort's own port mappings, which is all a RearPort
+    has. A FrontPort's context uses its strand's ``buffer_tube`` instead --
+    what ``services.render_port_strings`` and ``rerender_port_names`` both
+    use -- so that a port whose PortMappings do not line up with tube
+    membership (an adopted port, say) cannot have its ``{{ tube }}`` flip
+    between the command and the next cable save.
     """
     from dcim.models import FrontPort, PortMapping, RearPort
 
@@ -195,7 +203,7 @@ def _rename_ports_for_cable(cable):
     fct = fc.fiber_cable_type
     tubes_by_position = {t.position: t for t in fc.buffer_tubes.all()}
     strand_by_fp = {}
-    for strand in fc.fiber_strands.select_related("ribbon").all():
+    for strand in fc.fiber_strands.select_related("ribbon", "buffer_tube").all():
         for fp_id in (strand.front_port_a_id, strand.front_port_b_id):
             if fp_id:
                 strand_by_fp[fp_id] = strand
@@ -237,20 +245,22 @@ def _rename_ports_for_cable(cable):
                     continue
                 fp = pm.front_port
                 strand = strand_by_fp.get(fp.pk)
-                # A front port sits on one end of one strand, so its end is
-                # the strand's, never the device-level "AB".
+                # A front port sits on one end of one strand, so its end and
+                # its tube are the strand's own, never the device-level "AB"
+                # nor a tube inferred from the RearPort's port mappings.
                 fp_end = end if strand is None else ("A" if strand.front_port_a_id == fp.pk else "B")
+                fp_tube = tube if strand is None else strand.buffer_tube
                 fp_ctx = naming.port_context(
                     cable=cable,
                     cable_type=fct,
                     device=device,
                     end=fp_end,
                     color_scheme=fct.color_scheme,
-                    tube=tube,
+                    tube=fp_tube,
                     strand=strand,
                     strand_local=pm.rear_port_position,
                     tray=_tray_name_for(fp),
-                    tray_position=_tray_position_for(fp, tube),
+                    tray_position=_tray_position_for(fp, fp_tube),
                 )
                 changed = naming.apply_rendered(
                     fp,

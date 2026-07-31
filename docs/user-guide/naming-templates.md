@@ -389,6 +389,13 @@ would produce a duplicate `name` on that device, printing the collision
 instead of saving it -- resolve the underlying template or data conflict
 and re-run.
 
+Two kinds of collision are reported: two of the cable's own ports asking for
+one name, and a proposed name already held by a port on the same device that
+this run is *not* renaming -- typically a port belonging to a different fiber
+cable. The second check matters because the command walks one cable at a
+time: without it, a cross-cable clash would only surface as a database error
+partway through the run, after earlier cables had already been written.
+
 Names are compared per device **and per model**. `FrontPort` and `RearPort`
 are separate tables, each carrying its own `(device, name)` uniqueness
 constraint, so a FrontPort and a RearPort on one device may legitimately

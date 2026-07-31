@@ -777,6 +777,72 @@ class TestTrayPositionPerTube(TestCase):
         assert after_save == expected, f"cable-save path disagrees with the sync path: {after_save}"
 
 
+class TestFrontPortTubeFromStrand(TestCase):
+    """A FrontPort's ``{{ tube }}`` must come from its strand, not from its RearPort.
+
+    ``_rename_ports_for_cable`` infers one tube per RearPort by taking the
+    first strand mapped to it. That is all a RearPort has, and it is correct
+    for the rear-port context -- but feeding it to the FRONT-port context
+    disagrees with ``render_port_strings`` and ``rerender_port_names``, which
+    both use ``strand.buffer_tube``. On adopted ports whose PortMappings do
+    not line up with tube membership, a front port's name then flip-flops
+    between the command and the next cable save.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="FT Mfr", slug="ft-mfr")
+        site = Site.objects.create(name="FT Site", slug="ft-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="FT Closure", slug="ft-closure")
+        role = DeviceRole.objects.create(name="FT Role", slug="ft-role")
+        cls.dev = Device.objects.create(name="FT-Dev", site=site, device_type=dt, role=role)
+
+    def _names_by_strand(self, fc):
+        return {strand.position: strand.front_port_a.name for strand in fc.fiber_strands.order_by("position").all()}
+
+    def test_one_rear_port_spanning_two_tubes(self):
+        from dcim.models import PortMapping
+
+        from netbox_fms.signals import fms_portmapping_bypass
+        from tests.conftest import make_front_port
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="FT-1", construction="loose_tube", strand_count=4
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T2", position=2, fiber_count=2)
+        cable = Cable.objects.create(type="smf-os2", label="FTC")
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+
+        # One adopted RearPort covering all four strands, so the per-RearPort
+        # tube guess resolves to tube 1 for every front port mapped to it.
+        rp = RearPort.objects.create(device=self.dev, name="FTC-ADOPTED", type="splice", positions=4)
+        with fms_portmapping_bypass():
+            for strand in fc.fiber_strands.order_by("position"):
+                fp = make_front_port(device=self.dev, name=f"ADOPT-{strand.position}")
+                PortMapping.objects.create(
+                    device=self.dev,
+                    front_port=fp,
+                    rear_port=rp,
+                    front_port_position=1,
+                    rear_port_position=strand.position,
+                )
+                strand.front_port_a = fp
+                strand.save(update_fields=["front_port_a"])
+
+        cable.save()
+
+        expected = {1: "FTC:T1:F1", 2: "FTC:T1:F2", 3: "FTC:T2:F3", 4: "FTC:T2:F4"}
+        after_save = self._names_by_strand(fc)
+        assert after_save == expected, f"cable-save path: {after_save}"
+
+        call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=StringIO())
+        after_command = self._names_by_strand(fc)
+        assert after_command == expected, f"command path disagrees with the cable-save path: {after_command}"
+
+
 class TestSnapshotOrdering(TestCase):
     """Regression tests for change-logging ordering (review finding 1).
 
@@ -918,6 +984,68 @@ class TestSnapshotOrdering(TestCase):
         assert prechange["module"] is None, "prechange snapshot must record the OLD module (None), not the new tray"
         assert captures[-1]["module_id"] == self.tray1.pk
         assert captures[-1]["name"] == original_name, "no tray token means the name must never be touched"
+
+
+class TestTubeAssignmentRenderFailureLogging(TestCase):
+    """A render failure on the tube-assignment paths must be logged, not swallowed.
+
+    Both paths keep the tray move and drop the rename, which is right -- but
+    with no log a port silently keeps a stale "Tray 1:..." name after
+    unassignment and nothing in the record explains it. The cable-save signal
+    already logs via ``logger.exception``; these two now match it.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Module, ModuleBay, ModuleType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="TL Mfr", slug="tl-mfr")
+        site = Site.objects.create(name="TL Site", slug="tl-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="TL Closure", slug="tl-closure")
+        role = DeviceRole.objects.create(name="TL Role", slug="tl-role")
+        cls.closure = Device.objects.create(name="TL-Closure", site=site, device_type=dt, role=role)
+        mt = ModuleType.objects.create(manufacturer=cls.mfr, model="TL Tray")
+        bay = ModuleBay.objects.create(device=cls.closure, name="Tray 1")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
+
+    def test_sync_and_clear_log_render_failures(self):
+        from netbox_fms.models import BufferTube, TubeAssignment
+        from tests.conftest import make_front_port
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="TL-1",
+            construction="loose_tube",
+            strand_count=1,
+            front_port_name_template="{% if tray %}{{ tray }}:{% endif %}F{{ strand }}",
+        )
+        fc = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+        tube = BufferTube.objects.create(fiber_cable=fc, name="TL-T1", position=1)
+        port = make_front_port(device=self.closure, name="TL-N1")
+        strand = fc.fiber_strands.get(position=1)
+        strand.buffer_tube = tube
+        strand.front_port_a = port
+        strand.save()
+
+        assignment = TubeAssignment.objects.create(closure=self.closure, tray=self.tray, buffer_tube=tube)
+        port.refresh_from_db()
+        assert port.name == "Tray 1:F1"
+
+        # Bypass clean() to plant a template that parses but fails at render.
+        FiberCableType.objects.filter(pk=fct.pk).update(
+            front_port_name_template="{% if tray %}{{ tray }}{% endif %}{{ strand.no_such }}"
+        )
+
+        with self.assertLogs("netbox.plugins.netbox_fms", level="ERROR") as clearing:
+            assignment.delete()
+        port.refresh_from_db()
+        assert port.module_id is None, "the port must still leave the tray"
+        assert port.name == "Tray 1:F1", "the stale tray name is kept -- which is what the log exists to explain"
+        assert str(port.pk) in "\n".join(clearing.output)
+
+        with self.assertLogs("netbox.plugins.netbox_fms", level="ERROR") as syncing:
+            TubeAssignment.objects.create(closure=self.closure, tray=self.tray, buffer_tube=tube)
+        assert str(port.pk) in "\n".join(syncing.output)
 
 
 class TestLabelPreservation(TestCase):
@@ -1231,6 +1359,36 @@ class TestRerenderCommands(TestCase):
         assert "collision" not in err.getvalue().lower()
         assert list(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["SHARE-X"]
         assert list(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["SHARE-X"]
+
+    def test_collision_with_another_cables_port_refused(self):
+        """A rename onto a name owned by a DIFFERENT cable must be refused, not crash.
+
+        ``check_collisions`` only ever sees one FiberCable's proposal, so
+        without a database check the second cable's ``bulk_update`` hits the
+        ``(device, name)`` unique constraint partway through the walk, with
+        earlier cables already committed.
+        """
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="RR-XCOL", construction="loose_tube", strand_count=2
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        for label in ("XC1", "XC2"):
+            create_closure_cable(
+                device_a=self.dev_a,
+                device_b=self.dev_b,
+                fiber_cable_type=fct,
+                cable_attrs={"type": "smf-os2", "label": label},
+            )
+        # Cable-independent template: both cables want the same two names.
+        FiberCableType.objects.filter(pk=fct.pk).update(front_port_name_template="SHARED:F{{ strand }}")
+        err = StringIO()
+
+        call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=err)
+
+        assert "outside this run" in err.getvalue()
+        names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert len(set(names)) == 4, f"the refused cable must have kept its own names: {names}"
+        assert {"SHARED:F1", "SHARED:F2"} <= set(names)
 
     def test_rear_port_tray_render_agrees_with_the_cable_save_path(self):
         """The command and the cable-save signal must render a tray-placed RearPort alike.
