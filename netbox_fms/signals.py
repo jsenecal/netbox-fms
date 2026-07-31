@@ -4,6 +4,7 @@ import contextvars
 import logging
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 
 from . import naming
@@ -131,9 +132,12 @@ def _rename_ports_for_cable(cable):
     to discover ports, avoiding dependency on CableTerminations which may be
     rebuilt during Cable.save().
 
-    Runs on every ``Cable`` post_save, so a template render failure must
-    never propagate: it is caught, logged, and the ports are left unchanged
-    rather than breaking an unrelated cable save.
+    Runs on every ``Cable`` post_save, so nothing here may propagate: a
+    template render failure, a proposal that collides on a device's
+    ``(device, name)`` unique constraint, and a write that fails anyway are
+    each caught, logged, and leave the ports unchanged rather than breaking
+    an unrelated cable save. The collision pre-check shares its rule with
+    ``rerender_port_names`` via ``naming.find_name_collisions``.
 
     ``end`` is normally "A" or "B", but ``_determine_cable_end`` can return
     "AB" for a self-looping cable (both sides terminated on the same
@@ -213,6 +217,10 @@ def _rename_ports_for_cable(cable):
     rp_fields = set()
     fp_fields = set()
     end_by_device_id = {}
+    # Every port this pass renders, changed or not: an unchanged sibling still
+    # occupies its name on the device, so it has to take part in the collision
+    # check even though it never reaches bulk_update.
+    proposed = {}
 
     try:
         for rp_id, rp in rps.items():
@@ -236,6 +244,9 @@ def _rename_ports_for_cable(cable):
                 name=fct.resolve_rear_port_name(**rp_ctx),
                 label=fct.resolve_rear_port_label(**rp_ctx),
             )
+            # apply_rendered has already assigned any rendered name, so rp.name
+            # is the proposal; on an unchanged port it is the stored name.
+            proposed[rp] = rp.name
             if changed:
                 rp_fields |= changed
                 rps_to_update.append(rp)
@@ -267,6 +278,7 @@ def _rename_ports_for_cable(cable):
                     name=fct.resolve_front_port_name(**fp_ctx),
                     label=fct.resolve_front_port_label(**fp_ctx),
                 )
+                proposed[fp] = fp.name
                 if changed:
                     fp_fields |= changed
                     fps_to_update.append(fp)
@@ -274,14 +286,42 @@ def _rename_ports_for_cable(cable):
         logger.exception("Naming template failed for cable %s; port names left unchanged", cable)
         return
 
+    # Nothing to write is the steady state on most cable saves; returning here
+    # keeps the collision queries off that path entirely.
+    if not rps_to_update and not fps_to_update:
+        return
+
+    # A template valid in isolation can still render one name for two ports of
+    # a device -- FiberCableType.clean() renders each template against dummy
+    # contexts and so cannot see it. Refusing here is what makes the failure
+    # diagnosable; the atomic block below is what makes it safe.
+    collisions = naming.find_name_collisions(proposed)
+    if collisions:
+        logger.error(
+            "Naming template collision for cable %s; port names left unchanged: %s",
+            cable,
+            "; ".join(str(c) for c in collisions),
+        )
+        return
+
     # Only update the columns some render actually changed. With no label
     # template configured (the default) that is ["name"] alone, exactly as it
     # was before naming templates existed -- pre-existing port labels, such as
     # those on ports adopted from a DeviceType template, are never touched.
-    if rps_to_update:
-        RearPort.objects.bulk_update(rps_to_update, sorted(rp_fields))
-    if fps_to_update:
-        FrontPort.objects.bulk_update(fps_to_update, sorted(fp_fields))
+    #
+    # Wrapped so the two writes are all-or-nothing and so any collision route
+    # the pre-check did not anticipate degrades the way the NamingError guard
+    # above does. A caller outside a transaction would otherwise be left with
+    # renamed rear ports and original front ports, and a cable save must never
+    # fail because of a naming template.
+    try:
+        with transaction.atomic():
+            if rps_to_update:
+                RearPort.objects.bulk_update(rps_to_update, sorted(rp_fields))
+            if fps_to_update:
+                FrontPort.objects.bulk_update(fps_to_update, sorted(fp_fields))
+    except IntegrityError:
+        logger.exception("Naming template write failed for cable %s; port names left unchanged", cable)
 
 
 def _cable_post_save(sender, instance, **kwargs):

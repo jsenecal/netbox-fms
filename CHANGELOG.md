@@ -60,7 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that case. `rerender_port_names` refuses a device whose proposed names
   would duplicate each other or collide with a port on that device it is not
   renaming -- typically one belonging to another fiber cable -- rather than
-  failing on the database constraint partway through the run. Templates set
+  failing on the database constraint partway through the run. The automatic
+  re-render on every `dcim.Cable` save applies the same check and degrades
+  the same way a broken template does: the collision is logged and every
+  port name is left unchanged, so a template that is valid in isolation but
+  renders one name for two ports can never make a cable save fail. Templates set
   plugin-wide in `PLUGINS_CONFIG` are validated at startup and reported in
   the log, naming the setting key; a malformed one leaves generated names
   unchanged instead of breaking cable saves and tube assignments (#69).

@@ -616,6 +616,106 @@ class TestRenameSignal(TestCase):
         assert names_b == ["END-B1", "END-B2"]
 
 
+class TestRenameSignalCollisionGuard(TestCase):
+    """A template rendering one name for two ports must not break a cable save.
+
+    ``FiberCableType.clean()`` validates each template against dummy contexts
+    in ISOLATION, so it structurally cannot see that a template renders the
+    SAME name for two ports of one device: a rear-port template of
+    ``{{ cable }}``, with no tube discriminator, validates and saves cleanly.
+    On a multi-tube cable every rear port then wants that one name, and the
+    ``(device, name)`` unique constraint turns every later save of that cable
+    -- a description tweak, a status change -- into a 500. The always-on
+    cable post_save rename must refuse the write itself, exactly as the
+    opt-in ``rerender_port_names`` already does.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="CG Mfr", slug="cg-mfr")
+        site = Site.objects.create(name="CG Site", slug="cg-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="CG Closure", slug="cg-closure")
+        role = DeviceRole.objects.create(name="CG Role", slug="cg-role")
+        cls.dev_a = Device.objects.create(name="CG-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="CG-B", site=site, device_type=dt, role=role)
+
+    def _two_tube_cable(self, label):
+        """A 2-tube cable, so each device carries two RearPorts that can clash."""
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model=f"CG-{label}", construction="loose_tube", strand_count=4
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T2", position=2, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": label},
+        )
+        return fct, fc
+
+    def _names(self):
+        devices = [self.dev_a, self.dev_b]
+        return (
+            dict(RearPort.objects.filter(device__in=devices).values_list("pk", "name")),
+            dict(FrontPort.objects.filter(device__in=devices).values_list("pk", "name")),
+        )
+
+    def test_colliding_rear_port_names_are_refused_not_raised(self):
+        fct, fc = self._two_tube_cable("CGA")
+        FiberCableType.objects.filter(pk=fct.pk).update(rear_port_name_template="{{ cable }}")
+        rp_before, fp_before = self._names()
+
+        with self.assertLogs("netbox.plugins.netbox_fms", level="ERROR") as logged:
+            fc.cable.description = "touched"
+            fc.cable.save()  # must not raise
+
+        rp_after, fp_after = self._names()
+        assert rp_after == rp_before, "rear port names must be untouched when the collision guard fires"
+        assert fp_after == fp_before, "front port names must be untouched when the collision guard fires"
+        message = "\n".join(logged.output)
+        assert "collision" in message.lower()
+        assert "RearPort" in message
+        assert "CGA" in message, f"the log must name the cable and the clashing name: {message}"
+        assert str(self.dev_a.pk) in message, f"the log must name the device: {message}"
+
+    def test_front_and_rear_may_share_a_name(self):
+        """Separate tables, separate ``(device, name)`` constraints -- not a collision."""
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="CG-SHR", construction="loose_tube", strand_count=1
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=1)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "CGS"},
+        )
+        FiberCableType.objects.filter(pk=fct.pk).update(
+            front_port_name_template="{{ cable }}-X",
+            rear_port_name_template="{{ cable }}-X",
+        )
+
+        fc.cable.description = "touched"
+        fc.cable.save()
+
+        assert list(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["CGS-X"]
+        assert list(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True)) == ["CGS-X"]
+
+    def test_non_colliding_render_still_writes(self):
+        """The guard must refuse collisions, not the feature."""
+        fct, fc = self._two_tube_cable("CGB")
+        FiberCableType.objects.filter(pk=fct.pk).update(rear_port_name_template="{{ cable }}:R{{ tube }}")
+
+        fc.cable.description = "touched"
+        fc.cable.save()
+
+        names = sorted(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert names == ["CGB:R1", "CGB:R2"]
+
+
 class TestTrayToken(TestCase):
     """{{ tray }} is blank at provisioning and fills in on tube assignment."""
 
@@ -1385,7 +1485,7 @@ class TestRerenderCommands(TestCase):
 
         call_command("rerender_port_names", "--cable-type", fct.model, stdout=StringIO(), stderr=err)
 
-        assert "outside this run" in err.getvalue()
+        assert "not being renamed" in err.getvalue()
         names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
         assert len(set(names)) == 4, f"the refused cable must have kept its own names: {names}"
         assert {"SHARED:F1", "SHARED:F2"} <= set(names)

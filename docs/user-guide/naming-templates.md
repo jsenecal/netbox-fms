@@ -401,6 +401,17 @@ are separate tables, each carrying its own `(device, name)` uniqueness
 constraint, so a FrontPort and a RearPort on one device may legitimately
 share a name and that is not reported as a collision.
 
+The automatic re-render on every `dcim.Cable` save applies the **same
+check**, and degrades the same way a broken template does: it logs the
+collision to `netbox.plugins.netbox_fms` and leaves every port name
+unchanged. This matters because a colliding template is not a template the
+form can reject -- `rear_port_name_template` set to `{{ cable }}`, with no
+tube discriminator, validates and saves cleanly, and only clashes once a
+multi-tube cable renders it. Without the check, the next edit of any cable
+of that type -- a description tweak, a status change -- would fail on the
+database constraint. A cable save never fails because of a naming template;
+look in the log if generated names stop tracking a template you changed.
+
 ---
 
 ## The `tray` token is opt-in

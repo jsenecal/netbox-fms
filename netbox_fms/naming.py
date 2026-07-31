@@ -1,12 +1,20 @@
 """Jinja2 rendering of generated names and labels.
 
-Pure and DB-free by design: nothing here imports ``netbox_fms.models``, and
-model instances are read by attribute only. That keeps the module unit-testable
+Pure by design: nothing here imports ``netbox_fms.models``, and model
+instances are read by attribute only. That keeps the module unit-testable
 without database fixtures and avoids a circular import, since
 ``FiberCableType.clean()`` calls :func:`validate`.
+
+The one exception is :func:`find_name_collisions`, which must ask the
+database what names a device already holds. It still imports nothing: the
+queryset comes off the model class of the ports the caller hands in. It lives
+here because both writers of port names -- the always-on ``dcim.Cable``
+post_save rename and the opt-in ``rerender_port_names`` command -- have to
+apply exactly the same rule, and a rule implemented twice is a rule that
+drifts.
 """
 
-from collections import namedtuple
+from collections import Counter, namedtuple
 
 from jinja2 import StrictUndefined, TemplateError, TemplateSyntaxError, meta
 from jinja2.sandbox import SandboxedEnvironment
@@ -25,11 +33,13 @@ __all__ = (
     "STRAND_NAME",
     "TARGETS",
     "TRAY_TOKENS",
+    "NameCollision",
     "NamingError",
     "apply_rendered",
     "color_name",
     "compile_for",
     "dummy_contexts",
+    "find_name_collisions",
     "port_context",
     "render",
     "resolve_source",
@@ -270,6 +280,77 @@ def apply_rendered(obj, name=None, label=None):
         obj.label = label
         changed.add("label")
     return changed
+
+
+class NameCollision(namedtuple("NameCollision", "device_id model_name names existing")):
+    """One (device, port model) group whose proposed names cannot all be written.
+
+    ``existing`` distinguishes the two routes: ``False`` when two ports of the
+    proposal itself ask for one name, ``True`` when the name is already held
+    by a port on that device the proposal is not renaming.
+    """
+
+    __slots__ = ()
+
+    def __str__(self):
+        suffix = " -- already used by a port that is not being renamed" if self.existing else ""
+        return f"device {self.device_id}: {self.model_name} name collision on {', '.join(self.names)}{suffix}"
+
+
+def find_name_collisions(proposed):
+    """Return the :class:`NameCollision` list for ``proposed``; empty means writable.
+
+    ``proposed`` maps a port instance to the name about to be written to it,
+    or ``None`` to mean "no name template configured, keep the stored one"
+    (see :func:`render`) -- so ``None`` compares as ``port.name``.
+
+    Both writers of port names must call this BEFORE writing. ``FrontPort``
+    and ``RearPort`` each carry a ``(device, name)`` unique constraint, but
+    ``FiberCableType.clean()`` validates each template against dummy contexts
+    in isolation and so cannot detect that one renders the same name for two
+    ports. Without a pre-check the clash only surfaces as a database error
+    from ``bulk_update``: on the command that means dying partway through a
+    walk with earlier cables committed, and on the always-on cable post_save
+    rename it means every subsequent save of that cable raising, with nothing
+    to point at the template responsible.
+
+    Two kinds of collision are checked:
+
+    1. Within the proposal -- two of these ports asking for one name.
+    2. Against names already stored on the same device, excluding the ports
+       being renamed. A proposal only ever covers one FiberCable's ports, so
+       without this a rename onto a name owned by a DIFFERENT cable's port
+       passes the first check and dies on the constraint.
+
+    Names are grouped per (device, model) and never merged across models:
+    FrontPort and RearPort are separate tables, each carrying its own
+    ``(device, name)`` unique constraint from ``ComponentModel.Meta``
+    (``%(app_label)s_%(class)s_unique_device_name``). A FrontPort and a
+    RearPort on one device may therefore legitimately share a name, and
+    merging the two groups would refuse writes the database accepts.
+    """
+    by_key = {}
+    for port, name in proposed.items():
+        key = (port.device_id, type(port).__name__)
+        group = by_key.setdefault(key, {"model": type(port), "pks": [], "names": []})
+        group["pks"].append(port.pk)
+        group["names"].append(port.name if name is None else name)
+
+    collisions = []
+    for (device_id, model_name), group in sorted(by_key.items()):
+        dupes = sorted(n for n, count in Counter(group["names"]).items() if count > 1)
+        if dupes:
+            collisions.append(NameCollision(device_id, model_name, dupes, existing=False))
+
+        taken = sorted(
+            group["model"]
+            .objects.filter(device_id=device_id, name__in=set(group["names"]))
+            .exclude(pk__in=group["pks"])
+            .values_list("name", flat=True)
+        )
+        if taken:
+            collisions.append(NameCollision(device_id, model_name, taken, existing=True))
+    return collisions
 
 
 def dummy_contexts(target):
