@@ -609,6 +609,68 @@ class TestTrayGuardSkipsRename(TestCase):
             assert port.module_id == self.tray.pk, "module_id must still move to the assigned tray"
 
 
+class TestTrayPositionPerTube(TestCase):
+    """``{{ tray_position }}`` must render the port's OWN tube's assignment position.
+
+    ``TubeAssignment``'s unique constraint is (closure, buffer_tube), so several
+    tubes routinely share one tray at different positions. Resolving the token
+    by (closure, tray) alone returns an arbitrary sibling -- the lowest, under
+    ``Meta.ordering = ("closure", "tray", "position")`` -- while
+    ``sync_tube_assignment_ports`` uses the real ``assignment.position``. The
+    two paths then disagree and a port's name flip-flops on every cable save.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Module, ModuleBay, ModuleType, Site
+
+        cls.mfr = Manufacturer.objects.create(name="TP Mfr", slug="tp-mfr")
+        site = Site.objects.create(name="TP Site", slug="tp-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="TP Closure", slug="tp-closure")
+        role = DeviceRole.objects.create(name="TP Role", slug="tp-role")
+        cls.closure = Device.objects.create(name="TP-Closure", site=site, device_type=dt, role=role)
+        cls.far_end = Device.objects.create(name="TP-Far", site=site, device_type=dt, role=role)
+        mt = ModuleType.objects.create(manufacturer=cls.mfr, model="TP Tray")
+        bay = ModuleBay.objects.create(device=cls.closure, name="Tray 1")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
+
+    def test_two_tubes_on_one_tray_keep_their_own_positions(self):
+        from netbox_fms.models import TubeAssignment
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="TP-1",
+            construction="loose_tube",
+            strand_count=4,
+            # {{ tube }} keeps the far-end names (tray_position None there)
+            # unique; the assertions below only read the closure's ports.
+            front_port_name_template="{{ cable }}:T{{ tube }}:P{{ tray_position }}:F{{ strand_local }}",
+        )
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T2", position=2, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.closure,
+            device_b=self.far_end,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "TPC"},
+        )
+
+        tube1, tube2 = fc.buffer_tubes.order_by("position")
+        TubeAssignment.objects.create(closure=self.closure, tray=self.tray, buffer_tube=tube1, position=1)
+        TubeAssignment.objects.create(closure=self.closure, tray=self.tray, buffer_tube=tube2, position=2)
+
+        expected = ["TPC:T1:P1:F1", "TPC:T1:P1:F2", "TPC:T2:P2:F1", "TPC:T2:P2:F2"]
+        synced = sorted(FrontPort.objects.filter(device=self.closure).values_list("name", flat=True))
+        assert synced == expected, f"sync path: {synced}"
+
+        # The cable-save path must land on the same names, not on tube 1's
+        # position for every tube sharing the tray.
+        fc.cable.description = "touched"
+        fc.cable.save()
+        after_save = sorted(FrontPort.objects.filter(device=self.closure).values_list("name", flat=True))
+        assert after_save == expected, f"cable-save path disagrees with the sync path: {after_save}"
+
+
 class TestSnapshotOrdering(TestCase):
     """Regression tests for change-logging ordering (review finding 1).
 

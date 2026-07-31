@@ -93,14 +93,32 @@ def _tray_name_for(front_port):
     return module.module_bay.name if module else None
 
 
-def _tray_position_for(front_port):
-    """TubeAssignment position for a FrontPort's tray, or None."""
+def _tray_position_for(port, tube):
+    """TubeAssignment position for ``port``'s placement of ``tube``, or None.
+
+    Resolved by the port's OWN buffer tube, not by its tray alone.
+    ``TubeAssignment``'s unique constraint is (closure, buffer_tube), so
+    several tubes routinely share one tray; a (closure, tray) filter with
+    ``.first()`` returns an arbitrary sibling -- the lowest position, under
+    ``Meta.ordering`` -- while ``sync_tube_assignment_ports`` renders with the
+    real ``assignment.position``. The two paths would then disagree and a
+    port's name would flip-flop on every cable save.
+
+    ``tray_id`` stays in the filter so the position always describes the tray
+    the port is actually sitting on: a port moved to another tray by hand
+    renders that tray's name with no position, rather than a position
+    belonging to a tray it left.
+    """
     from .models import TubeAssignment
 
-    if not front_port.module_id:
+    if not port.module_id or tube is None:
         return None
     return (
-        TubeAssignment.objects.filter(closure_id=front_port.device_id, tray_id=front_port.module_id)
+        TubeAssignment.objects.filter(
+            closure_id=port.device_id,
+            tray_id=port.module_id,
+            buffer_tube_id=getattr(tube, "pk", tube),
+        )
         .values_list("position", flat=True)
         .first()
     )
@@ -203,7 +221,7 @@ def _rename_ports_for_cable(cable):
                 color_scheme=fct.color_scheme,
                 tube=tube,
                 tray=_tray_name_for(rp),
-                tray_position=_tray_position_for(rp),
+                tray_position=_tray_position_for(rp, tube),
             )
             changed = naming.apply_rendered(
                 rp,
@@ -232,7 +250,7 @@ def _rename_ports_for_cable(cable):
                     strand=strand,
                     strand_local=pm.rear_port_position,
                     tray=_tray_name_for(fp),
-                    tray_position=_tray_position_for(fp),
+                    tray_position=_tray_position_for(fp, tube),
                 )
                 changed = naming.apply_rendered(
                     fp,

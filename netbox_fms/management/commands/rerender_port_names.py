@@ -114,7 +114,7 @@ class Command(RerenderCommand):
                         strand,
                         strand.buffer_tube,
                         _tray_name_for(port),
-                        _tray_position_for(port),
+                        _tray_position_for(port, strand.buffer_tube),
                     )
                 except naming.NamingError as exc:
                     self.stderr.write(f"{fc}: front port template failed: {exc}")
@@ -172,7 +172,7 @@ class Command(RerenderCommand):
                     tube_by_rp_id.get(rp_id),
                     end_by_device_id[device.pk],
                     _tray_name_for(rp),
-                    _tray_position_for(rp),
+                    _tray_position_for(rp, tube_by_rp_id.get(rp_id)),
                 )
             except naming.NamingError as exc:
                 self.stderr.write(f"{fc}: rear port template failed: {exc}")
