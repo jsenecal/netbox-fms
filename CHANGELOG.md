@@ -41,8 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Assignment form's Buffer Tube dropdown now chains on the selected
   Closure so only tubes of cables entering that closure are offered. (#58)
 - Jinja naming templates for generated FrontPort/RearPort names and labels and
-  FiberStrand names, configurable per FiberCableType or plugin-wide. Defaults
-  reproduce previous behavior exactly. With no label template configured --
+  FiberStrand names, configurable per FiberCableType or plugin-wide. The
+  defaults reproduce the names FMS already stored, so an upgrade renames
+  nothing: the front-port default numbers a port by its tube-local index
+  (`strand_local`), matching what the cable `post_save` handler -- the last
+  writer on every port before templates existed -- wrote, and the rear-port
+  default matches `str(cable)[:T<tube>]`. With no label template configured --
   the default -- FMS never writes a port's `label` on any path (cable save,
   tube assignment, re-render commands), so labels set by a DeviceType
   template, an import, or by hand are preserved; a configured template is

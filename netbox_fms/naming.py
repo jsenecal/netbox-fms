@@ -60,7 +60,14 @@ _FRONT_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND + _PORT + ("strand_
 _REAR_TOKENS = frozenset(_CABLE + _TUBE + _PORT)
 _STRAND_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND)
 
-DEFAULT_FRONT_PORT_NAME = "{{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand }}"
+# strand_local, not strand: before naming templates existed the cable post_save
+# signal was the last writer on every port, and it numbered front ports with the
+# TUBE-LOCAL index (PortMapping.rear_port_position), not the cable-wide strand
+# position. So the steady state in every existing database is "X:T2:F1", and a
+# default built on {{ strand }} would silently renumber tube 2 and beyond on the
+# next save of any multi-tube cable, breaking the match with physical splice
+# labels. On a tubeless cable the two indices coincide, so nothing changes there.
+DEFAULT_FRONT_PORT_NAME = "{{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand_local }}"
 DEFAULT_REAR_PORT_NAME = "{{ cable }}{% if tube %}:T{{ tube }}{% endif %}"
 DEFAULT_STRAND_NAME = (
     "{% if ribbon_name %}{{ ribbon_name }}-{% elif tube_name %}{{ tube_name }}-{% endif %}F{{ strand_local }}"

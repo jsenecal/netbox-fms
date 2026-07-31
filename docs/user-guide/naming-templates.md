@@ -116,13 +116,13 @@ as empty text. Any token that can be absent (`tube`, `ribbon`, `tray`,
 wrapped in an `{% if %}` block, exactly as the built-in defaults do:
 
 ```
-{{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand }}
+{{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand_local }}
 ```
 
 not
 
 ```
-{{ cable }}:T{{ tube }}:F{{ strand }}
+{{ cable }}:T{{ tube }}:F{{ strand_local }}
 ```
 
 which renders `NST:TNone:F7` for a tubeless cable.
@@ -134,7 +134,7 @@ which renders `NST:TNone:F7` for a tubeless cable.
 Quoted verbatim from `netbox_fms/naming.py`:
 
 ```
-front_port_name_template  = {{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand }}
+front_port_name_template  = {{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand_local }}
 rear_port_name_template   = {{ cable }}{% if tube %}:T{{ tube }}{% endif %}
 front_port_label_template = (empty string)
 rear_port_label_template  = (empty string)
@@ -145,6 +145,31 @@ The two label defaults are the empty string, so **port labels stay unset
 unless you configure a label template** -- see
 [the label warning](#the-label-warning-setting-a-label-changes-strport-everywhere)
 before you do.
+
+---
+
+## Upgrade behavior
+
+The defaults are chosen to leave the names already stored in your database
+alone, so that physical splice labels keep matching NetBox after the
+upgrade. Concretely:
+
+- **Front port names** were, before naming templates, last written by the
+  cable `post_save` handler, which numbered a front port by its **tube-local**
+  index (`PortMapping.rear_port_position`) -- `NST:T2:F1`, not `NST:T2:F4`.
+  `DEFAULT_FRONT_PORT_NAME` therefore uses `strand_local`, not `strand`. On a
+  tubeless cable the two indices are identical, so tubeless names are
+  unaffected either way.
+- **Rear port names** were `str(cable)`, plus `:T<tube position>` on a tubed
+  cable. That is exactly what `DEFAULT_REAR_PORT_NAME` renders.
+- **Labels** were never written by FMS at all, and the two label defaults are
+  the empty string, so FMS still never writes a port's `label` until you
+  configure a label template.
+
+If you *want* cable-wide numbering (`NST:T2:F4`), set
+`front_port_name_template` to `{{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand }}`
+and run `rerender_port_names` -- but expect every front port on tube 2 and
+beyond to be renamed, and plan for the field labels.
 
 ---
 
@@ -193,12 +218,14 @@ A loose-tube cable with two 3-fiber tubes, "Tube 1" (position 1) and
 Take the first fiber of Tube 2. With the built-in defaults:
 
 - **Strand name** (`strand_name_template`, uses `strand_local`): `Tube 2-F1`
-- **Front port name** (`front_port_name_template`, uses `strand`): `NST:T2:F4`
+- **Front port name** (`front_port_name_template`, uses `strand_local`): `NST:T2:F1`
 
-If `strand_name_template` were rewritten to use `strand` instead of
-`strand_local`, Tube 2's fibers would render `Tube 2-F4`, `Tube 2-F5`,
-`Tube 2-F6` -- every strand in Tube 2 (and every tube after it) renumbered
-away from the F1, F2, F3 an installer expects to see repeated tube by tube.
+Both built-in defaults use `strand_local` on purpose. If either were
+rewritten to use `strand`, Tube 2's fibers would render `F4`, `F5`, `F6` --
+every strand in Tube 2 (and every tube after it) renumbered away from the
+F1, F2, F3 an installer expects to see repeated tube by tube, and away from
+what NetBox already holds for cables provisioned before naming templates
+existed (see [Upgrade behavior](#upgrade-behavior)).
 
 ---
 

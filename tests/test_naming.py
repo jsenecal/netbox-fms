@@ -32,11 +32,13 @@ class TestDefaults(SimpleTestCase):
         self.compiled = naming.compile_for(blank_type())
 
     def test_front_port_name_tubed(self):
-        ctx = {"cable": "NST", "tube": 3, "strand": 7}
+        # strand (global) deliberately differs from strand_local: the default
+        # numbers front ports per tube, matching the pre-template steady state.
+        ctx = {"cable": "NST", "tube": 3, "strand": 19, "strand_local": 7}
         assert naming.render(naming.FRONT_PORT_NAME, self.compiled, ctx) == "NST:T3:F7"
 
     def test_front_port_name_tubeless(self):
-        ctx = {"cable": "NST", "tube": None, "strand": 7}
+        ctx = {"cable": "NST", "tube": None, "strand": 7, "strand_local": 7}
         assert naming.render(naming.FRONT_PORT_NAME, self.compiled, ctx) == "NST:F7"
 
     def test_rear_port_name_tubed(self):
@@ -267,12 +269,33 @@ class TestStrandNameBackCompat(TestCase):
 class TestPortNameBackCompat(TestCase):
     """Default templates must reproduce the pre-template port names exactly.
 
-    Uses ``link_cable_topology`` rather than ``create_closure_cable``: the latter's
-    final ``cable.save()`` triggers ``signals._rename_ports_for_cable``, which still
-    rebuilds names with its own pre-template, tube-local formula (that rebuild is
-    Task 5's job). ``link_cable_topology``'s greenfield path never re-saves the
-    cable after provisioning, so its port names are exactly what
-    ``_provision_device_ports`` -- the unit under test here -- produced.
+    The load-bearing guard is ``test_steady_state_names_match_pre_template``.
+    It pins the names that exist in the database AFTER the cable post_save
+    signal has run, because that -- not the provisioning output -- is what
+    every pre-existing install actually holds.
+
+    Before naming templates the two writers disagreed with each other. Old
+    ``_provision_device_ports`` named a front port with the strand's
+    cable-wide position; old ``_rename_ports_for_cable`` renamed it with the
+    tube-local ``PortMapping.rear_port_position``. The signal always ran last
+    (``create_closure_cable`` ends with ``cable.save()``, and every later
+    cable save fires it again), so the tube-local form is the steady state:
+    tube 2 strand 1 is stored as "X:T2:F1", never "X:T2:F3".
+
+    An earlier version of this class routed through ``link_cable_topology``
+    specifically to avoid the signal, which pinned the provisioning form and
+    left the steady state -- the exact side of the divergence that matters on
+    upgrade -- untested. The multi-tube ``create_closure_cable`` test below
+    exists to close that gap; keep it going through ``create_closure_cable``.
+
+    Expected strings are derived BY HAND from the pre-branch formula
+    (``git show 2ba4ef0:netbox_fms/signals.py``), not from the current
+    templates::
+
+        rear:  f"{label}:T{tube_pos}"                            (tubed)
+        front: f"{label}:T{tube_pos}:F{pm.rear_port_position}"    (tubed)
+
+    Deriving them from the new code instead would make the guard tautological.
     """
 
     @classmethod
@@ -284,21 +307,97 @@ class TestPortNameBackCompat(TestCase):
         dt = DeviceType.objects.create(manufacturer=cls.mfr, model="PN Closure", slug="pn-closure")
         role = DeviceRole.objects.create(name="PN Role", slug="pn-role")
         cls.dev_a = Device.objects.create(name="PN-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="PN-B", site=site, device_type=dt, role=role)
+
+    _model_seq = 0
 
     def _tubed_type(self, **kwargs):
+        type(self)._model_seq += 1
         fct = FiberCableType.objects.create(
-            manufacturer=self.mfr, model=f"PN-{len(kwargs)}", construction="loose_tube", strand_count=4, **kwargs
+            manufacturer=self.mfr,
+            model=f"PN-{self._model_seq}",
+            construction="loose_tube",
+            strand_count=4,
+            **kwargs,
         )
         BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
         BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T2", position=2, fiber_count=2)
         return fct
 
-    def test_default_port_names(self):
+    def _tubeless_type(self, **kwargs):
+        type(self)._model_seq += 1
+        return FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model=f"PN-{self._model_seq}",
+            construction="tight_buffer",
+            strand_count=4,
+            **kwargs,
+        )
+
+    def test_steady_state_names_match_pre_template(self):
+        """Post-signal names on a MULTI-TUBE cable must equal the pre-branch ones.
+
+        ``create_closure_cable`` finishes with ``cable.save()``, so the cable
+        post_save signal renames the ports here exactly as it does in
+        production. The strings asserted are what the pre-branch signal
+        formula wrote, so any template default that renumbers tube 2 and
+        beyond fails this test.
+        """
+        fct = self._tubed_type()
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "NSS"},
+        )
+        # Pre-branch signal: f"{label}:T{tube_pos}:F{pm.rear_port_position}",
+        # with rear_port_position running 1..N *within each tube*.
+        expected_fp = ["NSS:T1:F1", "NSS:T1:F2", "NSS:T2:F1", "NSS:T2:F2"]
+        expected_rp = ["NSS:T1", "NSS:T2"]
+        for device in (self.dev_a, self.dev_b):
+            fp_names = sorted(FrontPort.objects.filter(device=device).values_list("name", flat=True))
+            assert fp_names == expected_fp, f"{device}: {fp_names}"
+            rp_names = sorted(RearPort.objects.filter(device=device).values_list("name", flat=True))
+            assert rp_names == expected_rp, f"{device}: {rp_names}"
+
+        # A later, unrelated cable save must be a no-op on the names.
+        fc.cable.description = "touched"
+        fc.cable.save()
+        fp_names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert fp_names == expected_fp
+
+    def test_steady_state_names_match_pre_template_tubeless(self):
+        """Tubeless: pre-branch local and global indices coincide, so both agree.
+
+        One RearPort spans every strand and ``rear_port_position`` runs 1..N
+        over the whole cable, which is also the strands' cable-wide position.
+        """
+        fct = self._tubeless_type()
+        create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": "NSW"},
+        )
+        # Pre-branch signal, untubed branch: f"{label}:F{pm.rear_port_position}".
+        fp_names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert fp_names == ["NSW:F1", "NSW:F2", "NSW:F3", "NSW:F4"]
+        rp_names = sorted(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
+        assert rp_names == ["NSW"]
+
+    def test_provisioning_names_match_steady_state(self):
+        """The provisioning path must land on the same names the signal would.
+
+        ``link_cable_topology``'s greenfield path never re-saves the cable, so
+        these names are ``_provision_device_ports``' own output. They have to
+        equal the steady-state strings above, or the two writers have diverged
+        again and a port's name depends on which path last touched it.
+        """
         fct = self._tubed_type()
         cable = Cable.objects.create(type="smf-os2", label="NST")
         link_cable_topology(cable, fct, self.dev_a)
         fp_names = sorted(FrontPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
-        assert fp_names == ["NST:T1:F1", "NST:T1:F2", "NST:T2:F3", "NST:T2:F4"]
+        assert fp_names == ["NST:T1:F1", "NST:T1:F2", "NST:T2:F1", "NST:T2:F2"]
         rp_names = sorted(RearPort.objects.filter(device=self.dev_a).values_list("name", flat=True))
         assert rp_names == ["NST:T1", "NST:T2"]
 
