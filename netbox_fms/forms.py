@@ -605,10 +605,15 @@ class FiberCableFilterForm(NetBoxModelFilterSetForm):
         required=False,
         label=_("Installed by"),
     )
+    terminated_device_id = DynamicModelMultipleChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        label=_("Terminated at device"),
+    )
 
     fieldsets = (
         FieldSet("q", "filter_id", "tag"),
-        FieldSet("fiber_cable_type_id", "installed_by_id", name=_("Attributes")),
+        FieldSet("fiber_cable_type_id", "installed_by_id", "terminated_device_id", name=_("Attributes")),
     )
 
 
@@ -767,7 +772,11 @@ class ClosureCableEntryForm(NetBoxModelForm):
     """Form for creating/editing a ClosureCableEntry."""
 
     closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
-    fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
+    fiber_cable = DynamicModelChoiceField(
+        queryset=FiberCable.objects.all(),
+        label=_("Fiber Cable"),
+        query_params={"terminated_device_id": "$closure"},
+    )
 
     fieldsets = (
         FieldSet("closure", "fiber_cable", "entrance_label", name=_("Cable Entry")),
