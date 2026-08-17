@@ -6,13 +6,9 @@ from dcim.models import (
     Cable,
     CableTermination,
     Device,
-    DeviceRole,
-    DeviceType,
     FrontPort,
-    Manufacturer,
     PortMapping,
     RearPort,
-    Site,
 )
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -23,20 +19,13 @@ from netbox_fms.constants import FIBER_CABLE_TYPES
 from netbox_fms.forms import ClosureCableWizardStep1Form, ClosureCableWizardStep2Form
 from netbox_fms.models import BufferTubeTemplate, ClosureCableEntry, FiberCable, FiberCableType
 from netbox_fms.services import create_closure_cable
-
-
-def _make_infra(prefix):
-    site = Site.objects.create(name=f"{prefix} Site", slug=f"{prefix.lower()}-site")
-    mfr = Manufacturer.objects.create(name=f"{prefix} Mfr", slug=f"{prefix.lower()}-mfr")
-    dt = DeviceType.objects.create(manufacturer=mfr, model=f"{prefix} FOSC", slug=f"{prefix.lower()}-fosc")
-    role = DeviceRole.objects.create(name=f"{prefix} Closure", slug=f"{prefix.lower()}-closure")
-    return site, mfr, dt, role
+from tests.conftest import make_infra
 
 
 class TestCreateClosureCable(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_infra("CCF")
+        site, mfr, dt, role = make_infra("CCF")
         cls.device_a = Device.objects.create(name="CCF-A", site=site, device_type=dt, role=role)
         cls.device_b = Device.objects.create(name="CCF-B", site=site, device_type=dt, role=role)
         # tight buffer 6F -> builtin profile "single-1c6p"
@@ -163,7 +152,7 @@ class TestCreateClosureCable(TestCase):
 class TestClosureCableWizardForms(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_infra("WF")
+        site, mfr, dt, role = make_infra("WF")
         cls.device_a = Device.objects.create(name="WF-A", site=site, device_type=dt, role=role)
         cls.device_b = Device.objects.create(name="WF-B", site=site, device_type=dt, role=role)
         cls.fct = FiberCableType.objects.create(
@@ -199,7 +188,7 @@ class TestClosureCableWizardForms(TestCase):
 class TestClosureCableWizardView(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_infra("WV")
+        site, mfr, dt, role = make_infra("WV")
         cls.device_a = Device.objects.create(name="WV-A", site=site, device_type=dt, role=role)
         cls.device_b = Device.objects.create(name="WV-B", site=site, device_type=dt, role=role)
         cls.fct = FiberCableType.objects.create(
