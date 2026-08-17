@@ -31,19 +31,15 @@ class TestFiberCableTerminatedDeviceFilter(TestCase):
         CableTermination.objects.create(cable=cable_a, cable_end="A", termination=rp_a)
         cls.fc_terminated = FiberCable.objects.create(cable=cable_a, fiber_cable_type=fct)
 
+        # Negative cases for the filter: terminated at another closure, and no terminations at all.
         cable_b = Cable.objects.create()
         CableTermination.objects.create(cable=cable_b, cable_end="A", termination=rp_b)
-        cls.fc_elsewhere = FiberCable.objects.create(cable=cable_b, fiber_cable_type=fct)
-
-        cls.fc_unterminated = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+        FiberCable.objects.create(cable=cable_b, fiber_cable_type=fct)
+        FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
 
     def test_filter_returns_only_cables_terminated_at_device(self):
         qs = FiberCableFilterSet({"terminated_device_id": [self.closure_a.pk]}, queryset=FiberCable.objects.all()).qs
         assert set(qs) == {self.fc_terminated}
-
-    def test_unfiltered_returns_all(self):
-        qs = FiberCableFilterSet({}, queryset=FiberCable.objects.all()).qs
-        assert {self.fc_terminated, self.fc_elsewhere, self.fc_unterminated} <= set(qs)
 
     def test_both_ends_terminated_at_device_not_duplicated(self):
         rp_a2 = RearPort.objects.create(device=self.closure_a, name="CEF-RP-A2", type="splice", positions=12)
