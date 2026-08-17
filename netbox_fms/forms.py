@@ -1162,6 +1162,30 @@ class TrayProfileFilterForm(NetBoxModelFilterSetForm):
 # ---------------------------------------------------------------------------
 
 
+def _check_tube_assignment_conflicts(form):
+    """Shared confirm_reassign gate for TubeAssignment forms."""
+    if form.cleaned_data.get("confirm_reassign"):
+        return
+    closure = form.cleaned_data.get("closure")
+    tray = form.cleaned_data.get("tray")
+    buffer_tube = form.cleaned_data.get("buffer_tube")
+    if not (closure and tray and buffer_tube):
+        return
+    candidate = TubeAssignment(pk=form.instance.pk, closure=closure, tray=tray, buffer_tube=buffer_tube)
+    conflicts = candidate.conflicting_front_ports()
+    if conflicts:
+        names = ", ".join(sorted(port.name for port in conflicts))
+        raise ValidationError(
+            {
+                "confirm_reassign": _(
+                    "The following front ports already belong to another module: %(names)s. "
+                    "Confirm reassignment to move them to %(tray)s."
+                )
+                % {"names": names, "tray": tray}
+            }
+        )
+
+
 class TubeAssignmentForm(NetBoxModelForm):
     """Form for creating/editing a TubeAssignment."""
 
@@ -1174,20 +1198,39 @@ class TubeAssignmentForm(NetBoxModelForm):
         label=_("Buffer Tube"),
         query_params={"closure_id": "$closure"},
     )
+    confirm_reassign = forms.BooleanField(
+        required=False,
+        label=_("Confirm reassignment"),
+        help_text=_("Move front ports that already belong to another module onto the selected tray."),
+    )
 
-    fieldsets = (FieldSet("closure", "tray", "buffer_tube", "position", "notes", "tags", name=_("Tube Assignment")),)
+    fieldsets = (
+        FieldSet(
+            "closure", "tray", "buffer_tube", "position", "confirm_reassign", "notes", "tags", name=_("Tube Assignment")
+        ),
+    )
 
     class Meta:
         model = TubeAssignment
         fields = ("closure", "tray", "buffer_tube", "position", "notes", "tags")
+
+    def clean(self):
+        super().clean()
+        _check_tube_assignment_conflicts(self)
 
 
 class TubeAssignmentImportForm(NetBoxModelImportForm):
     """Import form for TubeAssignment."""
 
+    confirm_reassign = forms.BooleanField(required=False)
+
     class Meta:
         model = TubeAssignment
         fields = ("closure", "tray", "buffer_tube", "position", "notes", "tags")
+
+    def clean(self):
+        super().clean()
+        _check_tube_assignment_conflicts(self)
 
 
 class TubeAssignmentBulkEditForm(NetBoxModelBulkEditForm):

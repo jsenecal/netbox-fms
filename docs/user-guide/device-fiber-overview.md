@@ -50,6 +50,10 @@ For closures with splice trays (modules whose type carries a [TrayProfile](splic
 
 Tubes can only be assigned once their fiber cable has a ClosureCableEntry on the closure. See [Splice Planning: Preparing a Closure](splice-planning.md#preparing-a-closure) for the full setup sequence.
 
+Assigning a tube to a tray moves the tube's closure-side strand front
+ports onto the tray module; removing the assignment returns them to the
+device. Note that the Assign and Auto-assign actions on this card move conflicting ports without prompting; the confirmation gate applies to the standard Tube Assignment form and the REST API.
+
 ## Splice Editor Widget
 
 An embedded splice editor is available directly from the device view, enabling quick creation and editing of splice plan entries without navigating away. This is particularly useful when:

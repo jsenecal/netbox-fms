@@ -198,6 +198,34 @@ def _closure_cable_entry_post_delete(sender, instance, **kwargs):
     ).delete()
 
 
+def _tube_assignment_pre_save(sender, instance, **kwargs):
+    """Release the previously synced ports when an assignment is re-pointed."""
+    if not instance.pk:
+        return
+    old = sender.objects.filter(pk=instance.pk).values("closure_id", "tray_id", "buffer_tube_id").first()
+    if old is None:
+        return
+    new = (instance.closure_id, instance.tray_id, instance.buffer_tube_id)
+    if (old["closure_id"], old["tray_id"], old["buffer_tube_id"]) != new:
+        from .services import clear_tube_assignment_ports
+
+        clear_tube_assignment_ports(old["closure_id"], old["tray_id"], old["buffer_tube_id"])
+
+
+def _tube_assignment_post_save(sender, instance, **kwargs):
+    """Place the tube's closure-side front ports on the assigned tray."""
+    from .services import sync_tube_assignment_ports
+
+    sync_tube_assignment_ports(instance)
+
+
+def _tube_assignment_post_delete(sender, instance, **kwargs):
+    """Return the tube's front ports to device level."""
+    from .services import clear_tube_assignment_ports
+
+    clear_tube_assignment_ports(instance.closure_id, instance.tray_id, instance.buffer_tube_id)
+
+
 def connect_signals():
     """Connect cable and device signals. Called from AppConfig.ready()."""
     from dcim.models import Cable
@@ -220,4 +248,12 @@ def connect_signals():
         _closure_cable_entry_post_delete,
         sender=ClosureCableEntry,
         dispatch_uid="fms_closure_cable_entry_post_delete",
+    )
+
+    from .models import TubeAssignment
+
+    pre_save.connect(_tube_assignment_pre_save, sender=TubeAssignment, dispatch_uid="fms_tube_assignment_pre_save")
+    post_save.connect(_tube_assignment_post_save, sender=TubeAssignment, dispatch_uid="fms_tube_assignment_post_save")
+    post_delete.connect(
+        _tube_assignment_post_delete, sender=TubeAssignment, dispatch_uid="fms_tube_assignment_post_delete"
     )

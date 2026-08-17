@@ -27,7 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Buffer tube and ribbon template color pickers now group choices by the
   parent type's standard (position-ordered, with an "Other" fallback
   group). Fixes #60.
-
+- Tube assignments now manage dcim port placement: assigning a buffer tube
+  to a splice tray moves the tube's closure-side strand FrontPorts onto the
+  tray module, re-pointing follows tray/tube changes, and deleting the
+  assignment returns the ports to device level. Ports already owned by a
+  different module block the save with a list of conflicts until the new
+  `confirm_reassign` flag (form checkbox / REST field) is set. This is what
+  makes applied splices visible to the splice-state reader, which only
+  considers FrontPorts on tray modules. Pre-existing assignments are not
+  back-filled; re-save an assignment to sync its ports. (#68)
 - `terminated_device_id` filter on FiberCable (REST API and UI): cables with
   a dcim termination on the given device. The Closure Cable Entry form's
   Fiber Cable dropdown now chains on the selected Closure so only cables
@@ -58,6 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Slack Loops layer on the netbox-pathways interactive map now declares a
+  `url_template`, so the map sidebar's detail pane shows a "View Details" link
+  to the slack loop instance. Refs jsenecal/netbox-pathways#81.
 - Bulk edit forms no longer silently overwrite choice fields that were left
   untouched: `construction`, `sheath_material`, `deployment`, `fire_rating`,
   and `mark_unit` on FiberCableType, `element_type` on CableElementTemplate,

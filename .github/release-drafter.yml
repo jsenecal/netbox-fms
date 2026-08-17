@@ -58,47 +58,60 @@ change-title-escapes: '\<*_&'
 # conventional-commits format) and applies one or more labels. `title:`
 # accepts a list of regex patterns (release-drafter v6+ schema). A breaking
 # change is detected via the `!` marker per Conventional Commits.
+#
+# Every type pattern carries `!?` before the colon so a breaking-change PR
+# gets BOTH `breaking` and its type label. Without it, `refactor(models)!:`
+# matched only the `breaking` rule -- `\(.+\)` consumed `(models)` and the
+# pattern then demanded `:` where the `!` sits -- so breaking PRs silently
+# lost their type label and fell out of their release-notes category.
 autolabeler:
   - label: breaking
     title:
       - '/^[a-z]+(\([^)]+\))?!:/i'
   - label: dependencies
     title:
-      - '/^(chore|build|fix)\(deps(-dev)?\):/i'
+      - '/^(chore|build|fix)\(deps(-dev)?\)!?:/i'
   - label: feat
     title:
-      - '/^feat(\(.+\))?:/i'
+      - '/^feat(\(.+\))?!?:/i'
   - label: fix
     title:
-      - '/^fix(\(.+\))?:/i'
+      - '/^fix(\(.+\))?!?:/i'
   - label: docs
     title:
-      - '/^docs(\(.+\))?:/i'
+      - '/^docs(\(.+\))?!?:/i'
   - label: housekeeping
     title:
-      - '/^chore(\(.+\))?:/i'
+      - '/^chore(\(.+\))?!?:/i'
   - label: refactor
     title:
-      - '/^refactor(\(.+\))?:/i'
+      - '/^refactor(\(.+\))?!?:/i'
   - label: test
     title:
-      - '/^test(\(.+\))?:/i'
+      - '/^test(\(.+\))?!?:/i'
   - label: ci
     title:
-      - '/^ci(\(.+\))?:/i'
+      - '/^ci(\(.+\))?!?:/i'
   - label: perf
     title:
-      - '/^perf(\(.+\))?:/i'
+      - '/^perf(\(.+\))?!?:/i'
   - label: build
     title:
-      - '/^build(\(.+\))?:/i'
+      - '/^build(\(.+\))?!?:/i'
   - label: revert
     title:
-      - '/^revert(\(.+\))?:/i'
+      - '/^revert(\(.+\))?!?:/i'
 
+# `breaking` deliberately does NOT appear here. These plugins are pre-1.0,
+# where semver permits breaking changes in a minor bump, and resolving every
+# `!` PR to a major would push 0.x straight to 1.0.0 and promise an API
+# stability we are not ready to commit to. `breaking` still drives the
+# "Breaking changes" category above, so such PRs headline the release notes.
+# Use the explicit `major` label to force a major bump; revisit this once a
+# plugin reaches 1.0.0.
 version-resolver:
   major:
-    labels: [major, breaking]
+    labels: [major]
   minor:
     labels: [feat, feature, minor, enhancement]
   patch:
