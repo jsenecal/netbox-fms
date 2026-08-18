@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
-from ..choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
+from ..choices import SplicePlanStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -57,7 +57,7 @@ from ..models import (
     TrayProfile,
     TubeAssignment,
 )
-from ..services import apply_diff, get_or_recompute_diff, import_live_state
+from ..services import apply_diff, get_or_recompute_diff, import_live_state, protecting_nodes
 from ..trace_hops import build_hops
 from .serializers import (
     BufferTubeSerializer,
@@ -339,12 +339,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
             all_port_ids.add(item["fiber_b"])
 
         if all_port_ids:
-            protected_nodes = (
-                FiberCircuitNode.objects.filter(front_port_id__in=all_port_ids)
-                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-                .select_related("path__circuit")
-            )
-            protected_names = {n.path.circuit.name for n in protected_nodes}
+            protected_names = {n.path.circuit.name for n in protecting_nodes(all_port_ids)}
             if protected_names:
                 names = ", ".join(sorted(protected_names))
                 return Response(
@@ -611,12 +606,7 @@ def _get_protected_plan_ports(plan):
         fp_ids.add(entry.fiber_b_id)
     if not fp_ids:
         return {}
-    protected_nodes = (
-        FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
-        .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-        .select_related("path__circuit")
-    )
-    return {n.front_port_id: n.path.circuit.name for n in protected_nodes}
+    return {n.front_port_id: n.path.circuit.name for n in protecting_nodes(fp_ids)}
 
 
 class ClosureStrandsAPIView(APIView):
@@ -736,13 +726,7 @@ class ClosureStrandsAPIView(APIView):
         # A front port is "protected" if referenced by a non-decommissioned FiberCircuitNode
         protection_lookup = {}  # front_port_id -> (circuit_name, circuit_url)
         if all_tray_fp_ids:
-            protected_nodes = (
-                FiberCircuitNode.objects.restrict(user, "view")
-                .filter(front_port_id__in=all_tray_fp_ids)
-                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-                .select_related("path__circuit")
-            )
-            for node in protected_nodes:
+            for node in protecting_nodes(all_tray_fp_ids, user=user):
                 circuit = node.path.circuit
                 protection_lookup[node.front_port_id] = (circuit.name, circuit.get_absolute_url())
 

@@ -4,7 +4,8 @@ from dcim.models import Cable, CableTermination, Device, FrontPort, Module, Modu
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
-from .models import ClosureCableEntry, FiberCable, SplicePlanEntry
+from .choices import FiberCircuitStatusChoices
+from .models import ClosureCableEntry, FiberCable, FiberCircuitNode, SplicePlanEntry
 from .signals import fms_portmapping_bypass
 
 
@@ -424,6 +425,26 @@ def import_live_state(plan):
     plan.diff_stale = True
     plan.save(update_fields=["diff_stale"])
     return len(entries)
+
+
+def protecting_nodes(front_port_ids, user=None):
+    """
+    FiberCircuitNodes on active (non-decommissioned) circuits referencing
+    the given front ports.
+
+    Integrity checks (blocking edits to circuit-protected splices) must
+    leave ``user`` unset so every circuit counts regardless of the
+    requesting user's permissions; display contexts pass ``user`` to
+    restrict the rows to that user's visible objects.
+    """
+    qs = FiberCircuitNode.objects.all()
+    if user is not None:
+        qs = qs.restrict(user, "view")
+    return (
+        qs.filter(front_port_id__in=front_port_ids)
+        .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
+        .select_related("path__circuit")
+    )
 
 
 def apply_diff(plan):

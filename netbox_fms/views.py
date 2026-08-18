@@ -17,7 +17,7 @@ from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
-from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
+from .choices import SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
     BufferTubeFilterSet,
@@ -128,6 +128,7 @@ from .services import (
     get_or_recompute_diff,
     import_live_state,
     link_cable_topology,
+    protecting_nodes,
 )
 from .tables import (
     BufferTubeTable,
@@ -2206,11 +2207,7 @@ class DevicePendingWorkView(generic.ObjectView):
                         fp_ids.add(entry.fiber_a_id)
                         fp_ids.add(entry.fiber_b_id)
                 if fp_ids:
-                    protected_circuits = set(
-                        FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
-                        .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-                        .values_list("path__circuit__name", flat=True)
-                    )
+                    protected_circuits = set(protecting_nodes(fp_ids).values_list("path__circuit__name", flat=True))
                     if protected_circuits:
                         names = ", ".join(sorted(protected_circuits))
                         messages.error(
