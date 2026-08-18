@@ -2,14 +2,10 @@
 
 from dcim.models import (
     Device,
-    DeviceRole,
-    DeviceType,
     FrontPort,
-    Manufacturer,
     Module,
     ModuleBay,
     ModuleType,
-    Site,
 )
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -21,6 +17,7 @@ from netbox_fms.models import (
     SplicePlan,
     SplicePlanEntry,
 )
+from tests.conftest import make_infra
 
 
 def _make_authed_client():
@@ -32,15 +29,6 @@ def _make_authed_client():
     return client
 
 
-def _make_base_infra(prefix="t"):
-    """Create site, manufacturer, device type, role. Return (site, mfr, dt, role)."""
-    site = Site.objects.create(name=f"{prefix} Site", slug=f"{prefix}-site")
-    mfr = Manufacturer.objects.create(name=f"{prefix} Mfr", slug=f"{prefix}-mfr")
-    dt = DeviceType.objects.create(manufacturer=mfr, model=f"{prefix} DT", slug=f"{prefix}-dt")
-    role = DeviceRole.objects.create(name=f"{prefix} Role", slug=f"{prefix}-role")
-    return site, mfr, dt, role
-
-
 # ---------------------------------------------------------------------------
 # Existing bulk-update and quick-add tests
 # ---------------------------------------------------------------------------
@@ -49,10 +37,7 @@ def _make_base_infra(prefix="t"):
 class TestBulkUpdateAPI(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="API Site", slug="api-site")
-        mfr = Manufacturer.objects.create(name="API Mfr", slug="api-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="api-closure")
-        role = DeviceRole.objects.create(name="API Role", slug="api-role")
+        site, mfr, dt, role = make_infra("API")
         cls.closure = Device.objects.create(name="C-API", site=site, device_type=dt, role=role)
 
         mt = ModuleType.objects.create(manufacturer=mfr, model="Tray")
@@ -128,10 +113,7 @@ class TestBulkUpdateAPI(TestCase):
 class TestQuickAddAPI(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="QA Site", slug="qa-site")
-        mfr = Manufacturer.objects.create(name="QA Mfr", slug="qa-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="qa-closure")
-        role = DeviceRole.objects.create(name="QA Role", slug="qa-role")
+        site, mfr, dt, role = make_infra("QA")
         cls.closure = Device.objects.create(name="C-QA", site=site, device_type=dt, role=role)
 
     def setUp(self):
@@ -182,7 +164,7 @@ class TestFiberCircuitRetraceAPI(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("retrace")
+        site, mfr, dt, role = make_infra("retrace")
         cls.device = Device.objects.create(name="Dev-Retrace", site=site, device_type=dt, role=role)
         cls.fp = FrontPort.objects.create(device=cls.device, name="FP-Origin", type="lc")
         cls.circuit = FiberCircuit.objects.create(name="FC-Retrace", strand_count=1, status="planned")
@@ -209,7 +191,7 @@ class TestFiberCircuitPathTraceAPI(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("trace")
+        site, mfr, dt, role = make_infra("trace")
         cls.device = Device.objects.create(name="Dev-Trace", site=site, device_type=dt, role=role)
         cls.fp = FrontPort.objects.create(device=cls.device, name="FP-Trace", type="lc")
         cls.circuit = FiberCircuit.objects.create(name="FC-Trace", strand_count=1, status="planned")
@@ -267,7 +249,7 @@ class TestSplicePlanDiffAPI(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("diff")
+        site, mfr, dt, role = make_infra("diff")
         cls.closure = Device.objects.create(name="C-Diff", site=site, device_type=dt, role=role)
         cls.plan = SplicePlan.objects.create(closure=cls.closure, name="Diff Plan")
 
@@ -290,7 +272,7 @@ class TestSplicePlanImportFromDeviceAPI(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("imp")
+        site, mfr, dt, role = make_infra("imp")
         cls.closure = Device.objects.create(name="C-Import", site=site, device_type=dt, role=role)
         cls.plan = SplicePlan.objects.create(closure=cls.closure, name="Import Plan")
 
@@ -315,7 +297,7 @@ class TestSplicePlanApplyAPI(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("apply")
+        site, mfr, dt, role = make_infra("apply")
         cls.closure = Device.objects.create(name="C-Apply", site=site, device_type=dt, role=role)
         cls.plan = SplicePlan.objects.create(closure=cls.closure, name="Apply Plan")
 
@@ -338,7 +320,7 @@ class TestClosureStrandsAPI(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("cstrands")
+        site, mfr, dt, role = make_infra("cstrands")
         cls.device = Device.objects.create(name="Closure-Strands", site=site, device_type=dt, role=role)
 
     def setUp(self):
@@ -443,7 +425,7 @@ class TestOptimisticLocking(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = _make_base_infra("lock")
+        site, mfr, dt, role = make_infra("lock")
         cls.closure = Device.objects.create(name="C-Lock", site=site, device_type=dt, role=role)
 
         mt = ModuleType.objects.create(manufacturer=mfr, model="Lock Tray")
