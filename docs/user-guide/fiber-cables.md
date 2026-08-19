@@ -104,6 +104,12 @@ that container. The color sequence cycles every 12 fibers.
 Each strand receives a globally unique `position` number across the entire
 cable, ensuring unambiguous identification regardless of the construction style.
 
+Strand names, and the names/labels of the FrontPorts and RearPorts created
+alongside them, are rendered from the FiberCableType's
+[naming templates](naming-templates.md) rather than hardcoded -- see that
+page for the token reference, worked examples, and how to re-render
+existing objects after changing a template.
+
 ### CableElements
 
 **CableElements** represent non-fiber components such as strength members,

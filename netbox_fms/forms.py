@@ -102,6 +102,14 @@ class FiberCableTypeForm(NetBoxModelForm):
             "strand_marker_type",
             name=_("Strand Markers (Tight Buffer)"),
         ),
+        FieldSet(
+            "front_port_name_template",
+            "rear_port_name_template",
+            "front_port_label_template",
+            "rear_port_label_template",
+            "strand_name_template",
+            name=_("Naming Templates"),
+        ),
         FieldSet("construction_image", "notes", "tags", name=_("Additional")),
     )
 
@@ -126,6 +134,11 @@ class FiberCableTypeForm(NetBoxModelForm):
             "strand_marker_interval",
             "strand_marker_color",
             "strand_marker_type",
+            "front_port_name_template",
+            "rear_port_name_template",
+            "front_port_label_template",
+            "rear_port_label_template",
+            "strand_name_template",
             "construction_image",
             "notes",
             "tags",
@@ -160,6 +173,11 @@ class FiberCableTypeImportForm(NetBoxModelImportForm):
             "armor_type",
             "deployment",
             "fire_rating",
+            "front_port_name_template",
+            "rear_port_name_template",
+            "front_port_label_template",
+            "rear_port_label_template",
+            "strand_name_template",
             "notes",
             "tags",
         )
@@ -179,11 +197,24 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
     outer_diameter = forms.FloatField(required=False, label=_("Outer diameter (mm)"))
     twist_factor_ratio = forms.FloatField(required=False, label=_("Twist factor ratio"))
     mark_unit = forms.ChoiceField(choices=add_blank_choice(CableLengthUnitChoices), required=False)
+    front_port_name_template = forms.CharField(required=False, widget=forms.Textarea)
+    rear_port_name_template = forms.CharField(required=False, widget=forms.Textarea)
+    front_port_label_template = forms.CharField(required=False, widget=forms.Textarea)
+    rear_port_label_template = forms.CharField(required=False, widget=forms.Textarea)
+    strand_name_template = forms.CharField(required=False, widget=forms.Textarea)
 
     fieldsets = (
         FieldSet("manufacturer", "construction", "color_scheme"),
         FieldSet("outer_diameter", "twist_factor_ratio", "mark_unit", name=_("Physical")),
         FieldSet("sheath_material", "deployment", "fire_rating"),
+        FieldSet(
+            "front_port_name_template",
+            "rear_port_name_template",
+            "front_port_label_template",
+            "rear_port_label_template",
+            "strand_name_template",
+            name=_("Naming Templates"),
+        ),
     )
     nullable_fields = (
         "sheath_material",
@@ -192,6 +223,11 @@ class FiberCableTypeBulkEditForm(NetBoxModelBulkEditForm):
         "outer_diameter",
         "twist_factor_ratio",
         "mark_unit",
+        "front_port_name_template",
+        "rear_port_name_template",
+        "front_port_label_template",
+        "rear_port_label_template",
+        "strand_name_template",
     )
 
 

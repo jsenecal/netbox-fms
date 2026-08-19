@@ -44,6 +44,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cables entering a given closure, via ClosureCableEntry. The Tube
   Assignment form's Buffer Tube dropdown now chains on the selected
   Closure so only tubes of cables entering that closure are offered. (#58)
+- Jinja naming templates for generated FrontPort/RearPort names and labels and
+  FiberStrand names, configurable per FiberCableType or plugin-wide. The
+  defaults reproduce the names FMS already stored, so an upgrade renames
+  nothing: the front-port default numbers a port by its tube-local index
+  (`strand_local`), matching what the cable `post_save` handler -- the last
+  writer on every port before templates existed -- wrote, and the rear-port
+  default matches `str(cable)[:T<tube>]`. With no label template configured --
+  the default -- FMS never writes a port's `label` on any path (cable save,
+  tube assignment, re-render commands), so labels set by a DeviceType
+  template, an import, or by hand are preserved; a configured template is
+  authoritative for its target, including when it renders empty. Two
+  management commands re-render existing objects after a template change:
+  `rerender_strand_names` (FiberStrand names) and `rerender_port_names`
+  (FrontPort and RearPort names and labels). Both take `--cable-type`,
+  `--dry-run` and `--limit`; `rerender_port_names` also takes
+  `--targets names,labels`, and warns when a port template references
+  `{{ strand_name }}`, since `rerender_strand_names` should run first in
+  that case. `rerender_port_names` refuses a device whose proposed names
+  would duplicate each other or collide with a port on that device it is not
+  renaming -- typically one belonging to another fiber cable -- rather than
+  failing on the database constraint partway through the run. The automatic
+  re-render on every `dcim.Cable` save applies the same check and degrades
+  the same way a broken template does: the collision is logged and every
+  port name is left unchanged, so a template that is valid in isolation but
+  renders one name for two ports can never make a cable save fail. Templates set
+  plugin-wide in `PLUGINS_CONFIG` are validated at startup and reported in
+  the log, naming the setting key; a malformed one leaves generated names
+  unchanged instead of breaking cable saves and tube assignments (#69).
 
 ### Changed
 

@@ -1,9 +1,15 @@
 """Signal handlers for splice plan diff cache invalidation and PortMapping protection."""
 
 import contextvars
+import logging
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
+
+from . import naming
+
+logger = logging.getLogger("netbox.plugins.netbox_fms")
 
 _fms_bypass = contextvars.ContextVar("fms_bypass", default=False)
 
@@ -82,23 +88,86 @@ def _invalidate_plans_for_cable(cable):
         ).update(diff_stale=True)
 
 
+def _tray_name_for(front_port):
+    """Tray module bay name for a FrontPort, or None if it is not on a tray."""
+    module = front_port.module
+    return module.module_bay.name if module else None
+
+
+def _tray_position_for(port, tube):
+    """TubeAssignment position for ``port``'s placement of ``tube``, or None.
+
+    Resolved by the port's OWN buffer tube, not by its tray alone.
+    ``TubeAssignment``'s unique constraint is (closure, buffer_tube), so
+    several tubes routinely share one tray; a (closure, tray) filter with
+    ``.first()`` returns an arbitrary sibling -- the lowest position, under
+    ``Meta.ordering`` -- while ``sync_tube_assignment_ports`` renders with the
+    real ``assignment.position``. The two paths would then disagree and a
+    port's name would flip-flop on every cable save.
+
+    ``tray_id`` stays in the filter so the position always describes the tray
+    the port is actually sitting on: a port moved to another tray by hand
+    renders that tray's name with no position, rather than a position
+    belonging to a tray it left.
+    """
+    from .models import TubeAssignment
+
+    if not port.module_id or tube is None:
+        return None
+    return (
+        TubeAssignment.objects.filter(
+            closure_id=port.device_id,
+            tray_id=port.module_id,
+            buffer_tube_id=getattr(tube, "pk", tube),
+        )
+        .values_list("position", flat=True)
+        .first()
+    )
+
+
 def _rename_ports_for_cable(cable):
-    """Rebuild RearPort/FrontPort names from structural data for a cable.
+    """Rebuild RearPort/FrontPort names and labels from the cable type's naming templates.
 
     Uses FiberCable -> FiberStrand -> FrontPort -> PortMapping -> RearPort
     to discover ports, avoiding dependency on CableTerminations which may be
     rebuilt during Cable.save().
+
+    Runs on every ``Cable`` post_save, so nothing here may propagate: a
+    template render failure, a proposal that collides on a device's
+    ``(device, name)`` unique constraint, and a write that fails anyway are
+    each caught, logged, and leave the ports unchanged rather than breaking
+    an unrelated cable save. The collision pre-check shares its rule with
+    ``rerender_port_names`` via ``naming.find_name_collisions``.
+
+    ``end`` is normally "A" or "B", but ``_determine_cable_end`` can return
+    "AB" for a self-looping cable (both sides terminated on the same
+    device). That device-level value now reaches a REAR port's ``{{ end }}``
+    only: a RearPort spans a whole tube and has no strand, so nothing finer
+    is available for it. A FrontPort's end is derived from its strand
+    instead -- "A" when the strand's ``front_port_a`` is this port, else
+    "B" -- matching ``_provision_device_ports`` and
+    ``services.render_port_strings``, the other two paths that write front
+    port names, so a front port's name cannot flip-flop depending on which
+    path last touched it. A FrontPort with no strand falls back to the
+    device-level value.
+
+    ``tube`` follows the same rule. The rear-port context uses the tube
+    inferred from the RearPort's own port mappings, which is all a RearPort
+    has. A FrontPort's context uses its strand's ``buffer_tube`` instead --
+    what ``services.render_port_strings`` and ``rerender_port_names`` both
+    use -- so that a port whose PortMappings do not line up with tube
+    membership (an adopted port, say) cannot have its ``{{ tube }}`` flip
+    between the command and the next cable save.
     """
     from dcim.models import FrontPort, PortMapping, RearPort
 
     from .models import FiberCable
+    from .services import _determine_cable_end
 
     try:
         fc = FiberCable.objects.get(cable=cable)
     except FiberCable.DoesNotExist:
         return
-
-    label = str(cable)
 
     # Collect all FrontPort IDs linked to this FiberCable's strands
     fp_ids = set()
@@ -135,40 +204,124 @@ def _rename_ports_for_cable(cable):
             if strand and strand.buffer_tube:
                 tube_positions[rp_id] = strand.buffer_tube.position
 
+    fct = fc.fiber_cable_type
+    tubes_by_position = {t.position: t for t in fc.buffer_tubes.all()}
+    strand_by_fp = {}
+    for strand in fc.fiber_strands.select_related("ribbon", "buffer_tube").all():
+        for fp_id in (strand.front_port_a_id, strand.front_port_b_id):
+            if fp_id:
+                strand_by_fp[fp_id] = strand
+
     rps_to_update = []
     fps_to_update = []
+    rp_fields = set()
+    fp_fields = set()
+    end_by_device_id = {}
+    # Every port this pass renders, changed or not: an unchanged sibling still
+    # occupies its name on the device, so it has to take part in the collision
+    # check even though it never reaches bulk_update.
+    proposed = {}
 
-    for rp_id, rp in rps.items():
-        tube_pos = tube_positions.get(rp_id)
+    try:
+        for rp_id, rp in rps.items():
+            tube = tubes_by_position.get(tube_positions.get(rp_id))
+            device = rp.device
+            if device.pk not in end_by_device_id:
+                end_by_device_id[device.pk] = _determine_cable_end(cable, device)
+            end = end_by_device_id[device.pk]
+            rp_ctx = naming.port_context(
+                cable=cable,
+                cable_type=fct,
+                device=device,
+                end=end,
+                color_scheme=fct.color_scheme,
+                tube=tube,
+                tray=_tray_name_for(rp),
+                tray_position=_tray_position_for(rp, tube),
+            )
+            changed = naming.apply_rendered(
+                rp,
+                name=fct.resolve_rear_port_name(**rp_ctx),
+                label=fct.resolve_rear_port_label(**rp_ctx),
+            )
+            # apply_rendered has already assigned any rendered name, so rp.name
+            # is the proposal; on an unchanged port it is the stored name.
+            proposed[rp] = rp.name
+            if changed:
+                rp_fields |= changed
+                rps_to_update.append(rp)
 
-        if is_tubed and tube_pos:
-            new_name = f"{label}:T{tube_pos}"
-        else:
-            new_name = label
-        new_name = new_name[:64]
+            for pm in pms:
+                if pm.rear_port_id != rp_id:
+                    continue
+                fp = pm.front_port
+                strand = strand_by_fp.get(fp.pk)
+                # A front port sits on one end of one strand, so its end and
+                # its tube are the strand's own, never the device-level "AB"
+                # nor a tube inferred from the RearPort's port mappings.
+                fp_end = end if strand is None else ("A" if strand.front_port_a_id == fp.pk else "B")
+                fp_tube = tube if strand is None else strand.buffer_tube
+                fp_ctx = naming.port_context(
+                    cable=cable,
+                    cable_type=fct,
+                    device=device,
+                    end=fp_end,
+                    color_scheme=fct.color_scheme,
+                    tube=fp_tube,
+                    strand=strand,
+                    strand_local=pm.rear_port_position,
+                    tray=_tray_name_for(fp),
+                    tray_position=_tray_position_for(fp, fp_tube),
+                )
+                changed = naming.apply_rendered(
+                    fp,
+                    name=fct.resolve_front_port_name(**fp_ctx),
+                    label=fct.resolve_front_port_label(**fp_ctx),
+                )
+                proposed[fp] = fp.name
+                if changed:
+                    fp_fields |= changed
+                    fps_to_update.append(fp)
+    except naming.NamingError:
+        logger.exception("Naming template failed for cable %s; port names left unchanged", cable)
+        return
 
-        if rp.name != new_name:
-            rp.name = new_name
-            rps_to_update.append(rp)
+    # Nothing to write is the steady state on most cable saves; returning here
+    # keeps the collision queries off that path entirely.
+    if not rps_to_update and not fps_to_update:
+        return
 
-        for pm in pms:
-            if pm.rear_port_id != rp_id:
-                continue
-            fp = pm.front_port
-            if is_tubed and tube_pos:
-                fp_new = f"{label}:T{tube_pos}:F{pm.rear_port_position}"
-            else:
-                fp_new = f"{label}:F{pm.rear_port_position}"
-            fp_new = fp_new[:64]
+    # A template valid in isolation can still render one name for two ports of
+    # a device -- FiberCableType.clean() renders each template against dummy
+    # contexts and so cannot see it. Refusing here is what makes the failure
+    # diagnosable; the atomic block below is what makes it safe.
+    collisions = naming.find_name_collisions(proposed)
+    if collisions:
+        logger.error(
+            "Naming template collision for cable %s; port names left unchanged: %s",
+            cable,
+            "; ".join(str(c) for c in collisions),
+        )
+        return
 
-            if fp.name != fp_new:
-                fp.name = fp_new
-                fps_to_update.append(fp)
-
-    if rps_to_update:
-        RearPort.objects.bulk_update(rps_to_update, ["name"])
-    if fps_to_update:
-        FrontPort.objects.bulk_update(fps_to_update, ["name"])
+    # Only update the columns some render actually changed. With no label
+    # template configured (the default) that is ["name"] alone, exactly as it
+    # was before naming templates existed -- pre-existing port labels, such as
+    # those on ports adopted from a DeviceType template, are never touched.
+    #
+    # Wrapped so the two writes are all-or-nothing and so any collision route
+    # the pre-check did not anticipate degrades the way the NamingError guard
+    # above does. A caller outside a transaction would otherwise be left with
+    # renamed rear ports and original front ports, and a cable save must never
+    # fail because of a naming template.
+    try:
+        with transaction.atomic():
+            if rps_to_update:
+                RearPort.objects.bulk_update(rps_to_update, sorted(rp_fields))
+            if fps_to_update:
+                FrontPort.objects.bulk_update(fps_to_update, sorted(fp_fields))
+    except IntegrityError:
+        logger.exception("Naming template write failed for cable %s; port names left unchanged", cable)
 
 
 def _cable_post_save(sender, instance, **kwargs):

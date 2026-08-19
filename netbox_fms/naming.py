@@ -1,0 +1,451 @@
+"""Jinja2 rendering of generated names and labels.
+
+Pure by design: nothing here imports ``netbox_fms.models``, and model
+instances are read by attribute only. That keeps the module unit-testable
+without database fixtures and avoids a circular import, since
+``FiberCableType.clean()`` calls :func:`validate`.
+
+The one exception is :func:`find_name_collisions`, which must ask the
+database what names a device already holds. It still imports nothing: the
+queryset comes off the model class of the ports the caller hands in. It lives
+here because both writers of port names -- the always-on ``dcim.Cable``
+post_save rename and the opt-in ``rerender_port_names`` command -- have to
+apply exactly the same rule, and a rule implemented twice is a rule that
+drifts.
+"""
+
+from collections import Counter, namedtuple
+
+from jinja2 import StrictUndefined, TemplateError, TemplateSyntaxError, meta
+from jinja2.sandbox import SandboxedEnvironment
+from netbox.plugins.utils import get_plugin_config
+
+from .constants import COLOR_SCHEME_PALETTES
+
+__all__ = (
+    "DEFAULT_FRONT_PORT_NAME",
+    "DEFAULT_REAR_PORT_NAME",
+    "DEFAULT_STRAND_NAME",
+    "FRONT_PORT_LABEL",
+    "FRONT_PORT_NAME",
+    "REAR_PORT_LABEL",
+    "REAR_PORT_NAME",
+    "STRAND_NAME",
+    "TARGETS",
+    "TRAY_TOKENS",
+    "NameCollision",
+    "NamingError",
+    "apply_rendered",
+    "color_name",
+    "compile_for",
+    "dummy_contexts",
+    "find_name_collisions",
+    "port_context",
+    "render",
+    "resolve_source",
+    "strand_context",
+    "uses_tokens",
+    "uses_tray",
+    "validate",
+    "validate_plugin_config",
+)
+
+
+class NamingError(ValueError):
+    """A naming template failed to compile or render."""
+
+
+FRONT_PORT_NAME = "front_port_name"
+REAR_PORT_NAME = "rear_port_name"
+FRONT_PORT_LABEL = "front_port_label"
+REAR_PORT_LABEL = "rear_port_label"
+STRAND_NAME = "strand_name"
+
+_CABLE = ("cable", "cable_id", "cable_type")
+_TUBE = ("tube", "tube_name", "tube_color", "tube_color_hex")
+_RIBBON = ("ribbon", "ribbon_name", "ribbon_color", "ribbon_color_hex")
+_STRAND = ("strand", "strand_local", "strand_color", "strand_color_hex")
+_PORT = ("device", "end", "tray", "tray_position")
+
+_FRONT_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND + _PORT + ("strand_name",))
+_REAR_TOKENS = frozenset(_CABLE + _TUBE + _PORT)
+_STRAND_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND)
+
+# strand_local, not strand: before naming templates existed the cable post_save
+# signal was the last writer on every port, and it numbered front ports with the
+# TUBE-LOCAL index (PortMapping.rear_port_position), not the cable-wide strand
+# position. So the steady state in every existing database is "X:T2:F1", and a
+# default built on {{ strand }} would silently renumber tube 2 and beyond on the
+# next save of any multi-tube cable, breaking the match with physical splice
+# labels. On a tubeless cable the two indices coincide, so nothing changes there.
+DEFAULT_FRONT_PORT_NAME = "{{ cable }}{% if tube %}:T{{ tube }}{% endif %}:F{{ strand_local }}"
+DEFAULT_REAR_PORT_NAME = "{{ cable }}{% if tube %}:T{{ tube }}{% endif %}"
+DEFAULT_STRAND_NAME = (
+    "{% if ribbon_name %}{{ ribbon_name }}-{% elif tube_name %}{{ tube_name }}-{% endif %}F{{ strand_local }}"
+)
+
+TargetSpec = namedtuple("TargetSpec", "field max_length tokens default")
+
+TARGETS = {
+    FRONT_PORT_NAME: TargetSpec("front_port_name_template", 64, _FRONT_TOKENS, DEFAULT_FRONT_PORT_NAME),
+    REAR_PORT_NAME: TargetSpec("rear_port_name_template", 64, _REAR_TOKENS, DEFAULT_REAR_PORT_NAME),
+    FRONT_PORT_LABEL: TargetSpec("front_port_label_template", 64, _FRONT_TOKENS, ""),
+    REAR_PORT_LABEL: TargetSpec("rear_port_label_template", 64, _REAR_TOKENS, ""),
+    STRAND_NAME: TargetSpec("strand_name_template", 64, _STRAND_TOKENS, DEFAULT_STRAND_NAME),
+}
+
+# autoescape stays off deliberately: these render device component names, not
+# HTML. Escaping would corrupt legitimate characters such as "&" in a label.
+_ENV = SandboxedEnvironment(undefined=StrictUndefined, autoescape=False)  # noqa: S701
+
+_DUMMY_TUBED = {
+    "cable": "CABLE",
+    "cable_id": 1,
+    "cable_type": "TYPE",
+    "tube": 1,
+    "tube_name": "T1",
+    "tube_color": "Blue",
+    "tube_color_hex": "0000ff",
+    "ribbon": 1,
+    "ribbon_name": "R1",
+    "ribbon_color": "Blue",
+    "ribbon_color_hex": "0000ff",
+    "strand": 1,
+    "strand_local": 1,
+    "strand_name": "T1-F1",
+    "strand_color": "Blue",
+    "strand_color_hex": "0000ff",
+    "device": "DEVICE",
+    "end": "A",
+    "tray": "Tray 1",
+    "tray_position": 1,
+}
+
+_DUMMY_BARE = {
+    **_DUMMY_TUBED,
+    "tube": None,
+    "tube_name": None,
+    "tube_color": None,
+    "tube_color_hex": None,
+    "ribbon": None,
+    "ribbon_name": None,
+    "ribbon_color": None,
+    "ribbon_color_hex": None,
+    "tray": None,
+    "tray_position": None,
+}
+
+
+def color_name(hex_value, scheme):
+    """Return the palette name for a hex colour, or the hex itself if unknown."""
+    if not hex_value:
+        return None
+    for palette_hex, name in COLOR_SCHEME_PALETTES.get(scheme, ()):
+        if palette_hex == hex_value:
+            return str(name)
+    return hex_value
+
+
+def resolve_source(target, fiber_cable_type):
+    """Template source: cable-type override, else plugin config, else built-in."""
+    spec = TARGETS[target]
+    override = (getattr(fiber_cable_type, spec.field, "") or "").strip()
+    if override:
+        return override
+    configured = get_plugin_config("netbox_fms", spec.field, None)
+    if configured is not None:
+        return configured
+    return spec.default
+
+
+TRAY_TOKENS = frozenset({"tray", "tray_position"})
+
+
+def _syntax_guard(target, func, source):
+    """Run a Jinja parse/compile, re-raising a syntax error as :class:`NamingError`.
+
+    ``FiberCableType.clean()`` validates the model's own template fields, but a
+    template supplied through ``PLUGINS_CONFIG`` never passes through a form or
+    serializer, so a malformed one reaches the renderer intact. A raw
+    ``TemplateSyntaxError`` is not a ``NamingError``, so the cable post_save
+    guard would miss it and every FMS cable save, tube assignment and
+    provisioning would raise. Normalising it here is what makes that guard --
+    and the equivalent guards in the services and management-command paths --
+    degrade to "leave the names alone" instead.
+    """
+    try:
+        return func(source)
+    except TemplateSyntaxError as exc:
+        raise NamingError(f"{target}: template syntax error: {exc.message}") from exc
+
+
+def uses_tokens(fiber_cable_type, targets, tokens):
+    """True if any of ``targets``' resolved templates references any of ``tokens``.
+
+    Parsed statically via ``jinja2.meta`` so ``{% if tray %}`` counts, and so
+    a literal "tray" appearing in surrounding text does not. Blank sources are
+    skipped: a target with no configured template references nothing.
+    """
+    wanted = frozenset(tokens)
+    for target in targets:
+        source = resolve_source(target, fiber_cable_type)
+        if not source.strip():
+            continue
+        parsed = _syntax_guard(target, _ENV.parse, source)
+        if wanted & meta.find_undeclared_variables(parsed):
+            return True
+    return False
+
+
+def uses_tray(fiber_cable_type):
+    """True if either front-port template references a tray token.
+
+    Only the two FRONT port targets are checked: ``_tube_assignment_target_ports``
+    (the tube-assignment sync path this guards) returns FrontPorts only, so
+    rear-port templates are irrelevant here.
+    """
+    return uses_tokens(fiber_cable_type, (FRONT_PORT_NAME, FRONT_PORT_LABEL), TRAY_TOKENS)
+
+
+def compile_for(fiber_cable_type):
+    """Compile every target's template once. A blank source compiles to None.
+
+    Raises :class:`NamingError` -- never a raw ``TemplateSyntaxError`` -- so a
+    malformed ``PLUGINS_CONFIG`` template is caught by the callers' existing
+    ``except NamingError`` guards. See :func:`_syntax_guard`.
+    """
+    compiled = {}
+    for target in TARGETS:
+        source = resolve_source(target, fiber_cable_type)
+        compiled[target] = _syntax_guard(target, _ENV.from_string, source) if source.strip() else None
+    return compiled
+
+
+def validate_plugin_config():
+    """Validate every naming template set in ``PLUGINS_CONFIG``.
+
+    Returns a list of ``(setting_key, message)`` pairs, empty when the config
+    is clean. Never raises: a bad plugin setting must be reported, not turned
+    into a failure to boot NetBox. Cable-type template fields are validated by
+    ``FiberCableType.clean()``; this covers the plugin-wide layer, which no
+    form or serializer ever sees.
+    """
+    problems = []
+    for target, spec in TARGETS.items():
+        source = get_plugin_config("netbox_fms", spec.field, None)
+        if source is None:
+            continue
+        try:
+            validate(target, source)
+        except NamingError as exc:
+            problems.append((spec.field, str(exc)))
+    return problems
+
+
+def render(target, compiled, context):
+    """Render one target, scoped to its tokens and truncated to its max length.
+
+    Returns ``None`` -- not ``""`` -- when the target has no configured
+    template. "No template configured" and "the configured template rendered
+    empty" are different states: the first must leave whatever value the field
+    already holds alone, the second is a deliberate blanking. Callers writing
+    to an existing object must skip the assignment on ``None``; callers
+    creating a new object must coerce it to ``""``.
+    """
+    template = compiled.get(target)
+    if template is None:
+        return None
+    spec = TARGETS[target]
+    scoped = {key: value for key, value in context.items() if key in spec.tokens}
+    try:
+        return template.render(**scoped)[: spec.max_length]
+    except TemplateError as exc:
+        raise NamingError(f"{target}: {exc}") from exc
+
+
+def apply_rendered(obj, name=None, label=None):
+    """Assign rendered ``name``/``label`` onto an existing object.
+
+    A ``None`` value means "no template configured for that target" (see
+    :func:`render`) and is skipped, leaving the stored value alone. Returns
+    the set of field names actually modified, which is what a caller should
+    feed to ``bulk_update`` -- passing a field no render touched would write
+    back stale in-memory values.
+    """
+    changed = set()
+    if name is not None and obj.name != name:
+        obj.name = name
+        changed.add("name")
+    if label is not None and obj.label != label:
+        obj.label = label
+        changed.add("label")
+    return changed
+
+
+class NameCollision(namedtuple("NameCollision", "device_id model_name names existing")):
+    """One (device, port model) group whose proposed names cannot all be written.
+
+    ``existing`` distinguishes the two routes: ``False`` when two ports of the
+    proposal itself ask for one name, ``True`` when the name is already held
+    by a port on that device the proposal is not renaming.
+    """
+
+    __slots__ = ()
+
+    def __str__(self):
+        suffix = " -- already used by a port that is not being renamed" if self.existing else ""
+        return f"device {self.device_id}: {self.model_name} name collision on {', '.join(self.names)}{suffix}"
+
+
+def find_name_collisions(proposed):
+    """Return the :class:`NameCollision` list for ``proposed``; empty means writable.
+
+    ``proposed`` maps a port instance to the name about to be written to it,
+    or ``None`` to mean "no name template configured, keep the stored one"
+    (see :func:`render`) -- so ``None`` compares as ``port.name``.
+
+    Both writers of port names must call this BEFORE writing. ``FrontPort``
+    and ``RearPort`` each carry a ``(device, name)`` unique constraint, but
+    ``FiberCableType.clean()`` validates each template against dummy contexts
+    in isolation and so cannot detect that one renders the same name for two
+    ports. Without a pre-check the clash only surfaces as a database error
+    from ``bulk_update``: on the command that means dying partway through a
+    walk with earlier cables committed, and on the always-on cable post_save
+    rename it means every subsequent save of that cable raising, with nothing
+    to point at the template responsible.
+
+    Two kinds of collision are checked:
+
+    1. Within the proposal -- two of these ports asking for one name.
+    2. Against names already stored on the same device, excluding the ports
+       being renamed. A proposal only ever covers one FiberCable's ports, so
+       without this a rename onto a name owned by a DIFFERENT cable's port
+       passes the first check and dies on the constraint.
+
+    Names are grouped per (device, model) and never merged across models:
+    FrontPort and RearPort are separate tables, each carrying its own
+    ``(device, name)`` unique constraint from ``ComponentModel.Meta``
+    (``%(app_label)s_%(class)s_unique_device_name``). A FrontPort and a
+    RearPort on one device may therefore legitimately share a name, and
+    merging the two groups would refuse writes the database accepts.
+    """
+    by_key = {}
+    for port, name in proposed.items():
+        key = (port.device_id, type(port).__name__)
+        group = by_key.setdefault(key, {"model": type(port), "pks": [], "names": []})
+        group["pks"].append(port.pk)
+        group["names"].append(port.name if name is None else name)
+
+    collisions = []
+    for (device_id, model_name), group in sorted(by_key.items()):
+        dupes = sorted(n for n, count in Counter(group["names"]).items() if count > 1)
+        if dupes:
+            collisions.append(NameCollision(device_id, model_name, dupes, existing=False))
+
+        taken = sorted(
+            group["model"]
+            .objects.filter(device_id=device_id, name__in=set(group["names"]))
+            .exclude(pk__in=group["pks"])
+            .values_list("name", flat=True)
+        )
+        if taken:
+            collisions.append(NameCollision(device_id, model_name, taken, existing=True))
+    return collisions
+
+
+def dummy_contexts(target):
+    """Representative validation contexts: fully populated, then bare."""
+    tokens = TARGETS[target].tokens
+    return [{k: v for k, v in ctx.items() if k in tokens} for ctx in (_DUMMY_TUBED, _DUMMY_BARE)]
+
+
+def validate(target, source):
+    """Compile and dummy-render a template source. Raise NamingError on failure."""
+    source = (source or "").strip()
+    if not source:
+        return None
+    try:
+        template = _ENV.from_string(source)
+    except TemplateSyntaxError as exc:
+        raise NamingError(f"Template syntax error: {exc.message}") from exc
+    spec = TARGETS[target]
+    for ctx in dummy_contexts(target):
+        try:
+            rendered = template.render(**ctx)
+        except TemplateError as exc:
+            raise NamingError(f"Template failed to render: {exc}") from exc
+        if len(rendered) > spec.max_length:
+            raise NamingError(f"Rendered value is {len(rendered)} characters; the maximum is {spec.max_length}.")
+    return None
+
+
+def _tube_tokens(tube, color_scheme):
+    return {
+        "tube": tube.position if tube else None,
+        "tube_name": tube.name if tube else None,
+        "tube_color": color_name(tube.color, color_scheme) if tube else None,
+        "tube_color_hex": tube.color if tube else None,
+    }
+
+
+def _ribbon_tokens(ribbon, color_scheme):
+    return {
+        "ribbon": ribbon.position if ribbon else None,
+        "ribbon_name": ribbon.name if ribbon else None,
+        "ribbon_color": color_name(ribbon.color, color_scheme) if ribbon else None,
+        "ribbon_color_hex": ribbon.color if ribbon else None,
+    }
+
+
+def strand_context(*, cable, cable_type, tube, ribbon, position, local, strand_color_hex, color_scheme):
+    """Build the render context for STRAND_NAME."""
+    ctx = {
+        "cable": str(cable) if cable else "",
+        "cable_id": getattr(cable, "pk", None),
+        "cable_type": str(cable_type),
+        "strand": position,
+        "strand_local": local,
+        "strand_color": color_name(strand_color_hex, color_scheme),
+        "strand_color_hex": strand_color_hex,
+    }
+    ctx.update(_tube_tokens(tube, color_scheme))
+    ctx.update(_ribbon_tokens(ribbon, color_scheme))
+    return ctx
+
+
+def port_context(
+    *,
+    cable,
+    cable_type,
+    device,
+    end,
+    color_scheme,
+    tube=None,
+    strand=None,
+    strand_local=None,
+    tray=None,
+    tray_position=None,
+):
+    """Build the render context for the port targets.
+
+    ``strand`` is a FiberStrand or None; its ribbon, position, name and colour
+    are read from it. ``tray`` is the tray module bay name or None.
+    """
+    ribbon = getattr(strand, "ribbon", None)
+    ctx = {
+        "cable": str(cable) if cable else "",
+        "cable_id": getattr(cable, "pk", None),
+        "cable_type": str(cable_type),
+        "device": getattr(device, "name", None) or str(device),
+        "end": end,
+        "tray": tray,
+        "tray_position": tray_position,
+        "strand": strand.position if strand else None,
+        "strand_local": strand_local,
+        "strand_name": strand.name if strand else None,
+        "strand_color": color_name(strand.color, color_scheme) if strand else None,
+        "strand_color_hex": strand.color if strand else None,
+    }
+    ctx.update(_tube_tokens(tube, color_scheme))
+    ctx.update(_ribbon_tokens(ribbon, color_scheme))
+    return ctx

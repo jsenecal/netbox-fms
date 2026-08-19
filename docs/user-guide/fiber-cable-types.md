@@ -171,6 +171,18 @@ the complete cable construction.
 
 ---
 
+## Naming Templates
+
+The five `*_name_template` / `*_label_template` fields control how the
+plugin generates FrontPort, RearPort, and FiberStrand names and labels when
+a FiberCable of this type is created or re-rendered. Blank means inherit
+the plugin-wide or built-in default. See
+[Naming Templates](naming-templates.md) for the full token reference,
+worked examples, and the `rerender_strand_names` /
+`rerender_port_names` management commands.
+
+---
+
 ## Bulk Import
 
 Fiber cable types can be imported in bulk via CSV from the list view. Navigate
@@ -192,3 +204,6 @@ the cable type records are imported, either through the UI or via the REST API.
   and fire rating fields.
 - [Fiber Cables](fiber-cables.md) -- Creating cable instances from a
   FiberCableType.
+- [Naming Templates](naming-templates.md) -- Jinja templates for generated
+  port and strand names/labels, token reference, and the `rerender_*`
+  management commands.

@@ -1,3 +1,5 @@
+from functools import cached_property
+
 from dcim.choices import CableLengthUnitChoices
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -8,6 +10,7 @@ from utilities.fields import ColorField, CounterCacheField
 from utilities.querysets import RestrictedQuerySet
 from utilities.tracking import TrackingModelMixin
 
+from . import naming
 from .choices import (
     ArmorTypeChoices,
     CableElementTypeChoices,
@@ -195,6 +198,50 @@ class FiberCableType(NetBoxModel):
         blank=True,
     )
 
+    front_port_name_template = models.TextField(
+        blank=True,
+        verbose_name=_("front port name template"),
+        help_text=_(
+            "Jinja template for generated FrontPort names. Blank inherits the "
+            "plugin default. Renders to at most 64 characters."
+        ),
+    )
+    rear_port_name_template = models.TextField(
+        blank=True,
+        verbose_name=_("rear port name template"),
+        help_text=_(
+            "Jinja template for generated RearPort names. Blank inherits the "
+            "plugin default. Renders to at most 64 characters."
+        ),
+    )
+    front_port_label_template = models.TextField(
+        blank=True,
+        verbose_name=_("front port label template"),
+        help_text=_(
+            "Jinja template for generated FrontPort labels. Blank leaves labels "
+            "unset. Setting a label changes how the port is displayed everywhere "
+            "in NetBox, not only in FMS views."
+        ),
+    )
+    rear_port_label_template = models.TextField(
+        blank=True,
+        verbose_name=_("rear port label template"),
+        help_text=_(
+            "Jinja template for generated RearPort labels. Blank leaves labels "
+            "unset. Setting a label changes how the port is displayed everywhere "
+            "in NetBox, not only in FMS views."
+        ),
+    )
+    strand_name_template = models.TextField(
+        blank=True,
+        verbose_name=_("strand name template"),
+        help_text=_(
+            "Jinja template for generated FiberStrand names. Blank inherits the "
+            "plugin default. Run the rerender_strand_names command after "
+            "changing this."
+        ),
+    )
+
     buffer_tube_template_count = CounterCacheField(
         to_model="netbox_fms.BufferTubeTemplate",
         to_field="fiber_cable_type",
@@ -222,6 +269,11 @@ class FiberCableType(NetBoxModel):
         "fire_rating",
         "outer_diameter",
         "twist_factor_ratio",
+        "front_port_name_template",
+        "rear_port_name_template",
+        "front_port_label_template",
+        "rear_port_label_template",
+        "strand_name_template",
     )
 
     class Meta:
@@ -259,6 +311,13 @@ class FiberCableType(NetBoxModel):
                         ).format(declared=self.strand_count, computed=template_count)
                     }
                 )
+
+        # Naming templates
+        for target, spec in naming.TARGETS.items():
+            try:
+                naming.validate(target, getattr(self, spec.field))
+            except naming.NamingError as exc:
+                raise ValidationError({spec.field: str(exc)}) from exc
 
     def get_strand_count_from_templates(self):
         """Compute total fiber count from buffer tube templates."""
@@ -299,6 +358,71 @@ class FiberCableType(NetBoxModel):
         """
         spec = self.attenuation_specs.filter(wavelength_nm=wavelength_nm).first()
         return spec.max_loss_db_per_km if spec else None
+
+    @cached_property
+    def _compiled_naming(self):
+        """Compiled naming templates, built once per instance."""
+        return naming.compile_for(self)
+
+    @cached_property
+    def naming_uses_tray(self):
+        """True if either front-port template references a tray token.
+
+        Delegates to ``naming.uses_tray``, parsed statically via jinja2's
+        ``meta`` module. Unlike ``_compiled_naming``, this caches a plain
+        ``bool``, which ``copy.deepcopy`` handles natively -- it does not
+        need excluding in ``__getstate__``.
+        """
+        return naming.uses_tray(self)
+
+    def __getstate__(self):
+        """Exclude the compiled naming cache: Jinja2 ``Template`` objects cannot be (deep)copied.
+
+        Once ``_compiled_naming`` has been populated, ``copy.deepcopy(instance)`` fails with
+        ``Template.__new__() missing 1 required positional argument: 'source'`` because Jinja2
+        templates are not generically copyable. Django's ``TestData`` deep-copies ``setUpTestData``
+        class attributes before every test method, so any test holding a ``FiberCableType`` whose
+        naming has been resolved would hit this. The cache is cheap to rebuild via the
+        ``cached_property`` on next access, so drop it from the pickled/copied state instead.
+
+        ``naming_uses_tray`` caches a plain ``bool`` (not a Jinja2 object), so it is left in
+        the pickled/copied state deliberately -- there is nothing unpicklable to strip.
+        """
+        state = super().__getstate__()
+        state.pop("_compiled_naming", None)
+        return state
+
+    def resolve_front_port_name(self, **ctx):
+        """Render the FrontPort name template, or None if none is configured."""
+        return naming.render(naming.FRONT_PORT_NAME, self._compiled_naming, ctx)
+
+    def resolve_rear_port_name(self, **ctx):
+        """Render the RearPort name template, or None if none is configured."""
+        return naming.render(naming.REAR_PORT_NAME, self._compiled_naming, ctx)
+
+    def resolve_front_port_label(self, **ctx):
+        """Render the FrontPort label template, or None if none is configured.
+
+        None is the common case: both label targets default to blank, so an
+        install that configured no label template gets None here and callers
+        must leave the existing label untouched.
+        """
+        return naming.render(naming.FRONT_PORT_LABEL, self._compiled_naming, ctx)
+
+    def resolve_rear_port_label(self, **ctx):
+        """Render the RearPort label template, or None if none is configured."""
+        return naming.render(naming.REAR_PORT_LABEL, self._compiled_naming, ctx)
+
+    def resolve_strand_name(self, **ctx):
+        """Render the FiberStrand name template with the given context.
+
+        Unlike the port resolvers, this never returns None. STRAND_NAME's
+        built-in default is non-blank and a blank cable-type override falls
+        back to it, so "no template configured" can only arise from an
+        explicitly blank PLUGINS_CONFIG entry; that is coerced to "" here so
+        strand creation, which writes a NOT NULL column, keeps working.
+        """
+        return naming.render(naming.STRAND_NAME, self._compiled_naming, ctx) or ""
 
 
 class FiberAttenuationSpec(NetBoxModel):
@@ -833,13 +957,24 @@ class FiberCable(NetBoxModel):
                 # Loose tube: create fibers directly in tube
                 fibers = []
                 for i in range(1, tt.fiber_count + 1):
-                    hex_color, _ = get_strand_color(i, fct.color_scheme)
+                    hex_color, _color_name = get_strand_color(i, fct.color_scheme)
                     mk_count, mk_color, mk_type = self._strand_marker(i, tt)
                     fibers.append(
                         FiberStrand(
                             fiber_cable=self,
                             buffer_tube=tube,
-                            name=f"{tube.name}-F{i}",
+                            name=fct.resolve_strand_name(
+                                **naming.strand_context(
+                                    cable=self.cable,
+                                    cable_type=fct,
+                                    tube=tube,
+                                    ribbon=None,
+                                    position=strand_position,
+                                    local=i,
+                                    strand_color_hex=hex_color,
+                                    color_scheme=fct.color_scheme,
+                                )
+                            ),
                             position=strand_position,
                             color=hex_color,
                             marker_count=mk_count,
@@ -865,12 +1000,23 @@ class FiberCable(NetBoxModel):
             # Tight buffer / simple cable: create fibers directly on cable
             fibers = []
             for i in range(1, fct.strand_count + 1):
-                hex_color, _ = get_strand_color(i, fct.color_scheme)
+                hex_color, _color_name = get_strand_color(i, fct.color_scheme)
                 mk_count, mk_color, mk_type = self._strand_marker(i, fct)
                 fibers.append(
                     FiberStrand(
                         fiber_cable=self,
-                        name=f"F{i}",
+                        name=fct.resolve_strand_name(
+                            **naming.strand_context(
+                                cable=self.cable,
+                                cable_type=fct,
+                                tube=None,
+                                ribbon=None,
+                                position=i,
+                                local=i,
+                                strand_color_hex=hex_color,
+                                color_scheme=fct.color_scheme,
+                            )
+                        ),
                         position=i,
                         color=hex_color,
                         marker_count=mk_count,
@@ -887,16 +1033,28 @@ class FiberCable(NetBoxModel):
 
     def _create_fibers_in_ribbon(self, ribbon, buffer_tube, ribbon_template, start_position):
         """Create fiber strands within a ribbon. Returns next strand position."""
+        fct = self.fiber_cable_type
         fibers = []
         for i in range(1, ribbon_template.fiber_count + 1):
-            hex_color, _ = get_strand_color(i, self.fiber_cable_type.color_scheme)
+            hex_color, _color_name = get_strand_color(i, fct.color_scheme)
             mk_count, mk_color, mk_type = self._strand_marker(i, ribbon_template)
             fibers.append(
                 FiberStrand(
                     fiber_cable=self,
                     buffer_tube=buffer_tube,
                     ribbon=ribbon,
-                    name=f"{ribbon.name}-F{i}",
+                    name=fct.resolve_strand_name(
+                        **naming.strand_context(
+                            cable=self.cable,
+                            cable_type=fct,
+                            tube=buffer_tube,
+                            ribbon=ribbon,
+                            position=start_position,
+                            local=i,
+                            strand_color_hex=hex_color,
+                            color_scheme=fct.color_scheme,
+                        )
+                    ),
                     position=start_position,
                     color=hex_color,
                     marker_count=mk_count,

@@ -3,6 +3,8 @@
 import xml.etree.ElementTree as ET
 
 from dcim.models import FrontPort, Module
+from django.db.models import Min
+from django.db.models.functions import Coalesce
 
 from netbox_fms.models import FiberStrand
 
@@ -39,8 +41,14 @@ def generate_drawio(plan):
         ET.SubElement(root, "mxCell", id="0")
         ET.SubElement(root, "mxCell", id="1", parent="0")
 
-        # Get FrontPorts on this tray
-        ports = FrontPort.objects.filter(device=plan.closure, module=tray).order_by("name")
+        # Get FrontPorts on this tray, ordered by the strand's position rather than
+        # the port name -- a name template edit must not silently reorder the diagram.
+        # "name" remains as a deterministic tiebreak for ports with no strand.
+        ports = (
+            FrontPort.objects.filter(device=plan.closure, module=tray)
+            .annotate(_strand_position=Coalesce(Min("fiber_strands_a__position"), Min("fiber_strands_b__position")))
+            .order_by("_strand_position", "name")
+        )
 
         # Layout: ports as nodes, connections drawn between pairs
         y_offset = 40

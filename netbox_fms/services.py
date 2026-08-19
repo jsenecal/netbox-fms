@@ -1,11 +1,16 @@
 """Diff computation engine for splice plans and link topology services."""
 
+import logging
+
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
+from django.db import models, transaction
 
+from . import naming
 from .models import ClosureCableEntry, FiberCable, SplicePlanEntry
 from .signals import fms_portmapping_bypass
+
+logger = logging.getLogger("netbox.plugins.netbox_fms")
 
 
 class NeedsMappingConfirmation(Exception):  # noqa: N818
@@ -61,8 +66,9 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     tube) and one FrontPort per strand, joined by PortMappings. Tubeless
     cable: a single RearPort covering all strands. Each strand's
     ``fk_field`` ("front_port_a" or "front_port_b") is pointed at its new
-    FrontPort. Does NOT create CableTerminations -- callers terminate the
-    cable on the returned RearPorts themselves.
+    FrontPort. Names and labels come from the cable type's templates. Does
+    NOT create CableTerminations -- callers terminate the cable on the
+    returned RearPorts themselves.
 
     Returns: list of (buffer_tube_or_None, rear_port, fiber_count) tuples,
     in tube-position order.
@@ -70,24 +76,52 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     provisioned = []
     tubes = list(fc.buffer_tubes.all().order_by("position"))
     strands = list(fc.fiber_strands.all().order_by("position"))
-    cable_label = str(fc.cable)
+    fct = fc.fiber_cable_type
+    end = "A" if fk_field == "front_port_a" else "B"
+
+    def _ctx(tube, strand=None, local=None):
+        return naming.port_context(
+            cable=fc.cable,
+            cable_type=fct,
+            device=device,
+            end=end,
+            color_scheme=fct.color_scheme,
+            tube=tube,
+            strand=strand,
+            strand_local=local,
+        )
+
+    # Greenfield creates: an unconfigured template renders None, but name and
+    # label are both NOT NULL, so coerce to "" -- Django's own field default.
+    def _blank(value):
+        return "" if value is None else value
+
+    def _make_rear_port(tube, positions):
+        ctx = _ctx(tube)
+        return RearPort.objects.create(
+            device=device,
+            name=_blank(fct.resolve_rear_port_name(**ctx)),
+            label=_blank(fct.resolve_rear_port_label(**ctx)),
+            type=port_type,
+            positions=positions,
+        )
+
+    def _make_front_port(tube, strand, local):
+        ctx = _ctx(tube, strand, local)
+        return FrontPort.objects.create(
+            device=device,
+            name=_blank(fct.resolve_front_port_name(**ctx)),
+            label=_blank(fct.resolve_front_port_label(**ctx)),
+            type=port_type,
+        )
 
     with fms_portmapping_bypass():
         if tubes:
             for tube in tubes:
                 tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
-                rp = RearPort.objects.create(
-                    device=device,
-                    name=f"{cable_label}:T{tube.position}"[:64],
-                    type=port_type,
-                    positions=len(tube_strands),
-                )
+                rp = _make_rear_port(tube, len(tube_strands))
                 for i, strand in enumerate(tube_strands, start=1):
-                    fp = FrontPort.objects.create(
-                        device=device,
-                        name=f"{cable_label}:T{tube.position}:F{strand.position}"[:64],
-                        type=port_type,
-                    )
+                    fp = _make_front_port(tube, strand, i)
                     PortMapping.objects.create(
                         device=device,
                         front_port=fp,
@@ -99,18 +133,9 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                     strand.save(update_fields=[fk_field])
                 provisioned.append((tube, rp, len(tube_strands)))
         else:
-            rp = RearPort.objects.create(
-                device=device,
-                name=cable_label[:64],
-                type=port_type,
-                positions=len(strands),
-            )
+            rp = _make_rear_port(None, len(strands))
             for i, strand in enumerate(strands, start=1):
-                fp = FrontPort.objects.create(
-                    device=device,
-                    name=f"{cable_label}:F{strand.position}"[:64],
-                    type=port_type,
-                )
+                fp = _make_front_port(None, strand, i)
                 PortMapping.objects.create(
                     device=device,
                     front_port=fp,
@@ -564,18 +589,191 @@ def _tube_assignment_target_ports(closure_id, buffer_tube_id):
     return ports
 
 
+def _port_render_context(*, fiber_cable, device, end, tube, **extra):
+    """Return (cable_type, context) for a port of ``fiber_cable`` on ``device``.
+
+    The shared half of ``render_port_strings`` and ``render_rear_port_strings``:
+    everything a port render needs that does not depend on which end of the
+    front/rear pair is being named. ``extra`` carries the front-port-only
+    tokens (``strand``, ``strand_local``, ``tray``, ``tray_position``), which
+    ``naming.port_context`` defaults to ``None`` for a rear port.
+    """
+    fct = fiber_cable.fiber_cable_type
+    ctx = naming.port_context(
+        cable=fiber_cable.cable,
+        cable_type=fct,
+        device=device,
+        end=end,
+        color_scheme=fct.color_scheme,
+        tube=tube,
+        **extra,
+    )
+    return fct, ctx
+
+
+def render_port_strings(port, strand, tube, tray, tray_position):
+    """Return (name, label) for a FrontPort under its cable type's templates.
+
+    Either element is ``None`` when the cable type configures no template for
+    that target (see ``naming.render``); callers writing to an existing port
+    must skip the assignment rather than blanking the stored value.
+
+    ``strand_local`` is recovered from the port's stored
+    ``PortMapping.rear_port_position``: ``_provision_device_ports`` writes the
+    same per-tube index into that column as it passes as ``strand_local``, so
+    it is the authoritative record of the original local index. Costs one
+    extra query per port; ``None`` when the port has no PortMapping (adopted
+    ports that FMS never provisioned).
+    """
+    strand_local = PortMapping.objects.filter(front_port=port).values_list("rear_port_position", flat=True).first()
+    fct, ctx = _port_render_context(
+        fiber_cable=strand.fiber_cable,
+        device=port.device,
+        end="A" if strand.front_port_a_id == port.pk else "B",
+        tube=tube,
+        strand=strand,
+        strand_local=strand_local,
+        tray=tray,
+        tray_position=tray_position,
+    )
+    return fct.resolve_front_port_name(**ctx), fct.resolve_front_port_label(**ctx)
+
+
+def render_rear_port_strings(port, fiber_cable, tube, end, tray=None, tray_position=None):
+    """Return (name, label) for a RearPort under its cable type's templates.
+
+    Mirrors ``render_port_strings``, minus the strand tokens: a RearPort spans
+    a whole buffer tube and has no single strand, so ``strand`` and
+    ``strand_local`` are left at ``None``.
+
+    ``tray``/``tray_position`` ARE accepted, even though FMS never assigns
+    ``RearPort.module`` itself. ``_REAR_TOKENS`` includes both tokens, so a
+    rear-port template may reference them and validate cleanly, and a
+    ``RearPort`` inherits ``module`` from NetBox's ``ModularComponentModel``,
+    so an operator can place one on a tray through the NetBox UI. Callers must
+    pass the port's real tray placement, exactly as ``_rename_ports_for_cable``
+    does -- rendering ``None`` here instead would make a port's name flip-flop
+    depending on which path last wrote it.
+
+    ``end`` is passed in rather than derived because ``_determine_cable_end``
+    runs queries and callers naming several rear ports on one device should
+    resolve it once.
+
+    Either element is ``None`` when no template is configured for that target;
+    the same "leave the stored value alone" rule as ``render_port_strings``.
+    """
+    fct, ctx = _port_render_context(
+        fiber_cable=fiber_cable,
+        device=port.device,
+        end=end,
+        tube=tube,
+        tray=tray,
+        tray_position=tray_position,
+    )
+    return fct.resolve_rear_port_name(**ctx), fct.resolve_rear_port_label(**ctx)
+
+
+def _strand_for_port(port, buffer_tube_id):
+    """The FiberStrand of ``buffer_tube_id`` terminating at ``port``, or None."""
+    from .models import FiberStrand
+
+    return (
+        FiberStrand.objects.filter(buffer_tube_id=buffer_tube_id)
+        .filter(models.Q(front_port_a=port) | models.Q(front_port_b=port))
+        .select_related("fiber_cable__fiber_cable_type", "ribbon")
+        .first()
+    )
+
+
+def _cable_type_uses_tray(buffer_tube_id):
+    """Whether buffer_tube_id's cable type has a tray-aware front-port template.
+
+    Resolved in one query so the guard can be decided once per assignment,
+    before the port loop, rather than re-fetching a fresh FiberCableType
+    (and re-parsing its templates via the cached_property) on every row.
+
+    A template that will not even parse -- only reachable from PLUGINS_CONFIG,
+    since cable-type fields are validated by ``FiberCableType.clean()`` --
+    answers False after logging: "cannot tell" must degrade to "do not touch
+    any name", not to a 500 on every tube assignment save.
+    """
+    from .models import BufferTube
+
+    tube = BufferTube.objects.filter(pk=buffer_tube_id).select_related("fiber_cable__fiber_cable_type").first()
+    if tube is None:
+        return False
+    try:
+        return bool(tube.fiber_cable.fiber_cable_type.naming_uses_tray)
+    except naming.NamingError:
+        logger.exception(
+            "Naming template failed to parse for buffer tube %s (cable type %s); "
+            "treating it as tray-unaware, so port names are left unchanged",
+            buffer_tube_id,
+            tube.fiber_cable.fiber_cable_type,
+        )
+        return False
+
+
 def sync_tube_assignment_ports(assignment):
     """Place the tube's closure-side strand front ports on the assignment's tray.
 
     Overwrites unconditionally; conflict blocking happens at form/serializer
     validation. Saves ports individually so NetBox change logging records
-    each move.
+    each move -- ``snapshot()`` is called before any field is mutated so the
+    changelog's "before" state is preserved.
+
+    Also re-renders each port's name and label, but only when the cable
+    type's front-port templates actually reference ``{{ tray }}`` /
+    ``{{ tray_position }}`` (``FiberCableType.naming_uses_tray``, resolved
+    once via ``_cable_type_uses_tray`` before the loop). Ports adopted from
+    a DeviceType template or hand-named outside FMS never had their name
+    touched by this function before tray-aware templates existed; if the
+    cable type configured no such template, that must stay true -- no
+    strand lookup, no render, no name/label mutation, exactly PR #90's
+    original loop body.
     """
+    tray_name = assignment.tray.module_bay.name if assignment.tray else None
+    uses_tray = _cable_type_uses_tray(assignment.buffer_tube_id)
+
     for port in _tube_assignment_target_ports(assignment.closure_id, assignment.buffer_tube_id):
-        if port.module_id != assignment.tray_id:
-            port.snapshot()
-            port.module_id = assignment.tray_id
-            port.save()
+        new_name = new_label = None
+        if uses_tray:
+            strand = _strand_for_port(port, assignment.buffer_tube_id)
+            if strand is not None:
+                try:
+                    new_name, new_label = render_port_strings(
+                        port, strand, strand.buffer_tube, tray_name, assignment.position
+                    )
+                except naming.NamingError:
+                    # Matches the cable-save signal's guard: keep the tray move,
+                    # drop the rename, but never silently. Without the log a port
+                    # keeps a name describing a tray it is no longer on, or never
+                    # picks one up, with nothing in the record to say why.
+                    logger.exception(
+                        "Naming template failed for tube assignment %s (closure %s, tray %s, tube %s) "
+                        "on front port %s; its name and label are left unchanged",
+                        assignment.pk,
+                        assignment.closure_id,
+                        assignment.tray_id,
+                        assignment.buffer_tube_id,
+                        port.pk,
+                    )
+                    new_name = new_label = None
+
+        # None means "no template configured" for that target, so it never
+        # counts as a change and is never assigned.
+        changed = port.module_id != assignment.tray_id
+        if new_name is not None and new_name != port.name:
+            changed = True
+        if new_label is not None and new_label != port.label:
+            changed = True
+        if not changed:
+            continue
+
+        port.snapshot()
+        port.module_id = assignment.tray_id
+        naming.apply_rendered(port, name=new_name, label=new_label)
+        port.save()
 
 
 def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
@@ -583,10 +781,43 @@ def clear_tube_assignment_ports(closure_id, tray_id, buffer_tube_id):
 
     Only touches ports still sitting on the given tray; ports moved
     elsewhere by hand are left alone. Takes ids so it can run from a
-    post_delete signal.
+    post_delete signal. ``snapshot()`` is called before any field is
+    mutated so the changelog's "before" state is preserved.
+
+    Also re-renders each port's name and label back to their device-level
+    form, gated by ``_cable_type_uses_tray`` (resolved once, not per port)
+    for the same reason as ``sync_tube_assignment_ports``: cable types with
+    no tray-aware template must never have FMS touch a port's name, and
+    must never incur the extra per-port strand query either.
     """
+    uses_tray = _cable_type_uses_tray(buffer_tube_id)
+
     for port in _tube_assignment_target_ports(closure_id, buffer_tube_id):
-        if port.module_id == tray_id:
-            port.snapshot()
-            port.module_id = None
-            port.save()
+        if port.module_id != tray_id:
+            continue
+
+        new_name = new_label = None
+        if uses_tray:
+            strand = _strand_for_port(port, buffer_tube_id)
+            if strand is not None:
+                try:
+                    new_name, new_label = render_port_strings(port, strand, strand.buffer_tube, None, None)
+                except naming.NamingError:
+                    # The port still leaves the tray, but keeps its tray-flavoured
+                    # name. Log it: a stale "Tray 1:..." name on an unassigned port
+                    # is exactly the state an operator needs a trace for.
+                    logger.exception(
+                        "Naming template failed while clearing tube assignment "
+                        "(closure %s, tray %s, tube %s) on front port %s; "
+                        "its name and label keep their tray-assigned values",
+                        closure_id,
+                        tray_id,
+                        buffer_tube_id,
+                        port.pk,
+                    )
+                    new_name = new_label = None
+
+        port.snapshot()
+        port.module_id = None
+        naming.apply_rendered(port, name=new_name, label=new_label)
+        port.save()

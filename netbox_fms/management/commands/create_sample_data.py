@@ -23,7 +23,6 @@ from dcim.models import (
     Module,
     ModuleBay,
     ModuleType,
-    PortMapping,
     RearPort,
     Site,
 )
@@ -49,7 +48,7 @@ from netbox_fms.models import (
     TrayProfile,
     TubeAssignment,
 )
-from netbox_fms.signals import fms_portmapping_bypass
+from netbox_fms.services import _provision_device_ports
 
 
 def _bulk_create_components(model, instances):
@@ -449,15 +448,14 @@ class Command(BaseCommand):
                 status="applied",
             )
 
-            # Group FrontPorts by cable
+            # Group FrontPorts by cable, resolved via the FiberStrand relation
+            front_ports = list(FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"))
+            strand_by_fp = self._strand_lookup(front_ports)
             fps_by_cable = {}
-            for fp in FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"):
-                if fp.name.startswith("#"):
-                    try:
-                        cable_pk = int(fp.name.split(":")[0][1:])
-                        fps_by_cable.setdefault(cable_pk, []).append(fp)
-                    except (ValueError, IndexError):
-                        pass
+            for fp in front_ports:
+                strand = strand_by_fp.get(fp.pk)
+                if strand is not None:
+                    fps_by_cable.setdefault(strand.fiber_cable_id, []).append(fp)
 
             cable_pks = sorted(fps_by_cable.keys())
             if len(cable_pks) < 2:
@@ -986,7 +984,11 @@ class Command(BaseCommand):
         """Create RearPorts, FrontPorts, PortMappings on both sides of a cable.
         Link FiberStrands to their FrontPorts. Set cable profile and terminations
         so Cable.save() creates CableTerminations with proper connector/positions
-        for profile-based tracing."""
+        for profile-based tracing.
+
+        Port creation/naming/linking is delegated to services._provision_device_ports
+        (the same routine create_closure_cable uses) rather than hand-rolled here;
+        this method only adds the sample-data-specific tray placement and EIA color."""
         cable = cable_info["cable"]
         fc = cable_info["fiber_cable"]
         if not fc:
@@ -1004,96 +1006,41 @@ class Command(BaseCommand):
         profile_key = fct.get_cable_profile()
         side_rps = {"A": [], "B": []}
 
-        with fms_portmapping_bypass():
-            for device, cable_end, fk_field in [
-                (cable_info["a_device"], "A", "front_port_a"),
-                (cable_info["b_device"], "B", "front_port_b"),
-            ]:
-                tubes = list(fc.buffer_tubes.all().order_by("position"))
-                strands = list(fc.fiber_strands.all().order_by("position"))
-                trays = list(Module.objects.filter(device=device).order_by("module_bay__position"))
+        for device, cable_end, fk_field in [
+            (cable_info["a_device"], "A", "front_port_a"),
+            (cable_info["b_device"], "B", "front_port_b"),
+        ]:
+            trays = list(Module.objects.filter(device=device).order_by("module_bay__position"))
+            provisioned = _provision_device_ports(fc, device, "splice", fk_field)
+            side_rps[cable_end] = [rp for _, rp, _ in provisioned]
 
-                if tubes:
-                    for tube_idx, tube in enumerate(tubes):
-                        tray = trays[tube_idx % len(trays)] if trays else None
-                        tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
+            for tube_idx, (tube, rp, _fiber_count) in enumerate(provisioned):
+                # Tray placement only applies when the device has trays; EIA color
+                # applies unconditionally -- trayless devices (e.g. wall-box panels
+                # on drop cables) still get colored FrontPorts, they just aren't
+                # placed on a Module.
+                tray = trays[tube_idx % len(trays)] if trays else None
+                if tray is not None:
+                    rp.module = tray
+                    rp.save(update_fields=["module"])
 
-                        rp = RearPort.objects.create(
-                            device=device,
-                            module=tray,
-                            name=f"{str(cable)}:T{tube.position}"[:64],
-                            type="splice",
-                            positions=len(tube_strands),
-                        )
-                        side_rps[cable_end].append(rp)
-
-                        fps_to_create = []
-                        for pos_in_tube, strand in enumerate(tube_strands, 1):
-                            fp = FrontPort(
-                                device=device,
-                                module=tray,
-                                name=f"{str(cable)}:T{tube.position}:F{strand.position}"[:64],
-                                type="splice",
-                                color=EIA_COLORS.get(pos_in_tube, "cccccc"),
-                            )
-                            fps_to_create.append((fp, rp, pos_in_tube, strand))
-
-                        # Bulk create FrontPorts
-                        fp_objects = _bulk_create_components(FrontPort, [f[0] for f in fps_to_create])
-                        pms_to_create = []
-                        for fp_obj, (_, rp_ref, pos, strand) in zip(fp_objects, fps_to_create, strict=False):
-                            pms_to_create.append(
-                                PortMapping(
-                                    device=device,
-                                    front_port=fp_obj,
-                                    rear_port=rp_ref,
-                                    front_port_position=1,
-                                    rear_port_position=pos,
-                                )
-                            )
-                            setattr(strand, fk_field, fp_obj)
-
-                        PortMapping.objects.bulk_create(pms_to_create)
-                        FiberStrand.objects.bulk_update(tube_strands, [fk_field])
+                if tube is not None:
+                    tube_strands = fc.fiber_strands.filter(buffer_tube=tube).order_by("position")
                 else:
-                    # Tight buffer (no tubes)
-                    tray = trays[0] if trays else None
-                    rp = RearPort.objects.create(
-                        device=device,
-                        module=tray,
-                        name=str(cable)[:64],
-                        type="splice",
-                        positions=len(strands),
-                    )
-                    side_rps[cable_end].append(rp)
+                    tube_strands = fc.fiber_strands.filter(buffer_tube__isnull=True).order_by("position")
 
-                    fps_to_create = []
-                    for strand in strands:
-                        fp = FrontPort(
-                            device=device,
-                            module=tray,
-                            name=f"{str(cable)}:F{strand.position}"[:64],
-                            type="splice",
-                            color=EIA_COLORS.get(strand.position, "cccccc"),
-                        )
-                        fps_to_create.append((fp, rp, strand.position, strand))
-
-                    fp_objects = _bulk_create_components(FrontPort, [f[0] for f in fps_to_create])
-                    pms_to_create = []
-                    for fp_obj, (_, rp_ref, pos, strand) in zip(fp_objects, fps_to_create, strict=False):
-                        pms_to_create.append(
-                            PortMapping(
-                                device=device,
-                                front_port=fp_obj,
-                                rear_port=rp_ref,
-                                front_port_position=1,
-                                rear_port_position=pos,
-                            )
-                        )
-                        setattr(strand, fk_field, fp_obj)
-
-                    PortMapping.objects.bulk_create(pms_to_create)
-                    FiberStrand.objects.bulk_update(strands, [fk_field])
+                fps_to_update = []
+                for pos_in_tube, strand in enumerate(tube_strands, 1):
+                    fp = getattr(strand, fk_field)
+                    if fp is None:
+                        continue
+                    fp.color = EIA_COLORS.get(pos_in_tube, "cccccc")
+                    if tray is not None:
+                        fp.module = tray
+                    fps_to_update.append(fp)
+                if fps_to_update:
+                    update_fields = ["module", "color"] if tray is not None else ["color"]
+                    FrontPort.objects.bulk_update(fps_to_update, update_fields)
 
         # Set cable profile and terminations — Cable.save() calls update_terminations()
         # which creates CableTerminations with connector/positions for profile-based tracing
@@ -1456,6 +1403,25 @@ class Command(BaseCommand):
     # Splice plans
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _strand_lookup(front_ports):
+        """Map FrontPort pk -> the FiberStrand terminating there (either end).
+
+        Resolves the association through FiberStrand.front_port_a/front_port_b --
+        the real relation -- instead of parsing a cable pk or tube number out of
+        the port name.
+        """
+        lookup = {}
+        for strand in FiberStrand.objects.filter(front_port_a__in=front_ports).select_related(
+            "fiber_cable__cable", "buffer_tube"
+        ):
+            lookup[strand.front_port_a_id] = strand
+        for strand in FiberStrand.objects.filter(front_port_b__in=front_ports).select_related(
+            "fiber_cable__cable", "buffer_tube"
+        ):
+            lookup.setdefault(strand.front_port_b_id, strand)
+        return lookup
+
     def _create_splice_plans(self):
         self.stdout.write("Creating splice plans...")
         closures = {n: d for n, d in self.devices.items() if n.startswith(("BB-", "MR-", "BS-", "RS-"))}
@@ -1477,15 +1443,14 @@ class Command(BaseCommand):
                 status="applied",
             )
 
-            # Group FrontPorts by cable
+            # Group FrontPorts by cable, resolved via the FiberStrand relation
+            front_ports = list(FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"))
+            strand_by_fp = self._strand_lookup(front_ports)
             fps_by_cable = {}
-            for fp in FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"):
-                if fp.name.startswith("#"):
-                    try:
-                        cable_pk = int(fp.name.split(":")[0][1:])
-                        fps_by_cable.setdefault(cable_pk, []).append(fp)
-                    except (ValueError, IndexError):
-                        pass
+            for fp in front_ports:
+                strand = strand_by_fp.get(fp.pk)
+                if strand is not None:
+                    fps_by_cable.setdefault(strand.fiber_cable_id, []).append(fp)
 
             cable_pks = sorted(fps_by_cable.keys())
             if len(cable_pks) < 2:
@@ -1505,10 +1470,9 @@ class Command(BaseCommand):
                     # Backbone: first 2 tubes are cut/spliced, rest express through
                     is_express = False
                     if is_backbone_passthrough:
-                        # Parse tube number from name like "#123:T03:F5"
-                        parts = fp_a.name.split(":")
-                        if len(parts) >= 2:
-                            is_express = parts[1] > "T02"
+                        strand_a = strand_by_fp.get(fp_a.pk)
+                        tube = strand_a.buffer_tube if strand_a else None
+                        is_express = tube is not None and tube.position > 2
                     entries.append(
                         SplicePlanEntry(
                             plan=plan,
@@ -1704,24 +1668,18 @@ class Command(BaseCommand):
                 self.stdout.write(f"  Created circuit: {name} (no origin device found)")
                 continue
 
-            # Find FrontPorts on this device that belong to cables matching the prefix
+            # Find FrontPorts on this device that belong to cables matching the prefix,
+            # resolved via the FiberStrand relation rather than the port name
+            origin_front_ports = list(FrontPort.objects.filter(device=origin_device).order_by("name"))
+            strand_by_fp = self._strand_lookup(origin_front_ports)
             origin_fps = []
-            for fp in FrontPort.objects.filter(device=origin_device).order_by("name"):
-                if fp.name.startswith("#"):
-                    try:
-                        cable_pk = int(fp.name.split(":")[0][1:])
-                        cable = Cable.objects.filter(pk=cable_pk).first()
-                        if (
-                            cable
-                            and cable.label
-                            and any(
-                                cable.label.startswith(f"{origin_device_name} →") and cable_prefix in cable.label
-                                for _ in [None]  # just need the condition
-                            )
-                        ):
-                            origin_fps.append(fp)
-                    except (ValueError, IndexError):
-                        pass
+            for fp in origin_front_ports:
+                strand = strand_by_fp.get(fp.pk)
+                if strand is None:
+                    continue
+                cable = strand.fiber_cable.cable
+                if cable.label and cable.label.startswith(f"{origin_device_name} →") and cable_prefix in cable.label:
+                    origin_fps.append(fp)
 
             # Fallback: just pick the first 2 FrontPorts on the device
             if not origin_fps:
