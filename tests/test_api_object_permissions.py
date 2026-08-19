@@ -26,6 +26,7 @@ from netbox_fms.models import (
     FiberCircuit,
     FiberCircuitNode,
     FiberCircuitPath,
+    FiberStrand,
     SplicePlan,
     SplicePlanEntry,
 )
@@ -34,8 +35,14 @@ from tests.conftest import make_infra
 User = get_user_model()
 
 
-def _constrained_client(model, constraints, username):
-    """API client for a user whose view permission on ``model`` carries ``constraints``."""
+def _constrained_client(models, constraints, username):
+    """API client for a user whose view permission on ``models`` carries ``constraints``.
+
+    ``models`` is a model class or a list of them; ``constraints=None`` grants
+    unconstrained view permission on those models.
+    """
+    if not isinstance(models, (list, tuple)):
+        models = [models]
     user = User.objects.create_user(username=username, password="x")  # noqa: S106
     perm = ObjectPermission.objects.create(
         name=f"perm-{username}",
@@ -43,7 +50,7 @@ def _constrained_client(model, constraints, username):
         actions=["view"],
         constraints=constraints,
     )
-    perm.object_types.set([ContentType.objects.get_for_model(model)])
+    perm.object_types.set([ContentType.objects.get_for_model(m) for m in models])
     perm.users.add(user)
     client = APIClient()
     # Re-fetch so no stale permission cache rides along on the user instance
@@ -131,18 +138,46 @@ class TestClaimsEndpointPermissions(TestCase):
 
 
 class TestClosureStrandsEndpointPermissions(TestCase):
-    """The closure-strands view must not serve cable/strand data the user cannot view."""
+    """The closure-strands view must serve exactly what the user may view: nothing
+    to a user without permissions, the full strand map to a permitted user."""
 
     @classmethod
     def setUpTestData(cls):
         site, mfr, dt, role = make_infra("PermS")
         cls.closure = Device.objects.create(name="PermS-1", site=site, device_type=dt, role=role)
+        cls.far_device = Device.objects.create(name="PermS-Far", site=site, device_type=dt, role=role)
         fp = FrontPort.objects.create(device=cls.closure, name="PermS-FP", type="lc")
-        cable = Cable.objects.create(a_terminations=[fp])
+        far_fp = FrontPort.objects.create(device=cls.far_device, name="PermS-Far-FP", type="lc")
+        cable = Cable.objects.create(a_terminations=[fp], b_terminations=[far_fp])
         fct = FiberCableType.objects.create(
             manufacturer=mfr, model="PermS-TB6", strand_count=6, construction="tight_buffer"
         )
-        FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+
+        # Map one strand to the closure's front port and protect it with a
+        # circuit, so the protection lookup has a row to resolve.
+        cls.protected_strand = fc.fiber_strands.order_by("position").first()
+        cls.protected_strand.front_port_a = fp
+        cls.protected_strand.save()
+        circuit = FiberCircuit.objects.create(
+            name="PermS-Circuit",
+            status=FiberCircuitStatusChoices.ACTIVE,
+            strand_count=1,
+        )
+        path = FiberCircuitPath.objects.create(
+            circuit=circuit,
+            position=1,
+            origin=fp,
+            path=[{"type": "cable", "id": cable.pk}],
+            is_complete=False,
+        )
+        FiberCircuitNode.objects.create(path=path, position=1, front_port=fp)
+
+        cls.plan = SplicePlan.objects.create(
+            closure=cls.closure,
+            name="PermS-Plan",
+            status=SplicePlanStatusChoices.DRAFT,
+        )
 
     def test_strands_hidden_from_user_without_permission(self):
         client = _no_perm_client("perm-strands")
@@ -150,3 +185,22 @@ class TestClosureStrandsEndpointPermissions(TestCase):
         assert resp.status_code == 200
         assert resp.data["cables"] == []
         assert resp.data["trays"] == []
+
+    def test_strands_visible_to_permitted_user(self):
+        """The restriction must not hide data from a user who holds view permission."""
+        client = _constrained_client(
+            [FiberCable, FiberStrand, FiberCircuitNode, SplicePlan, Device],
+            None,
+            "perm-strands-ok",
+        )
+        resp = client.get(f"/api/plugins/fms/closure-strands/{self.closure.pk}/?plan_id={self.plan.pk}")
+        assert resp.status_code == 200
+        assert len(resp.data["cables"]) == 1
+        group = resp.data["cables"][0]
+        assert group["far_device_name"] == "PermS-Far"
+        strands = {s["id"]: s for s in group["loose_strands"]}
+        assert len(strands) == 6
+        protected = strands[self.protected_strand.pk]
+        assert protected["protected"] is True
+        assert protected["circuit_name"] == "PermS-Circuit"
+        assert resp.data["plan_version"] is not None
