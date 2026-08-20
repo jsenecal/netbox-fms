@@ -4,6 +4,7 @@ from dcim.models import Cable, Manufacturer
 from netbox_fms.choices import FiberColorSchemeChoices
 from netbox_fms.constants import (
     COLOR_SCHEME_PALETTES,
+    DIN_IEC_60304_COLORS,
     EIA_598_COLORS,
     NBR_14771_COLORS,
     get_grouped_color_choices,
@@ -29,11 +30,13 @@ class TestFiberColorSchemeChoices:
     def test_values(self):
         assert FiberColorSchemeChoices.EIA_598 == "eia_598"
         assert FiberColorSchemeChoices.NBR_14771 == "nbr_14771"
+        assert FiberColorSchemeChoices.DIN_IEC_60304 == "din_iec_60304"
 
     def test_labels(self):
         labels = dict(FiberColorSchemeChoices.CHOICES)
         assert str(labels["eia_598"]) == "EIA/TIA-598"
         assert str(labels["nbr_14771"]) == "ABNT NBR 14771"
+        assert str(labels["din_iec_60304"]) == "DIN IEC 60304"
 
 
 class TestGetStrandColor:
@@ -55,16 +58,37 @@ class TestGetStrandColor:
         got = [get_strand_color(pos, FiberColorSchemeChoices.NBR_14771) for pos in range(1, 13)]
         assert got == expected
 
+    def test_din_full_sequence(self):
+        """DIN VDE 0888 fiber sequence built on the IEC 60304 color set. Refs #107."""
+        expected = [
+            ("ff0000", "Red"),
+            ("00ff00", "Green"),
+            ("0000ff", "Blue"),
+            ("ffff00", "Yellow"),
+            ("ffffff", "White"),
+            ("708090", "Grey"),
+            ("8b4513", "Brown"),
+            ("ee82ee", "Violet"),
+            ("00ffff", "Turquoise"),
+            ("000000", "Black"),
+            ("ff8000", "Orange"),
+            ("ff69b4", "Pink"),
+        ]
+        got = [get_strand_color(pos, FiberColorSchemeChoices.DIN_IEC_60304) for pos in range(1, 13)]
+        assert got == expected
+
     def test_eia_position_one_is_blue(self):
         assert get_strand_color(1, FiberColorSchemeChoices.EIA_598) == ("0000ff", "Blue")
 
     def test_wraparound_past_twelve(self):
         assert get_strand_color(13, FiberColorSchemeChoices.NBR_14771) == ("00ff00", "Green")
         assert get_strand_color(13, FiberColorSchemeChoices.EIA_598) == ("0000ff", "Blue")
+        assert get_strand_color(13, FiberColorSchemeChoices.DIN_IEC_60304) == ("ff0000", "Red")
 
     def test_palette_registry(self):
         assert COLOR_SCHEME_PALETTES[FiberColorSchemeChoices.EIA_598] is EIA_598_COLORS
         assert COLOR_SCHEME_PALETTES[FiberColorSchemeChoices.NBR_14771] is NBR_14771_COLORS
+        assert COLOR_SCHEME_PALETTES[FiberColorSchemeChoices.DIN_IEC_60304] is DIN_IEC_60304_COLORS
 
 
 def _make_type(model, construction, strand_count, scheme=None):
@@ -104,6 +128,18 @@ class TestColorSchemeInstantiation:
         fc = FiberCable.objects.create(fiber_cable_type=fct, cable=Cable.objects.create())
         assert _strand_colors(fc) == [hex_color for hex_color, _name in NBR_14771_COLORS]
 
+    def test_tight_buffer_din(self):
+        """Strand colors under the DIN scheme at instantiation. Refs #107."""
+        fct = _make_type("DIN-4F-TB", "tight_buffer", 4, FiberColorSchemeChoices.DIN_IEC_60304)
+        fc = FiberCable.objects.create(fiber_cable_type=fct, cable=Cable.objects.create())
+        assert _strand_colors(fc) == ["ff0000", "00ff00", "0000ff", "ffff00"]
+
+    def test_loose_tube_din(self):
+        fct = _make_type("DIN-12F-LT", "loose_tube", 12, FiberColorSchemeChoices.DIN_IEC_60304)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, color="ff0000", fiber_count=12)
+        fc = FiberCable.objects.create(fiber_cable_type=fct, cable=Cable.objects.create())
+        assert _strand_colors(fc) == [hex_color for hex_color, _name in DIN_IEC_60304_COLORS]
+
     def test_ribbon_nbr(self):
         fct = _make_type("NBR-12F-RB", "ribbon", 12, FiberColorSchemeChoices.NBR_14771)
         RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
@@ -125,9 +161,9 @@ class TestGroupedColorChoices:
         assert len(options) == 12
         assert str(groups[1][0]) == "Other"
 
-    def test_unknown_scheme_yields_both_standards(self):
+    def test_unknown_scheme_yields_all_standards(self):
         groups = get_grouped_color_choices(None)
-        assert [str(g[0]) for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "Other"]
+        assert [str(g[0]) for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "DIN IEC 60304", "Other"]
 
     def test_other_group_excludes_standard_hexes(self):
         groups = get_grouped_color_choices(FiberColorSchemeChoices.EIA_598)
@@ -157,9 +193,9 @@ class TestSchemeAwareColorPicker:
         groups = _picker_groups(BufferTubeTemplateForm(initial={"fiber_cable_type": fct.pk}))
         assert groups[0][0] == "ABNT NBR 14771"
 
-    def test_add_form_without_parent_shows_both_standards(self):
+    def test_add_form_without_parent_shows_all_standards(self):
         groups = _picker_groups(BufferTubeTemplateForm())
-        assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "Other"]
+        assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "DIN IEC 60304", "Other"]
 
     def test_off_palette_current_value_stays_selectable(self):
         fct = _make_type("NBR-PICKER-OFF", "loose_tube", 12, FiberColorSchemeChoices.NBR_14771)
@@ -176,10 +212,10 @@ class TestSchemeAwareColorPicker:
         groups = _picker_groups(RibbonTemplateForm(instance=rt))
         assert groups[0][0] == "ABNT NBR 14771"
 
-    def test_bulk_edit_forms_show_both_standards(self):
+    def test_bulk_edit_forms_show_all_standards(self):
         for form_cls in (BufferTubeTemplateBulkEditForm, RibbonTemplateBulkEditForm):
             groups = _picker_groups(form_cls())
-            assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "Other"]
+            assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "DIN IEC 60304", "Other"]
 
 
 @pytest.mark.django_db
