@@ -195,6 +195,10 @@ modules.
   Red, Black, Yellow, Violet, Rose, Aqua).
 - **`NBR_14771_COLORS`** -- Tuple of 12 `(hex_color, name)` pairs following the
   ABNT NBR-14771 Brazilian standard (same colors, different position order).
+- **`DIN_IEC_60304_COLORS`** -- Tuple of 12 `(hex_color, name)` pairs following
+  the German DIN VDE 0888 fiber sequence built on the IEC 60304 color set
+  (Red, Green, Blue, Yellow, White, Grey, Brown, Violet, Turquoise, Black,
+  Orange, Pink).
 - **`COLOR_SCHEME_PALETTES`** -- Dict mapping scheme choices to color tuples,
   enabling multi-standard support.
 - **`get_strand_color(position, scheme)`** -- Returns the color tuple for a

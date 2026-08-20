@@ -1,4 +1,5 @@
 import { isNodeSpliced } from './types';
+import type { StatusLevel } from './alerts';
 import type { EditorConfig, LayoutNode, SpliceEntry, ActionMode } from './types';
 import type { EditorState } from './state';
 import type { SpliceRenderer } from './renderer';
@@ -191,14 +192,14 @@ export class Interactions {
 
     // Block interaction with protected strands
     if (node.isProtected) {
-      this.setStatus(`${node.label} is protected by circuit "${node.circuitName}" and cannot be modified.`);
+      this.setStatus(`${node.label} is protected by circuit "${node.circuitName}" and cannot be modified.`, 'warning');
       return;
     }
 
     // If strand is in a pending-add, only block it as a target (second click).
     // As a first click (no selection yet), allow it — user is replacing.
     if (this.state.isStrandPendingAdd(node.id) && this.selected) {
-      this.setStatus(`${node.label} is already in a pending splice.`);
+      this.setStatus(`${node.label} is already in a pending splice.`, 'warning');
       return;
     }
 
@@ -426,9 +427,10 @@ export class Interactions {
     if (this.deleteBtn) this.deleteBtn.disabled = this.state.selectedSpliceKeys.size === 0;
   }
 
-  setStatus(msg: string): void {
+  setStatus(msg: string, _level: StatusLevel = 'info'): void {
     this._statusMessage = msg;
-    // The stats bar flash is handled by the splice-editor.ts override
+    // Display (stats bar flash vs. persistent alert) is handled by the
+    // splice-editor.ts override, which routes on the level.
   }
 
   clearSelection(): void {

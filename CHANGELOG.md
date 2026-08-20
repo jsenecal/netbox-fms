@@ -15,7 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   splices in positional order (already spliced, pending, or
   circuit-protected fibers are skipped). Mismatched or fully spliced
   tubes get an explanatory status message instead. (#116)
-
+- Splice editor: errors and blocked-action warnings now appear as
+  persistent, dismissible alerts above the canvas instead of the 3-second
+  stats bar flash (informational status keeps the flash). The editor also
+  shows preflight warnings on load when buffer tubes are not assigned to
+  any splice tray, when no splice plan exists for the closure, or when
+  only non-draft plans exist. Fixes #115.
+- DIN IEC 60304 fiber color scheme -- `FiberCableType.color_scheme` now
+  offers the German DIN VDE 0888 fiber sequence (Red, Green, Blue, Yellow,
+  White, Grey, Brown, Violet, Turquoise, Black, Orange, Pink) alongside
+  EIA/TIA-598 and ABNT NBR 14771. The default is unchanged. Refs #107.
+- Device pickers in the wizard flows (closure cable wizard far end device,
+  circuit wizard origin/destination devices, slack loop insertion closure)
+  now offer NetBox's object selector popup, allowing devices to be found
+  by site, location, rack, and other filters instead of scrolling a flat
+  list of all devices. Fixes #88.
 - Splice closure creation wizard: **FMS > Add Splice Closure** creates the
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray

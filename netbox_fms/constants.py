@@ -39,9 +39,30 @@ NBR_14771_COLORS = (
     ("00ffff", "Aqua"),
 )
 
+
+# DIN VDE 0888 fiber color code (German standard), built on the IEC 60304
+# insulated-core color set. Same 12 hexes as EIA-598 in a different order;
+# positions 6, 9, and 12 are named "Grey", "Turquoise", and "Pink" but
+# share the EIA Slate, Aqua, and Rose hexes.
+DIN_IEC_60304_COLORS = (
+    ("ff0000", "Red"),
+    ("00ff00", "Green"),
+    ("0000ff", "Blue"),
+    ("ffff00", "Yellow"),
+    ("ffffff", "White"),
+    ("708090", "Grey"),
+    ("8b4513", "Brown"),
+    ("ee82ee", "Violet"),
+    ("00ffff", "Turquoise"),
+    ("000000", "Black"),
+    ("ff8000", "Orange"),
+    ("ff69b4", "Pink"),
+)
+
 COLOR_SCHEME_PALETTES = {
     FiberColorSchemeChoices.EIA_598: EIA_598_COLORS,
     FiberColorSchemeChoices.NBR_14771: NBR_14771_COLORS,
+    FiberColorSchemeChoices.DIN_IEC_60304: DIN_IEC_60304_COLORS,
 }
 
 
