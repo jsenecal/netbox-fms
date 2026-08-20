@@ -840,6 +840,18 @@ export class EditorState {
   }
 
   /**
+   * Get visible strands of a tube on one side, in positional order.
+   * Pass tubeId undefined for loose strands (no tube).
+   * Used by sequential mode and tube (bulk splice) mode.
+   */
+  getVisibleStrandsInTube(side: 'left' | 'right', tubeId: number | undefined): LayoutNode[] {
+    const nodes = side === 'left' ? this.leftNodes : this.rightNodes;
+    return nodes.filter(
+      (n) => n.type === 'strand' && !n.hidden && n.tubeId === tubeId,
+    );
+  }
+
+  /**
    * Get visible strands within the same tube, starting from a given strand ID.
    * Used by sequential mode (does not cross tube boundaries).
    */
@@ -848,10 +860,7 @@ export class EditorState {
     const startNode = nodes.find((n) => n.type === 'strand' && n.id === startId);
     if (!startNode) return [];
 
-    const tubeId = startNode.tubeId;
-    const strands = nodes.filter(
-      (n) => n.type === 'strand' && !n.hidden && n.tubeId === tubeId,
-    );
+    const strands = this.getVisibleStrandsInTube(side, startNode.tubeId);
     const idx = strands.findIndex((n) => n.id === startId);
     return idx >= 0 ? strands.slice(idx) : [];
   }

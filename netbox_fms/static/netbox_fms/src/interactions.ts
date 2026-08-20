@@ -1,3 +1,4 @@
+import { isNodeSpliced } from './types';
 import type { EditorConfig, LayoutNode, SpliceEntry, ActionMode } from './types';
 import type { EditorState } from './state';
 import type { SpliceRenderer } from './renderer';
@@ -342,15 +343,15 @@ export class Interactions {
     this.renderer.render();
   }
 
-  /** Collect pairing facts for every strand in a tube, in positional order. */
+  /** Collect pairing facts for the visible strands of a tube, in positional order. */
   private tubeFibers(side: 'left' | 'right', tubeId: number): TubeFiberInfo[] {
-    const nodes = side === 'left' ? this.state.leftNodes : this.state.rightNodes;
-    return nodes
-      .filter((n) => n.type === 'strand' && n.tubeId === tubeId && n.id !== undefined)
+    return this.state
+      .getVisibleStrandsInTube(side, tubeId)
+      .filter((n) => n.id !== undefined)
       .map((n) => ({
         id: n.id!,
         frontPortId: n.frontPortId ?? null,
-        spliced: !!(n.liveSplicedTo || n.planSplicedTo),
+        spliced: isNodeSpliced(n),
         pendingAdd: this.state.isStrandPendingAdd(n.id!),
         isProtected: !!n.isProtected,
         label: n.label ?? '',
