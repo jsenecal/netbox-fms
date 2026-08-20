@@ -11,6 +11,25 @@
 {% endblock %}
 
 {% block content %}
+{% if closure_draft_plan_count > 1 %}
+<div class="d-flex align-items-center flex-wrap gap-2 mb-2" id="fms-plan-selector">
+  <span class="text-muted small">{% trans "Draft plans" %}:</span>
+  {% for draft_plan in closure_draft_plans %}
+  <a href="?plan={{ draft_plan.pk }}" class="btn btn-sm {% if plan and draft_plan.pk == plan.pk %}btn-primary{% else %}btn-outline-primary{% endif %}">{{ draft_plan.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+{% if is_readonly %}
+<div class="alert alert-warning d-flex align-items-center py-2 mb-2" role="alert">
+  <i class="mdi mdi-lock me-2"></i>
+  <span class="me-auto">
+    {% blocktrans with plan_name=plan.name plan_status=plan.get_status_display %}Plan "{{ plan_name }}" is {{ plan_status }} and cannot be edited. No draft plan exists for this closure.{% endblocktrans %}
+  </span>
+  <a href="{% url 'plugins:netbox_fms:spliceplan_add' %}?closure={{ device.pk }}" class="btn btn-sm btn-warning ms-2">
+    <i class="mdi mdi-plus"></i> {% trans "New draft plan" %}
+  </a>
+</div>
+{% endif %}
 <div class="m-n3" style="margin-top: -1.25rem;">
 {% if plan %}
     {% include "netbox_fms/inc/splice_editor_widget.html" with back_url=plan.get_absolute_url back_label="Plan Details" %}
@@ -30,7 +49,7 @@
         quickAddApiUrl: "{% url 'plugins-api:netbox_fms-api:spliceplan-quick-add' %}",
         csrfToken: "{{ csrf_token }}",
         debug: {{ debug|yesno:"true,false" }},
-        readOnly: false,
+        readOnly: {{ is_readonly|yesno:"true,false" }},
         closurePlanCount: {{ closure_plan_count }},
         closureDraftPlanCount: {{ closure_draft_plan_count }},
     };
