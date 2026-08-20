@@ -115,7 +115,7 @@ describe('quickAddPlan', () => {
 describe('bulkUpdatePlan', () => {
   it('posts JSON payload with CSRF and Content-Type headers', async () => {
     vi.stubGlobal('fetch', mockFetchOk({ entries: [] }));
-    const payload = { add: [{ fiber_a: 1, fiber_b: 2 }], remove: [] };
+    const payload = { add: [{ fiber_a: 1, fiber_b: 2, is_express: false }], remove: [] };
 
     await bulkUpdatePlan(makeConfig(), payload);
 

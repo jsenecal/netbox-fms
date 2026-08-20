@@ -113,6 +113,15 @@ export class FmsDetailPanel {
           rowEl.appendChild(text);
         }
 
+        if (row.action) {
+          const actionBtn = document.createElement('button');
+          actionBtn.type = 'button';
+          actionBtn.className = 'btn btn-sm btn-outline-secondary fms-detail-card__action';
+          actionBtn.textContent = row.action.label;
+          actionBtn.addEventListener('click', row.action.onClick);
+          rowEl.appendChild(actionBtn);
+        }
+
         cardEl.appendChild(rowEl);
       }
 

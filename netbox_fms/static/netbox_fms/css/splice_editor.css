@@ -234,6 +234,12 @@ body[data-bs-theme="dark"] .strand-node.spliced .strand-name {
     pointer-events: none;
 }
 
+/* Express (pass-through) entries — tight dashes to distinguish from
+   planned (8,4) and pending-add (6,3) lines */
+.splice-link.express {
+    stroke-dasharray: 2, 5;
+}
+
 .splice-link.pending-delete {
     stroke: var(--bs-danger);
     stroke-width: 2;

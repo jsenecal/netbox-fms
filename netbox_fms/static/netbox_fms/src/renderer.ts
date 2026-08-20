@@ -753,6 +753,7 @@ export class SpliceRenderer {
           .attr('class', 'splice-link')
           .classed('same-side', sameSide)
           .classed('plan-only', isPlanOnly)
+          .classed('express', isPlanOnly && !!entry.isExpress)
           .attr('d', pathD)
           .attr('stroke', gradUrl)
           .attr('pointer-events', 'none')
@@ -783,6 +784,7 @@ export class SpliceRenderer {
       this.linksGroup
         .append('path')
         .attr('class', 'splice-link pending-add')
+        .classed('express', !!pc.isExpress)
         .attr('d', pathD)
         .attr('stroke', gradUrl)
         .attr('fill', 'none');

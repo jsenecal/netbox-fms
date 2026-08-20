@@ -83,7 +83,18 @@ async function init(config: EditorConfig): Promise<void> {
       // Insert at the beginning (before the back button if present)
       toolbarEl.insertBefore(modePills, toolbarEl.firstChild);
 
-      toolbarEl.insertBefore(createSeparator(), modePills.nextSibling);
+      // Express creation toggle — new connections pass through unspliced
+      const expressModeBtn = createIconButton(
+        'splice-express-mode-btn',
+        'mdi mdi-ray-start-end',
+        'Express',
+        'btn btn-sm btn-outline-info ms-1',
+      );
+      expressModeBtn.title = 'When on, new connections are marked as express (pass-through)';
+      expressModeBtn.setAttribute('aria-pressed', 'false');
+      toolbarEl.insertBefore(expressModeBtn, modePills.nextSibling);
+
+      toolbarEl.insertBefore(createSeparator(), expressModeBtn.nextSibling);
     }
 
     // Splice visibility filter pills (always shown)
@@ -418,6 +429,21 @@ async function init(config: EditorConfig): Promise<void> {
     if (state.isSplicePendingDelete(entry.sourceId, entry.targetId)) {
       infoRows.push({ label: 'Pending', value: 'Delete', badge: 'protected' });
     }
+    const express = state.getSpliceExpress(entry.sourceId, entry.targetId);
+    if (express !== null) {
+      const expressRow: DetailCard['rows'][number] = {
+        label: 'Express',
+        value: express ? 'Yes' : 'No',
+        badge: express ? 'info' : undefined,
+      };
+      if (!config.readOnly) {
+        expressRow.action = {
+          label: express ? 'Clear' : 'Set',
+          onClick: () => toggleSpliceExpress(entry),
+        };
+      }
+      infoRows.push(expressRow);
+    }
     cards.push({ heading: 'Splice', rows: infoRows });
 
     // Source context card
@@ -459,6 +485,18 @@ async function init(config: EditorConfig): Promise<void> {
     }
 
     return cards;
+  }
+
+  /** Toggle the express flag on a splice, refresh canvas and detail panel. */
+  function toggleSpliceExpress(entry: SpliceEntry): void {
+    if (state.toggleSpliceExpress(entry.sourceId, entry.targetId)) {
+      interactions.updateSaveButton();
+      renderer.render();
+      showSelectedSplicesDetail();
+      interactions.setStatus('Express flag updated. Save to apply.');
+    } else {
+      interactions.setStatus('Only planned splices can be marked as express.');
+    }
   }
 
   function showSelectedSplicesDetail(): void {
