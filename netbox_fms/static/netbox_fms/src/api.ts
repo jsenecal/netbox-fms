@@ -70,6 +70,36 @@ export async function bulkUpdatePlan(
   return resp.json();
 }
 
+/** Update a splice plan's status via the standard REST endpoint. */
+export async function updatePlanStatus(
+  config: EditorConfig,
+  status: string,
+): Promise<void> {
+  if (!config.planId) {
+    throw new Error('No plan to update -- plan may not exist yet');
+  }
+  const resp = await fetch(`/api/plugins/fms/splice-plans/${config.planId}/`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': config.csrfToken,
+    },
+    body: JSON.stringify({ status }),
+  });
+  if (!resp.ok) {
+    let msg = `HTTP ${resp.status}`;
+    try {
+      const err = await resp.json();
+      if (typeof err.detail === 'string') msg = err.detail;
+      else if (typeof err.error === 'string') msg = err.error;
+      else if (Array.isArray(err.status) && err.status.length > 0) msg = String(err.status[0]);
+    } catch {
+      // Non-JSON error body; keep the HTTP status message.
+    }
+    throw new Error(msg);
+  }
+}
+
 /** Fetch quick-add form HTML from Django. */
 export async function fetchQuickAddForm(
   config: EditorConfig,
