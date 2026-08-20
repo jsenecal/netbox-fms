@@ -468,7 +468,14 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        serializer = SplicePlanSerializer(data=request.data, context={"request": request})
+        data = request.data
+        if hasattr(data, "dict"):
+            # The splice editor modal submits its quick-add form as form data.
+            # Nested serializers treat an HTML payload as a set of prefixed
+            # keys and ignore a scalar "closure=<pk>", so flatten the payload
+            # into a plain mapping the serializer reads the same way as JSON.
+            data = data.dict()
+        serializer = SplicePlanSerializer(data=data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
