@@ -1054,24 +1054,34 @@ describe('findStrandContext', () => {
 // Express flag
 // ---------------------------------------------------------------------------
 
-/** Two single-strand cables whose strands (1 and 3) share plan entry 99. */
-function planSplicedCables(planIsExpress = false): CableGroupData[] {
+/** Two single-strand cables whose strands (1 and 3) each carry the overrides
+ *  produced for their partner strand. */
+function linkedCablePair(overridesFor: (partner: number) => Partial<StrandData>): CableGroupData[] {
   return [
     makeCableGroup({
       fiber_cable_id: 1,
       tubes: [{
         id: 10, name: 'T1', color: '0000ff', marker_count: 0, marker_color: null, marker_type: '', strand_count: 1, tray_assignment: null,
-        strands: [makeStrand({ id: 1, plan_entry_id: 99, plan_spliced_to: 3, plan_is_express: planIsExpress })],
+        strands: [makeStrand({ id: 1, ...overridesFor(3) })],
       }],
     }),
     makeCableGroup({
       fiber_cable_id: 2,
       tubes: [{
         id: 20, name: 'T1', color: 'ff0000', marker_count: 0, marker_color: null, marker_type: '', strand_count: 1, tray_assignment: null,
-        strands: [makeStrand({ id: 3, plan_entry_id: 99, plan_spliced_to: 1, plan_is_express: planIsExpress })],
+        strands: [makeStrand({ id: 3, ...overridesFor(1) })],
       }],
     }),
   ];
+}
+
+/** Two single-strand cables whose strands (1 and 3) share plan entry 99. */
+function planSplicedCables(planIsExpress = false): CableGroupData[] {
+  return linkedCablePair((partner) => ({
+    plan_entry_id: 99,
+    plan_spliced_to: partner,
+    plan_is_express: planIsExpress,
+  }));
 }
 
 describe('express flag', () => {
@@ -1142,22 +1152,7 @@ describe('express flag', () => {
   });
 
   it('toggleSpliceExpress refuses live-only splices', () => {
-    s.loadCableGroups([
-      makeCableGroup({
-        fiber_cable_id: 1,
-        tubes: [{
-          id: 10, name: 'T1', color: '0000ff', marker_count: 0, marker_color: null, marker_type: '', strand_count: 1, tray_assignment: null,
-          strands: [makeStrand({ id: 1, live_spliced_to: 3 })],
-        }],
-      }),
-      makeCableGroup({
-        fiber_cable_id: 2,
-        tubes: [{
-          id: 20, name: 'T1', color: 'ff0000', marker_count: 0, marker_color: null, marker_type: '', strand_count: 1, tray_assignment: null,
-          strands: [makeStrand({ id: 3, live_spliced_to: 1 })],
-        }],
-      }),
-    ]);
+    s.loadCableGroups(linkedCablePair((partner) => ({ live_spliced_to: partner })));
     expect(s.toggleSpliceExpress(1, 3)).toBe(false);
     expect(s.pendingChanges).toHaveLength(0);
   });
