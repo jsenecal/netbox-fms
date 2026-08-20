@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Splice editor: new "Tube" mode bulk-splices two buffer tubes
+  fiber-to-fiber. Click a tube header on each side; when both tubes have
+  the same number of unspliced fibers, the editor queues 1:1 pending
+  splices in positional order (already spliced, pending, or
+  circuit-protected fibers are skipped). Mismatched or fully spliced
+  tubes get an explanatory status message instead. (#116)
+
 - Splice closure creation wizard: **FMS > Add Splice Closure** creates the
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray
