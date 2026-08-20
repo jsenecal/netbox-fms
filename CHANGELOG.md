@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Splice editor: errors and blocked-action warnings now appear as
+  persistent, dismissible alerts above the canvas instead of the 3-second
+  stats bar flash (informational status keeps the flash). The editor also
+  shows preflight warnings on load when buffer tubes are not assigned to
+  any splice tray, when no splice plan exists for the closure, or when
+  only non-draft plans exist. Fixes #115.
+
 - Splice closure creation wizard: **FMS > Add Splice Closure** creates the
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray

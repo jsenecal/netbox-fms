@@ -17,6 +17,10 @@ export interface EditorConfig {
   csrfToken: string;
   debug?: boolean;
   readOnly: boolean;
+  /** Total splice plans for the closure (for preflight warnings). */
+  closurePlanCount?: number;
+  /** Draft splice plans for the closure (for preflight warnings). */
+  closureDraftPlanCount?: number;
 }
 
 /** A single fiber strand as returned by ClosureStrandsAPIView. */
