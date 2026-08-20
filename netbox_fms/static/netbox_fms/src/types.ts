@@ -37,6 +37,7 @@ export interface StrandData {
   live_spliced_to: number | null;
   plan_entry_id: number | null;
   plan_spliced_to: number | null;
+  plan_is_express?: boolean;
   protected: boolean;
   circuit_name: string | null;
   circuit_url: string | null;
@@ -149,6 +150,7 @@ export interface PendingChange {
   fiberB: number;    // strand ID
   portA: number;     // front_port_a_id
   portB: number;     // front_port_a_id
+  isExpress?: boolean; // adds only: entry passes through without splicing
 }
 
 /** An existing splice connection (live or plan). */
@@ -158,11 +160,12 @@ export interface SpliceEntry {
   entryId: number | null; // plan entry ID (null for live-only)
   isLive: boolean;
   isPlan: boolean;
+  isExpress?: boolean;   // plan entry passes through without splicing
 }
 
 /** Bulk update request body. */
 export interface BulkUpdatePayload {
-  add: Array<{ fiber_a: number; fiber_b: number }>;
+  add: Array<{ fiber_a: number; fiber_b: number; is_express: boolean }>;
   remove: Array<{ fiber_a: number; fiber_b: number }>;
   plan_version?: string | null;
 }
@@ -221,6 +224,8 @@ export interface DetailRow {
   link?: string;
   badge?: string;
   color?: string;
+  /** Optional action button rendered after the value. */
+  action?: { label: string; onClick: () => void };
 }
 
 /** A card in the detail panel. */

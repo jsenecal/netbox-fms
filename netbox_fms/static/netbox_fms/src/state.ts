@@ -358,6 +358,7 @@ export class EditorState {
   addPendingSplice(
     strandA: number, strandB: number,
     portA: number, portB: number,
+    isExpress = false,
   ): void {
     const exists = this.pendingChanges.some(
       (p) => p.action === 'add' &&
@@ -368,9 +369,68 @@ export class EditorState {
       this.snapshotForUndo();
       this.pendingChanges.push({
         action: 'add', fiberA: strandA, fiberB: strandB,
-        portA, portB,
+        portA, portB, isExpress,
       });
     }
+  }
+
+  /** Find the plan splice entry for an order-independent splice key. */
+  private findPlanEntry(key: string): SpliceEntry | undefined {
+    return this.spliceEntries.find(
+      (e) => e.isPlan && this.spliceKey(e.sourceId, e.targetId) === key,
+    );
+  }
+
+  /** Find the pending add for an order-independent splice key. */
+  private findPendingAdd(key: string): PendingChange | undefined {
+    return this.pendingChanges.find(
+      (p) => p.action === 'add' && this.spliceKey(p.fiberA, p.fiberB) === key,
+    );
+  }
+
+  /**
+   * Toggle the express (pass-through) flag for the splice between two strands.
+   * A pending add flips in place; an existing plan splice gets a pending
+   * re-add carrying the flipped flag (the save payload supersedes the old
+   * entry). Toggling a plan splice back to its persisted flag cancels the
+   * pending change. Live-only splices have no plan entry to carry the flag
+   * and are refused. Returns true when a toggle was applied.
+   */
+  toggleSpliceExpress(strandA: number, strandB: number): boolean {
+    const key = this.spliceKey(strandA, strandB);
+    const planEntry = this.findPlanEntry(key);
+
+    const pending = this.findPendingAdd(key);
+    if (pending) {
+      this.snapshotForUndo();
+      pending.isExpress = !pending.isExpress;
+      if (planEntry && !!planEntry.isExpress === !!pending.isExpress) {
+        // Back to the persisted state -- the pending change is now a no-op.
+        this.pendingChanges.splice(this.pendingChanges.indexOf(pending), 1);
+      }
+      return true;
+    }
+
+    if (!planEntry) return false;
+    const portA = this.getStrand(strandA)?.front_port_a_id;
+    const portB = this.getStrand(strandB)?.front_port_a_id;
+    if (!portA || !portB) return false;
+    this.addPendingSplice(strandA, strandB, portA, portB, !planEntry.isExpress);
+    return true;
+  }
+
+  /**
+   * Effective express flag for the splice between two strands: a pending add
+   * overrides the plan entry. Null when neither exists (live-only splices
+   * cannot carry the flag).
+   */
+  getSpliceExpress(strandA: number, strandB: number): boolean | null {
+    const key = this.spliceKey(strandA, strandB);
+    const pending = this.findPendingAdd(key);
+    if (pending) return !!pending.isExpress;
+    const planEntry = this.findPlanEntry(key);
+    if (planEntry) return !!planEntry.isExpress;
+    return null;
   }
 
   removePendingSplice(strandA: number, strandB: number, portA: number, portB: number): void {
@@ -440,8 +500,8 @@ export class EditorState {
   /** Get pending changes as bulk update payload (uses front_port_a_ids).
    *  Automatically includes implicit removals for superseded splices. */
   getPendingPayload(): BulkUpdatePayload {
-    const add: Array<{ fiber_a: number; fiber_b: number }> = [];
-    const remove: Array<{ fiber_a: number; fiber_b: number }> = [];
+    const add: BulkUpdatePayload['add'] = [];
+    const remove: BulkUpdatePayload['remove'] = [];
 
     // Collect strands involved in pending adds
     const addedStrands = new Set<number>();
@@ -481,7 +541,7 @@ export class EditorState {
 
     for (const p of this.pendingChanges) {
       if (p.action === 'add') {
-        add.push({ fiber_a: p.portA, fiber_b: p.portB });
+        add.push({ fiber_a: p.portA, fiber_b: p.portB, is_express: !!p.isExpress });
       }
     }
     return { add, remove };
@@ -581,6 +641,12 @@ export class EditorState {
     }
     if (hasPlan) {
       spliceItems.push({ type: 'line', color: '#17a2b8', dashed: true, label: 'Planned splice' });
+    }
+    const hasExpress =
+      this.spliceEntries.some((e) => e.isPlan && e.isExpress) ||
+      this.pendingChanges.some((p) => p.action === 'add' && p.isExpress);
+    if (hasExpress) {
+      spliceItems.push({ type: 'line', color: '#17a2b8', dashed: true, label: 'Express (pass-through)' });
     }
     if (hasPendingAdd) {
       spliceItems.push({ type: 'line', color: '#ffc107', dashed: true, label: 'Pending add' });
@@ -785,6 +851,7 @@ export class EditorState {
           if (existing) {
             existing.isPlan = true;
             if (!existing.entryId) existing.entryId = s.plan_entry_id;
+            if (s.plan_is_express) existing.isExpress = true;
           } else {
             const entry: SpliceEntry = {
               sourceId: s.id,
@@ -792,6 +859,7 @@ export class EditorState {
               entryId: s.plan_entry_id,
               isLive: false,
               isPlan: true,
+              isExpress: !!s.plan_is_express,
             };
             entryMap.set(key, entry);
           }

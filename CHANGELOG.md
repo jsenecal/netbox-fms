@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Splice editor express support: the splice detail panel shows an Express
+  row with a Set/Clear toggle for planned splices, and a toolbar "Express"
+  mode marks new connections as pass-through at creation time. The
+  bulk-update endpoint now accepts and persists `is_express` on added
+  entries (it previously dropped the flag), the closure-strands API exposes
+  `plan_is_express` per strand, and express plan splices render with a
+  distinct tight-dash line style. (#117)
 - Splice editor: new "Tube" mode bulk-splices two buffer tubes
   fiber-to-fiber. Click a tube header on each side; when both tubes have
   the same number of unspliced fibers, the editor queues 1:1 pending

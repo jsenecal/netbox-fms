@@ -327,7 +327,7 @@ describe('getPendingPayload', () => {
     s.removePendingSplice(3, 4, 300, 400);
 
     const payload = s.getPendingPayload();
-    expect(payload.add).toEqual([{ fiber_a: 100, fiber_b: 200 }]);
+    expect(payload.add).toEqual([{ fiber_a: 100, fiber_b: 200, is_express: false }]);
     expect(payload.remove).toEqual([{ fiber_a: 300, fiber_b: 400 }]);
   });
 
@@ -355,7 +355,7 @@ describe('getPendingPayload', () => {
     s.addPendingSplice(1, 5, 100, 500);
 
     const payload = s.getPendingPayload();
-    expect(payload.add).toEqual([{ fiber_a: 100, fiber_b: 500 }]);
+    expect(payload.add).toEqual([{ fiber_a: 100, fiber_b: 500, is_express: false }]);
     // The existing 1-3 splice should be auto-removed
     expect(payload.remove).toHaveLength(1);
     expect(payload.remove[0]).toEqual({ fiber_a: 100, fiber_b: 300 });
@@ -1085,5 +1085,133 @@ describe('findStrandContext', () => {
     const s = new EditorState();
     s.loadCableGroups(twoTubeCables());
     expect(s.findStrandContext(999)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Express flag
+// ---------------------------------------------------------------------------
+
+/** Two single-strand cables whose strands (1 and 3) each carry the overrides
+ *  produced for their partner strand. */
+function linkedCablePair(overridesFor: (partner: number) => Partial<StrandData>): CableGroupData[] {
+  return [
+    makeCableGroup({
+      fiber_cable_id: 1,
+      tubes: [{
+        id: 10, name: 'T1', color: '0000ff', marker_count: 0, marker_color: null, marker_type: '', strand_count: 1, tray_assignment: null,
+        strands: [makeStrand({ id: 1, ...overridesFor(3) })],
+      }],
+    }),
+    makeCableGroup({
+      fiber_cable_id: 2,
+      tubes: [{
+        id: 20, name: 'T1', color: 'ff0000', marker_count: 0, marker_color: null, marker_type: '', strand_count: 1, tray_assignment: null,
+        strands: [makeStrand({ id: 3, ...overridesFor(1) })],
+      }],
+    }),
+  ];
+}
+
+/** Two single-strand cables whose strands (1 and 3) share plan entry 99. */
+function planSplicedCables(planIsExpress = false): CableGroupData[] {
+  return linkedCablePair((partner) => ({
+    plan_entry_id: 99,
+    plan_spliced_to: partner,
+    plan_is_express: planIsExpress,
+  }));
+}
+
+describe('express flag', () => {
+  let s: EditorState;
+
+  beforeEach(() => {
+    s = new EditorState();
+  });
+
+  it('addPendingSplice records the express flag', () => {
+    s.addPendingSplice(1, 2, 100, 200, true);
+    expect(s.pendingChanges[0].isExpress).toBe(true);
+  });
+
+  it('addPendingSplice defaults to non-express', () => {
+    s.addPendingSplice(1, 2, 100, 200);
+    expect(s.pendingChanges[0].isExpress).toBeFalsy();
+  });
+
+  it('getPendingPayload carries is_express on add items', () => {
+    s.addPendingSplice(1, 2, 100, 200, true);
+    s.addPendingSplice(3, 4, 300, 400);
+    const payload = s.getPendingPayload();
+    expect(payload.add).toContainEqual({ fiber_a: 100, fiber_b: 200, is_express: true });
+    expect(payload.add).toContainEqual({ fiber_a: 300, fiber_b: 400, is_express: false });
+  });
+
+  it('collectSpliceEntries carries plan_is_express into entries', () => {
+    s.loadCableGroups(planSplicedCables(true));
+    expect(s.spliceEntries).toHaveLength(1);
+    expect(s.spliceEntries[0].isExpress).toBe(true);
+  });
+
+  it('collectSpliceEntries leaves non-express plan entries unflagged', () => {
+    s.loadCableGroups(planSplicedCables(false));
+    expect(s.spliceEntries[0].isExpress).toBeFalsy();
+  });
+
+  it('toggleSpliceExpress flips a pending add in place', () => {
+    s.addPendingSplice(1, 2, 100, 200);
+    expect(s.toggleSpliceExpress(1, 2)).toBe(true);
+    expect(s.pendingChanges).toHaveLength(1);
+    expect(s.pendingChanges[0].isExpress).toBe(true);
+    expect(s.toggleSpliceExpress(2, 1)).toBe(true);
+    expect(s.pendingChanges[0].isExpress).toBe(false);
+  });
+
+  it('toggleSpliceExpress creates a pending re-add for an existing plan splice', () => {
+    s.loadCableGroups(planSplicedCables(false));
+    expect(s.toggleSpliceExpress(1, 3)).toBe(true);
+    expect(s.pendingChanges).toHaveLength(1);
+    expect(s.pendingChanges[0]).toMatchObject({
+      action: 'add', portA: 100, portB: 300, isExpress: true,
+    });
+    // Payload re-adds the pair with the flag; the stale entry is auto-removed
+    const payload = s.getPendingPayload();
+    expect(payload.add).toContainEqual({ fiber_a: 100, fiber_b: 300, is_express: true });
+    expect(payload.remove).toContainEqual({ fiber_a: 100, fiber_b: 300 });
+  });
+
+  it('toggleSpliceExpress cancels the pending change when toggled back', () => {
+    s.loadCableGroups(planSplicedCables(true));
+    expect(s.toggleSpliceExpress(1, 3)).toBe(true);
+    expect(s.pendingChanges).toHaveLength(1);
+    expect(s.pendingChanges[0].isExpress).toBe(false);
+    expect(s.toggleSpliceExpress(1, 3)).toBe(true);
+    expect(s.pendingChanges).toHaveLength(0);
+  });
+
+  it('toggleSpliceExpress refuses live-only splices', () => {
+    s.loadCableGroups(linkedCablePair((partner) => ({ live_spliced_to: partner })));
+    expect(s.toggleSpliceExpress(1, 3)).toBe(false);
+    expect(s.pendingChanges).toHaveLength(0);
+  });
+
+  it('toggleSpliceExpress supports undo', () => {
+    s.loadCableGroups(planSplicedCables(false));
+    s.toggleSpliceExpress(1, 3);
+    expect(s.pendingChanges).toHaveLength(1);
+    s.undo();
+    expect(s.pendingChanges).toHaveLength(0);
+  });
+
+  it('getSpliceExpress reports the pending flag over the persisted flag', () => {
+    s.loadCableGroups(planSplicedCables(false));
+    expect(s.getSpliceExpress(1, 3)).toBe(false);
+    s.toggleSpliceExpress(1, 3);
+    expect(s.getSpliceExpress(1, 3)).toBe(true);
+  });
+
+  it('getSpliceExpress returns null when no plan entry or pending add exists', () => {
+    s.loadCableGroups(twoTubeCables());
+    expect(s.getSpliceExpress(1, 3)).toBeNull();
   });
 });

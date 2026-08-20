@@ -426,6 +426,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                         tray=tray,
                         fiber_a_id=fa_id,
                         fiber_b_id=fb_id,
+                        is_express=bool(item.get("is_express", False)),
                         change_note=changelog_msg,
                     )
 
@@ -446,7 +447,14 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         return Response(
             {
                 "entries": [
-                    {"id": e.pk, "fiber_a": e.fiber_a_id, "fiber_b": e.fiber_b_id, "tray": e.tray_id} for e in entries
+                    {
+                        "id": e.pk,
+                        "fiber_a": e.fiber_a_id,
+                        "fiber_b": e.fiber_b_id,
+                        "tray": e.tray_id,
+                        "is_express": e.is_express,
+                    }
+                    for e in entries
                 ],
                 "plan_version": plan.last_updated.isoformat() if plan.last_updated else None,
             }
@@ -696,12 +704,12 @@ class ClosureStrandsAPIView(APIView):
             plan_entries = (
                 SplicePlanEntry.objects.restrict(user, "view")
                 .filter(plan_id=plan_id)
-                .values_list("id", "fiber_a_id", "fiber_b_id")
+                .values_list("id", "fiber_a_id", "fiber_b_id", "is_express")
             )
-            for entry_id, fa_id, fb_id in plan_entries:
+            for entry_id, fa_id, fb_id, is_express in plan_entries:
                 if fa_id in tray_front_port_ids and fb_id in tray_front_port_ids:
-                    plan_lookup[fa_id] = (entry_id, fb_id)
-                    plan_lookup[fb_id] = (entry_id, fa_id)
+                    plan_lookup[fa_id] = (entry_id, fb_id, is_express)
+                    plan_lookup[fb_id] = (entry_id, fa_id, is_express)
 
         # Materialize each cable's viewable strands once; the lookups below and
         # the cable groups all consume this same restricted set.
@@ -747,7 +755,7 @@ class ClosureStrandsAPIView(APIView):
                     local_fp_id = s.front_port_a_id or s.front_port_b_id
                 live_fp = live_lookup.get(local_fp_id)
                 live_strand = fp_to_strand.get(live_fp) if live_fp else None
-                plan_info = plan_lookup.get(local_fp_id, (None, None))
+                plan_info = plan_lookup.get(local_fp_id, (None, None, False))
                 plan_strand = fp_to_strand.get(plan_info[1]) if plan_info[1] else None
                 circuit_info = protection_lookup.get(local_fp_id)
                 circuit_name = circuit_info[0] if circuit_info else None
@@ -765,6 +773,7 @@ class ClosureStrandsAPIView(APIView):
                     "live_spliced_to": live_strand,
                     "plan_entry_id": plan_info[0],
                     "plan_spliced_to": plan_strand,
+                    "plan_is_express": bool(plan_info[2]),
                     "protected": circuit_name is not None,
                     "circuit_name": circuit_name,
                     "circuit_url": circuit_url,

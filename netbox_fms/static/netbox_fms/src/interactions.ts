@@ -12,6 +12,7 @@ export class Interactions {
   private config: EditorConfig;
   private onSave: () => void;
   private mode: ActionMode = 'single';
+  private expressMode = false;
   private selected: { id: number; side: 'left' | 'right'; portId: number } | null = null;
   private selectedTube: { tubeId: number; side: 'left' | 'right' } | null = null;
   private sequentialCount = 12;
@@ -62,6 +63,21 @@ export class Interactions {
         this.updateToolbarState();
         this.renderer.render();
         this.setStatus('Redone.');
+      });
+    }
+
+    // Express mode toggle — new connections become express (pass-through)
+    const expressModeBtn = document.getElementById('splice-express-mode-btn') as HTMLButtonElement | null;
+    if (expressModeBtn) {
+      expressModeBtn.addEventListener('click', () => {
+        this.expressMode = !this.expressMode;
+        expressModeBtn.classList.toggle('active', this.expressMode);
+        expressModeBtn.setAttribute('aria-pressed', String(this.expressMode));
+        this.setStatus(
+          this.expressMode
+            ? 'Express mode on: new connections are marked as pass-through.'
+            : 'Express mode off.',
+        );
       });
     }
 
@@ -236,11 +252,16 @@ export class Interactions {
       this.state.addPendingSplice(
         this.selected.id, node.id!,
         this.selected.portId, node.frontPortId!,
+        this.expressMode,
       );
       this.clearSelection();
       this.updateSaveButton();
       this.renderer.render();
-      this.setStatus('Pending splice added. Click Save to commit.');
+      this.setStatus(
+        this.expressMode
+          ? 'Pending express splice added. Click Save to commit.'
+          : 'Pending splice added. Click Save to commit.',
+      );
     }
   }
 
@@ -268,7 +289,7 @@ export class Interactions {
             skipped++;
             continue;
           }
-          this.state.addPendingSplice(a.id, b.id, a.frontPortId, b.frontPortId);
+          this.state.addPendingSplice(a.id, b.id, a.frontPortId, b.frontPortId, this.expressMode);
           created++;
         }
       }
@@ -328,7 +349,7 @@ export class Interactions {
     }
 
     for (const { a, b } of result.pairs) {
-      this.state.addPendingSplice(a.id, b.id, a.frontPortId!, b.frontPortId!);
+      this.state.addPendingSplice(a.id, b.id, a.frontPortId!, b.frontPortId!, this.expressMode);
     }
     this.clearSelection();
     this.updateSaveButton();
