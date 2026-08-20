@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Device pickers in the wizard flows (closure cable wizard far end device,
+  circuit wizard origin/destination devices, slack loop insertion closure)
+  now offer NetBox's object selector popup, allowing devices to be found
+  by site, location, rack, and other filters instead of scrolling a flat
+  list of all devices. Fixes #88.
 - Splice closure creation wizard: **FMS > Add Splice Closure** creates the
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray
