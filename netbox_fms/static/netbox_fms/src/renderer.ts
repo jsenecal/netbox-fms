@@ -14,6 +14,7 @@ import {
   TUBE_DOT_R,
   MIN_HEIGHT,
 } from './state';
+import { isNodeSpliced } from './types';
 import type { LayoutNode, SpliceEntry } from './types';
 
 /** Position entry used when building the link node map. */
@@ -324,7 +325,7 @@ export class SpliceRenderer {
       const btnY = subtitleY;
 
       const mutedColor = getComputedStyle(document.body).getPropertyValue('--bs-secondary-color').trim() || '#6c757d';
-      const hoverColor = getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
+      const hoverColor = this.bsPrimary();
 
       const btn = cg.append('text')
         .attr('class', 'cable-move-btn')
@@ -351,6 +352,24 @@ export class SpliceRenderer {
     }
   }
 
+  /** Theme primary color with a Bootstrap-default fallback. */
+  private bsPrimary(): string {
+    return getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
+  }
+
+  /** Selection glow ring drawn behind a node dot. */
+  private appendSelectionGlow(parent: any, cx: number, cy: number, dotRadius: number, className: string): void {
+    parent.append('circle')
+      .attr('class', className)
+      .attr('cx', cx)
+      .attr('cy', cy)
+      .attr('r', dotRadius + 5)
+      .attr('fill', 'none')
+      .attr('stroke', this.bsPrimary())
+      .attr('stroke-width', 2)
+      .attr('stroke-opacity', 0.6);
+  }
+
   private renderTubeNode(
     g: any,
     node: LayoutNode,
@@ -366,15 +385,7 @@ export class SpliceRenderer {
 
     // Selection glow ring (behind dot), matching strand selection styling
     if (isSelected) {
-      tg.append('circle')
-        .attr('class', 'tube-glow')
-        .attr('cx', dotX)
-        .attr('cy', node.y)
-        .attr('r', TUBE_DOT_R + 5)
-        .attr('fill', 'none')
-        .attr('stroke', getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd')
-        .attr('stroke-width', 2)
-        .attr('stroke-opacity', 0.6);
+      this.appendSelectionGlow(tg, dotX, node.y, TUBE_DOT_R, 'tube-glow');
     }
 
     // Tube color dot
@@ -427,7 +438,7 @@ export class SpliceRenderer {
     const textX = side === 'left' ? xOffset + indent : xOffset + COLUMN_WIDTH - indent;
     const anchor = side === 'left' ? 'start' : 'end';
 
-    const isSpliced = !!(node.liveSplicedTo || node.planSplicedTo);
+    const isSpliced = isNodeSpliced(node);
     const isSelected = this.state.selectedStrandId === node.id;
     const isPendingAdd = node.id !== undefined && this.state.isStrandPendingAdd(node.id);
     const isPendingDelete = node.id !== undefined && this.state.getStrandPendingState(node.id) === 'remove';
@@ -467,15 +478,7 @@ export class SpliceRenderer {
 
     // Selection glow ring (behind dot)
     if (isSelected) {
-      sg.append('circle')
-        .attr('class', 'strand-glow')
-        .attr('cx', dotX)
-        .attr('cy', node.y)
-        .attr('r', STRAND_DOT_R + 5)
-        .attr('fill', 'none')
-        .attr('stroke', getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd')
-        .attr('stroke-width', 2)
-        .attr('stroke-opacity', 0.6);
+      this.appendSelectionGlow(sg, dotX, node.y, STRAND_DOT_R, 'strand-glow');
     }
 
     // Subtle glow behind the dot for visibility
@@ -749,7 +752,7 @@ export class SpliceRenderer {
 
         // Selection highlight (bright outline behind the line)
         if (isSelected) {
-          const selColor = getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
+          const selColor = this.bsPrimary();
           this.linksGroup
             .append('path')
             .attr('class', 'splice-link-selected')

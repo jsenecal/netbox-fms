@@ -133,6 +133,11 @@ export interface LayoutNode {
   parentTubeNode?: LayoutNode;
 }
 
+/** Whether a strand node already carries a live or planned splice. */
+export function isNodeSpliced(node: LayoutNode): boolean {
+  return !!(node.liveSplicedTo || node.planSplicedTo);
+}
+
 /** A pending splice change (add or remove). */
 export interface PendingChange {
   action: 'add' | 'remove';
