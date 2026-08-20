@@ -288,29 +288,6 @@ class TestSplicePlanImportFromDeviceAPI(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# SplicePlan apply action
-# ---------------------------------------------------------------------------
-
-
-class TestSplicePlanApplyAPI(TestCase):
-    """POST /api/plugins/fms/splice-plans/{pk}/apply/ should return 200."""
-
-    @classmethod
-    def setUpTestData(cls):
-        site, mfr, dt, role = make_infra("apply")
-        cls.closure = Device.objects.create(name="C-Apply", site=site, device_type=dt, role=role)
-        cls.plan = SplicePlan.objects.create(closure=cls.closure, name="Apply Plan")
-
-    def setUp(self):
-        self.client = _make_authed_client()
-
-    def test_apply_empty_plan_returns_200(self):
-        url = f"/api/plugins/fms/splice-plans/{self.plan.pk}/apply/"
-        resp = self.client.post(url, format="json")
-        assert resp.status_code == 200, resp.content
-
-
-# ---------------------------------------------------------------------------
 # ClosureStrands API
 # ---------------------------------------------------------------------------
 

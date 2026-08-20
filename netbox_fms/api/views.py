@@ -254,6 +254,18 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+            return Response(
+                {"detail": "Applying a splice plan requires the approve_spliceplan permission."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if plan.status != SplicePlanStatusChoices.APPROVED:
+            return Response(
+                {
+                    "error": f"Cannot apply: plan is '{plan.get_status_display()}' -- only approved plans can be applied."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         # Check for protected splices being modified
         protected = _get_protected_plan_ports(plan)
         if protected:
