@@ -25,6 +25,10 @@ from netbox_fms.models import (
     RibbonTemplate,
 )
 
+# Expected optgroup labels when no single scheme is selected: every known
+# standard in registry order, then the generic fallback group.
+ALL_SCHEME_GROUP_LABELS = ["EIA/TIA-598", "ABNT NBR 14771", "DIN IEC 60304", "Other"]
+
 
 class TestFiberColorSchemeChoices:
     def test_values(self):
@@ -40,41 +44,50 @@ class TestFiberColorSchemeChoices:
 
 
 class TestGetStrandColor:
-    def test_nbr_full_sequence(self):
-        expected = [
-            ("00ff00", "Green"),
-            ("ffff00", "Yellow"),
-            ("ffffff", "White"),
-            ("0000ff", "Blue"),
-            ("ff0000", "Red"),
-            ("ee82ee", "Violet"),
-            ("8b4513", "Brown"),
-            ("ff69b4", "Rose"),
-            ("000000", "Black"),
-            ("708090", "Gray"),
-            ("ff8000", "Orange"),
-            ("00ffff", "Aqua"),
-        ]
-        got = [get_strand_color(pos, FiberColorSchemeChoices.NBR_14771) for pos in range(1, 13)]
-        assert got == expected
-
-    def test_din_full_sequence(self):
-        """DIN VDE 0888 fiber sequence built on the IEC 60304 color set. Refs #107."""
-        expected = [
-            ("ff0000", "Red"),
-            ("00ff00", "Green"),
-            ("0000ff", "Blue"),
-            ("ffff00", "Yellow"),
-            ("ffffff", "White"),
-            ("708090", "Grey"),
-            ("8b4513", "Brown"),
-            ("ee82ee", "Violet"),
-            ("00ffff", "Turquoise"),
-            ("000000", "Black"),
-            ("ff8000", "Orange"),
-            ("ff69b4", "Pink"),
-        ]
-        got = [get_strand_color(pos, FiberColorSchemeChoices.DIN_IEC_60304) for pos in range(1, 13)]
+    @pytest.mark.parametrize(
+        ("scheme", "expected"),
+        [
+            pytest.param(
+                FiberColorSchemeChoices.NBR_14771,
+                [
+                    ("00ff00", "Green"),
+                    ("ffff00", "Yellow"),
+                    ("ffffff", "White"),
+                    ("0000ff", "Blue"),
+                    ("ff0000", "Red"),
+                    ("ee82ee", "Violet"),
+                    ("8b4513", "Brown"),
+                    ("ff69b4", "Rose"),
+                    ("000000", "Black"),
+                    ("708090", "Gray"),
+                    ("ff8000", "Orange"),
+                    ("00ffff", "Aqua"),
+                ],
+                id="nbr_14771",
+            ),
+            pytest.param(
+                FiberColorSchemeChoices.DIN_IEC_60304,
+                [
+                    ("ff0000", "Red"),
+                    ("00ff00", "Green"),
+                    ("0000ff", "Blue"),
+                    ("ffff00", "Yellow"),
+                    ("ffffff", "White"),
+                    ("708090", "Grey"),
+                    ("8b4513", "Brown"),
+                    ("ee82ee", "Violet"),
+                    ("00ffff", "Turquoise"),
+                    ("000000", "Black"),
+                    ("ff8000", "Orange"),
+                    ("ff69b4", "Pink"),
+                ],
+                id="din_iec_60304",
+            ),
+        ],
+    )
+    def test_full_sequence(self, scheme, expected):
+        """Each scheme's literal 12-color sequence is the oracle; DIN rows added for issue #107."""
+        got = [get_strand_color(pos, scheme) for pos in range(1, 13)]
         assert got == expected
 
     def test_eia_position_one_is_blue(self):
@@ -128,18 +141,6 @@ class TestColorSchemeInstantiation:
         fc = FiberCable.objects.create(fiber_cable_type=fct, cable=Cable.objects.create())
         assert _strand_colors(fc) == [hex_color for hex_color, _name in NBR_14771_COLORS]
 
-    def test_tight_buffer_din(self):
-        """Strand colors under the DIN scheme at instantiation. Refs #107."""
-        fct = _make_type("DIN-4F-TB", "tight_buffer", 4, FiberColorSchemeChoices.DIN_IEC_60304)
-        fc = FiberCable.objects.create(fiber_cable_type=fct, cable=Cable.objects.create())
-        assert _strand_colors(fc) == ["ff0000", "00ff00", "0000ff", "ffff00"]
-
-    def test_loose_tube_din(self):
-        fct = _make_type("DIN-12F-LT", "loose_tube", 12, FiberColorSchemeChoices.DIN_IEC_60304)
-        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, color="ff0000", fiber_count=12)
-        fc = FiberCable.objects.create(fiber_cable_type=fct, cable=Cable.objects.create())
-        assert _strand_colors(fc) == [hex_color for hex_color, _name in DIN_IEC_60304_COLORS]
-
     def test_ribbon_nbr(self):
         fct = _make_type("NBR-12F-RB", "ribbon", 12, FiberColorSchemeChoices.NBR_14771)
         RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
@@ -163,7 +164,7 @@ class TestGroupedColorChoices:
 
     def test_unknown_scheme_yields_all_standards(self):
         groups = get_grouped_color_choices(None)
-        assert [str(g[0]) for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "DIN IEC 60304", "Other"]
+        assert [str(g[0]) for g in groups] == ALL_SCHEME_GROUP_LABELS
 
     def test_other_group_excludes_standard_hexes(self):
         groups = get_grouped_color_choices(FiberColorSchemeChoices.EIA_598)
@@ -195,7 +196,7 @@ class TestSchemeAwareColorPicker:
 
     def test_add_form_without_parent_shows_all_standards(self):
         groups = _picker_groups(BufferTubeTemplateForm())
-        assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "DIN IEC 60304", "Other"]
+        assert [g[0] for g in groups] == ALL_SCHEME_GROUP_LABELS
 
     def test_off_palette_current_value_stays_selectable(self):
         fct = _make_type("NBR-PICKER-OFF", "loose_tube", 12, FiberColorSchemeChoices.NBR_14771)
@@ -215,7 +216,7 @@ class TestSchemeAwareColorPicker:
     def test_bulk_edit_forms_show_all_standards(self):
         for form_cls in (BufferTubeTemplateBulkEditForm, RibbonTemplateBulkEditForm):
             groups = _picker_groups(form_cls())
-            assert [g[0] for g in groups] == ["EIA/TIA-598", "ABNT NBR 14771", "DIN IEC 60304", "Other"]
+            assert [g[0] for g in groups] == ALL_SCHEME_GROUP_LABELS
 
 
 @pytest.mark.django_db
