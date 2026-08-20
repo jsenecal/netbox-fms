@@ -41,6 +41,7 @@ export class EditorState {
   leftOffset = 0;
   rightOffset = 0;
   selectedStrandId: number | null = null;
+  selectedTubeId: number | null = null;
   selectedSpliceKeys: Set<string> = new Set();
   showLive = true;
   showPlanned = true;

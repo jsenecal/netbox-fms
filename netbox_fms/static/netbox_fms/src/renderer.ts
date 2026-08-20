@@ -362,6 +362,20 @@ export class SpliceRenderer {
     const dotX = xOffset + (side === 'left' ? TUBE_INDENT : COLUMN_WIDTH - TUBE_INDENT);
     const textX = xOffset + (side === 'left' ? TUBE_INDENT + 10 : COLUMN_WIDTH - TUBE_INDENT - 10);
     const anchor = side === 'left' ? 'start' : 'end';
+    const isSelected = node.tubeId !== undefined && this.state.selectedTubeId === node.tubeId;
+
+    // Selection glow ring (behind dot), matching strand selection styling
+    if (isSelected) {
+      tg.append('circle')
+        .attr('class', 'tube-glow')
+        .attr('cx', dotX)
+        .attr('cy', node.y)
+        .attr('r', TUBE_DOT_R + 5)
+        .attr('fill', 'none')
+        .attr('stroke', getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd')
+        .attr('stroke-width', 2)
+        .attr('stroke-opacity', 0.6);
+    }
 
     // Tube color dot
     tg.append('circle')
@@ -393,6 +407,7 @@ export class SpliceRenderer {
       .attr('x', textX)
       .attr('y', node.y + 3)
       .attr('text-anchor', anchor)
+      .attr('font-weight', isSelected ? 'bold' : null)
       .text(icon + (node.label ?? '') + countStr);
 
     tg.on('click', () => {

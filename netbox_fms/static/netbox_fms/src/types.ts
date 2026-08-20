@@ -2,7 +2,7 @@
 export type ContextMode = 'view' | 'edit' | 'plan-edit';
 
 /** Splice action mode from toolbar buttons. */
-export type ActionMode = 'single' | 'sequential';
+export type ActionMode = 'single' | 'sequential' | 'tube';
 
 /** Configuration injected from Django template via window.SPLICE_EDITOR_CONFIG. */
 export interface EditorConfig {

@@ -4,7 +4,7 @@ import { Interactions } from './interactions';
 import { showQuickAddModal } from './modal';
 import { SpliceRenderer } from './renderer';
 import { EditorState } from './state';
-import type { DetailCard, EditorConfig, LayoutNode, SpliceEntry } from './types';
+import type { ActionMode, DetailCard, EditorConfig, LayoutNode, SpliceEntry } from './types';
 
 declare const d3: typeof import('d3');
 
@@ -75,9 +75,10 @@ async function init(config: EditorConfig): Promise<void> {
         [
           { id: 'single', label: 'Single', active: true },
           { id: 'sequential', label: 'Sequential' },
+          { id: 'tube', label: 'Tube' },
         ],
         (id) => {
-          interactions.setMode(id as 'single' | 'sequential');
+          interactions.setMode(id as ActionMode);
         },
       );
       // Insert at the beginning (before the back button if present)
@@ -213,6 +214,12 @@ async function init(config: EditorConfig): Promise<void> {
       showSelectedSplicesDetail();
     },
     (node: LayoutNode, nodes: LayoutNode[]) => {
+      // In tube mode the click selects the tube for bulk splicing;
+      // otherwise it collapses/expands the tube as before.
+      if (interactions.handleTubeClick(node)) {
+        updateAfterRender();
+        return;
+      }
       node.collapsed = !node.collapsed;
       state.recalcPositions(nodes);
       renderer.render();
