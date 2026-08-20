@@ -2,7 +2,7 @@
 export type ContextMode = 'view' | 'edit' | 'plan-edit';
 
 /** Splice action mode from toolbar buttons. */
-export type ActionMode = 'single' | 'sequential';
+export type ActionMode = 'single' | 'sequential' | 'tube';
 
 /** Configuration injected from Django template via window.SPLICE_EDITOR_CONFIG. */
 export interface EditorConfig {
@@ -135,6 +135,11 @@ export interface LayoutNode {
   circuitName?: string | null;
   circuitUrl?: string | null;
   parentTubeNode?: LayoutNode;
+}
+
+/** Whether a strand node already carries a live or planned splice. */
+export function isNodeSpliced(node: LayoutNode): boolean {
+  return !!(node.liveSplicedTo || node.planSplicedTo);
 }
 
 /** A pending splice change (add or remove). */
