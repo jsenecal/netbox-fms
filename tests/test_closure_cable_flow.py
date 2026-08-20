@@ -16,7 +16,12 @@ from django.test import TestCase
 from django.urls import reverse
 
 from netbox_fms.constants import FIBER_CABLE_TYPES
-from netbox_fms.forms import ClosureCableWizardStep1Form, ClosureCableWizardStep2Form
+from netbox_fms.forms import (
+    CircuitWizardStep2Form,
+    ClosureCableWizardStep1Form,
+    ClosureCableWizardStep2Form,
+    InsertSlackLoopForm,
+)
 from netbox_fms.models import BufferTubeTemplate, ClosureCableEntry, FiberCable, FiberCableType
 from netbox_fms.services import create_closure_cable
 from tests.conftest import make_infra
@@ -173,6 +178,16 @@ class TestClosureCableWizardForms(TestCase):
             near_device=self.device_a,
         )
         assert form.is_valid(), form.errors
+
+    def test_wizard_device_fields_enable_object_selector(self):
+        """Regression test for issue #88: wizard device pickers offer the
+        object selector popup so duplicate device names across sites can be
+        disambiguated by site/location/rack filters."""
+        assert ClosureCableWizardStep1Form(near_device=self.device_a).fields["far_end_device"].selector
+        step2 = CircuitWizardStep2Form()
+        assert step2.fields["origin_device"].selector
+        assert step2.fields["destination_device"].selector
+        assert InsertSlackLoopForm().fields["closure"].selector
 
     def test_step2_type_choices_are_fiber_only(self):
         values = {value for value, _label in ClosureCableWizardStep2Form().fields["type"].choices if value}
