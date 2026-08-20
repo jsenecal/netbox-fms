@@ -349,7 +349,7 @@ export class Interactions {
     }
 
     for (const { a, b } of result.pairs) {
-      this.state.addPendingSplice(a.id, b.id, a.frontPortId!, b.frontPortId!);
+      this.state.addPendingSplice(a.id, b.id, a.frontPortId!, b.frontPortId!, this.expressMode);
     }
     this.clearSelection();
     this.updateSaveButton();
