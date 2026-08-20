@@ -1826,6 +1826,18 @@ class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
 # ---------------------------------------------------------------------------
 
 
+def _closure_plan_counts(closure):
+    """Count all and draft splice plans for a closure, for editor preflight warnings."""
+    counts = SplicePlan.objects.filter(closure=closure).aggregate(
+        total=Count("pk"),
+        draft=Count("pk", filter=Q(status=SplicePlanStatusChoices.DRAFT)),
+    )
+    return {
+        "closure_plan_count": counts["total"],
+        "closure_draft_plan_count": counts["draft"],
+    }
+
+
 @register_model_view(SplicePlan, "splice_editor", path="editor")
 class SpliceEditorView(generic.ObjectView):
     """Visual splice editor tab on a SplicePlan detail page."""
@@ -1845,6 +1857,7 @@ class SpliceEditorView(generic.ObjectView):
         return {
             "context_mode": "plan-edit",
             "is_readonly": instance.status != SplicePlanStatusChoices.DRAFT,
+            **_closure_plan_counts(instance.closure),
         }
 
 
@@ -2069,6 +2082,7 @@ class DeviceSpliceEditorView(View):
                 "plan": plan,
                 "context_mode": context_mode,
                 "tab": self.tab,
+                **_closure_plan_counts(device),
             },
         )
 

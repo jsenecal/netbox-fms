@@ -27,6 +27,8 @@
         csrfToken: "{{ csrf_token }}",
         debug: {{ debug|yesno:"true,false" }},
         readOnly: {{ is_readonly|yesno:"true,false" }},
+        closurePlanCount: {{ closure_plan_count }},
+        closureDraftPlanCount: {{ closure_draft_plan_count }},
     };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>

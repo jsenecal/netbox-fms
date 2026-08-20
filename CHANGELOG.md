@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Splice editor: errors and blocked-action warnings now appear as
+  persistent, dismissible alerts above the canvas instead of the 3-second
+  stats bar flash (informational status keeps the flash). The editor also
+  shows preflight warnings on load when buffer tubes are not assigned to
+  any splice tray, when no splice plan exists for the closure, or when
+  only non-draft plans exist. Fixes #115.
 - DIN IEC 60304 fiber color scheme -- `FiberCableType.color_scheme` now
   offers the German DIN VDE 0888 fiber sequence (Red, Green, Blue, Yellow,
   White, Grey, Brown, Violet, Turquoise, Black, Orange, Pink) alongside
