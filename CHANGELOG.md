@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Splice editor express support: the splice detail panel shows an Express
+  row with a Set/Clear toggle for planned splices, and a toolbar "Express"
+  mode marks new connections as pass-through at creation time. The
+  bulk-update endpoint now accepts and persists `is_express` on added
+  entries (it previously dropped the flag), the closure-strands API exposes
+  `plan_is_express` per strand, and express plan splices render with a
+  distinct tight-dash line style. (#117)
+
 - Splice closure creation wizard: **FMS > Add Splice Closure** creates the
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray
