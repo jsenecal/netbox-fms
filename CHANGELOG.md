@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- DIN IEC 60304 fiber color scheme -- `FiberCableType.color_scheme` now
+  offers the German DIN VDE 0888 fiber sequence (Red, Green, Blue, Yellow,
+  White, Grey, Brown, Violet, Turquoise, Black, Orange, Pink) alongside
+  EIA/TIA-598 and ABNT NBR 14771. The default is unchanged. Refs #107.
+
 - Splice closure creation wizard: **FMS > Add Splice Closure** creates the
   closure Device with named "Tray 1..N" module bays, tray modules, and
   optional express basket bays in one atomic action. Requires tray
