@@ -101,6 +101,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only the first module's front ports and reported a spurious count
   mismatch. (#64)
 
+### Security
+
+- Four custom API views bypassed NetBox object-level permissions. The
+  fiber-circuit-nodes viewset and the fiber-circuits/protecting view
+  ignored `ObjectPermission` constraints, serving every row to any user
+  with a model-level view permission; the fiber-claims and
+  closure-strands views required only authentication, disclosing splice
+  plans, strand maps, and circuit names to users with no permissions at
+  all. All querysets feeding those responses are now restricted to the
+  requesting user's permitted objects, matching the enforcement the
+  `NetBoxModelViewSet`-based endpoints have always had. Reported
+  alongside jsenecal/netbox-pathways#123.
+
 ## [0.2.0] - 2026-05-26
 
 ### Added

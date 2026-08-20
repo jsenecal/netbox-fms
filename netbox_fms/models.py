@@ -1968,6 +1968,11 @@ class FiberCircuitPath(NetBoxModel):
 class FiberCircuitNode(models.Model):
     """Relational index of objects in a fiber circuit path for PROTECT-based deletion prevention."""
 
+    # Not a NetBoxModel, so wire up the restricted manager explicitly --
+    # the API exposes this model and must be able to enforce object
+    # permissions on it via .restrict().
+    objects = RestrictedQuerySet.as_manager()
+
     path = models.ForeignKey(
         to="netbox_fms.FiberCircuitPath",
         on_delete=models.CASCADE,

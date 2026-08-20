@@ -3,22 +3,19 @@
 from unittest.mock import patch
 
 import pytest
-from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
+from dcim.models import Cable, Device, Module, ModuleBay, ModuleType
 from django.contrib.auth import get_user_model
 
 from netbox_fms.choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath, SplicePlan, SplicePlanEntry
-from tests.conftest import make_front_port
+from tests.conftest import make_front_port, make_infra
 
 User = get_user_model()
 
 
 def _build_closure_with_plan(prefix, plan_status=SplicePlanStatusChoices.APPROVED):
     """Create a closure with one tray, two front ports, and one splice plan entry."""
-    site = Site.objects.create(name=f"{prefix} Site", slug=f"{prefix.lower()}-site")
-    mfr = Manufacturer.objects.create(name=f"{prefix} Mfr", slug=f"{prefix.lower()}-mfr")
-    dt = DeviceType.objects.create(manufacturer=mfr, model=f"{prefix} Closure", slug=f"{prefix.lower()}-closure")
-    role = DeviceRole.objects.create(name=f"{prefix} Role", slug=f"{prefix.lower()}-role")
+    site, mfr, dt, role = make_infra(prefix)
     closure = Device.objects.create(name=f"{prefix}-Closure", site=site, device_type=dt, role=role)
 
     mt = ModuleType.objects.create(manufacturer=mfr, model=f"{prefix} Tray")

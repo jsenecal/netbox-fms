@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
-from ..choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
+from ..choices import SplicePlanStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -57,7 +57,7 @@ from ..models import (
     TrayProfile,
     TubeAssignment,
 )
-from ..services import apply_diff, get_or_recompute_diff, import_live_state
+from ..services import apply_diff, get_or_recompute_diff, import_live_state, protecting_nodes
 from ..trace_hops import build_hops
 from .serializers import (
     BufferTubeSerializer,
@@ -339,12 +339,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
             all_port_ids.add(item["fiber_b"])
 
         if all_port_ids:
-            protected_nodes = (
-                FiberCircuitNode.objects.filter(front_port_id__in=all_port_ids)
-                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-                .select_related("path__circuit")
-            )
-            protected_names = {n.path.circuit.name for n in protected_nodes}
+            protected_names = {n.path.circuit.name for n in protecting_nodes(all_port_ids)}
             if protected_names:
                 names = ", ".join(sorted(protected_names))
                 return Response(
@@ -528,6 +523,11 @@ class FiberCircuitNodeViewSet(ModelViewSet):
     serializer_class = FiberCircuitNodeSerializer
     http_method_names = ["get", "head", "options"]
 
+    def get_queryset(self):
+        # Plain DRF viewsets skip NetBox's object-permission enforcement;
+        # apply the same restriction NetBoxModelViewSet would.
+        return super().get_queryset().restrict(self.request.user, "view")
+
 
 class FiberCircuitProtectingAPIView(APIView):
     """Return circuits protecting the given objects."""
@@ -550,7 +550,7 @@ class FiberCircuitProtectingAPIView(APIView):
                 filters |= models.Q(**{f"{field}__in": ids})
         if not filters:
             return Response([])
-        circuits = FiberCircuit.objects.filter(filters).distinct()
+        circuits = FiberCircuit.objects.restrict(request.user, "view").filter(filters).distinct()
         serializer = FiberCircuitSerializer(circuits, many=True, context={"request": request})
         return Response(serializer.data)
 
@@ -568,7 +568,8 @@ class FiberClaimsAPIView(APIView):
     def get(self, request, device_id):
         """Return fiber claims for all non-archived plans on the given closure device."""
         qs = (
-            SplicePlanEntry.objects.filter(plan__closure_id=device_id)
+            SplicePlanEntry.objects.restrict(request.user, "view")
+            .filter(plan__closure_id=device_id)
             .exclude(plan__status=SplicePlanStatusChoices.ARCHIVED)
             .select_related("plan__project")
         )
@@ -605,12 +606,7 @@ def _get_protected_plan_ports(plan):
         fp_ids.add(entry.fiber_b_id)
     if not fp_ids:
         return {}
-    protected_nodes = (
-        FiberCircuitNode.objects.filter(front_port_id__in=fp_ids)
-        .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-        .select_related("path__circuit")
-    )
-    return {n.front_port_id: n.path.circuit.name for n in protected_nodes}
+    return {n.front_port_id: n.path.circuit.name for n in protecting_nodes(fp_ids)}
 
 
 class ClosureStrandsAPIView(APIView):
@@ -620,9 +616,15 @@ class ClosureStrandsAPIView(APIView):
 
     def get(self, request, device_id):
         """Return strands grouped by cable and tube for the given closure device."""
+        # Every queryset whose rows reach the response is restricted to the
+        # requesting user's object permissions; ID-only structural lookups
+        # (front ports, cable terminations) stay unrestricted since they
+        # only ever key into restricted data.
+        user = request.user
+
         # Build tube assignment lookup: buffer_tube_id -> {tray_id, tray_name}
         tube_assignment_lookup = {}
-        for ta in TubeAssignment.objects.filter(closure_id=device_id).select_related("tray"):
+        for ta in TubeAssignment.objects.restrict(user, "view").filter(closure_id=device_id).select_related("tray"):
             tube_assignment_lookup[ta.buffer_tube_id] = {
                 "tray_id": ta.tray_id,
                 "tray_name": str(ta.tray),
@@ -639,7 +641,11 @@ class ClosureStrandsAPIView(APIView):
             .distinct()
         )
 
-        fiber_cables = FiberCable.objects.filter(cable_id__in=cable_ids).select_related("cable", "fiber_cable_type")
+        fiber_cables = (
+            FiberCable.objects.restrict(user, "view")
+            .filter(cable_id__in=cable_ids)
+            .select_related("cable", "fiber_cable_type")
+        )
 
         # Build far-end device lookup: cable_id -> (device_name, device_url)
         far_end_lookup = {}
@@ -647,7 +653,7 @@ class ClosureStrandsAPIView(APIView):
         for term in all_terms:
             if term._device_id and term._device_id != device_id:
                 try:
-                    far_dev = Device.objects.get(pk=term._device_id)
+                    far_dev = Device.objects.restrict(user, "view").get(pk=term._device_id)
                     far_end_lookup[term.cable_id] = {
                         "id": far_dev.pk,
                         "name": str(far_dev),
@@ -687,47 +693,46 @@ class ClosureStrandsAPIView(APIView):
         plan_lookup = {}
         plan_id = request.query_params.get("plan_id")
         if plan_id:
-            plan_entries = SplicePlanEntry.objects.filter(
-                plan_id=plan_id,
-            ).values_list("id", "fiber_a_id", "fiber_b_id")
+            plan_entries = (
+                SplicePlanEntry.objects.restrict(user, "view")
+                .filter(plan_id=plan_id)
+                .values_list("id", "fiber_a_id", "fiber_b_id")
+            )
             for entry_id, fa_id, fb_id in plan_entries:
                 if fa_id in tray_front_port_ids and fb_id in tray_front_port_ids:
                     plan_lookup[fa_id] = (entry_id, fb_id)
                     plan_lookup[fb_id] = (entry_id, fa_id)
 
-        # --- C) Build protection lookup: front_port_id → circuit name ---
-        # A front port is "protected" if referenced by a non-decommissioned FiberCircuitNode
-        all_tray_fp_ids = set()
-        for fc in fiber_cables:
-            for s in fc.fiber_strands.all():
-                if s.front_port_a_id:
-                    all_tray_fp_ids.add(s.front_port_a_id)
-                if s.front_port_b_id:
-                    all_tray_fp_ids.add(s.front_port_b_id)
-
-        protection_lookup = {}  # front_port_id -> (circuit_name, circuit_url)
-        if all_tray_fp_ids:
-            protected_nodes = (
-                FiberCircuitNode.objects.filter(front_port_id__in=all_tray_fp_ids)
-                .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-                .select_related("path__circuit")
+        # Materialize each cable's viewable strands once; the lookups below and
+        # the cable groups all consume this same restricted set.
+        strands_by_cable = {
+            fc.pk: list(
+                fc.fiber_strands.restrict(user, "view").select_related("buffer_tube", "ribbon").order_by("position")
             )
-            for node in protected_nodes:
-                circuit = node.path.circuit
-                protection_lookup[node.front_port_id] = (circuit.name, circuit.get_absolute_url())
+            for fc in fiber_cables
+        }
 
-        # --- D) Build front_port_id → strand_id reverse mapping ---
+        # --- C) Build front_port_id → strand_id reverse mapping ---
         fp_to_strand = {}
-        for fc in fiber_cables:
-            for s in fc.fiber_strands.all():
+        for strands in strands_by_cable.values():
+            for s in strands:
                 if s.front_port_a_id:
                     fp_to_strand[s.front_port_a_id] = s.pk
                 if s.front_port_b_id:
                     fp_to_strand[s.front_port_b_id] = s.pk
+        all_tray_fp_ids = set(fp_to_strand)
+
+        # --- D) Build protection lookup: front_port_id → circuit name ---
+        # A front port is "protected" if referenced by a non-decommissioned FiberCircuitNode
+        protection_lookup = {}  # front_port_id -> (circuit_name, circuit_url)
+        if all_tray_fp_ids:
+            for node in protecting_nodes(all_tray_fp_ids, user=user):
+                circuit = node.path.circuit
+                protection_lookup[node.front_port_id] = (circuit.name, circuit.get_absolute_url())
 
         cable_groups = []
         for fc in fiber_cables:
-            strands = fc.fiber_strands.select_related("buffer_tube", "ribbon").order_by("position")
+            strands = strands_by_cable[fc.pk]
 
             # Group strands by tube
             tubes_dict = OrderedDict()
@@ -800,7 +805,7 @@ class ClosureStrandsAPIView(APIView):
 
         # Build trays list
         trays = []
-        for m in Module.objects.filter(device_id=device_id).select_related("module_type"):
+        for m in Module.objects.restrict(user, "view").filter(device_id=device_id).select_related("module_type"):
             profile = getattr(m.module_type, "tray_profile", None)
             if profile:
                 trays.append(
@@ -815,7 +820,7 @@ class ClosureStrandsAPIView(APIView):
         # Include plan version for optimistic locking
         plan_version = None
         if plan_id:
-            plan_obj = SplicePlan.objects.filter(pk=plan_id).first()
+            plan_obj = SplicePlan.objects.restrict(user, "view").filter(pk=plan_id).first()
             if plan_obj and plan_obj.last_updated:
                 plan_version = plan_obj.last_updated.isoformat()
 
