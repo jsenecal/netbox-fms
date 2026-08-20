@@ -31,10 +31,12 @@ class FiberColorSchemeChoices(ChoiceSet):
 
     EIA_598 = "eia_598"
     NBR_14771 = "nbr_14771"
+    DIN_IEC_60304 = "din_iec_60304"
 
     CHOICES = (
         (EIA_598, "EIA/TIA-598"),
         (NBR_14771, "ABNT NBR 14771"),
+        (DIN_IEC_60304, "DIN IEC 60304"),
     )
 
 
