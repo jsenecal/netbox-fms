@@ -1,6 +1,10 @@
+import { isNodeSpliced } from './types';
+import type { StatusLevel } from './alerts';
 import type { EditorConfig, LayoutNode, SpliceEntry, ActionMode } from './types';
 import type { EditorState } from './state';
 import type { SpliceRenderer } from './renderer';
+import { pairTubeFibers } from './tube-splice';
+import type { TubeFiberInfo } from './tube-splice';
 
 export class Interactions {
   private state: EditorState;
@@ -10,6 +14,7 @@ export class Interactions {
   private mode: ActionMode = 'single';
   private expressMode = false;
   private selected: { id: number; side: 'left' | 'right'; portId: number } | null = null;
+  private selectedTube: { tubeId: number; side: 'left' | 'right' } | null = null;
   private sequentialCount = 12;
   private lastClickedSpliceIndex: number | null = null;
   private saveBtn: HTMLButtonElement | null = null;
@@ -203,14 +208,14 @@ export class Interactions {
 
     // Block interaction with protected strands
     if (node.isProtected) {
-      this.setStatus(`${node.label} is protected by circuit "${node.circuitName}" and cannot be modified.`);
+      this.setStatus(`${node.label} is protected by circuit "${node.circuitName}" and cannot be modified.`, 'warning');
       return;
     }
 
     // If strand is in a pending-add, only block it as a target (second click).
     // As a first click (no selection yet), allow it — user is replacing.
     if (this.state.isStrandPendingAdd(node.id) && this.selected) {
-      this.setStatus(`${node.label} is already in a pending splice.`);
+      this.setStatus(`${node.label} is already in a pending splice.`, 'warning');
       return;
     }
 
@@ -221,6 +226,11 @@ export class Interactions {
 
     if (this.mode === 'sequential') {
       this.handleSequentialClick(node, side);
+      return;
+    }
+
+    if (this.mode === 'tube') {
+      this.setStatus('Tube mode: click a tube header on each side to bulk splice.');
     }
   }
 
@@ -298,6 +308,78 @@ export class Interactions {
     }
   }
 
+  /**
+   * Handle a click on a tube header in tube mode.
+   * Returns true when the click was consumed (tube mode is active),
+   * false when the caller should fall back to collapse/expand.
+   */
+  handleTubeClick(node: LayoutNode): boolean {
+    if (this.config.readOnly || this.mode !== 'tube') return false;
+    if (node.tubeId === undefined) return false;
+    const side: 'left' | 'right' = this.state.leftNodes.includes(node) ? 'left' : 'right';
+
+    if (!this.selectedTube) {
+      this.selectTube(node, side);
+      return true;
+    }
+    if (this.selectedTube.tubeId === node.tubeId) {
+      this.clearSelection();
+      this.renderer.render();
+      this.setStatus('Selection cleared.');
+      return true;
+    }
+    if (this.selectedTube.side === side) {
+      // Same side again: replace the selection
+      this.selectTube(node, side);
+      return true;
+    }
+
+    // Normalize so the pairing (and its messages) sees the editor-left tube first
+    const firstFibers = this.tubeFibers(this.selectedTube.side, this.selectedTube.tubeId);
+    const secondFibers = this.tubeFibers(side, node.tubeId);
+    const [leftFibers, rightFibers] = this.selectedTube.side === 'left'
+      ? [firstFibers, secondFibers]
+      : [secondFibers, firstFibers];
+
+    const result = pairTubeFibers(leftFibers, rightFibers);
+    if (!result.ok) {
+      // Keep the first tube selected so the user can pick another partner
+      this.setStatus(result.reason);
+      return true;
+    }
+
+    for (const { a, b } of result.pairs) {
+      this.state.addPendingSplice(a.id, b.id, a.frontPortId!, b.frontPortId!);
+    }
+    this.clearSelection();
+    this.updateSaveButton();
+    this.renderer.render();
+    this.setStatus(`${result.pairs.length} tube splices added. Click Save to commit.`);
+    return true;
+  }
+
+  private selectTube(node: LayoutNode, side: 'left' | 'right'): void {
+    this.selectedTube = { tubeId: node.tubeId!, side };
+    this.state.selectedTubeId = node.tubeId!;
+    this.setStatus(`Selected tube ${node.label}. Click a tube on the other side to splice fiber-to-fiber.`);
+    this.renderer.render();
+  }
+
+  /** Collect pairing facts for the visible strands of a tube, in positional order. */
+  private tubeFibers(side: 'left' | 'right', tubeId: number): TubeFiberInfo[] {
+    return this.state
+      .getVisibleStrandsInTube(side, tubeId)
+      .filter((n) => n.id !== undefined)
+      .map((n) => ({
+        id: n.id!,
+        frontPortId: n.frontPortId ?? null,
+        spliced: isNodeSpliced(n),
+        pendingAdd: this.state.isStrandPendingAdd(n.id!),
+        isProtected: !!n.isProtected,
+        label: n.label ?? '',
+      }));
+  }
+
   handleSpliceClick(entry: SpliceEntry, event?: MouseEvent): void {
     if (this.config.readOnly) return;
     const isCtrl = event ? (event.ctrlKey || event.metaKey) : false;
@@ -366,13 +448,16 @@ export class Interactions {
     if (this.deleteBtn) this.deleteBtn.disabled = this.state.selectedSpliceKeys.size === 0;
   }
 
-  setStatus(msg: string): void {
+  setStatus(msg: string, _level: StatusLevel = 'info'): void {
     this._statusMessage = msg;
-    // The stats bar flash is handled by the splice-editor.ts override
+    // Display (stats bar flash vs. persistent alert) is handled by the
+    // splice-editor.ts override, which routes on the level.
   }
 
   clearSelection(): void {
     this.selected = null;
+    this.selectedTube = null;
     this.state.selectedStrandId = null;
+    this.state.selectedTubeId = null;
   }
 }

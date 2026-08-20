@@ -679,6 +679,44 @@ describe('getVisibleStrandsInTubeFrom', () => {
   });
 });
 
+describe('getVisibleStrandsInTube', () => {
+  function tubeState(): EditorState {
+    const s = new EditorState();
+    s.loadCableGroups([
+      makeCableGroup({
+        fiber_cable_id: 1,
+        tubes: [
+          {
+            id: 10, name: 'T1', color: '0000ff', marker_count: 0, marker_color: null, marker_type: '', strand_count: 2, tray_assignment: null,
+            strands: [makeStrand({ id: 1 }), makeStrand({ id: 2 })],
+          },
+          {
+            id: 11, name: 'T2', color: '00ff00', marker_count: 0, marker_color: null, marker_type: '', strand_count: 2, tray_assignment: null,
+            strands: [makeStrand({ id: 3 }), makeStrand({ id: 4 })],
+          },
+        ],
+      }),
+    ]);
+    return s;
+  }
+
+  it('returns the strands of the given tube in positional order', () => {
+    const s = tubeState();
+    const strands = s.getVisibleStrandsInTube('left', 11);
+    expect(strands.map(n => n.id)).toEqual([3, 4]);
+  });
+
+  it('excludes hidden strands (collapsed tube)', () => {
+    const s = tubeState();
+    const tubeNode = s.leftNodes.find(n => n.type === 'tube' && n.tubeId === 10);
+    tubeNode!.collapsed = true;
+    s.recalcPositions(s.leftNodes);
+
+    expect(s.getVisibleStrandsInTube('left', 10)).toHaveLength(0);
+    expect(s.getVisibleStrandsInTube('left', 11).map(n => n.id)).toEqual([3, 4]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // columnHeight
 // ---------------------------------------------------------------------------

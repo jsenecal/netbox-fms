@@ -1,10 +1,12 @@
+import { FmsAlertStack, derivePreflightWarnings, routeStatusMessage } from './alerts';
+import type { StatusLevel } from './alerts';
 import { bulkUpdatePlan, fetchFiberClaims, fetchStrands } from './api';
 import { FmsLegend, FmsDetailPanel, FmsStatsBar, createPillGroup, createPillFilter, createSeparator, createSpacer } from './components';
 import { Interactions } from './interactions';
 import { showQuickAddModal } from './modal';
 import { SpliceRenderer } from './renderer';
 import { EditorState } from './state';
-import type { DetailCard, EditorConfig, LayoutNode, SpliceEntry } from './types';
+import type { ActionMode, DetailCard, EditorConfig, LayoutNode, SpliceEntry } from './types';
 
 declare const d3: typeof import('d3');
 
@@ -62,6 +64,13 @@ async function init(config: EditorConfig): Promise<void> {
   const detailPanel = new FmsDetailPanel(canvasContainer.parentElement!);
   const statsBar = statsBarEl ? new FmsStatsBar(statsBarEl) : null;
 
+  // Persistent alert area above the canvas for errors and preflight warnings
+  const alertHost = document.createElement('div');
+  alertHost.id = 'fms-alerts';
+  alertHost.className = 'px-2 pt-2';
+  canvasContainer.parentElement!.before(alertHost);
+  const alertStack = new FmsAlertStack(alertHost);
+
   // -----------------------------------------------------------------------
   // Build toolbar contents
   // -----------------------------------------------------------------------
@@ -75,9 +84,10 @@ async function init(config: EditorConfig): Promise<void> {
         [
           { id: 'single', label: 'Single', active: true },
           { id: 'sequential', label: 'Sequential' },
+          { id: 'tube', label: 'Tube' },
         ],
         (id) => {
-          interactions.setMode(id as 'single' | 'sequential');
+          interactions.setMode(id as ActionMode);
         },
       );
       // Insert at the beginning (before the back button if present)
@@ -224,6 +234,12 @@ async function init(config: EditorConfig): Promise<void> {
       showSelectedSplicesDetail();
     },
     (node: LayoutNode, nodes: LayoutNode[]) => {
+      // In tube mode the click selects the tube for bulk splicing;
+      // otherwise it collapses/expands the tube as before.
+      if (interactions.handleTubeClick(node)) {
+        updateAfterRender();
+        return;
+      }
       node.collapsed = !node.collapsed;
       state.recalcPositions(nodes);
       renderer.render();
@@ -275,14 +291,19 @@ async function init(config: EditorConfig): Promise<void> {
     });
   });
 
-  // Override interactions.setStatus to show messages in the stats bar right section
+  // Override interactions.setStatus to route messages by level: info flashes
+  // in the stats bar, warnings and errors go to the persistent alert area.
   const origSetStatus = interactions.setStatus.bind(interactions);
-  interactions.setStatus = (msg: string) => {
-    origSetStatus(msg);
-    statsBar?.setMessage(msg, 3000);
+  interactions.setStatus = (msg: string, level: StatusLevel = 'info') => {
+    origSetStatus(msg, level);
+    routeStatusMessage(msg, level, {
+      flash: (m) => statsBar?.setMessage(m, 3000),
+      alert: (m, l) => alertStack.show(m, l),
+    });
   };
 
   // Load initial data
+  let preflightDone = false;
   await loadData();
 
   // Resize handler
@@ -606,10 +627,18 @@ async function init(config: EditorConfig): Promise<void> {
       interactions.setStatus(
         `Loaded ${response.cables.length} cable(s). Click strands to splice.`,
       );
+
+      // Preflight warnings on first successful load
+      if (!preflightDone) {
+        preflightDone = true;
+        for (const warning of derivePreflightWarnings(response.cables, config)) {
+          alertStack.show(warning, 'warning');
+        }
+      }
     } catch (err) {
       dbg('loadData() ERROR:', err);
       console.error('[SpliceEditor] loadData error:', err);
-      interactions.setStatus(`Error: ${(err as Error).message}`);
+      interactions.setStatus(`Error: ${(err as Error).message}`, 'error');
     }
   }
 
@@ -773,7 +802,7 @@ async function init(config: EditorConfig): Promise<void> {
       interactions.setStatus('Changes saved successfully.');
       await loadData();
     } catch (err) {
-      interactions.setStatus(`Save error: ${(err as Error).message}`);
+      interactions.setStatus(`Save error: ${(err as Error).message}`, 'error');
     }
   }
 

@@ -38,22 +38,23 @@ standard used to color-identify strands inside the cable. When a
 FiberCable of this type is created, strand colors are assigned
 automatically following the selected standard. Pick the scheme that
 matches the manufacturer's market: `EIA/TIA-598` (default) for most
-international plant, `ABNT NBR 14771` for Brazilian plant.
+international plant, `ABNT NBR 14771` for Brazilian plant,
+`DIN IEC 60304` (the DIN VDE 0888 fiber sequence) for German plant.
 
-| Position | EIA/TIA-598 | ABNT NBR 14771 |
-|----------|-------------|----------------|
-| 1        | Blue        | Green          |
-| 2        | Orange      | Yellow         |
-| 3        | Green       | White          |
-| 4        | Brown       | Blue           |
-| 5        | Slate       | Red            |
-| 6        | White       | Violet         |
-| 7        | Red         | Brown          |
-| 8        | Black       | Rose           |
-| 9        | Yellow      | Black          |
-| 10       | Violet      | Gray           |
-| 11       | Rose        | Orange         |
-| 12       | Aqua        | Aqua           |
+| Position | EIA/TIA-598 | ABNT NBR 14771 | DIN IEC 60304 |
+|----------|-------------|----------------|---------------|
+| 1        | Blue        | Green          | Red           |
+| 2        | Orange      | Yellow         | Green         |
+| 3        | Green       | White          | Blue          |
+| 4        | Brown       | Blue           | Yellow        |
+| 5        | Slate       | Red            | White         |
+| 6        | White       | Violet         | Grey          |
+| 7        | Red         | Brown          | Brown         |
+| 8        | Black       | Rose           | Violet        |
+| 9        | Yellow      | Black          | Turquoise     |
+| 10       | Violet      | Gray           | Black         |
+| 11       | Rose        | Orange         | Orange        |
+| 12       | Aqua        | Aqua           | Pink          |
 
 Positions beyond 12 cycle through the palette again (position 13 repeats
 position 1); use strand markers to distinguish repeats.

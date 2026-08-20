@@ -1025,8 +1025,12 @@ class CircuitWizardStep1Form(forms.Form):
 class CircuitWizardStep2Form(forms.Form):
     """Step 2: Select origin and destination devices."""
 
-    origin_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Origin Device"))
-    destination_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Destination Device"))
+    origin_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Origin Device"), selector=True)
+    destination_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        label=_("Destination Device"),
+        selector=True,
+    )
 
     def clean(self):
         super().clean()
@@ -1091,6 +1095,7 @@ class InsertSlackLoopForm(forms.Form):
         queryset=Device.objects.all(),
         label=_("Closure"),
         help_text=_("Target splice closure device."),
+        selector=True,
     )
     a_side_rear_ports = DynamicModelMultipleChoiceField(
         queryset=RearPort.objects.all(),
@@ -1308,6 +1313,7 @@ class ClosureCableWizardStep1Form(forms.Form):
         queryset=Device.objects.all(),
         label=_("Far end device"),
         help_text=_("The closure or device at the other end of the cable."),
+        selector=True,
     )
     fiber_cable_type = DynamicModelChoiceField(
         queryset=FiberCableType.objects.all(),
