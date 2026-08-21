@@ -1897,7 +1897,7 @@ class SpliceEditorView(generic.ObjectView):
         """Return context for the splice editor."""
         return {
             "context_mode": "plan-edit",
-            "is_readonly": instance.status != SplicePlanStatusChoices.DRAFT,
+            "is_readonly": not instance.is_editable,
             **_closure_plan_counts(instance.closure),
         }
 
@@ -2123,7 +2123,7 @@ class DeviceSpliceEditorView(View):
                 "plan": plan,
                 "context_mode": context_mode,
                 # No plan at all still allows editing: the first save quick-adds one.
-                "is_readonly": plan is not None and plan.status != SplicePlanStatusChoices.DRAFT,
+                "is_readonly": plan is not None and not plan.is_editable,
                 "closure_draft_plans": list(_closure_plans(device).filter(status=SplicePlanStatusChoices.DRAFT)),
                 "tab": self.tab,
                 **_closure_plan_counts(device),

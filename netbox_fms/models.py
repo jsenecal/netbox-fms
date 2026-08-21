@@ -1280,6 +1280,11 @@ class SplicePlan(NetBoxModel):
         if self.status == SplicePlanStatusChoices.PENDING_APPROVAL and not self.submitted_by_id:
             raise ValidationError({"submitted_by": "A plan in 'pending_approval' must have a submitted_by user."})
 
+    @property
+    def is_editable(self):
+        """Return True when the plan's entries may still be changed."""
+        return self.status == SplicePlanStatusChoices.DRAFT
+
     def __str__(self):
         """Return the plan name."""
         return self.name
