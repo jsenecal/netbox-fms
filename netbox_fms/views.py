@@ -2198,6 +2198,10 @@ class DevicePendingWorkView(generic.ObjectView):
         """Apply all approved plans atomically."""
         device = get_object_or_404(Device, pk=pk)
 
+        if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+            messages.error(request, _("Applying splice plans requires the approve_spliceplan permission."))
+            return redirect(device.get_absolute_url())
+
         try:
             with transaction.atomic():
                 # Lock the approved plans; select_for_update requires an
@@ -2238,15 +2242,10 @@ class DevicePendingWorkView(generic.ObjectView):
                     local_module_ids = set(Module.objects.filter(device=plan.closure).values_list("pk", flat=True))
                     plan.entries.exclude(tray_id__in=local_module_ids).delete()
 
+                    # apply_diff() archives each plan after a successful apply
                     result = apply_diff(plan)
                     total_added += result["added"]
                     total_removed += result["removed"]
-
-                    # Archive the plan
-                    plan.status = SplicePlanStatusChoices.ARCHIVED
-                    plan.cached_diff = None
-                    plan.diff_stale = True
-                    plan.save(update_fields=["status", "cached_diff", "diff_stale"])
 
             msg = _("Applied {added} additions and {removed} removals from {count} plan(s).").format(
                 added=total_added,

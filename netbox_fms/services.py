@@ -2,11 +2,16 @@
 
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from .choices import FiberCircuitStatusChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from .models import ClosureCableEntry, FiberCable, FiberCircuitNode, SplicePlanEntry
 from .signals import fms_portmapping_bypass
+
+
+class PlanNotApplicable(ValidationError):  # noqa: N818
+    """Raised when a splice plan is not in a status that allows applying."""
 
 
 class NeedsMappingConfirmation(Exception):  # noqa: N818
@@ -449,9 +454,16 @@ def protecting_nodes(front_port_ids, user=None):
 
 def apply_diff(plan):
     """
-    Execute the diff: create cables for "add", delete cables for "remove".
-    Returns {"added": int, "removed": int}.
+    Execute the full plan-vs-live diff: create cables for "add", delete
+    cables for "remove". Only approved plans may be applied; the check
+    lives here so every apply path honours the approval workflow. On
+    success the plan is archived. Returns {"added": int, "removed": int}.
     """
+    if plan.status != SplicePlanStatusChoices.APPROVED:
+        raise PlanNotApplicable(
+            f"Cannot apply plan '{plan}': status is '{plan.status}' -- only approved plans can be applied."
+        )
+
     diff = compute_diff(plan)
 
     fp_ct = ContentType.objects.get_for_model(FrontPort)
@@ -514,8 +526,11 @@ def apply_diff(plan):
             )
             added += 1
 
+        # Archive the applied plan so it becomes a read-only historical record
+        plan.status = SplicePlanStatusChoices.ARCHIVED
+        plan.cached_diff = None
         plan.diff_stale = True
-        plan.save(update_fields=["diff_stale"])
+        plan.save(update_fields=["status", "cached_diff", "diff_stale"])
 
     return {"added": added, "removed": removed}
 
