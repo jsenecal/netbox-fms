@@ -687,6 +687,27 @@ class SplicePlanForm(NetBoxModelForm):
         fields = ("closure", "name", "description", "project", "tags")
 
 
+class SplicePlanQuickAddForm(forms.ModelForm):
+    """Minimal form for the splice editor's quick-create modal.
+
+    The modal injects this form's markup with insertAdjacentHTML, so NetBox's
+    dynamic-select initialization never runs against it: every widget here has
+    to be a plain, static input. The closure is already known from the editor
+    context and is carried as a hidden value, leaving only the fields needed to
+    create a draft plan.
+    """
+
+    class Meta:
+        model = SplicePlan
+        fields = ("closure", "name", "description")
+        widgets = {
+            "closure": forms.HiddenInput(),
+            # A single-line input keeps the modal compact; the model field is
+            # text, so Django would otherwise render a full textarea.
+            "description": forms.TextInput(),
+        }
+
+
 class SplicePlanImportForm(NetBoxModelImportForm):
     """Import form for SplicePlan."""
 
