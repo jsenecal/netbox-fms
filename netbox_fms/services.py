@@ -10,6 +10,10 @@ from .models import ClosureCableEntry, FiberCable, FiberCircuitNode, SplicePlanE
 from .signals import fms_portmapping_bypass
 
 
+class PlanNotApplicable(ValidationError):  # noqa: N818
+    """Raised when a splice plan is not in a status that allows applying."""
+
+
 class NeedsMappingConfirmation(Exception):  # noqa: N818
     """Raised when existing ports are found and need user confirmation."""
 
@@ -456,7 +460,7 @@ def apply_diff(plan):
     success the plan is archived. Returns {"added": int, "removed": int}.
     """
     if plan.status != SplicePlanStatusChoices.APPROVED:
-        raise ValidationError(
+        raise PlanNotApplicable(
             f"Cannot apply plan '{plan}': status is '{plan.status}' -- only approved plans can be applied."
         )
 

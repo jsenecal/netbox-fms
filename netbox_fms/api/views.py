@@ -57,7 +57,7 @@ from ..models import (
     TrayProfile,
     TubeAssignment,
 )
-from ..services import apply_diff, get_or_recompute_diff, import_live_state, protecting_nodes
+from ..services import PlanNotApplicable, apply_diff, get_or_recompute_diff, import_live_state, protecting_nodes
 from ..trace_hops import build_hops
 from .serializers import (
     BufferTubeSerializer,
@@ -259,13 +259,6 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 {"detail": "Applying a splice plan requires the approve_spliceplan permission."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if plan.status != SplicePlanStatusChoices.APPROVED:
-            return Response(
-                {
-                    "error": f"Cannot apply: plan is '{plan.get_status_display()}' -- only approved plans can be applied."
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
         # Check for protected splices being modified
         protected = _get_protected_plan_ports(plan)
         if protected:
@@ -278,6 +271,8 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         try:
             result = apply_diff(plan)
             return Response(result)
+        except PlanNotApplicable as e:
+            return Response({"error": " ".join(e.messages)}, status=status.HTTP_409_CONFLICT)
         except (ValueError, ValidationError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
