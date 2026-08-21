@@ -19,17 +19,6 @@
   {% endfor %}
 </div>
 {% endif %}
-{% if is_readonly %}
-<div class="alert alert-warning d-flex align-items-center py-2 mb-2" role="alert">
-  <i class="mdi mdi-lock me-2"></i>
-  <span class="me-auto">
-    {% blocktrans with plan_name=plan.name plan_status=plan.get_status_display %}Plan "{{ plan_name }}" is {{ plan_status }} and cannot be edited. No draft plan exists for this closure.{% endblocktrans %}
-  </span>
-  <a href="{% url 'plugins:netbox_fms:spliceplan_add' %}?closure={{ device.pk }}" class="btn btn-sm btn-warning ms-2">
-    <i class="mdi mdi-plus"></i> {% trans "New draft plan" %}
-  </a>
-</div>
-{% endif %}
 <div class="m-n3" style="margin-top: -1.25rem;">
 {% if plan %}
     {% include "netbox_fms/inc/splice_editor_widget.html" with back_url=plan.get_absolute_url back_label="Plan Details" %}
@@ -52,6 +41,7 @@
         readOnly: {{ is_readonly|yesno:"true,false" }},
         closurePlanCount: {{ closure_plan_count }},
         closureDraftPlanCount: {{ closure_draft_plan_count }},
+        createDraftPlanUrl: {% if closure_draft_plan_count == 0 %}"{% url 'plugins:netbox_fms:spliceplan_add' %}?closure={{ device.pk }}"{% else %}null{% endif %},
     };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>

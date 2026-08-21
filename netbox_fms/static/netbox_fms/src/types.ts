@@ -21,6 +21,11 @@ export interface EditorConfig {
   closurePlanCount?: number;
   /** Draft splice plans for the closure (for preflight warnings). */
   closureDraftPlanCount?: number;
+  /**
+   * URL for creating a new draft plan on this closure. Set only when the
+   * closure has no draft plan; the read-only banner offers it as a way out.
+   */
+  createDraftPlanUrl?: string | null;
 }
 
 /** A single fiber strand as returned by ClosureStrandsAPIView. */

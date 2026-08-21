@@ -216,6 +216,17 @@ async function init(config: EditorConfig): Promise<void> {
     banner.appendChild(strong);
     banner.appendChild(document.createTextNode(' \u2014 read only'));
 
+    if (config.createDraftPlanUrl) {
+      const newDraftLink = document.createElement('a');
+      newDraftLink.className = 'ms-auto btn btn-sm btn-outline-primary';
+      newDraftLink.href = config.createDraftPlanUrl;
+      const newDraftIcon = document.createElement('i');
+      newDraftIcon.className = 'mdi mdi-plus';
+      newDraftLink.appendChild(newDraftIcon);
+      newDraftLink.appendChild(document.createTextNode(' New draft plan'));
+      banner.appendChild(newDraftLink);
+    }
+
     toolbarEl.after(banner);
   }
 

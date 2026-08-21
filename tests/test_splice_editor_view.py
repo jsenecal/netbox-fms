@@ -115,6 +115,8 @@ class TestDeviceSpliceEditorPlanSelection(TestCase):
         response = self._get(f"?plan={archived.pk}")
         assert response.context["plan"].pk == archived.pk
         assert response.context["is_readonly"] is True
+        # A draft already exists, so the banner offers no new-draft shortcut.
+        self.assertContains(response, "createDraftPlanUrl: null")
 
     def test_plan_from_another_closure_is_not_found(self):
         self._make_plan("Draft")
@@ -125,13 +127,15 @@ class TestDeviceSpliceEditorPlanSelection(TestCase):
         self._make_plan("Draft")
         assert self._get("?plan=not-a-number").status_code == 404
 
-    def test_only_non_draft_plans_load_read_only_with_a_warning(self):
+    def test_only_non_draft_plans_load_read_only_with_a_draft_shortcut(self):
         self._make_plan("Archived", SplicePlanStatusChoices.ARCHIVED)
         response = self._get()
         assert response.context["is_readonly"] is True
         self.assertContains(response, "readOnly: true")
-        self.assertContains(response, "cannot be edited")
-        self.assertContains(response, f"/plugins/fms/splice-plans/add/?closure={self.closure.pk}")
+        self.assertContains(
+            response,
+            f'createDraftPlanUrl: "/plugins/fms/splice-plans/add/?closure={self.closure.pk}"',
+        )
 
     def test_pending_approval_beats_archived_when_no_draft_exists(self):
         self._make_plan("Archived", SplicePlanStatusChoices.ARCHIVED)
