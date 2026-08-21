@@ -7,8 +7,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
-from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -1826,6 +1826,47 @@ class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
 # ---------------------------------------------------------------------------
 
 
+#: Splice plan statuses in the order the editor prefers to load them. Drafts
+#: are the only editable plans, so they come first; the remaining statuses
+#: rank by how close they still are to the work being done in the field.
+PLAN_SELECTION_ORDER = (
+    SplicePlanStatusChoices.DRAFT,
+    SplicePlanStatusChoices.PENDING_APPROVAL,
+    SplicePlanStatusChoices.APPROVED,
+    SplicePlanStatusChoices.ARCHIVED,
+)
+
+
+def _closure_plans(closure):
+    """Return the closure's splice plans, most editable first and oldest first within a status."""
+    ranking = Case(
+        *[When(status=status, then=Value(rank)) for rank, status in enumerate(PLAN_SELECTION_ORDER)],
+        default=Value(len(PLAN_SELECTION_ORDER)),
+        output_field=IntegerField(),
+    )
+    return SplicePlan.objects.filter(closure=closure).annotate(_status_rank=ranking).order_by("_status_rank", "pk")
+
+
+def _select_closure_plan(closure, requested_id=None):
+    """
+    Return the splice plan an editor should load for a closure.
+
+    A requested plan id must belong to this closure; anything else is a 404
+    rather than a silent fall back, so a stale or copied link cannot drop the
+    operator into a different closure's plan. Without an explicit request the
+    highest-ranked plan wins: a draft when one exists, otherwise the most
+    relevant non-draft plan, and None when the closure has no plans at all.
+    """
+    plans = _closure_plans(closure)
+    if requested_id:
+        try:
+            requested_pk = int(requested_id)
+        except (TypeError, ValueError) as exc:
+            raise Http404("Invalid splice plan id") from exc
+        return get_object_or_404(plans, pk=requested_pk)
+    return plans.first()
+
+
 def _closure_plan_counts(closure):
     """Count all and draft splice plans for a closure, for editor preflight warnings."""
     counts = SplicePlan.objects.filter(closure=closure).aggregate(
@@ -1856,7 +1897,7 @@ class SpliceEditorView(generic.ObjectView):
         """Return context for the splice editor."""
         return {
             "context_mode": "plan-edit",
-            "is_readonly": instance.status != SplicePlanStatusChoices.DRAFT,
+            "is_readonly": not instance.is_editable,
             **_closure_plan_counts(instance.closure),
         }
 
@@ -2016,7 +2057,7 @@ class DeviceFiberOverviewView(View):
         """Render the fiber overview tab with cable rows and statistics."""
         device = get_object_or_404(Device, pk=pk)
         cable_rows = _build_cable_rows(device)
-        plan = SplicePlan.objects.filter(closure=device).first()
+        plan = _select_closure_plan(device)
         stats = {
             "tray_count": device.modules.count(),
             "cable_count": len(cable_rows),
@@ -2068,9 +2109,9 @@ class DeviceSpliceEditorView(View):
     )
 
     def get(self, request, pk):
-        """Render the splice editor tab for a device, creating a default plan if needed."""
+        """Render the splice editor tab for a device, loading the plan selected for this closure."""
         device = get_object_or_404(Device, pk=pk)
-        plan = SplicePlan.objects.filter(closure=device).first()
+        plan = _select_closure_plan(device, request.GET.get("plan"))
         context_mode = "edit" if plan else "view"
 
         return render(
@@ -2081,6 +2122,9 @@ class DeviceSpliceEditorView(View):
                 "device": device,
                 "plan": plan,
                 "context_mode": context_mode,
+                # No plan at all still allows editing: the first save quick-adds one.
+                "is_readonly": plan is not None and not plan.is_editable,
+                "closure_draft_plans": list(_closure_plans(device).filter(status=SplicePlanStatusChoices.DRAFT)),
                 "tab": self.tab,
                 **_closure_plan_counts(device),
             },
