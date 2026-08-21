@@ -7,6 +7,38 @@ import type {
   StrandsApiResponse,
 } from './types';
 
+/** Headers for mutating JSON API calls: content type plus CSRF token. */
+function jsonHeaders(config: EditorConfig): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'X-CSRFToken': config.csrfToken,
+  };
+}
+
+/**
+ * Derive a human-readable message from a DRF error response: detail and
+ * error strings first, then the first field-error array, falling back to
+ * the HTTP status. Tolerates non-JSON bodies.
+ */
+export async function extractApiError(resp: Response): Promise<string> {
+  const fallback = `HTTP ${resp.status}`;
+  let err: unknown;
+  try {
+    err = await resp.json();
+  } catch {
+    return fallback;
+  }
+  if (typeof err !== 'object' || err === null) return fallback;
+  const obj = err as Record<string, unknown>;
+  if (typeof obj.detail === 'string') return obj.detail;
+  if (typeof obj.error === 'string') return obj.error;
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    if (Array.isArray(value) && value.length > 0) return String(value[0]);
+  }
+  return fallback;
+}
+
 /** Fetch strand data for a device from ClosureStrandsAPIView. */
 export async function fetchStrands(
   config: EditorConfig,
@@ -36,8 +68,7 @@ export async function quickAddPlan(
     body: formData,
   });
   if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.detail || err.error || `HTTP ${resp.status}`);
+    throw new Error(await extractApiError(resp));
   }
   return resp.json();
 }
@@ -51,10 +82,7 @@ export async function bulkUpdatePlan(
   if (!config.bulkUpdateUrl) {
     throw new Error('No bulk update URL — plan may not exist yet');
   }
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-CSRFToken': config.csrfToken,
-  };
+  const headers = jsonHeaders(config);
   if (changelogMessage) {
     headers['X-Changelog-Message'] = changelogMessage;
   }
@@ -64,8 +92,7 @@ export async function bulkUpdatePlan(
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.detail || err.error || `HTTP ${resp.status}`);
+    throw new Error(await extractApiError(resp));
   }
   return resp.json();
 }
@@ -80,23 +107,11 @@ export async function updatePlanStatus(
   }
   const resp = await fetch(`/api/plugins/fms/splice-plans/${config.planId}/`, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': config.csrfToken,
-    },
+    headers: jsonHeaders(config),
     body: JSON.stringify({ status }),
   });
   if (!resp.ok) {
-    let msg = `HTTP ${resp.status}`;
-    try {
-      const err = await resp.json();
-      if (typeof err.detail === 'string') msg = err.detail;
-      else if (typeof err.error === 'string') msg = err.error;
-      else if (Array.isArray(err.status) && err.status.length > 0) msg = String(err.status[0]);
-    } catch {
-      // Non-JSON error body; keep the HTTP status message.
-    }
-    throw new Error(msg);
+    throw new Error(await extractApiError(resp));
   }
 }
 

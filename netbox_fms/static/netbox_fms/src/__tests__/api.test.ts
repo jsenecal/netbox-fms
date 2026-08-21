@@ -39,6 +39,14 @@ function mockFetchError(status: number, detail?: string) {
   });
 }
 
+function mockFetchNonJsonError(status: number) {
+  return vi.fn().mockResolvedValue({
+    ok: false,
+    status,
+    json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+  });
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -106,6 +114,12 @@ describe('quickAddPlan', () => {
     const formData = new FormData();
     await expect(quickAddPlan(makeConfig(), formData)).rejects.toThrow('Name required');
   });
+
+  it('falls back to the HTTP status on a non-JSON error body', async () => {
+    vi.stubGlobal('fetch', mockFetchNonJsonError(502));
+    const formData = new FormData();
+    await expect(quickAddPlan(makeConfig(), formData)).rejects.toThrow('HTTP 502');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -140,6 +154,12 @@ describe('bulkUpdatePlan', () => {
     vi.stubGlobal('fetch', mockFetchError(409, 'Conflict'));
     const payload = { add: [], remove: [] };
     await expect(bulkUpdatePlan(makeConfig(), payload)).rejects.toThrow('Conflict');
+  });
+
+  it('falls back to the HTTP status on a non-JSON error body', async () => {
+    vi.stubGlobal('fetch', mockFetchNonJsonError(500));
+    const payload = { add: [], remove: [] };
+    await expect(bulkUpdatePlan(makeConfig(), payload)).rejects.toThrow('HTTP 500');
   });
 });
 
