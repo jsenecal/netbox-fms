@@ -373,11 +373,9 @@ class SplicePlanSerializer(NetBoxModelSerializer):
 
     Status is writable so clients (notably the visual splice editor) can
     drive the plan lifecycle over the REST API. The model's clean() rejects
-    invalid transitions; this serializer additionally mirrors the web
-    transition view's permission rules: leaving draft is open to anyone
-    with change permission, while every transition out of a non-draft
-    status requires approve_spliceplan -- except the submitter withdrawing
-    their own pending plan.
+    invalid transitions, and SplicePlan.transition_requires_approver()
+    decides which transitions need the approve_spliceplan permission --
+    the same policy the web transition view enforces.
     """
 
     closure = DeviceSerializer(nested=True)
@@ -392,28 +390,13 @@ class SplicePlanSerializer(NetBoxModelSerializer):
                 raise serializers.ValidationError({"status": "New plans must be created in draft status."})
         elif new_status and new_status != self.instance.status:
             user = getattr(self.context.get("request"), "user", None)
-            if self._transition_needs_approver(new_status, user) and not (
+            if self.instance.transition_requires_approver(new_status, user) and not (
                 user is not None and user.has_perm("netbox_fms.approve_spliceplan")
             ):
                 raise PermissionDenied("This status transition requires the approve_spliceplan permission.")
             if new_status == SplicePlanStatusChoices.PENDING_APPROVAL and not data.get("submitted_by"):
                 data["submitted_by"] = user
         return super().validate(data)
-
-    def _transition_needs_approver(self, new_status, user):
-        """Whether leaving the instance's current status requires approve_spliceplan."""
-        old_status = self.instance.status
-        if old_status == SplicePlanStatusChoices.DRAFT:
-            return False
-        if (
-            old_status == SplicePlanStatusChoices.PENDING_APPROVAL
-            and new_status == SplicePlanStatusChoices.DRAFT
-            and user is not None
-            and self.instance.submitted_by_id == user.pk
-        ):
-            # The submitter may withdraw their own pending plan.
-            return False
-        return True
 
     class Meta:
         model = SplicePlan

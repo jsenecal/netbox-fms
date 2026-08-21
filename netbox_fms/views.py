@@ -989,7 +989,9 @@ class SplicePlanTransitionView(LoginRequiredMixin, View):
             if plan.status != SplicePlanStatusChoices.PENDING_APPROVAL:
                 messages.error(request, _("Only plans pending approval can be approved."))
                 return redirect(plan.get_absolute_url())
-            if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+            if plan.transition_requires_approver(
+                SplicePlanStatusChoices.APPROVED, request.user
+            ) and not request.user.has_perm("netbox_fms.approve_spliceplan"):
                 messages.error(request, _("You do not have permission to approve plans."))
                 return redirect(plan.get_absolute_url())
             plan.status = SplicePlanStatusChoices.APPROVED
@@ -1001,7 +1003,9 @@ class SplicePlanTransitionView(LoginRequiredMixin, View):
             if plan.status != SplicePlanStatusChoices.PENDING_APPROVAL:
                 messages.error(request, _("Only plans pending approval can be rejected."))
                 return redirect(plan.get_absolute_url())
-            if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+            if plan.transition_requires_approver(
+                SplicePlanStatusChoices.DRAFT, request.user
+            ) and not request.user.has_perm("netbox_fms.approve_spliceplan"):
                 messages.error(request, _("You do not have permission to reject plans."))
                 return redirect(plan.get_absolute_url())
             plan.status = SplicePlanStatusChoices.DRAFT
@@ -1013,7 +1017,9 @@ class SplicePlanTransitionView(LoginRequiredMixin, View):
             if plan.status != SplicePlanStatusChoices.PENDING_APPROVAL:
                 messages.error(request, _("Only plans pending approval can be withdrawn."))
                 return redirect(plan.get_absolute_url())
-            if plan.submitted_by != request.user:
+            if plan.transition_requires_approver(
+                SplicePlanStatusChoices.DRAFT, request.user
+            ) and not request.user.has_perm("netbox_fms.approve_spliceplan"):
                 messages.error(request, _("Only the submitter can withdraw this plan."))
                 return redirect(plan.get_absolute_url())
             plan.status = SplicePlanStatusChoices.DRAFT
@@ -1025,7 +1031,9 @@ class SplicePlanTransitionView(LoginRequiredMixin, View):
             if plan.status != SplicePlanStatusChoices.APPROVED:
                 messages.error(request, _("Only approved plans can be reopened."))
                 return redirect(plan.get_absolute_url())
-            if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+            if plan.transition_requires_approver(
+                SplicePlanStatusChoices.DRAFT, request.user
+            ) and not request.user.has_perm("netbox_fms.approve_spliceplan"):
                 messages.error(request, _("You do not have permission to reopen plans."))
                 return redirect(plan.get_absolute_url())
             plan.status = SplicePlanStatusChoices.DRAFT
@@ -1037,13 +1045,13 @@ class SplicePlanTransitionView(LoginRequiredMixin, View):
             if plan.status == SplicePlanStatusChoices.ARCHIVED:
                 messages.error(request, _("Plan is already archived."))
                 return redirect(plan.get_absolute_url())
-            if plan.status == SplicePlanStatusChoices.DRAFT:
-                if not request.user.has_perm("netbox_fms.change_spliceplan"):
-                    messages.error(request, _("You do not have permission."))
-                    return redirect(plan.get_absolute_url())
-            else:
+            if plan.transition_requires_approver(SplicePlanStatusChoices.ARCHIVED, request.user):
                 if not request.user.has_perm("netbox_fms.approve_spliceplan"):
                     messages.error(request, _("You do not have permission to archive this plan."))
+                    return redirect(plan.get_absolute_url())
+            else:
+                if not request.user.has_perm("netbox_fms.change_spliceplan"):
+                    messages.error(request, _("You do not have permission."))
                     return redirect(plan.get_absolute_url())
             plan.status = SplicePlanStatusChoices.ARCHIVED
             plan.full_clean()
