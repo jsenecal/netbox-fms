@@ -254,6 +254,7 @@ When the plan is in `draft` status the editor is fully interactive:
 - Drag fiber endpoints to create or reassign splices.
 - Click an existing splice line to remove it.
 - Click **Save** to open the confirmation modal, enter a required changelog message, and commit the entries.
+- Click **Save & Submit for approval** (in the Save button's dropdown) to commit the entries and transition the plan to `pending_approval` in one step. The editor then switches to read-only mode; applying still happens later, from the approved plan or the closure's Pending Work tab.
 
 ### Non-Draft Plans (Read-only)
 

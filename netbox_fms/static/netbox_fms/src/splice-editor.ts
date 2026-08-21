@@ -1,9 +1,10 @@
 import { FmsAlertStack, derivePreflightWarnings, routeStatusMessage } from './alerts';
 import type { StatusLevel } from './alerts';
-import { bulkUpdatePlan, fetchFiberClaims, fetchStrands } from './api';
+import { bulkUpdatePlan, fetchFiberClaims, fetchStrands, updatePlanStatus } from './api';
 import { FmsLegend, FmsDetailPanel, FmsStatsBar, createPillGroup, createPillFilter, createSeparator, createSpacer } from './components';
 import { Interactions } from './interactions';
 import { showQuickAddModal } from './modal';
+import { bulkUpdateUrlFor, needsPlanQuickCreate } from './save-flow';
 import { SpliceRenderer } from './renderer';
 import { EditorState } from './state';
 import type { ActionMode, DetailCard, EditorConfig, LayoutNode, SpliceEntry } from './types';
@@ -90,6 +91,7 @@ async function init(config: EditorConfig): Promise<void> {
           interactions.setMode(id as ActionMode);
         },
       );
+      modePills.id = 'splice-mode-pills';
       // Insert at the beginning (before the back button if present)
       toolbarEl.insertBefore(modePills, toolbarEl.firstChild);
 
@@ -154,7 +156,7 @@ async function init(config: EditorConfig): Promise<void> {
       redoBtn.title = 'Redo (Ctrl+Y)';
       toolbarEl.insertBefore(redoBtn, backBtn);
 
-      // Save split button (Save + dropdown with Save & Apply)
+      // Save split button (Save + dropdown with Save & Submit for approval)
       const saveBtnGroup = document.createElement('div');
       saveBtnGroup.className = 'btn-group d-none';
       saveBtnGroup.id = 'splice-save-group';
@@ -182,25 +184,26 @@ async function init(config: EditorConfig): Promise<void> {
 
       const dropdownMenu = document.createElement('ul');
       dropdownMenu.className = 'dropdown-menu dropdown-menu-end';
-      const applyItem = document.createElement('li');
-      const applyLink = document.createElement('a');
-      applyLink.className = 'dropdown-item';
-      applyLink.href = '#';
-      applyLink.id = 'splice-save-apply-btn';
-      const applyIcon = document.createElement('i');
-      applyIcon.className = 'mdi mdi-check-circle';
-      applyLink.appendChild(applyIcon);
-      applyLink.appendChild(document.createTextNode(' Save & Apply'));
-      applyItem.appendChild(applyLink);
-      dropdownMenu.appendChild(applyItem);
+      const submitItem = document.createElement('li');
+      const submitLink = document.createElement('a');
+      submitLink.className = 'dropdown-item';
+      submitLink.href = '#';
+      submitLink.id = 'splice-save-submit-btn';
+      const submitIcon = document.createElement('i');
+      submitIcon.className = 'mdi mdi-send-check';
+      submitLink.appendChild(submitIcon);
+      submitLink.appendChild(document.createTextNode(' Save & Submit for approval'));
+      submitItem.appendChild(submitLink);
+      dropdownMenu.appendChild(submitItem);
       saveBtnGroup.appendChild(dropdownMenu);
 
       toolbarEl.insertBefore(saveBtnGroup, backBtn);
     }
   }
 
-  // Show read-only status banner below toolbar
-  if (config.readOnly && toolbarEl) {
+  /** Show the read-only status banner below the toolbar. */
+  function showReadOnlyBanner(): void {
+    if (!toolbarEl) return;
     const banner = document.createElement('div');
     banner.className = 'alert alert-info py-1 px-3 mb-0 d-flex align-items-center small';
 
@@ -217,6 +220,33 @@ async function init(config: EditorConfig): Promise<void> {
     banner.appendChild(document.createTextNode(' \u2014 read only'));
 
     toolbarEl.after(banner);
+  }
+
+  if (config.readOnly) {
+    showReadOnlyBanner();
+  }
+
+  /**
+   * Lock the editor after the plan leaves draft status: block interactions,
+   * hide the editing controls, and show the read-only banner.
+   */
+  function enterReadOnlyMode(newStatus: string): void {
+    config.planStatus = newStatus;
+    config.readOnly = true;
+    const editControlIds = [
+      'splice-mode-pills',
+      'splice-express-mode-btn',
+      'sequential-count',
+      'splice-delete-btn',
+      'splice-undo-btn',
+      'splice-redo-btn',
+      'splice-save-group',
+    ];
+    for (const id of editControlIds) {
+      document.getElementById(id)?.classList.add('d-none');
+    }
+    showReadOnlyBanner();
+    updateAfterRender();
   }
 
   // -----------------------------------------------------------------------
@@ -643,7 +673,7 @@ async function init(config: EditorConfig): Promise<void> {
   }
 
   // Save confirmation modal logic
-  let pendingApply = false;
+  let pendingSubmit = false;
 
   function populateSaveModal(): void {
     const summaryEl = document.getElementById('splice-save-summary');
@@ -661,16 +691,22 @@ async function init(config: EditorConfig): Promise<void> {
       summaryEl.appendChild(addSpan);
       summaryEl.appendChild(document.createTextNode(', '));
       summaryEl.appendChild(removeSpan);
+      if (pendingSubmit) {
+        const note = document.createElement('div');
+        note.className = 'mt-2 small text-muted';
+        note.textContent = 'After saving, the plan will be submitted for approval and become read-only.';
+        summaryEl.appendChild(note);
+      }
     }
 
-    // Show/hide the Save & Apply button
-    const saveApplyConfirmBtn = document.getElementById('splice-save-apply-confirm-btn');
-    if (saveApplyConfirmBtn) {
-      saveApplyConfirmBtn.classList.toggle('d-none', !pendingApply);
+    // Show/hide the Save & Submit for approval button
+    const saveSubmitConfirmBtn = document.getElementById('splice-save-submit-confirm-btn');
+    if (saveSubmitConfirmBtn) {
+      saveSubmitConfirmBtn.classList.toggle('d-none', !pendingSubmit);
     }
     const confirmBtn = document.getElementById('splice-save-confirm-btn');
     if (confirmBtn) {
-      confirmBtn.classList.toggle('d-none', pendingApply);
+      confirmBtn.classList.toggle('d-none', pendingSubmit);
     }
 
     // Clear previous message
@@ -679,20 +715,20 @@ async function init(config: EditorConfig): Promise<void> {
 
     // Reset button state (changelog message is required)
     const saveConfirmBtnLocal = document.getElementById('splice-save-confirm-btn') as HTMLButtonElement;
-    const saveApplyConfirmBtnLocal = document.getElementById('splice-save-apply-confirm-btn') as HTMLButtonElement;
+    const saveSubmitConfirmBtnLocal = document.getElementById('splice-save-submit-confirm-btn') as HTMLButtonElement;
     if (saveConfirmBtnLocal) saveConfirmBtnLocal.disabled = true;
-    if (saveApplyConfirmBtnLocal) saveApplyConfirmBtnLocal.disabled = true;
+    if (saveSubmitConfirmBtnLocal) saveSubmitConfirmBtnLocal.disabled = true;
   }
 
-  function showSaveModal(andApply = false): void {
+  function showSaveModal(andSubmit = false): void {
     const modalEl = document.getElementById('splice-save-modal');
     if (!modalEl) {
       // Fallback: save without modal if template is missing
-      savePendingChanges(andApply);
+      savePendingChanges(andSubmit);
       return;
     }
 
-    pendingApply = andApply;
+    pendingSubmit = andSubmit;
     populateSaveModal();
 
     // Use Bootstrap's data-api to toggle the modal via click simulation
@@ -722,9 +758,9 @@ async function init(config: EditorConfig): Promise<void> {
       await savePendingChanges(false);
     });
   }
-  const saveApplyConfirmBtn = document.getElementById('splice-save-apply-confirm-btn');
-  if (saveApplyConfirmBtn) {
-    saveApplyConfirmBtn.addEventListener('click', async () => {
+  const saveSubmitConfirmBtn = document.getElementById('splice-save-submit-confirm-btn');
+  if (saveSubmitConfirmBtn) {
+    saveSubmitConfirmBtn.addEventListener('click', async () => {
       hideModal();
       await savePendingChanges(true);
     });
@@ -733,38 +769,33 @@ async function init(config: EditorConfig): Promise<void> {
   // Disable save confirm buttons until changelog message is entered
   const changelogInput = document.getElementById('splice-changelog-message') as HTMLInputElement;
   const saveConfirmBtnEl = document.getElementById('splice-save-confirm-btn') as HTMLButtonElement;
-  const saveApplyConfirmBtnEl = document.getElementById('splice-save-apply-confirm-btn') as HTMLButtonElement;
+  const saveSubmitConfirmBtnEl = document.getElementById('splice-save-submit-confirm-btn') as HTMLButtonElement;
 
   if (changelogInput) {
     // Disable buttons initially
     if (saveConfirmBtnEl) saveConfirmBtnEl.disabled = true;
-    if (saveApplyConfirmBtnEl) saveApplyConfirmBtnEl.disabled = true;
+    if (saveSubmitConfirmBtnEl) saveSubmitConfirmBtnEl.disabled = true;
 
     changelogInput.addEventListener('input', () => {
       const hasMessage = changelogInput.value.trim().length > 0;
       if (saveConfirmBtnEl) saveConfirmBtnEl.disabled = !hasMessage;
-      if (saveApplyConfirmBtnEl) saveApplyConfirmBtnEl.disabled = !hasMessage;
+      if (saveSubmitConfirmBtnEl) saveSubmitConfirmBtnEl.disabled = !hasMessage;
     });
   }
 
-  async function handleSave(): Promise<void> {
+  async function handleSave(andSubmit = false): Promise<void> {
     if (!state.hasPendingChanges()) return;
 
-    if (config.contextMode === 'view' && !config.planId) {
+    if (needsPlanQuickCreate(config)) {
       const result = await showQuickAddModal(config);
       if (!result) return;
 
       config.planId = result.id;
       config.contextMode = 'edit';
-      config.bulkUpdateUrl = config.quickAddApiUrl.replace(
-        'quick-add/',
-        `${result.id}/bulk-update/`,
-      );
-
-      showSaveModal();
-    } else {
-      showSaveModal();
+      config.bulkUpdateUrl = bulkUpdateUrlFor(config.quickAddApiUrl, result.id);
     }
+
+    showSaveModal(andSubmit);
   }
 
   function getChangelogMessage(): string {
@@ -772,7 +803,7 @@ async function init(config: EditorConfig): Promise<void> {
     return msgInput?.value?.trim() || '';
   }
 
-  async function savePendingChanges(andApply = false): Promise<void> {
+  async function savePendingChanges(andSubmit = false): Promise<void> {
     try {
       const payload = state.getPendingPayload();
       payload.plan_version = planVersion;
@@ -781,38 +812,38 @@ async function init(config: EditorConfig): Promise<void> {
       planVersion = result.plan_version;
       state.clearPending();
       interactions.updateSaveButton();
-
-      if (andApply && config.planId) {
-        interactions.setStatus('Saved. Applying...');
-        // POST to the apply endpoint (non-API URL)
-        const applyUrl = `/plugins/fms/splice-plans/${config.planId}/apply/`;
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = applyUrl;
-        const csrf = document.createElement('input');
-        csrf.type = 'hidden';
-        csrf.name = 'csrfmiddlewaretoken';
-        csrf.value = config.csrfToken;
-        form.appendChild(csrf);
-        document.body.appendChild(form);
-        form.submit();
-        return;
-      }
-
-      interactions.setStatus('Changes saved successfully.');
-      await loadData();
     } catch (err) {
       interactions.setStatus(`Save error: ${(err as Error).message}`, 'error');
+      return;
     }
+
+    if (andSubmit && config.planId) {
+      try {
+        await updatePlanStatus(config, 'pending_approval');
+      } catch (err) {
+        interactions.setStatus(
+          `Changes saved, but submitting the plan for approval failed: ${(err as Error).message}`,
+          'error',
+        );
+        await loadData();
+        return;
+      }
+      enterReadOnlyMode('pending_approval');
+      await loadData();
+      interactions.setStatus('Changes saved and plan submitted for approval. The plan is now read-only.');
+      return;
+    }
+
+    interactions.setStatus('Changes saved successfully.');
+    await loadData();
   }
 
-  // Wire Save & Apply button (dropdown item)
-  const saveApplyBtn = document.getElementById('splice-save-apply-btn');
-  if (saveApplyBtn) {
-    saveApplyBtn.addEventListener('click', async (e) => {
+  // Wire Save & Submit for approval button (dropdown item)
+  const saveSubmitBtn = document.getElementById('splice-save-submit-btn');
+  if (saveSubmitBtn) {
+    saveSubmitBtn.addEventListener('click', async (e) => {
       e.preventDefault();
-      if (!state.hasPendingChanges()) return;
-      showSaveModal(true);
+      await handleSave(true);
     });
   }
 }
