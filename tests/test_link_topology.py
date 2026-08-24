@@ -1,5 +1,5 @@
 import pytest
-from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Site
+from dcim.models import Cable, CableTermination, Device, DeviceRole, DeviceType, Manufacturer, RearPort, Site
 
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
 
@@ -255,7 +255,6 @@ class TestLinkCableTopologyGreenfield:
                 fiber_count=12,
             )
         fc, warnings = link_cable_topology(cable, fct, device)
-        from dcim.models import RearPort
 
         assert RearPort.objects.filter(device=device).count() == 4
 
@@ -268,7 +267,6 @@ class TestLinkCableTopologyGreenfield:
             construction="tight_buffer",
         )
         fc, warnings = link_cable_topology(cable, fct, device)
-        from dcim.models import RearPort
 
         rps = RearPort.objects.filter(device=device)
         assert rps.count() == 1
@@ -370,7 +368,6 @@ class TestLinkCableTopologyAdopt:
         mapping = {i: fps[i - 1].pk for i in range(1, 13)}
         fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
         assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
-        from dcim.models import RearPort
 
         assert RearPort.objects.filter(device=device).count() == 1  # no new RearPorts
 
@@ -433,7 +430,6 @@ class TestLinkCableTopologyAdopt:
 
         fc, warnings = link_cable_topology(cable, fct, device, port_mapping=exc_info.value.proposed_mapping)
         assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 48
-        from dcim.models import RearPort
 
         assert RearPort.objects.filter(device=device).count() == 4  # no new RearPorts
 
@@ -448,7 +444,9 @@ class TestLinkTopologyView:
         dt = DeviceType.objects.create(manufacturer=mfr, model="LTV-Closure", slug="ltv-closure")
         role = DeviceRole.objects.create(name="LTV-Role", slug="ltv-role")
         device = Device.objects.create(name="LTV-Device", site=site, device_type=dt, role=role)
+        rear_port = RearPort.objects.create(device=device, name="LTV-RP", type="splice", positions=12)
         cable = Cable.objects.create()
+        CableTermination.objects.create(cable=cable, cable_end="A", termination=rear_port)
         User = get_user_model()
         user = User.objects.create_superuser("ltv-admin", "ltv@test.com", "password")
         client.force_login(user)
@@ -599,8 +597,6 @@ class TestCableTerminationConnectorPositions:
                 fiber_count=12,
             )
         fc, warnings = link_cable_topology(cable, fct, device)
-
-        from dcim.models import RearPort
 
         rps = RearPort.objects.filter(device=device).order_by("name")
         for i, rp in enumerate(rps, start=1):

@@ -55,6 +55,42 @@ def _determine_cable_end(cable, device):
     return "A"
 
 
+def device_cable_ids(device_id):
+    """Return the ids of every dcim.Cable terminating on a device."""
+    return set(
+        CableTermination.objects.filter(_device_id=device_id)
+        .exclude(cable__isnull=True)
+        .values_list("cable_id", flat=True)
+    )
+
+
+def rear_port_cable_ids(device_id):
+    """Return the ids of the cables terminating on a device's rear ports."""
+    return set(
+        CableTermination.objects.filter(
+            termination_type=ContentType.objects.get_for_model(RearPort),
+            termination_id__in=RearPort.objects.filter(device_id=device_id).values("pk"),
+        ).values_list("cable_id", flat=True)
+    )
+
+
+def device_topology_cable_ids(device_id):
+    """Return the ids of the cables forming a closure's fiber topology.
+
+    A cable qualifies when it terminates on one of the device's rear ports,
+    or when it already carries a FiberCable. Splice jumpers, which join two
+    tray front ports of the same closure and never carry a FiberCable, are
+    excluded.
+    """
+    cable_ids = device_cable_ids(device_id)
+    if not cable_ids:
+        return cable_ids
+
+    rear_terminated = rear_port_cable_ids(device_id) & cable_ids
+    linked = set(FiberCable.objects.filter(cable_id__in=cable_ids).values_list("cable_id", flat=True))
+    return rear_terminated | linked
+
+
 def _provision_device_ports(fc, device, port_type, fk_field):
     """Create greenfield ports on a device for every strand of a FiberCable.
 
