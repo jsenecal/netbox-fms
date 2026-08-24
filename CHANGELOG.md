@@ -94,6 +94,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fiber Overview no longer lists the front-port jumper cables that applying a
+  splice plan creates. The cable table now shows only cables that terminate on
+  a rear port of the closure or that already carry a FiberCable, so splice
+  jumpers no longer appear as unlinked cables offering a "Link Topology"
+  button, and the Cables counter no longer counts them. The link-topology
+  endpoint also rejects cables outside the closure's fiber topology. Fixes #93.
 - The Slack Loops layer on the netbox-pathways interactive map now declares a
   `url_template`, so the map sidebar's detail pane shows a "View Details" link
   to the slack loop instance. Refs jsenecal/netbox-pathways#81.
