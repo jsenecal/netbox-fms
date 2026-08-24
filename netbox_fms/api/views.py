@@ -57,7 +57,14 @@ from ..models import (
     TrayProfile,
     TubeAssignment,
 )
-from ..services import PlanNotApplicable, apply_diff, get_or_recompute_diff, import_live_state, protecting_nodes
+from ..services import (
+    PlanNotApplicable,
+    apply_diff,
+    device_cable_ids,
+    get_or_recompute_diff,
+    import_live_state,
+    protecting_nodes,
+)
 from ..trace_hops import build_hops
 from .serializers import (
     BufferTubeSerializer,
@@ -648,13 +655,7 @@ class ClosureStrandsAPIView(APIView):
 
         # Find all FiberCables whose dcim.Cable terminates at this device
         # Get all cables connected to this device
-        cable_ids = (
-            CableTermination.objects.filter(
-                _device_id=device_id,
-            )
-            .values_list("cable_id", flat=True)
-            .distinct()
-        )
+        cable_ids = device_cable_ids(device_id)
 
         fiber_cables = (
             FiberCable.objects.restrict(user, "view")
