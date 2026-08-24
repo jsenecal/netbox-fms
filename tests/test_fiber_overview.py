@@ -18,6 +18,7 @@ from django.test import TestCase
 
 User = get_user_model()
 
+from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import ClosureCableEntry, FiberCable, FiberCableType, SplicePlan, SplicePlanEntry
 from netbox_fms.services import apply_diff, create_closure_cable
 from netbox_fms.views import _build_cable_rows, _device_has_modules_or_fiber_cables, _get_closure_cable_or_404
@@ -194,7 +195,13 @@ class TestFiberOverviewCableRows(TestCase):
         CableTermination.objects.create(cable=cls.fp_cable, cable_end="A", termination=cls.fp3)
         cls.fp_fiber_cable = FiberCable.objects.create(cable=cls.fp_cable, fiber_cable_type=cls.fct)
 
-        plan = SplicePlan.objects.create(closure=cls.closure, name="FO93 Plan")
+        # apply_diff only runs on approved plans, so the jumper this fixture
+        # needs can only be created from one.
+        plan = SplicePlan.objects.create(
+            closure=cls.closure,
+            name="FO93 Plan",
+            status=SplicePlanStatusChoices.APPROVED,
+        )
         SplicePlanEntry.objects.create(plan=plan, tray=cls.tray, fiber_a=cls.fp1, fiber_b=cls.fp2)
         assert apply_diff(plan)["added"] == 1
         cls.jumper = Cable.objects.exclude(pk__in=[cls.trunk.pk, cls.bare.pk, cls.fp_cable.pk]).get()

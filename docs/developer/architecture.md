@@ -152,7 +152,9 @@ modules.
 - **`get_live_state(closure)`** / **`get_desired_state(plan)`** -- Query helpers
   that feed `compute_diff()`.
 - **`apply_diff(plan)`** -- Applies the computed diff to NetBox's `PortMapping`
-  table, creating and deleting mappings as needed.
+  table, creating and deleting mappings as needed. Refuses plans that are not
+  in `approved` status and archives the plan after a successful apply, so
+  every apply path honours the approval workflow.
 - **`import_live_state(plan)`** -- Imports the current live splice state into a
   plan's entries for documentation purposes.
 - **`link_cable_topology(cable, fiber_cable_type, device, ...)`** -- Atomic
