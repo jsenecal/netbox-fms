@@ -8,7 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -125,6 +125,8 @@ from .services import (
     apply_diff,
     create_closure_cable,
     create_splice_closure,
+    device_cable_ids,
+    device_topology_cable_ids,
     get_or_recompute_diff,
     import_live_state,
     link_cable_topology,
@@ -1878,23 +1880,13 @@ def _device_has_modules_or_fiber_cables(device):
     """Return True if device has modules (trays) or FiberCable terminations."""
     if device.modules.exists():
         return True
-    cable_ids = (
-        CableTermination.objects.filter(_device_id=device.pk)
-        .exclude(cable__isnull=True)
-        .values_list("cable_id", flat=True)
-        .distinct()
-    )
+    cable_ids = device_cable_ids(device.pk)
     return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
 
 
 def _build_cable_rows(device):
     """Build context dicts for Fiber Overview, grouped by cable."""
-    cable_ids = (
-        CableTermination.objects.filter(_device_id=device.pk)
-        .exclude(cable__isnull=True)
-        .values_list("cable_id", flat=True)
-        .distinct()
-    )
+    cable_ids = device_topology_cable_ids(device.pk)
 
     cables = Cable.objects.filter(pk__in=cable_ids).order_by("pk")
     fc_by_cable = {
@@ -1948,12 +1940,7 @@ def _device_has_splice_plan_or_fiber_cables(device):
     """Return True if this device has a splice plan or FiberCable terminations."""
     if SplicePlan.objects.filter(closure=device).exists():
         return True
-    cable_ids = (
-        CableTermination.objects.filter(_device_id=device.pk)
-        .exclude(cable__isnull=True)
-        .values_list("cable_id", flat=True)
-        .distinct()
-    )
+    cable_ids = device_cable_ids(device.pk)
     return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
 
 
@@ -2206,6 +2193,10 @@ class DevicePendingWorkView(generic.ObjectView):
         """Apply all approved plans atomically."""
         device = get_object_or_404(Device, pk=pk)
 
+        if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+            messages.error(request, _("Applying splice plans requires the approve_spliceplan permission."))
+            return redirect(device.get_absolute_url())
+
         try:
             with transaction.atomic():
                 # Lock the approved plans; select_for_update requires an
@@ -2246,15 +2237,10 @@ class DevicePendingWorkView(generic.ObjectView):
                     local_module_ids = set(Module.objects.filter(device=plan.closure).values_list("pk", flat=True))
                     plan.entries.exclude(tray_id__in=local_module_ids).delete()
 
+                    # apply_diff() archives each plan after a successful apply
                     result = apply_diff(plan)
                     total_added += result["added"]
                     total_removed += result["removed"]
-
-                    # Archive the plan
-                    plan.status = SplicePlanStatusChoices.ARCHIVED
-                    plan.cached_diff = None
-                    plan.diff_stale = True
-                    plan.save(update_fields=["status", "cached_diff", "diff_stale"])
 
             msg = _("Applied {added} additions and {removed} removals from {count} plan(s).").format(
                 added=total_added,
@@ -2268,6 +2254,14 @@ class DevicePendingWorkView(generic.ObjectView):
         return redirect(device.get_absolute_url())
 
 
+def _get_closure_cable_or_404(device, cable_id):
+    """Fetch a cable only when it belongs to this closure's fiber topology."""
+    cable = get_object_or_404(Cable, pk=cable_id)
+    if cable.pk not in device_topology_cable_ids(device.pk):
+        raise Http404("Cable is not part of this device's fiber topology")
+    return cable
+
+
 class LinkTopologyView(LoginRequiredMixin, View):
     """Link a dcim.Cable to a FiberCableType — creates FiberCable and links strands."""
 
@@ -2277,7 +2271,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
         cable_id = request.GET.get("cable_id")
-        cable = get_object_or_404(Cable, pk=cable_id)
+        cable = _get_closure_cable_or_404(device, cable_id)
 
         rp_ct = ContentType.objects.get_for_model(RearPort)
         has_existing = CableTermination.objects.filter(
@@ -2304,9 +2298,9 @@ class LinkTopologyView(LoginRequiredMixin, View):
         if not request.user.has_perm("netbox_fms.add_fibercable"):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
+        cable = _get_closure_cable_or_404(device, request.POST.get("cable_id"))
 
         if request.POST.get("confirm_mapping"):
-            cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
             fct = get_object_or_404(FiberCableType, pk=request.POST.get("fiber_cable_type_id"))
             port_mapping = {}
             for key, value in request.POST.items():
@@ -2320,7 +2314,6 @@ class LinkTopologyView(LoginRequiredMixin, View):
 
         form = LinkTopologyForm(request.POST)
         if not form.is_valid():
-            cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
             return render(
                 request,
                 "netbox_fms/htmx/link_topology_modal.html",
@@ -2333,7 +2326,6 @@ class LinkTopologyView(LoginRequiredMixin, View):
                 },
             )
 
-        cable = get_object_or_404(Cable, pk=request.POST.get("cable_id"))
         fct = form.cleaned_data["fiber_cable_type"]
         port_type = form.cleaned_data.get("port_type") or "splice"
 

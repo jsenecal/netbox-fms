@@ -21,23 +21,10 @@ class fms_portmapping_bypass:  # noqa: N801
 
 def _is_fms_managed_device(device_id):
     """Return True if the device has FMS-provisioned fiber ports."""
-    from dcim.models import CableTermination, RearPort
-    from django.contrib.contenttypes.models import ContentType
-
     from .models import FiberCable
+    from .services import rear_port_cable_ids
 
-    rp_ct = ContentType.objects.get_for_model(RearPort)
-    rp_ids = set(RearPort.objects.filter(device_id=device_id).values_list("pk", flat=True))
-    if not rp_ids:
-        return False
-
-    cable_ids = set(
-        CableTermination.objects.filter(
-            termination_type=rp_ct,
-            termination_id__in=rp_ids,
-        ).values_list("cable_id", flat=True)
-    )
-    return FiberCable.objects.filter(cable_id__in=cable_ids).exists()
+    return FiberCable.objects.filter(cable_id__in=rear_port_cable_ids(device_id)).exists()
 
 
 def _portmapping_pre_save(sender, instance, **kwargs):

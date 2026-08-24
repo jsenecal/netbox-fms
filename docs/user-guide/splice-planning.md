@@ -108,6 +108,7 @@ stateDiagram-v2
     pending_approval --> draft : reject
     pending_approval --> draft : withdraw
     approved --> draft : reopen (requires approve_spliceplan)
+    approved --> archived : apply (requires approve_spliceplan)
     draft --> archived : discard
     pending_approval --> archived : discard
     approved --> archived : discard
@@ -131,6 +132,7 @@ stateDiagram-v2
 | reject       | pending_approval      | draft              | User with `approve_spliceplan` permission          |
 | withdraw     | pending_approval      | draft              | The user recorded in `submitted_by`                |
 | reopen       | approved              | draft              | User with `approve_spliceplan` permission          |
+| apply        | approved              | archived           | User with `approve_spliceplan` permission          |
 | discard      | draft, pending_approval, approved | archived | Any user with edit access to the plan        |
 
 Archiving is irreversible. Use it to close out plans that will never be applied, rather than deleting them, so that the planning history is preserved.
@@ -211,9 +213,22 @@ This requirement applies to all entry saves regardless of the plan's status, alt
 
 ---
 
-## Batch Apply
+## Applying Plans
 
-Approved plans are not applied individually. Instead, applying happens from the closure device's **Pending Work** tab.
+Applying is gated by the approval workflow on every path: only plans in
+`approved` status can be applied, and the acting user must hold the
+`approve_spliceplan` permission. After a successful apply, the plan
+automatically transitions to `archived` so the planning history is
+preserved.
+
+Applying always executes the **full plan-vs-live diff** -- every splice the
+plan adds relative to the closure's current state is created and every
+splice the plan omits is removed. It is not limited to the splices changed
+in the most recent editing session.
+
+### Batch Apply (Pending Work tab)
+
+In the web interface, applying happens from the closure device's **Pending Work** tab.
 
 1. Navigate to the closure device in NetBox.
 2. Open the **Pending Work** tab.
@@ -228,6 +243,20 @@ The Apply All action:
 - Operates atomically: if any part of the operation fails, no changes are committed.
 
 After a successful apply, the plans involved are transitioned to `archived` to preserve the historical record.
+
+### API Apply (single plan)
+
+A single approved plan can also be applied through the REST API:
+
+```
+POST /api/plugins/fms/splice-plans/{id}/apply/
+```
+
+The endpoint enforces the same gating as the Pending Work tab: the plan
+must be `approved` (any other status returns HTTP 409 with an explanatory
+message) and the requesting user must hold both `change_spliceplan` and
+`approve_spliceplan` (HTTP 403 otherwise). On success the response reports
+the number of splices added and removed, and the plan is archived.
 
 ---
 

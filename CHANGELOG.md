@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The splice plan apply endpoint
+  (`POST /api/plugins/fms/splice-plans/{id}/apply/`) no longer bypasses the
+  approval workflow. Applying now requires the plan to be in `approved`
+  status (other statuses get a 409 with an explanatory message) and the
+  requesting user to hold the `approve_spliceplan` permission (403
+  otherwise). The status gate is enforced in the `apply_diff()` service so
+  every apply path is covered, and the closure Pending Work batch apply now
+  requires `approve_spliceplan` as well. After a successful apply the plan
+  automatically transitions to `archived`, matching the batch apply
+  behavior. (#111)
+
 ### Added
 
 - Splice editor express support: the splice detail panel shows an Express
@@ -108,6 +121,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fiber Overview no longer lists the front-port jumper cables that applying a
+  splice plan creates. The cable table now shows only cables that terminate on
+  a rear port of the closure or that already carry a FiberCable, so splice
+  jumpers no longer appear as unlinked cables offering a "Link Topology"
+  button, and the Cables counter no longer counts them. The link-topology
+  endpoint also rejects cables outside the closure's fiber topology. Fixes #93.
 - The splice editor's "Save & Apply" button saved the entries and then
   form-POSTed to the read-only pending-changes page, which only accepts
   GET -- the browser landed on a 405 error page after a half-finished
