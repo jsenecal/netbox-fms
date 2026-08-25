@@ -8,8 +8,10 @@ from dcim.api.serializers import (
 )
 from netbox.api.serializers import NetBoxModelSerializer
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 from tenancy.api.serializers import TenantSerializer
 
+from ..choices import SplicePlanStatusChoices
 from ..models import (
     BufferTube,
     BufferTubeTemplate,
@@ -367,12 +369,34 @@ class ClosureCableEntrySerializer(NetBoxModelSerializer):
 
 
 class SplicePlanSerializer(NetBoxModelSerializer):
-    """Serializer for SplicePlan model."""
+    """Serializer for SplicePlan model.
+
+    Status is writable so clients (notably the visual splice editor) can
+    drive the plan lifecycle over the REST API. The model's clean() rejects
+    invalid transitions, and SplicePlan.transition_requires_approver()
+    decides which transitions need the approve_spliceplan permission --
+    the same policy the web transition view enforces.
+    """
 
     closure = DeviceSerializer(nested=True)
     project = SpliceProjectSerializer(nested=True, required=False, allow_null=True)
     entry_count = serializers.IntegerField(read_only=True, default=0)
-    status = serializers.CharField(read_only=True)
+    status = serializers.ChoiceField(choices=SplicePlanStatusChoices, required=False)
+
+    def validate(self, data):
+        new_status = data.get("status")
+        if self.instance is None:
+            if new_status and new_status != SplicePlanStatusChoices.DRAFT:
+                raise serializers.ValidationError({"status": "New plans must be created in draft status."})
+        elif new_status and new_status != self.instance.status:
+            user = getattr(self.context.get("request"), "user", None)
+            if self.instance.transition_requires_approver(new_status, user) and not (
+                user is not None and user.has_perm("netbox_fms.approve_spliceplan")
+            ):
+                raise PermissionDenied("This status transition requires the approve_spliceplan permission.")
+            if new_status == SplicePlanStatusChoices.PENDING_APPROVAL and not data.get("submitted_by"):
+                data["submitted_by"] = user
+        return super().validate(data)
 
     class Meta:
         model = SplicePlan

@@ -88,6 +88,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The splice editor's "Save & Apply" action is now "Save & Submit for
+  approval": it saves the pending entries and transitions the draft plan
+  to `pending_approval` instead of applying splices directly. Applying
+  happens later from the approved plan's detail page or the closure's
+  Pending Work tab. After a successful submit the editor switches to
+  read-only mode, since only draft plans are editable. (#112)
+- The splice plan REST endpoint now accepts `status` writes and enforces
+  the plan lifecycle on them: draft plans can be submitted for approval
+  by any user with change permission (`submitted_by` is filled in from
+  the requesting user), while approving, rejecting another user's
+  submission, reopening, or archiving a non-draft plan requires the
+  `approve_spliceplan` permission. New plans must still be created as
+  drafts. Previously `status` was silently ignored on write. (#112)
+
 - The "Fiber Cable" card on NetBox's Cable detail page now links to the FMS
   FiberCable instance, so Cable -> FiberCable navigation is one click away
   (the reverse link already existed). (#57)
@@ -113,6 +127,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   jumpers no longer appear as unlinked cables offering a "Link Topology"
   button, and the Cables counter no longer counts them. The link-topology
   endpoint also rejects cables outside the closure's fiber topology. Fixes #93.
+- The splice editor's "Save & Apply" button saved the entries and then
+  form-POSTed to the read-only pending-changes page, which only accepts
+  GET -- the browser landed on a 405 error page after a half-finished
+  operation. The renamed "Save & Submit for approval" flow now performs
+  every call with fetch and reports success or failure in the editor's
+  alert area instead of navigating away. When the closure had no plan
+  yet, the same button skipped the plan quick-create step and died with
+  "No bulk update URL"; it now opens the quick-create modal first, just
+  like plain Save. (#112)
 - The Slack Loops layer on the netbox-pathways interactive map now declares a
   `url_template`, so the map sidebar's detail pane shows a "View Details" link
   to the slack loop instance. Refs jsenecal/netbox-pathways#81.
