@@ -1,11 +1,28 @@
-from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
+import pytest
+from dcim.models import (
+    Cable,
+    CableTermination,
+    Device,
+    DeviceRole,
+    DeviceType,
+    Manufacturer,
+    Module,
+    ModuleBay,
+    ModuleType,
+    RearPort,
+    Site,
+)
 from django.contrib.auth import get_user_model
+from django.http import Http404
 from django.test import TestCase
 
 User = get_user_model()
 
-from netbox_fms.models import ClosureCableEntry, FiberCable, FiberCableType
-from netbox_fms.views import _device_has_modules_or_fiber_cables
+from netbox_fms.choices import SplicePlanStatusChoices
+from netbox_fms.models import ClosureCableEntry, FiberCable, FiberCableType, SplicePlan, SplicePlanEntry
+from netbox_fms.services import apply_diff, create_closure_cable
+from netbox_fms.views import _build_cable_rows, _device_has_modules_or_fiber_cables, _get_closure_cable_or_404
+from tests.conftest import make_closure_with_tray
 
 
 class TestFiberOverviewTabVisibility(TestCase):
@@ -141,3 +158,70 @@ class TestNavigationCleanup(TestCase):
         assert "Fiber Cables" in link_texts
         assert "Splice Projects" in link_texts
         assert "Splice Plans" in link_texts
+
+
+class TestFiberOverviewCableRows(TestCase):
+    """Fiber Overview lists only closure topology cables, not splice jumpers (issue #93)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        rig = make_closure_with_tray("FO93", port_count=3)
+        cls.closure = rig.closure
+        cls.tray = rig.tray
+        cls.fp1, cls.fp2, cls.fp3 = rig.ports
+        far_end = Device.objects.create(name="FO93-Far", site=rig.site, device_type=rig.device_type, role=rig.role)
+        cls.fct = FiberCableType.objects.create(
+            manufacturer=rig.mfr,
+            model="FO93-TB6",
+            construction="tight_buffer",
+            strand_count=6,
+        )
+        cls.fiber_cable, _ = create_closure_cable(
+            device_a=cls.closure,
+            device_b=far_end,
+            fiber_cable_type=cls.fct,
+        )
+        cls.trunk = cls.fiber_cable.cable
+
+        # Rear-port cable with no FiberCable yet: the row that must keep its
+        # "Link Topology" button.
+        rear_port = RearPort.objects.create(device=cls.closure, name="FO93-RP-Bare", type="splice", positions=12)
+        cls.bare = Cable.objects.create()
+        CableTermination.objects.create(cable=cls.bare, cable_end="A", termination=rear_port)
+
+        # FiberCable attached to a cable that reaches the closure only through a
+        # front port -- the shape the form, import, and API paths allow.
+        cls.fp_cable = Cable.objects.create()
+        CableTermination.objects.create(cable=cls.fp_cable, cable_end="A", termination=cls.fp3)
+        cls.fp_fiber_cable = FiberCable.objects.create(cable=cls.fp_cable, fiber_cable_type=cls.fct)
+
+        # apply_diff only runs on approved plans, so the jumper this fixture
+        # needs can only be created from one.
+        plan = SplicePlan.objects.create(
+            closure=cls.closure,
+            name="FO93 Plan",
+            status=SplicePlanStatusChoices.APPROVED,
+        )
+        SplicePlanEntry.objects.create(plan=plan, tray=cls.tray, fiber_a=cls.fp1, fiber_b=cls.fp2)
+        assert apply_diff(plan)["added"] == 1
+        cls.jumper = Cable.objects.exclude(pk__in=[cls.trunk.pk, cls.bare.pk, cls.fp_cable.pk]).get()
+
+    def _rows_by_cable_pk(self):
+        return {row["cable"].pk: row for row in _build_cable_rows(self.closure)}
+
+    def test_front_port_jumper_excluded(self):
+        assert self.jumper.pk not in self._rows_by_cable_pk()
+
+    def test_rear_port_cables_still_listed(self):
+        rows = self._rows_by_cable_pk()
+        assert rows[self.trunk.pk]["fiber_cable"] == self.fiber_cable
+        assert rows[self.bare.pk]["fiber_cable"] is None
+
+    def test_fiber_cable_on_non_rear_port_listed(self):
+        rows = self._rows_by_cable_pk()
+        assert rows[self.fp_cable.pk]["fiber_cable"] == self.fp_fiber_cable
+
+    def test_link_topology_guard_rejects_cable_outside_topology(self):
+        assert _get_closure_cable_or_404(self.closure, self.bare.pk) == self.bare
+        with pytest.raises(Http404):
+            _get_closure_cable_or_404(self.closure, self.jumper.pk)

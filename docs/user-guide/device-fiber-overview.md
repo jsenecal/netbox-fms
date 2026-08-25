@@ -6,7 +6,10 @@ NetBox FMS injects a **Fiber Overview** tab on device detail pages (via `templat
 
 The Fiber Overview tab consolidates the following information for the selected device:
 
-- **Connected fiber cables** -- all FiberCable instances associated with the device, including cable type, strand count, and termination details.
+- **Connected fiber cables** -- the cables that form the device's fiber topology: those terminating on a rear port
+  of the device, plus any cable that already carries a FiberCable. Each row shows cable type, strand link counts,
+  and gland assignment. Splice jumpers -- the front-port-to-front-port cables created when a splice plan is
+  applied -- are not listed here; they belong to the splice editor view.
 - **Fiber strand status** -- a per-strand breakdown showing whether each strand is available, in use, or spliced.
 - **Associated splice plans** -- one or more SplicePlan entries that reference strands terminating at the device. A single closure may have multiple active plans from different teams or projects.
 - **Closure cable entry (gland) assignments** -- for closure-type devices, the mapping of cables to physical entry points on the enclosure.
@@ -32,7 +35,9 @@ Key capabilities:
 
 ## Link Topology Modal
 
-From the Fiber Overview tab, operators can link cable topology for cables connected to the device. This triggers the `link_cable_topology()` workflow, which:
+From the Fiber Overview tab, operators can link cable topology for cables that are part of the device's fiber
+topology (see above); cables outside it, such as splice jumpers, are rejected. This triggers the
+`link_cable_topology()` workflow, which:
 
 1. Creates a FiberCable from an existing `dcim.Cable`.
 2. Proposes FrontPort adoption or creation based on the cable type's strand configuration.
@@ -63,6 +68,18 @@ An embedded splice editor is available directly from the device view, enabling q
 - Reviewing and correcting splice assignments reported by technicians.
 
 The widget provides the same functionality as the full splice plan interface in a compact, context-aware form. See [Splice Planning](splice-planning.md) for the full workflow and splice plan management details.
+
+### Which Plan the Editor Opens
+
+A closure can carry several splice plans at once, so the tab picks one deterministically:
+
+1. Draft plans first, oldest one first -- drafts are the only plans that accept edits.
+2. If no draft exists, the most relevant non-draft plan is loaded instead, in the order pending approval, approved, archived.
+
+Two controls override or explain that choice:
+
+- **Plan selector** -- when the closure has more than one draft plan, the tab renders a row of buttons above the canvas. Each button reloads the editor with `?plan=<id>` for that plan; the same query parameter can be used directly in a link or bookmark. A plan id that belongs to a different closure returns a 404.
+- **Read-only banner** -- when only non-draft plans exist, the editor loads read only and shows a warning naming the loaded plan and its status, with a shortcut for creating a new draft plan for the closure.
 
 ## Pending Work Tab
 

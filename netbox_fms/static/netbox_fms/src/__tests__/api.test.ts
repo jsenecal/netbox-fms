@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fetchStrands, quickAddPlan, bulkUpdatePlan, fetchQuickAddForm } from '../api';
+import { fetchStrands, quickAddPlan, bulkUpdatePlan, fetchQuickAddForm, updatePlanStatus } from '../api';
 import type { EditorConfig } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -36,6 +36,14 @@ function mockFetchError(status: number, detail?: string) {
     ok: false,
     status,
     json: () => Promise.resolve(detail ? { detail } : {}),
+  });
+}
+
+function mockFetchNonJsonError(status: number) {
+  return vi.fn().mockResolvedValue({
+    ok: false,
+    status,
+    json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
   });
 }
 
@@ -106,6 +114,12 @@ describe('quickAddPlan', () => {
     const formData = new FormData();
     await expect(quickAddPlan(makeConfig(), formData)).rejects.toThrow('Name required');
   });
+
+  it('falls back to the HTTP status on a non-JSON error body', async () => {
+    vi.stubGlobal('fetch', mockFetchNonJsonError(502));
+    const formData = new FormData();
+    await expect(quickAddPlan(makeConfig(), formData)).rejects.toThrow('HTTP 502');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -140,6 +154,57 @@ describe('bulkUpdatePlan', () => {
     vi.stubGlobal('fetch', mockFetchError(409, 'Conflict'));
     const payload = { add: [], remove: [] };
     await expect(bulkUpdatePlan(makeConfig(), payload)).rejects.toThrow('Conflict');
+  });
+
+  it('falls back to the HTTP status on a non-JSON error body', async () => {
+    vi.stubGlobal('fetch', mockFetchNonJsonError(500));
+    const payload = { add: [], remove: [] };
+    await expect(bulkUpdatePlan(makeConfig(), payload)).rejects.toThrow('HTTP 500');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updatePlanStatus
+// ---------------------------------------------------------------------------
+
+describe('updatePlanStatus', () => {
+  it('PATCHes the plan REST endpoint with the new status', async () => {
+    vi.stubGlobal('fetch', mockFetchOk({ id: 42, status: 'pending_approval' }));
+
+    await updatePlanStatus(makeConfig({ planId: 42 }), 'pending_approval');
+
+    expect(fetch).toHaveBeenCalledWith('/api/plugins/fms/splice-plans/42/', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': 'test-token',
+      },
+      body: JSON.stringify({ status: 'pending_approval' }),
+    });
+  });
+
+  it('throws when no plan exists yet', async () => {
+    await expect(
+      updatePlanStatus(makeConfig({ planId: null }), 'pending_approval'),
+    ).rejects.toThrow('plan may not exist yet');
+  });
+
+  it('throws with detail message on permission error', async () => {
+    vi.stubGlobal('fetch', mockFetchError(403, 'This status transition requires the approve_spliceplan permission.'));
+    await expect(
+      updatePlanStatus(makeConfig({ planId: 42 }), 'approved'),
+    ).rejects.toThrow('approve_spliceplan');
+  });
+
+  it('throws with the field error on a validation error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ status: ["Invalid transition from 'archived' to 'approved'."] }),
+    }));
+    await expect(
+      updatePlanStatus(makeConfig({ planId: 42 }), 'approved'),
+    ).rejects.toThrow('Invalid transition');
   });
 });
 

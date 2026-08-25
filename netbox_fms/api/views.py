@@ -57,7 +57,14 @@ from ..models import (
     TrayProfile,
     TubeAssignment,
 )
-from ..services import apply_diff, get_or_recompute_diff, import_live_state, protecting_nodes
+from ..services import (
+    PlanNotApplicable,
+    apply_diff,
+    device_cable_ids,
+    get_or_recompute_diff,
+    import_live_state,
+    protecting_nodes,
+)
 from ..trace_hops import build_hops
 from .serializers import (
     BufferTubeSerializer,
@@ -254,6 +261,11 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if not request.user.has_perm("netbox_fms.approve_spliceplan"):
+            return Response(
+                {"detail": "Applying a splice plan requires the approve_spliceplan permission."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         # Check for protected splices being modified
         protected = _get_protected_plan_ports(plan)
         if protected:
@@ -266,6 +278,8 @@ class SplicePlanViewSet(NetBoxModelViewSet):
         try:
             result = apply_diff(plan)
             return Response(result)
+        except PlanNotApplicable as e:
+            return Response({"error": " ".join(e.messages)}, status=status.HTTP_409_CONFLICT)
         except (ValueError, ValidationError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -290,7 +304,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if plan.status != SplicePlanStatusChoices.DRAFT:
+        if not plan.is_editable:
             return Response(
                 {"error": f"Plan is '{plan.get_status_display()}' — only draft plans can be edited."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -648,13 +662,7 @@ class ClosureStrandsAPIView(APIView):
 
         # Find all FiberCables whose dcim.Cable terminates at this device
         # Get all cables connected to this device
-        cable_ids = (
-            CableTermination.objects.filter(
-                _device_id=device_id,
-            )
-            .values_list("cable_id", flat=True)
-            .distinct()
-        )
+        cable_ids = device_cable_ids(device_id)
 
         fiber_cables = (
             FiberCable.objects.restrict(user, "view")

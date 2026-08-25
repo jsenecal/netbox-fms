@@ -1265,6 +1265,25 @@ class SplicePlan(NetBoxModel):
             ("approve_spliceplan", "Can approve/reject splice plans"),
         ]
 
+    def transition_requires_approver(self, new_status, user):
+        """Whether moving this plan to ``new_status`` needs approve_spliceplan.
+
+        Leaving draft (submit, archive) is open to anyone with change
+        permission; every transition out of a non-draft status requires an
+        approver, except the submitter withdrawing their own pending plan
+        back to draft.
+        """
+        if self.status == SplicePlanStatusChoices.DRAFT:
+            return False
+        if (
+            self.status == SplicePlanStatusChoices.PENDING_APPROVAL
+            and new_status == SplicePlanStatusChoices.DRAFT
+            and user is not None
+            and self.submitted_by_id == user.pk
+        ):
+            return False
+        return True
+
     def clean(self):
         super().clean()
 
@@ -1279,6 +1298,11 @@ class SplicePlan(NetBoxModel):
         # pending_approval requires submitted_by
         if self.status == SplicePlanStatusChoices.PENDING_APPROVAL and not self.submitted_by_id:
             raise ValidationError({"submitted_by": "A plan in 'pending_approval' must have a submitted_by user."})
+
+    @property
+    def is_editable(self):
+        """Return True when the plan's entries may still be changed."""
+        return self.status == SplicePlanStatusChoices.DRAFT
 
     def __str__(self):
         """Return the plan name."""

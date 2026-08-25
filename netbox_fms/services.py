@@ -2,11 +2,16 @@
 
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from .choices import FiberCircuitStatusChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from .models import ClosureCableEntry, FiberCable, FiberCircuitNode, SplicePlanEntry
 from .signals import fms_portmapping_bypass
+
+
+class PlanNotApplicable(ValidationError):  # noqa: N818
+    """Raised when a splice plan is not in a status that allows applying."""
 
 
 class NeedsMappingConfirmation(Exception):  # noqa: N818
@@ -53,6 +58,42 @@ def _determine_cable_end(cable, device):
     if "B" in ends:
         return "B"
     return "A"
+
+
+def device_cable_ids(device_id):
+    """Return the ids of every dcim.Cable terminating on a device."""
+    return set(
+        CableTermination.objects.filter(_device_id=device_id)
+        .exclude(cable__isnull=True)
+        .values_list("cable_id", flat=True)
+    )
+
+
+def rear_port_cable_ids(device_id):
+    """Return the ids of the cables terminating on a device's rear ports."""
+    return set(
+        CableTermination.objects.filter(
+            termination_type=ContentType.objects.get_for_model(RearPort),
+            termination_id__in=RearPort.objects.filter(device_id=device_id).values("pk"),
+        ).values_list("cable_id", flat=True)
+    )
+
+
+def device_topology_cable_ids(device_id):
+    """Return the ids of the cables forming a closure's fiber topology.
+
+    A cable qualifies when it terminates on one of the device's rear ports,
+    or when it already carries a FiberCable. Splice jumpers, which join two
+    tray front ports of the same closure and never carry a FiberCable, are
+    excluded.
+    """
+    cable_ids = device_cable_ids(device_id)
+    if not cable_ids:
+        return cable_ids
+
+    rear_terminated = rear_port_cable_ids(device_id) & cable_ids
+    linked = set(FiberCable.objects.filter(cable_id__in=cable_ids).values_list("cable_id", flat=True))
+    return rear_terminated | linked
 
 
 def _provision_device_ports(fc, device, port_type, fk_field):
@@ -449,9 +490,16 @@ def protecting_nodes(front_port_ids, user=None):
 
 def apply_diff(plan):
     """
-    Execute the diff: create cables for "add", delete cables for "remove".
-    Returns {"added": int, "removed": int}.
+    Execute the full plan-vs-live diff: create cables for "add", delete
+    cables for "remove". Only approved plans may be applied; the check
+    lives here so every apply path honours the approval workflow. On
+    success the plan is archived. Returns {"added": int, "removed": int}.
     """
+    if plan.status != SplicePlanStatusChoices.APPROVED:
+        raise PlanNotApplicable(
+            f"Cannot apply plan '{plan}': status is '{plan.status}' -- only approved plans can be applied."
+        )
+
     diff = compute_diff(plan)
 
     fp_ct = ContentType.objects.get_for_model(FrontPort)
@@ -514,8 +562,11 @@ def apply_diff(plan):
             )
             added += 1
 
+        # Archive the applied plan so it becomes a read-only historical record
+        plan.status = SplicePlanStatusChoices.ARCHIVED
+        plan.cached_diff = None
         plan.diff_stale = True
-        plan.save(update_fields=["diff_stale"])
+        plan.save(update_fields=["status", "cached_diff", "diff_stale"])
 
     return {"added": added, "removed": removed}
 
