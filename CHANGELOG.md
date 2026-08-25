@@ -144,6 +144,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closure has more than one draft plan the tab renders a plan selector, and
   when only non-draft plans exist the editor loads read only with a warning
   naming the plan status and a link to create a new draft. Fixes #113.
+- Splice editor: the "Create Splice Plan" quick-add modal now renders its
+  inputs and creates the plan. The fragment iterated form fieldsets as if they
+  were bound fields, so the modal opened empty. It now renders a minimal,
+  static form -- the closure as a hidden field pre-filled from the editor
+  context, plus name and description -- with no dynamic-select widgets, which
+  cannot initialize in injected markup. The splice-plan quick-add API endpoint
+  also accepts the modal's form-encoded payload, which it previously rejected
+  with "closure: This field is required". (#114)
 - The Slack Loops layer on the netbox-pathways interactive map now declares a
   `url_template`, so the map sidebar's detail pane shows a "View Details" link
   to the slack loop instance. Refs jsenecal/netbox-pathways#81.

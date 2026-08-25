@@ -1,10 +1,12 @@
 """
-Tests for the closure plan counts exposed to the splice editor.
+Tests for the splice editor's supporting views.
 
-Regression tests for issue #115: the editor needs to know how many splice
-plans (and how many draft plans) exist for the closure so it can show
-preflight warnings when no plan, or only non-draft plans, exist.
+Covers the closure plan counts the editor reads for its preflight warnings
+(issue #115) and the quick-add form fragment its create-plan modal injects
+(issue #114).
 """
+
+import re
 
 from dcim.models import Device
 from django.contrib.auth import get_user_model
@@ -165,3 +167,62 @@ class TestPlanSpliceEditorPlanCounts(TestCase):
         assert response.status_code == 200
         assert response.context["closure_plan_count"] == 2
         assert response.context["closure_draft_plan_count"] == 1
+
+
+class TestSplicePlanQuickAddForm(TestCase):
+    """The quick-add modal fragment must contain usable inputs.
+
+    Regression tests for issue #114: the fragment rendered fieldset layout
+    items as if they were bound fields, so the injected modal showed no
+    inputs at all.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        infra = make_closure_with_tray("QAF")
+        cls.closure = infra.closure
+        cls.user = User.objects.create_user(username="qaf_user", password="testpass", is_superuser=True)
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def _get_form_html(self):
+        response = self.client.get(f"/plugins/fms/splice-plans/quick-add-form/?closure_id={self.closure.pk}")
+        assert response.status_code == 200
+        return response.content.decode()
+
+    def test_form_renders_hidden_closure_prefilled_from_context(self):
+        html = self._get_form_html()
+        closure_inputs = [
+            tag for tag in re.findall(r"<input[^>]*>", html) if 'name="closure"' in tag and 'type="hidden"' in tag
+        ]
+        assert closure_inputs, f"no hidden closure input rendered: {html!r}"
+        assert f'value="{self.closure.pk}"' in closure_inputs[0]
+
+    def test_form_renders_a_required_name_input(self):
+        html = self._get_form_html()
+        name_inputs = [tag for tag in re.findall(r"<input[^>]*>", html) if 'name="name"' in tag]
+        assert name_inputs, f"no name input rendered: {html!r}"
+        assert "required" in name_inputs[0]
+
+    def test_form_carries_no_dynamic_select_widgets(self):
+        """Dynamic selects need NetBox JS that never runs on injected markup."""
+        html = self._get_form_html()
+        assert "data-url" not in html
+        assert "tomselect" not in html.lower()
+
+    def test_rendered_fields_create_a_draft_plan_for_the_closure(self):
+        """The rendered inputs are exactly what the modal POSTs to quick-add."""
+        html = self._get_form_html()
+        data = dict(re.findall(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', html))
+        for field_name in re.findall(r'<(?:input|textarea)[^>]*name="([^"]+)"', html):
+            data.setdefault(field_name, "")
+        data.pop("csrfmiddlewaretoken", None)
+        data["name"] = "Quick Plan"
+
+        response = self.client.post("/api/plugins/fms/splice-plans/quick-add/", data)
+        assert response.status_code == 201, response.content
+
+        plan = SplicePlan.objects.get(name="Quick Plan")
+        assert plan.closure_id == self.closure.pk
+        assert plan.status == SplicePlanStatusChoices.DRAFT

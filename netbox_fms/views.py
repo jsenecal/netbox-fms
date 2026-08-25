@@ -86,6 +86,7 @@ from .forms import (
     SplicePlanFilterForm,
     SplicePlanForm,
     SplicePlanImportForm,
+    SplicePlanQuickAddForm,
     SpliceProjectFilterForm,
     SpliceProjectForm,
     TrayProfileBulkEditForm,
@@ -794,7 +795,7 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
 
 
 class SplicePlanQuickAddFormView(LoginRequiredMixin, View):
-    """Return rendered SplicePlanForm HTML for the quick-add modal."""
+    """Return the rendered quick-add form fragment for the splice editor modal."""
 
     def get(self, request):
         """Render the splice plan quick-add form, optionally pre-filled with a closure."""
@@ -802,7 +803,7 @@ class SplicePlanQuickAddFormView(LoginRequiredMixin, View):
         initial = {}
         if closure_id:
             initial["closure"] = closure_id
-        form = SplicePlanForm(initial=initial)
+        form = SplicePlanQuickAddForm(initial=initial)
         html = render(
             request,
             "netbox_fms/spliceplan_quick_add_form.html",
