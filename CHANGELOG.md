@@ -7,18 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- The splice plan apply endpoint
-  (`POST /api/plugins/fms/splice-plans/{id}/apply/`) no longer bypasses the
-  approval workflow. Applying now requires the plan to be in `approved`
-  status (other statuses get a 409 with an explanatory message) and the
-  requesting user to hold the `approve_spliceplan` permission (403
-  otherwise). The status gate is enforced in the `apply_diff()` service so
-  every apply path is covered, and the closure Pending Work batch apply now
-  requires `approve_spliceplan` as well. After a successful apply the plan
-  automatically transitions to `archived`, matching the batch apply
-  behavior. (#111)
+## [0.3.0] - 2026-08-25
 
 ### Added
 
@@ -121,6 +110,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The splice plan apply endpoint
+  (`POST /api/plugins/fms/splice-plans/{id}/apply/`) no longer bypasses the
+  approval workflow. Applying now requires the plan to be in `approved`
+  status (other statuses get a 409 with an explanatory message) and the
+  requesting user to hold the `approve_spliceplan` permission (403
+  otherwise). The status gate is enforced in the `apply_diff()` service so
+  every apply path is covered, and the closure Pending Work batch apply now
+  requires `approve_spliceplan` as well. After a successful apply the plan
+  automatically transitions to `archived`, matching the batch apply
+  behavior. (#111)
 - Fiber Overview no longer lists the front-port jumper cables that applying a
   splice plan creates. The cable table now shows only cables that terminate on
   a rear port of the closure or that already carry a FiberCable, so splice
