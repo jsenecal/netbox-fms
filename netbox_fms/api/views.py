@@ -304,7 +304,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if plan.status != SplicePlanStatusChoices.DRAFT:
+        if not plan.is_editable:
             return Response(
                 {"error": f"Plan is '{plan.get_status_display()}' — only draft plans can be edited."},
                 status=status.HTTP_403_FORBIDDEN,

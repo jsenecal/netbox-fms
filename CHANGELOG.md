@@ -136,6 +136,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   yet, the same button skipped the plan quick-create step and died with
   "No bulk update URL"; it now opens the quick-create modal first, just
   like plain Save. (#112)
+- The Splice Editor tab on a closure device no longer loads an arbitrary
+  splice plan. Plans are now selected deterministically: draft plans first
+  (oldest by creation order), then pending approval, approved, and archived
+  as a fallback. An explicit `?plan=<id>` query parameter opens a specific
+  plan and returns 404 when the id does not belong to the closure. When the
+  closure has more than one draft plan the tab renders a plan selector, and
+  when only non-draft plans exist the editor loads read only with a warning
+  naming the plan status and a link to create a new draft. Fixes #113.
 - The Slack Loops layer on the netbox-pathways interactive map now declares a
   `url_template`, so the map sidebar's detail pane shows a "View Details" link
   to the slack loop instance. Refs jsenecal/netbox-pathways#81.
