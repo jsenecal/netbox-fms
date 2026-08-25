@@ -13,6 +13,7 @@ from dcim.models import (
 )
 from django.test import TestCase
 
+from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import SplicePlan, SplicePlanEntry
 from netbox_fms.services import (
     apply_diff,
@@ -211,7 +212,9 @@ class TestApplyDiff(TestCase):
         cls.fp4 = make_front_port(device=cls.closure, module=cls.tray, name="F4")
 
     def test_apply_creates_cables(self):
-        plan = SplicePlan.objects.create(closure=self.closure, name="Apply Plan")
+        plan = SplicePlan.objects.create(
+            closure=self.closure, name="Apply Plan", status=SplicePlanStatusChoices.APPROVED
+        )
         SplicePlanEntry.objects.create(plan=plan, tray=self.tray, fiber_a=self.fp1, fiber_b=self.fp2)
         result = apply_diff(plan)
         assert result["added"] == 1
@@ -228,16 +231,18 @@ class TestApplyDiff(TestCase):
         CableTermination.objects.create(cable=cable, cable_end="A", termination=self.fp3)
         CableTermination.objects.create(cable=cable, cable_end="B", termination=self.fp4)
 
-        plan = SplicePlan.objects.create(closure=self.closure, name="Remove Plan")
+        plan = SplicePlan.objects.create(
+            closure=self.closure, name="Remove Plan", status=SplicePlanStatusChoices.APPROVED
+        )
         result = apply_diff(plan)
         assert result["removed"] == 1
         assert not Cable.objects.filter(pk=cable.pk).exists()
 
-    def test_apply_does_not_change_status(self):
-        """apply_diff() no longer changes status — batch apply handles archiving."""
-        from netbox_fms.choices import SplicePlanStatusChoices
-
-        plan = SplicePlan.objects.create(closure=self.closure, name="Status Plan")
+    def test_apply_archives_plan(self):
+        """apply_diff() archives the plan after a successful apply (issue #111)."""
+        plan = SplicePlan.objects.create(
+            closure=self.closure, name="Status Plan", status=SplicePlanStatusChoices.APPROVED
+        )
         apply_diff(plan)
         plan.refresh_from_db()
-        assert plan.status == SplicePlanStatusChoices.DRAFT
+        assert plan.status == SplicePlanStatusChoices.ARCHIVED

@@ -2,12 +2,14 @@ from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer,
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.test import TransactionTestCase
+from django.test import TestCase, TransactionTestCase
+from django.urls import reverse
 from rest_framework.test import APIClient
 from users.models import ObjectPermission
 
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import SplicePlan
+from tests.conftest import make_infra
 
 User = get_user_model()
 
@@ -334,3 +336,94 @@ class TestFiberExclusivity(TransactionTestCase):
             HTTP_X_CHANGELOG_MESSAGE="test",
         )
         assert resp.status_code == 409, f"Expected 409, got {resp.status_code}: {resp.data}"
+
+
+class TestSplicePlanTransitionViewPermissions(TestCase):
+    """The web transition view consults SplicePlan.transition_requires_approver.
+
+    Constrained users (never superusers) so the denial branches actually
+    execute: approving, rejecting another user's submission, reopening, and
+    archiving a non-draft plan all need approve_spliceplan, while the
+    submitter may withdraw their own pending plan with change permission
+    alone, and archiving a draft needs only change permission.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        site, mfr, dt, role = make_infra("TransView")
+        cls.closure = Device.objects.create(name="TransView-Closure", site=site, device_type=dt, role=role)
+        cls.change_user = cls._make_user("trans-change", ["view", "change"])
+        cls.viewer = cls._make_user("trans-viewer", ["view"])
+
+    @staticmethod
+    def _make_user(username, actions):
+        user = User.objects.create_user(username=username, password="x")  # noqa: S106
+        perm = ObjectPermission.objects.create(name=f"perm-{username}", actions=actions)
+        perm.object_types.set([ContentType.objects.get_for_model(SplicePlan)])
+        perm.users.add(user)
+        return user
+
+    def _make_plan(self, status, submitted_by=None):
+        return SplicePlan.objects.create(
+            closure=self.closure,
+            name=f"TV-{status}",
+            status=status,
+            submitted_by=submitted_by,
+        )
+
+    def _post(self, user, plan, action):
+        # Fresh fetch so no stale permission cache rides along
+        self.client.force_login(User.objects.get(pk=user.pk))
+        return self.client.post(
+            reverse("plugins:netbox_fms:spliceplan_transition", args=[plan.pk]),
+            {"action": action},
+        )
+
+    def test_change_user_cannot_approve(self):
+        plan = self._make_plan(SplicePlanStatusChoices.PENDING_APPROVAL, submitted_by=self.viewer)
+        resp = self._post(self.change_user, plan, "approve")
+        assert resp.status_code == 302
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.PENDING_APPROVAL
+
+    def test_change_user_cannot_reject_anothers_submission(self):
+        plan = self._make_plan(SplicePlanStatusChoices.PENDING_APPROVAL, submitted_by=self.viewer)
+        resp = self._post(self.change_user, plan, "reject")
+        assert resp.status_code == 302
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.PENDING_APPROVAL
+
+    def test_submitter_can_withdraw_own_plan(self):
+        plan = self._make_plan(SplicePlanStatusChoices.PENDING_APPROVAL, submitted_by=self.change_user)
+        resp = self._post(self.change_user, plan, "withdraw")
+        assert resp.status_code == 302
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.DRAFT
+
+    def test_change_user_cannot_reopen_approved_plan(self):
+        plan = self._make_plan(SplicePlanStatusChoices.APPROVED)
+        resp = self._post(self.change_user, plan, "reopen")
+        assert resp.status_code == 302
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.APPROVED
+
+    def test_view_only_user_cannot_archive_draft(self):
+        plan = self._make_plan(SplicePlanStatusChoices.DRAFT)
+        resp = self._post(self.viewer, plan, "archive")
+        assert resp.status_code == 302
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.DRAFT
+
+    def test_change_user_can_archive_draft(self):
+        plan = self._make_plan(SplicePlanStatusChoices.DRAFT)
+        resp = self._post(self.change_user, plan, "archive")
+        assert resp.status_code == 302
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.ARCHIVED
+
+    def test_change_user_cannot_archive_pending_plan(self):
+        plan = self._make_plan(SplicePlanStatusChoices.PENDING_APPROVAL, submitted_by=self.viewer)
+        resp = self._post(self.change_user, plan, "archive")
+        assert resp.status_code == 302
+        plan.refresh_from_db()
+        assert plan.status == SplicePlanStatusChoices.PENDING_APPROVAL

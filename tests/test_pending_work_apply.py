@@ -5,6 +5,8 @@ from unittest.mock import patch
 import pytest
 from dcim.models import Cable, Device, Module, ModuleBay, ModuleType
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
+from users.models import ObjectPermission
 
 from netbox_fms.choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath, SplicePlan, SplicePlanEntry
@@ -45,6 +47,28 @@ def test_apply_all_without_approved_plans_errors(client):
     assert response.status_code == 302
     plan.refresh_from_db()
     assert plan.status == SplicePlanStatusChoices.DRAFT
+    assert Cable.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_apply_all_requires_approve_permission(client):
+    """A user without approve_spliceplan cannot batch-apply approved plans.
+
+    Regression test for issue #111: every apply path must be gated on the
+    approve_spliceplan permission, including the closure Pending Work view.
+    """
+    closure, plan, _fp = _build_closure_with_plan("PWNA")
+    user = User.objects.create_user(username="pwna-viewer", password="pw")  # noqa: S106
+    perm = ObjectPermission.objects.create(name="pwna-view-device", actions=["view"])
+    perm.object_types.add(ContentType.objects.get_for_model(Device))
+    perm.users.add(user)
+    client.force_login(user)
+
+    response = client.post(f"/dcim/devices/{closure.pk}/pending-work/")
+
+    assert response.status_code == 302
+    plan.refresh_from_db()
+    assert plan.status == SplicePlanStatusChoices.APPROVED
     assert Cable.objects.count() == 0
 
 

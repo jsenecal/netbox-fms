@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The splice plan apply endpoint
+  (`POST /api/plugins/fms/splice-plans/{id}/apply/`) no longer bypasses the
+  approval workflow. Applying now requires the plan to be in `approved`
+  status (other statuses get a 409 with an explanatory message) and the
+  requesting user to hold the `approve_spliceplan` permission (403
+  otherwise). The status gate is enforced in the `apply_diff()` service so
+  every apply path is covered, and the closure Pending Work batch apply now
+  requires `approve_spliceplan` as well. After a successful apply the plan
+  automatically transitions to `archived`, matching the batch apply
+  behavior. (#111)
+
 ### Added
 
 - Splice editor express support: the splice detail panel shows an Express
@@ -75,6 +88,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The splice editor's "Save & Apply" action is now "Save & Submit for
+  approval": it saves the pending entries and transitions the draft plan
+  to `pending_approval` instead of applying splices directly. Applying
+  happens later from the approved plan's detail page or the closure's
+  Pending Work tab. After a successful submit the editor switches to
+  read-only mode, since only draft plans are editable. (#112)
+- The splice plan REST endpoint now accepts `status` writes and enforces
+  the plan lifecycle on them: draft plans can be submitted for approval
+  by any user with change permission (`submitted_by` is filled in from
+  the requesting user), while approving, rejecting another user's
+  submission, reopening, or archiving a non-draft plan requires the
+  `approve_spliceplan` permission. New plans must still be created as
+  drafts. Previously `status` was silently ignored on write. (#112)
+
 - The "Fiber Cable" card on NetBox's Cable detail page now links to the FMS
   FiberCable instance, so Cable -> FiberCable navigation is one click away
   (the reverse link already existed). (#57)
@@ -94,6 +121,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fiber Overview no longer lists the front-port jumper cables that applying a
+  splice plan creates. The cable table now shows only cables that terminate on
+  a rear port of the closure or that already carry a FiberCable, so splice
+  jumpers no longer appear as unlinked cables offering a "Link Topology"
+  button, and the Cables counter no longer counts them. The link-topology
+  endpoint also rejects cables outside the closure's fiber topology. Fixes #93.
+- The splice editor's "Save & Apply" button saved the entries and then
+  form-POSTed to the read-only pending-changes page, which only accepts
+  GET -- the browser landed on a 405 error page after a half-finished
+  operation. The renamed "Save & Submit for approval" flow now performs
+  every call with fetch and reports success or failure in the editor's
+  alert area instead of navigating away. When the closure had no plan
+  yet, the same button skipped the plan quick-create step and died with
+  "No bulk update URL"; it now opens the quick-create modal first, just
+  like plain Save. (#112)
 - The Splice Editor tab on a closure device no longer loads an arbitrary
   splice plan. Plans are now selected deterministically: draft plans first
   (oldest by creation order), then pending approval, approved, and archived
