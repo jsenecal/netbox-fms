@@ -145,12 +145,16 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.python == '3.13' && matrix.netbox == '4.5.5'
-        continue-on-error: true
         uses: codecov/codecov-action@v7
         with:
-          use_oidc: true
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
-          fail_ci_if_error: false
+          # Fork PRs cannot read the secret, so a failed upload there is
+          # expected and must not redden the build. Everywhere else a
+          # rejected upload is a real problem: it silently stops the
+          # coverage gate from voting, which is how tokenless uploads
+          # rotted unnoticed.
+          fail_ci_if_error: ${{ github.event.pull_request.head.repo.fork != true }}
 
       - name: Check migrations
         env:
