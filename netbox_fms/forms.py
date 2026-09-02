@@ -997,9 +997,44 @@ class FiberCircuitPathForm(NetBoxModelForm):
         queryset=FiberCircuit.objects.all(),
         label=_("Circuit"),
     )
+    origin_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        selector=True,
+        label=_("Origin Device"),
+        initial_params={"frontports": "$origin"},
+    )
+    origin = DynamicModelChoiceField(
+        queryset=FrontPort.objects.all(),
+        label=_("Origin"),
+        context={"parent": "device"},
+        query_params={"device_id": "$origin_device"},
+    )
+    destination_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        selector=True,
+        label=_("Destination Device"),
+        initial_params={"frontports": "$destination"},
+    )
+    destination = DynamicModelChoiceField(
+        queryset=FrontPort.objects.all(),
+        required=False,
+        label=_("Destination"),
+        context={"parent": "device"},
+        query_params={"device_id": "$destination_device"},
+    )
 
     fieldsets = (
-        FieldSet("circuit", "position", "origin", "destination", name=_("Path")),
+        FieldSet(
+            "circuit",
+            "position",
+            "origin_device",
+            "origin",
+            "destination_device",
+            "destination",
+            name=_("Path"),
+        ),
         FieldSet("actual_loss_db", "wavelength_nm", name=_("Optical Parameters")),
         FieldSet("tags", name=_("Additional")),
     )

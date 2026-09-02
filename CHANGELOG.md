@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Fiber circuit path form: origin and destination are now API-backed
+  dropdowns scoped by new Origin Device / Destination Device selector
+  fields, matching the NetBox cable connection form. Each port option
+  shows its parent device, and editing a path preselects the devices
+  from the saved ports. Previously every front port in the database was
+  rendered into the page, which made the form unusable when port names
+  repeat across devices and extremely slow on large databases. (#137)
+
 ## [0.3.0] - 2026-08-25
 
 ### Added
