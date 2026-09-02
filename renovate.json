@@ -19,6 +19,29 @@
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "automerge": true,
       "platformAutomerge": true
+    },
+    {
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["netbox-community/netbox"],
+      "matchCurrentValue": "/^4\\.5\\./",
+      "allowedVersions": "/^4\\.5\\./"
+    },
+    {
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["netbox-community/netbox"],
+      "matchCurrentValue": "/^4\\.6\\./",
+      "allowedVersions": "/^4\\.6\\./"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+- \"(?<currentValue>[^\"]+)\""
+      ],
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)$"
     }
   ]
 }

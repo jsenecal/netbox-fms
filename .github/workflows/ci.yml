@@ -47,7 +47,11 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.12", "3.13", "3.14"]
-        netbox: ["4.5.4", "4.5.5"]
+        netbox:
+          # renovate: datasource=github-releases depName=netbox-community/netbox
+          - "4.5.10"
+          # renovate: datasource=github-releases depName=netbox-community/netbox
+          - "4.6.10"
     services:
       postgres:
         image: postgis/postgis:17-3.4
@@ -144,7 +148,7 @@ jobs:
           pytest tests/ -v --tb=short --cov=netbox_fms --cov-report=xml
 
       - name: Upload coverage to Codecov
-        if: matrix.python == '3.13' && matrix.netbox == '4.5.5'
+        if: matrix.python == '3.13' && startsWith(matrix.netbox, '4.5.')
         uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

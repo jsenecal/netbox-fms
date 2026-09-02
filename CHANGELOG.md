@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropdown to cables terminated at that device.
 - Closure pickers on the splice plan, closure cable entry, and tube
   assignment forms now offer the advanced device selector modal.
+- CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
+  and 4.6.10, previously 4.5.4 and 4.5.5); the README compatibility
+  matrix reflects NetBox 4.5-4.6 support.
 
 ## [0.3.0] - 2026-08-25
 
