@@ -515,7 +515,18 @@ class CableElementTemplateBulkEditForm(NetBoxModelBulkEditForm):
 class FiberCableForm(NetBoxModelForm):
     """Form for creating/editing a FiberCable."""
 
-    cable = DynamicModelChoiceField(queryset=Cable.objects.all(), label=_("Cable"))
+    device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        selector=True,
+        label=_("Device"),
+        help_text=_("Show only cables terminated at this device."),
+    )
+    cable = DynamicModelChoiceField(
+        queryset=Cable.objects.all(),
+        label=_("Cable"),
+        query_params={"device_id": "$device"},
+    )
     fiber_cable_type = DynamicModelChoiceField(
         queryset=FiberCableType.objects.all(),
         label=_("Fiber Cable Type"),
@@ -529,7 +540,7 @@ class FiberCableForm(NetBoxModelForm):
     comments = CommentField()
 
     fieldsets = (
-        FieldSet("cable", "fiber_cable_type", name=_("Fiber Cable")),
+        FieldSet("device", "cable", "fiber_cable_type", name=_("Fiber Cable")),
         FieldSet("serial_number", "install_date", "installed_by", name=_("Identification")),
         FieldSet("start_mark", "end_mark", name=_("Sheath Marks")),
         FieldSet("notes", "tags", name=_("Additional")),
@@ -669,7 +680,7 @@ class SpliceProjectFilterForm(NetBoxModelFilterSetForm):
 class SplicePlanForm(NetBoxModelForm):
     """Form for creating/editing a SplicePlan."""
 
-    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
+    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"), selector=True)
     project = DynamicModelChoiceField(
         queryset=SpliceProject.objects.all(),
         required=False,
@@ -751,13 +762,38 @@ class SplicePlanFilterForm(NetBoxModelFilterSetForm):
 class SplicePlanEntryForm(NetBoxModelForm):
     """Form for creating/editing a SplicePlanEntry."""
 
-    plan = DynamicModelChoiceField(queryset=SplicePlan.objects.all(), label=_("Plan"))
-    tray = DynamicModelChoiceField(queryset=Module.objects.all(), label=_("Tray"))
-    fiber_a = DynamicModelChoiceField(queryset=FrontPort.objects.all(), label=_("Fiber A"))
-    fiber_b = DynamicModelChoiceField(queryset=FrontPort.objects.all(), label=_("Fiber B"))
+    closure = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        selector=True,
+        label=_("Closure"),
+        initial_params={"splice_plans": "$plan"},
+    )
+    plan = DynamicModelChoiceField(
+        queryset=SplicePlan.objects.all(),
+        label=_("Plan"),
+        query_params={"closure_id": "$closure"},
+    )
+    tray = DynamicModelChoiceField(
+        queryset=Module.objects.all(),
+        label=_("Tray"),
+        query_params={"device_id": "$closure"},
+    )
+    fiber_a = DynamicModelChoiceField(
+        queryset=FrontPort.objects.all(),
+        label=_("Fiber A"),
+        context={"parent": "device"},
+        query_params={"device_id": "$closure", "module_id": "$tray"},
+    )
+    fiber_b = DynamicModelChoiceField(
+        queryset=FrontPort.objects.all(),
+        label=_("Fiber B"),
+        context={"parent": "device"},
+        query_params={"device_id": "$closure"},
+    )
 
     fieldsets = (
-        FieldSet("plan", "tray", "fiber_a", "fiber_b", name=_("Splice Entry")),
+        FieldSet("closure", "plan", "tray", "fiber_a", "fiber_b", name=_("Splice Entry")),
         FieldSet("notes", name=_("Notes")),
         FieldSet("tags", name=_("Additional")),
     )
@@ -792,7 +828,7 @@ class SplicePlanEntryFilterForm(NetBoxModelFilterSetForm):
 class ClosureCableEntryForm(NetBoxModelForm):
     """Form for creating/editing a ClosureCableEntry."""
 
-    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
+    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"), selector=True)
     fiber_cable = DynamicModelChoiceField(
         queryset=FiberCable.objects.all(),
         label=_("Fiber Cable"),
@@ -997,9 +1033,44 @@ class FiberCircuitPathForm(NetBoxModelForm):
         queryset=FiberCircuit.objects.all(),
         label=_("Circuit"),
     )
+    origin_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        selector=True,
+        label=_("Origin Device"),
+        initial_params={"frontports": "$origin"},
+    )
+    origin = DynamicModelChoiceField(
+        queryset=FrontPort.objects.all(),
+        label=_("Origin"),
+        context={"parent": "device"},
+        query_params={"device_id": "$origin_device"},
+    )
+    destination_device = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        selector=True,
+        label=_("Destination Device"),
+        initial_params={"frontports": "$destination"},
+    )
+    destination = DynamicModelChoiceField(
+        queryset=FrontPort.objects.all(),
+        required=False,
+        label=_("Destination"),
+        context={"parent": "device"},
+        query_params={"device_id": "$destination_device"},
+    )
 
     fieldsets = (
-        FieldSet("circuit", "position", "origin", "destination", name=_("Path")),
+        FieldSet(
+            "circuit",
+            "position",
+            "origin_device",
+            "origin",
+            "destination_device",
+            "destination",
+            name=_("Path"),
+        ),
         FieldSet("actual_loss_db", "wavelength_nm", name=_("Optical Parameters")),
         FieldSet("tags", name=_("Additional")),
     )
@@ -1220,7 +1291,7 @@ def _check_tube_assignment_conflicts(form):
 class TubeAssignmentForm(NetBoxModelForm):
     """Form for creating/editing a TubeAssignment."""
 
-    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"))
+    closure = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Closure"), selector=True)
     tray = DynamicModelChoiceField(
         queryset=Module.objects.all(), label=_("Tray"), query_params={"device_id": "$closure"}
     )

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Fiber circuit path form: origin and destination are now API-backed
+  dropdowns scoped by new Origin Device / Destination Device selector
+  fields, matching the NetBox cable connection form. Each port option
+  shows its parent device, and editing a path preselects the devices
+  from the saved ports. Previously every front port in the database was
+  rendered into the page, which made the form unusable when port names
+  repeat across devices and extremely slow on large databases. (#137)
+- Splice plan entry form: plan, tray, and both fiber dropdowns now chain
+  off a new Closure selector field (back-filled from the plan when
+  editing), and Fiber A is additionally narrowed to the selected tray's
+  ports, mirroring the model's own validation rules. Fiber options show
+  their parent device.
+- Fiber cable form: a new optional Device selector narrows the cable
+  dropdown to cables terminated at that device.
+- Closure pickers on the splice plan, closure cable entry, and tube
+  assignment forms now offer the advanced device selector modal.
 - CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
   and 4.6.10, previously 4.5.4 and 4.5.5); the README compatibility
   matrix reflects NetBox 4.5-4.6 support.
