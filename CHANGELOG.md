@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
   and 4.6.10, previously 4.5.4 and 4.5.5); the README compatibility
   matrix reflects NetBox 4.5-4.6 support.
+- CI now also tests against NetBox 4.7.0; the README compatibility
+  matrix reflects NetBox 4.5-4.7 support. The cable-profile monkey
+  patches in `monkey_patches.py` (CableProfileChoices.CHOICES/
+  ._choices, the Cable `profile` field's choices, and
+  Cable.profile_class) were verified against a running NetBox 4.7.0 /
+  Django 6.1 environment; no source changes were needed.
 
 ## [0.3.0] - 2026-08-25
 
