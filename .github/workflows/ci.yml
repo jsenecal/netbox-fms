@@ -2,8 +2,28 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'renovate.json'
+      - '.github/dependabot.yml'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/publish.yml'
+      - '.github/workflows/release-drafter.yml'
+      - '.github/workflows/pr-title.yml'
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'renovate.json'
+      - '.github/dependabot.yml'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/publish.yml'
+      - '.github/workflows/release-drafter.yml'
+      - '.github/workflows/pr-title.yml'
 
 permissions:
   contents: read
