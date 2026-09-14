@@ -438,104 +438,9 @@ class Command(BaseCommand):
         self._patched_fp_ids = set(
             CableTermination.objects.filter(termination_type=self.fp_ct).values_list("termination_id", flat=True)
         )
-        plans_created = 0
-        for name, closure in closures.items():
-            if SplicePlan.objects.filter(closure=closure).exists():
-                continue
-
-            fps_by_cable, _tube_positions = self._tray_fps_by_cable(closure)
-            cable_pks = sorted(fps_by_cable.keys())
-            if len(cable_pks) < 2:
-                continue
-
-            plan = SplicePlan.objects.create(
-                closure=closure,
-                name=f"{name} Plan",
-                description=f"Splice plan for {name}",
-                status="applied",
-            )
-
-            entries = []
-            cable_a_fps = fps_by_cable[cable_pks[0]]
-            cable_b_fps = fps_by_cable[cable_pks[1]]
-
-            # Splice tube-for-tube between first two cables
-            for fp_a, fp_b in zip(cable_a_fps[:48], cable_b_fps[:48], strict=False):
-                tray = fp_a.module
-                if tray:
-                    entries.append(SplicePlanEntry(plan=plan, tray=tray, fiber_a=fp_a, fiber_b=fp_b))
-
-            # Third cable if present (junction closure like CL-02)
-            if len(cable_pks) >= 3:
-                cable_c_fps = fps_by_cable[cable_pks[2]]
-                remaining_b = cable_b_fps[48:] if len(cable_b_fps) > 48 else cable_b_fps[12:]
-                for fp_c, fp_b in zip(cable_c_fps[:12], remaining_b[:12], strict=False):
-                    tray = fp_c.module
-                    if tray:
-                        entries.append(SplicePlanEntry(plan=plan, tray=tray, fiber_a=fp_c, fiber_b=fp_b))
-
-            SplicePlanEntry.objects.bulk_create(entries, ignore_conflicts=True)
-
-            # Create FP-to-FP splice cables so the trace engine can traverse closures
-            splice_pairs = []
-            for entry in entries:
-                if entry.fiber_a_id in self._patched_fp_ids or entry.fiber_b_id in self._patched_fp_ids:
-                    continue
-                splice_pairs.append((entry.fiber_a_id, entry.fiber_b_id))
-                self._patched_fp_ids.add(entry.fiber_a_id)
-                self._patched_fp_ids.add(entry.fiber_b_id)
-
-            if splice_pairs:
-                cables = Cable.objects.bulk_create(
-                    [Cable(length=0, length_unit="m", profile="single-1c1p") for _ in splice_pairs]
-                )
-                terms = []
-                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
-                    terms.append(
-                        CableTermination(
-                            cable=cable,
-                            cable_end="A",
-                            termination_type=self.fp_ct,
-                            termination_id=fp_a_id,
-                            connector=1,
-                            positions=[1],
-                        )
-                    )
-                    terms.append(
-                        CableTermination(
-                            cable=cable,
-                            cable_end="B",
-                            termination_type=self.fp_ct,
-                            termination_id=fp_b_id,
-                            connector=1,
-                            positions=[1],
-                        )
-                    )
-                CableTermination.objects.bulk_create(terms)
-
-                all_fp_ids = set()
-                for fp_a_id, fp_b_id in splice_pairs:
-                    all_fp_ids.add(fp_a_id)
-                    all_fp_ids.add(fp_b_id)
-                fp_map = {fp.pk: fp for fp in FrontPort.objects.filter(pk__in=all_fp_ids)}
-                fps_to_update = []
-                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
-                    fp_a = fp_map[fp_a_id]
-                    fp_a.cable = cable
-                    fp_a.cable_end = "A"
-                    fp_a.cable_connector = 1
-                    fp_a.cable_positions = [1]
-                    fps_to_update.append(fp_a)
-                    fp_b = fp_map[fp_b_id]
-                    fp_b.cable = cable
-                    fp_b.cable_end = "B"
-                    fp_b.cable_connector = 1
-                    fp_b.cable_positions = [1]
-                    fps_to_update.append(fp_b)
-                FrontPort.objects.bulk_update(
-                    fps_to_update, ["cable", "cable_end", "cable_connector", "cable_positions"]
-                )
-            plans_created += 1
+        plans_created = sum(
+            1 for name, closure in closures.items() if self._build_splice_plan_for_closure(name, closure)
+        )
         self.stdout.write(f"  {plans_created} splice plans with splice cables")
 
         # --- Fiber circuit ---
@@ -1474,140 +1379,138 @@ class Command(BaseCommand):
                     tube_positions[fp.pk] = tube_position
         return fps_by_cable, tube_positions
 
+    def _build_splice_plan_for_closure(self, name, closure, backbone_express=False):
+        """Create an applied tube-for-tube splice plan for one closure.
+
+        Skips a closure that already has a plan or is reached by fewer than
+        two cables, without leaving an empty plan row behind. Returns True
+        when a plan was created. Requires self._patched_fp_ids to be
+        initialized (see _create_splice_cables).
+        """
+        if SplicePlan.objects.filter(closure=closure).exists():
+            return False
+
+        fps_by_cable, tube_positions = self._tray_fps_by_cable(closure)
+        cable_pks = sorted(fps_by_cable.keys())
+        if len(cable_pks) < 2:
+            return False
+
+        plan = SplicePlan.objects.create(
+            closure=closure,
+            name=f"{name} Plan",
+            description=f"Splice plan for {name}",
+            status="applied",
+        )
+
+        entries = []
+        cable_a_fps = fps_by_cable[cable_pks[0]]
+        cable_b_fps = fps_by_cable[cable_pks[1]]
+
+        # Splice tube-for-tube between the first two cables
+        for fp_a, fp_b in zip(cable_a_fps[:48], cable_b_fps[:48], strict=False):
+            tray = fp_a.module
+            if tray:
+                # Backbone: first 2 tubes are cut/spliced, rest express through
+                is_express = False
+                if backbone_express:
+                    tube_position = tube_positions.get(fp_a.pk)
+                    is_express = tube_position is not None and tube_position > 2
+                entries.append(SplicePlanEntry(plan=plan, tray=tray, fiber_a=fp_a, fiber_b=fp_b, is_express=is_express))
+
+        # Third cable if present (junction closure)
+        if len(cable_pks) >= 3:
+            cable_c_fps = fps_by_cable[cable_pks[2]]
+            remaining_b = cable_b_fps[48:] if len(cable_b_fps) > 48 else cable_b_fps[12:]
+            for fp_c, fp_b in zip(cable_c_fps[:12], remaining_b[:12], strict=False):
+                tray = fp_c.module
+                if tray:
+                    entries.append(SplicePlanEntry(plan=plan, tray=tray, fiber_a=fp_c, fiber_b=fp_b))
+
+        SplicePlanEntry.objects.bulk_create(entries, ignore_conflicts=True)
+        self._create_splice_cables(entries)
+        return True
+
+    def _create_splice_cables(self, entries):
+        """Create zero-length FP-to-FP splice cables so the trace engine can traverse closures.
+
+        Entries touching a port that already carries a cable termination are
+        skipped; every newly cabled port is recorded in self._patched_fp_ids,
+        which callers must seed with the ids of already-terminated ports.
+        """
+        splice_pairs = []
+        for entry in entries:
+            if entry.fiber_a_id in self._patched_fp_ids or entry.fiber_b_id in self._patched_fp_ids:
+                continue
+            splice_pairs.append((entry.fiber_a_id, entry.fiber_b_id))
+            self._patched_fp_ids.add(entry.fiber_a_id)
+            self._patched_fp_ids.add(entry.fiber_b_id)
+
+        if not splice_pairs:
+            return
+
+        cables = Cable.objects.bulk_create(
+            [Cable(length=0, length_unit="m", profile="single-1c1p") for _ in splice_pairs]
+        )
+        terms = []
+        for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
+            terms.append(
+                CableTermination(
+                    cable=cable,
+                    cable_end="A",
+                    termination_type=self.fp_ct,
+                    termination_id=fp_a_id,
+                    connector=1,
+                    positions=[1],
+                )
+            )
+            terms.append(
+                CableTermination(
+                    cable=cable,
+                    cable_end="B",
+                    termination_type=self.fp_ct,
+                    termination_id=fp_b_id,
+                    connector=1,
+                    positions=[1],
+                )
+            )
+        CableTermination.objects.bulk_create(terms)
+
+        # Sync cable fields to FrontPorts (bulk_create skips CableTermination.save())
+        all_fp_ids = set()
+        for fp_a_id, fp_b_id in splice_pairs:
+            all_fp_ids.add(fp_a_id)
+            all_fp_ids.add(fp_b_id)
+        fp_map = {fp.pk: fp for fp in FrontPort.objects.filter(pk__in=all_fp_ids)}
+        fps_to_update = []
+        for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
+            fp_a = fp_map[fp_a_id]
+            fp_a.cable = cable
+            fp_a.cable_end = "A"
+            fp_a.cable_connector = 1
+            fp_a.cable_positions = [1]
+            fps_to_update.append(fp_a)
+            fp_b = fp_map[fp_b_id]
+            fp_b.cable = cable
+            fp_b.cable_end = "B"
+            fp_b.cable_connector = 1
+            fp_b.cable_positions = [1]
+            fps_to_update.append(fp_b)
+        FrontPort.objects.bulk_update(fps_to_update, ["cable", "cable_end", "cable_connector", "cable_positions"])
+
     def _create_splice_plans(self):
         self.stdout.write("Creating splice plans...")
         closures = {n: d for n, d in self.devices.items() if n.startswith(("BB-", "MR-", "BS-", "RS-"))}
-        plans_created = 0
 
         # Pre-fetch all FrontPort IDs that already have cable terminations (e.g., from patch cables)
         self._patched_fp_ids = set(
             CableTermination.objects.filter(termination_type=self.fp_ct).values_list("termination_id", flat=True)
         )
 
-        for name, closure in closures.items():
-            if SplicePlan.objects.filter(closure=closure).exists():
-                continue
-
-            fps_by_cable, tube_positions = self._tray_fps_by_cable(closure)
-            cable_pks = sorted(fps_by_cable.keys())
-            if len(cable_pks) < 2:
-                continue
-
-            plan = SplicePlan.objects.create(
-                closure=closure,
-                name=f"{name} Plan",
-                description=f"Splice plan for {name}",
-                status="applied",
-            )
-
-            # Determine if this is a backbone pass-through
-            is_backbone_passthrough = name.startswith("BB-")
-
-            entries = []
-            cable_a_fps = fps_by_cable[cable_pks[0]]
-            cable_b_fps = fps_by_cable[cable_pks[1]]
-
-            # Splice tube-for-tube
-            for fp_a, fp_b in zip(cable_a_fps[:48], cable_b_fps[:48], strict=False):
-                tray = fp_a.module
-                if tray:
-                    # Backbone: first 2 tubes are cut/spliced, rest express through
-                    is_express = False
-                    if is_backbone_passthrough:
-                        tube_position = tube_positions.get(fp_a.pk)
-                        is_express = tube_position is not None and tube_position > 2
-                    entries.append(
-                        SplicePlanEntry(
-                            plan=plan,
-                            tray=tray,
-                            fiber_a=fp_a,
-                            fiber_b=fp_b,
-                            is_express=is_express,
-                        )
-                    )
-
-            # Third cable if present
-            if len(cable_pks) >= 3:
-                cable_c_fps = fps_by_cable[cable_pks[2]]
-                remaining_b = cable_b_fps[48:] if len(cable_b_fps) > 48 else cable_b_fps[12:]
-                for fp_c, fp_b in zip(cable_c_fps[:12], remaining_b[:12], strict=False):
-                    tray = fp_c.module
-                    if tray:
-                        entries.append(
-                            SplicePlanEntry(
-                                plan=plan,
-                                tray=tray,
-                                fiber_a=fp_c,
-                                fiber_b=fp_b,
-                            )
-                        )
-
-            SplicePlanEntry.objects.bulk_create(entries, ignore_conflicts=True)
-
-            # Create FP-to-FP splice cables (zero-length) so the trace engine can traverse closures
-            # Filter out entries where either FP already has a cable termination
-            splice_pairs = []
-            for entry in entries:
-                if entry.fiber_a_id in self._patched_fp_ids or entry.fiber_b_id in self._patched_fp_ids:
-                    continue
-                splice_pairs.append((entry.fiber_a_id, entry.fiber_b_id))
-                self._patched_fp_ids.add(entry.fiber_a_id)
-                self._patched_fp_ids.add(entry.fiber_b_id)
-
-            # Bulk create splice cables with profile and connector/positions
-            if splice_pairs:
-                cables = Cable.objects.bulk_create(
-                    [Cable(length=0, length_unit="m", profile="single-1c1p") for _ in splice_pairs]
-                )
-                terms = []
-                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
-                    terms.append(
-                        CableTermination(
-                            cable=cable,
-                            cable_end="A",
-                            termination_type=self.fp_ct,
-                            termination_id=fp_a_id,
-                            connector=1,
-                            positions=[1],
-                        )
-                    )
-                    terms.append(
-                        CableTermination(
-                            cable=cable,
-                            cable_end="B",
-                            termination_type=self.fp_ct,
-                            termination_id=fp_b_id,
-                            connector=1,
-                            positions=[1],
-                        )
-                    )
-                CableTermination.objects.bulk_create(terms)
-
-                # Sync cable fields to FrontPorts (bulk_create skips CableTermination.save())
-                all_fp_ids = set()
-                for fp_a_id, fp_b_id in splice_pairs:
-                    all_fp_ids.add(fp_a_id)
-                    all_fp_ids.add(fp_b_id)
-                fp_map = {fp.pk: fp for fp in FrontPort.objects.filter(pk__in=all_fp_ids)}
-                fps_to_update = []
-                for cable, (fp_a_id, fp_b_id) in zip(cables, splice_pairs, strict=True):
-                    fp_a = fp_map[fp_a_id]
-                    fp_a.cable = cable
-                    fp_a.cable_end = "A"
-                    fp_a.cable_connector = 1
-                    fp_a.cable_positions = [1]
-                    fps_to_update.append(fp_a)
-                    fp_b = fp_map[fp_b_id]
-                    fp_b.cable = cable
-                    fp_b.cable_end = "B"
-                    fp_b.cable_connector = 1
-                    fp_b.cable_positions = [1]
-                    fps_to_update.append(fp_b)
-                FrontPort.objects.bulk_update(
-                    fps_to_update, ["cable", "cable_end", "cable_connector", "cable_positions"]
-                )
-            plans_created += 1
-
+        plans_created = sum(
+            1
+            for name, closure in closures.items()
+            if self._build_splice_plan_for_closure(name, closure, backbone_express=name.startswith("BB-"))
+        )
         self.stdout.write(f"  Created {plans_created} splice plans with splice cables")
 
     # ------------------------------------------------------------------
