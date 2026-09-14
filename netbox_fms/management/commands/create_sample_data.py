@@ -30,6 +30,7 @@ from dcim.models import (
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 from django.db.models.signals import post_save
 
 from netbox_fms.choices import StorageMethodChoices, TrayRoleChoices
@@ -442,26 +443,17 @@ class Command(BaseCommand):
             if SplicePlan.objects.filter(closure=closure).exists():
                 continue
 
+            fps_by_cable, _tube_positions = self._tray_fps_by_cable(closure)
+            cable_pks = sorted(fps_by_cable.keys())
+            if len(cable_pks) < 2:
+                continue
+
             plan = SplicePlan.objects.create(
                 closure=closure,
                 name=f"{name} Plan",
                 description=f"Splice plan for {name}",
                 status="applied",
             )
-
-            # Group FrontPorts by cable
-            fps_by_cable = {}
-            for fp in FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"):
-                if fp.name.startswith("#"):
-                    try:
-                        cable_pk = int(fp.name.split(":")[0][1:])
-                        fps_by_cable.setdefault(cable_pk, []).append(fp)
-                    except (ValueError, IndexError):
-                        pass
-
-            cable_pks = sorted(fps_by_cable.keys())
-            if len(cable_pks) < 2:
-                continue
 
             entries = []
             cable_a_fps = fps_by_cable[cable_pks[0]]
@@ -1456,6 +1448,32 @@ class Command(BaseCommand):
     # Splice plans
     # ------------------------------------------------------------------
 
+    def _tray_fps_by_cable(self, closure):
+        """Group a closure's tray-mounted FrontPorts by their dcim.Cable.
+
+        Port names derive from the cable label (the rename signal keeps them
+        in sync), so a cable pk cannot be parsed out of them. The FiberStrand
+        linkage is the structural source of truth: each strand knows its
+        FrontPorts and its FiberCable's dcim.Cable. Groups are built in
+        strand-position order. Also returns each port's buffer tube position,
+        which drives the backbone express/pass-through decision.
+        """
+        fps = {fp.pk: fp for fp in FrontPort.objects.filter(device=closure, module__isnull=False)}
+        fps_by_cable = {}
+        tube_positions = {}
+        strand_rows = (
+            FiberStrand.objects.filter(Q(front_port_a_id__in=fps) | Q(front_port_b_id__in=fps))
+            .order_by("fiber_cable__cable_id", "position")
+            .values_list("front_port_a_id", "front_port_b_id", "fiber_cable__cable_id", "buffer_tube__position")
+        )
+        for fp_a_id, fp_b_id, cable_pk, tube_position in strand_rows:
+            for fp_id in (fp_a_id, fp_b_id):
+                fp = fps.get(fp_id)
+                if fp is not None:
+                    fps_by_cable.setdefault(cable_pk, []).append(fp)
+                    tube_positions[fp.pk] = tube_position
+        return fps_by_cable, tube_positions
+
     def _create_splice_plans(self):
         self.stdout.write("Creating splice plans...")
         closures = {n: d for n, d in self.devices.items() if n.startswith(("BB-", "MR-", "BS-", "RS-"))}
@@ -1470,26 +1488,17 @@ class Command(BaseCommand):
             if SplicePlan.objects.filter(closure=closure).exists():
                 continue
 
+            fps_by_cable, tube_positions = self._tray_fps_by_cable(closure)
+            cable_pks = sorted(fps_by_cable.keys())
+            if len(cable_pks) < 2:
+                continue
+
             plan = SplicePlan.objects.create(
                 closure=closure,
                 name=f"{name} Plan",
                 description=f"Splice plan for {name}",
                 status="applied",
             )
-
-            # Group FrontPorts by cable
-            fps_by_cable = {}
-            for fp in FrontPort.objects.filter(device=closure, module__isnull=False).order_by("name"):
-                if fp.name.startswith("#"):
-                    try:
-                        cable_pk = int(fp.name.split(":")[0][1:])
-                        fps_by_cable.setdefault(cable_pk, []).append(fp)
-                    except (ValueError, IndexError):
-                        pass
-
-            cable_pks = sorted(fps_by_cable.keys())
-            if len(cable_pks) < 2:
-                continue
 
             # Determine if this is a backbone pass-through
             is_backbone_passthrough = name.startswith("BB-")
@@ -1505,10 +1514,8 @@ class Command(BaseCommand):
                     # Backbone: first 2 tubes are cut/spliced, rest express through
                     is_express = False
                     if is_backbone_passthrough:
-                        # Parse tube number from name like "#123:T03:F5"
-                        parts = fp_a.name.split(":")
-                        if len(parts) >= 2:
-                            is_express = parts[1] > "T02"
+                        tube_position = tube_positions.get(fp_a.pk)
+                        is_express = tube_position is not None and tube_position > 2
                     entries.append(
                         SplicePlanEntry(
                             plan=plan,
@@ -1704,24 +1711,23 @@ class Command(BaseCommand):
                 self.stdout.write(f"  Created circuit: {name} (no origin device found)")
                 continue
 
-            # Find FrontPorts on this device that belong to cables matching the prefix
+            # Find FrontPorts on this device that belong to cables matching the
+            # prefix, via the strand linkage (port names derive from the cable
+            # label, so no cable pk can be parsed out of them)
+            device_fps = {fp.pk: fp for fp in FrontPort.objects.filter(device=origin_device)}
             origin_fps = []
-            for fp in FrontPort.objects.filter(device=origin_device).order_by("name"):
-                if fp.name.startswith("#"):
-                    try:
-                        cable_pk = int(fp.name.split(":")[0][1:])
-                        cable = Cable.objects.filter(pk=cable_pk).first()
-                        if (
-                            cable
-                            and cable.label
-                            and any(
-                                cable.label.startswith(f"{origin_device_name} →") and cable_prefix in cable.label
-                                for _ in [None]  # just need the condition
-                            )
-                        ):
-                            origin_fps.append(fp)
-                    except (ValueError, IndexError):
-                        pass
+            strand_rows = (
+                FiberStrand.objects.filter(Q(front_port_a_id__in=device_fps) | Q(front_port_b_id__in=device_fps))
+                .order_by("fiber_cable__cable_id", "position")
+                .values_list("front_port_a_id", "front_port_b_id", "fiber_cable__cable__label")
+            )
+            for fp_a_id, fp_b_id, label in strand_rows:
+                if not label or not label.startswith(f"{origin_device_name} →") or cable_prefix not in label:
+                    continue
+                for fp_id in (fp_a_id, fp_b_id):
+                    fp = device_fps.get(fp_id)
+                    if fp is not None and fp not in origin_fps:
+                        origin_fps.append(fp)
 
             # Fallback: just pick the first 2 FrontPorts on the device
             if not origin_fps:
