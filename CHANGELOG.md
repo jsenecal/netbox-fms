@@ -41,7 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with "PortMappings on FMS-managed devices can only be modified
   through the FMS plugin": the PortMapping guard now lets a deletion
   cascade through when it originates from the device itself, while
-  direct PortMapping deletion and port deletion stay blocked. (#136)
+  direct PortMapping deletion and port deletion stay blocked. On NetBox
+  4.5 a monkey patch makes DeleteMixin forward the deletion origin to
+  its collector, which upstream only does since 4.6. (#136)
 
 ## [0.3.0] - 2026-08-25
 
