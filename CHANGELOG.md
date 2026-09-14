@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Cable.profile_class) were verified against a running NetBox 4.7.0 /
   Django 6.1 environment; no source changes were needed.
 
+### Fixed
+
+- Deleting a splice closure with live (applied) splices no longer fails
+  with "PortMappings on FMS-managed devices can only be modified
+  through the FMS plugin": the PortMapping guard now lets a deletion
+  cascade through when it originates from the device itself, while
+  direct PortMapping deletion and port deletion stay blocked. (#136)
+
 ## [0.3.0] - 2026-08-25
 
 ### Added

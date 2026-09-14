@@ -147,6 +147,35 @@ class TestPortMappingProtection(TransactionTestCase):
         with self.assertRaises(ValidationError):
             pm.delete()
 
+    def test_device_delete_cascades_portmappings(self):
+        """Deleting the closure itself must not be blocked by the guard (issue #136)."""
+        with fms_portmapping_bypass():
+            PortMapping.objects.create(
+                device=self.device,
+                front_port=self.fp,
+                rear_port=self.rp,
+                front_port_position=1,
+                rear_port_position=1,
+            )
+        device_pk = self.device.pk
+        self.device.delete()
+        assert not Device.objects.filter(pk=device_pk).exists()
+        assert not PortMapping.objects.filter(device_id=device_pk).exists()
+
+    def test_device_queryset_delete_cascades_portmappings(self):
+        """Bulk device deletion must not be blocked by the guard either (issue #136)."""
+        with fms_portmapping_bypass():
+            PortMapping.objects.create(
+                device=self.device,
+                front_port=self.fp,
+                rear_port=self.rp,
+                front_port_position=1,
+                rear_port_position=1,
+            )
+        device_pk = self.device.pk
+        Device.objects.filter(pk=device_pk).delete()
+        assert not Device.objects.filter(pk=device_pk).exists()
+
     def test_non_fms_device_unprotected(self):
         site = Site.objects.create(name="NF Site", slug="nf-site")
         mfr = Manufacturer.objects.create(name="NF Mfr", slug="nf-mfr")
