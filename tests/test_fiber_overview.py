@@ -69,27 +69,50 @@ class TestFiberOverviewView(TestCase):
         assert "cable_rows" in response.context
 
 
+def _gland_rig(prefix):
+    """Closure with a rear-port-terminated cable carrying a FiberCable, plus a superuser.
+
+    Shared by the gland-label action and closure-guard test classes.
+    """
+    from types import SimpleNamespace
+
+    site = Site.objects.create(name=f"{prefix} Site", slug=f"{prefix.lower()}-site")
+    manufacturer = Manufacturer.objects.create(name=f"{prefix} Mfr", slug=f"{prefix.lower()}-mfr")
+    device_type = DeviceType.objects.create(
+        manufacturer=manufacturer, model=f"{prefix} Closure", slug=f"{prefix.lower()}-closure"
+    )
+    role = DeviceRole.objects.create(name=f"{prefix} Role", slug=f"{prefix.lower()}-role")
+    device = Device.objects.create(name=f"{prefix}-Closure", site=site, device_type=device_type, role=role)
+
+    fct = FiberCableType.objects.create(
+        manufacturer=manufacturer,
+        model=f"{prefix}-FCT",
+        construction="loose_tube",
+        strand_count=4,
+    )
+    rp = RearPort.objects.create(device=device, name=f"{prefix}-RP", type="splice", positions=4)
+    cable = Cable.objects.create()
+    CableTermination.objects.create(cable=cable, cable_end="A", termination=rp)
+    fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+
+    user = User.objects.create_user(username=f"{prefix.lower()}_testuser", password="testpass", is_superuser=True)
+    return SimpleNamespace(
+        site=site,
+        device_type=device_type,
+        role=role,
+        device=device,
+        fiber_cable=fiber_cable,
+        user=user,
+    )
+
+
 class TestUpdateGlandLabelAction(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="GL Site", slug="gl-site")
-        manufacturer = Manufacturer.objects.create(name="GL Mfr", slug="gl-mfr")
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="GL Closure", slug="gl-closure")
-        role = DeviceRole.objects.create(name="GL Role", slug="gl-role")
-        cls.device = Device.objects.create(name="GL-Closure", site=site, device_type=device_type, role=role)
-
-        fct = FiberCableType.objects.create(
-            manufacturer=manufacturer,
-            model="GL-FCT",
-            construction="loose_tube",
-            strand_count=4,
-        )
-        rp = RearPort.objects.create(device=cls.device, name="GL-RP", type="splice", positions=4)
-        cable = Cable.objects.create()
-        CableTermination.objects.create(cable=cable, cable_end="A", termination=rp)
-        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-
-        cls.user = User.objects.create_user(username="gl_testuser", password="testpass", is_superuser=True)
+        rig = _gland_rig("GL")
+        cls.device = rig.device
+        cls.fiber_cable = rig.fiber_cable
+        cls.user = rig.user
 
     def test_get_returns_modal_form(self):
         self.client.force_login(self.user)
@@ -142,25 +165,11 @@ class TestGlandLabelClosureGuard(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="GG Site", slug="gg-site")
-        manufacturer = Manufacturer.objects.create(name="GG Mfr", slug="gg-mfr")
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="GG Closure", slug="gg-closure")
-        role = DeviceRole.objects.create(name="GG Role", slug="gg-role")
-        cls.closure_a = Device.objects.create(name="GG-A", site=site, device_type=device_type, role=role)
-        cls.closure_b = Device.objects.create(name="GG-B", site=site, device_type=device_type, role=role)
-
-        fct = FiberCableType.objects.create(
-            manufacturer=manufacturer,
-            model="GG-FCT",
-            construction="loose_tube",
-            strand_count=4,
-        )
-        rp_a = RearPort.objects.create(device=cls.closure_a, name="GG-RP-A", type="splice", positions=4)
-        cable = Cable.objects.create()
-        CableTermination.objects.create(cable=cable, cable_end="A", termination=rp_a)
-        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-
-        cls.user = User.objects.create_user(username="gg_testuser", password="testpass", is_superuser=True)
+        rig = _gland_rig("GG")
+        cls.closure_a = rig.device
+        cls.fiber_cable = rig.fiber_cable
+        cls.user = rig.user
+        cls.closure_b = Device.objects.create(name="GG-B", site=rig.site, device_type=rig.device_type, role=rig.role)
 
     def test_clean_accepts_cable_terminated_at_closure(self):
         entry = ClosureCableEntry(closure=self.closure_a, fiber_cable=self.fiber_cable, entrance_label="G1")

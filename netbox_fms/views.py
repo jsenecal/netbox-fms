@@ -128,6 +128,7 @@ from .services import (
     create_splice_closure,
     device_cable_ids,
     device_topology_cable_ids,
+    fiber_cable_terminates_on,
     get_or_recompute_diff,
     import_live_state,
     link_cable_topology,
@@ -2135,7 +2136,7 @@ class DeviceSpliceEditorView(View):
 def _get_closure_fiber_cable_or_404(device, fiber_cable_id):
     """Fetch a FiberCable only when its dcim.Cable terminates on this closure."""
     fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
-    if fiber_cable.cable_id not in device_cable_ids(device.pk):
+    if not fiber_cable_terminates_on(fiber_cable, device.pk):
         raise Http404("Fiber cable does not terminate on this closure")
     return fiber_cable
 

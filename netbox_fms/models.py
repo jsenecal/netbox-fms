@@ -1499,9 +1499,9 @@ class ClosureCableEntry(NetBoxModel):
         """Reject pairs where the fiber cable's dcim.Cable does not reach the closure."""
         super().clean()
         if self.closure_id and self.fiber_cable_id:
-            from .services import device_cable_ids
+            from .services import fiber_cable_terminates_on
 
-            if self.fiber_cable.cable_id not in device_cable_ids(self.closure_id):
+            if not fiber_cable_terminates_on(self.fiber_cable, self.closure_id):
                 raise ValidationError(
                     {"fiber_cable": _("This fiber cable does not terminate on the selected closure.")}
                 )
