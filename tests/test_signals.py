@@ -114,6 +114,17 @@ class TestPortMappingProtection(TransactionTestCase):
         )
         self.fp = FrontPort.objects.create(device=self.device, name="PM:F1", type="splice")
 
+    def _create_mapping(self):
+        """Create the fixture PortMapping under the FMS bypass."""
+        with fms_portmapping_bypass():
+            return PortMapping.objects.create(
+                device=self.device,
+                front_port=self.fp,
+                rear_port=self.rp,
+                front_port_position=1,
+                rear_port_position=1,
+            )
+
     def test_external_portmapping_create_blocked(self):
         with self.assertRaises(ValidationError):
             PortMapping.objects.create(
@@ -125,38 +136,17 @@ class TestPortMappingProtection(TransactionTestCase):
             )
 
     def test_bypass_allows_portmapping_create(self):
-        with fms_portmapping_bypass():
-            pm = PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+        pm = self._create_mapping()
         assert pm.pk is not None
 
     def test_external_portmapping_delete_blocked(self):
-        with fms_portmapping_bypass():
-            pm = PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+        pm = self._create_mapping()
         with self.assertRaises(ValidationError):
             pm.delete()
 
     def test_device_delete_cascades_portmappings(self):
         """Deleting the closure itself must not be blocked by the guard (issue #136)."""
-        with fms_portmapping_bypass():
-            PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+        self._create_mapping()
         device_pk = self.device.pk
         self.device.delete()
         assert not Device.objects.filter(pk=device_pk).exists()
@@ -164,14 +154,7 @@ class TestPortMappingProtection(TransactionTestCase):
 
     def test_device_queryset_delete_cascades_portmappings(self):
         """Bulk device deletion must not be blocked by the guard either (issue #136)."""
-        with fms_portmapping_bypass():
-            PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+        self._create_mapping()
         device_pk = self.device.pk
         Device.objects.filter(pk=device_pk).delete()
         assert not Device.objects.filter(pk=device_pk).exists()
@@ -199,14 +182,7 @@ class TestPortMappingProtection(TransactionTestCase):
         try:
             patch_delete_origin()
             assert deletion.DeleteMixin.delete is not delete
-            with fms_portmapping_bypass():
-                PortMapping.objects.create(
-                    device=self.device,
-                    front_port=self.fp,
-                    rear_port=self.rp,
-                    front_port_position=1,
-                    rear_port_position=1,
-                )
+            self._create_mapping()
             device_pk = self.device.pk
             self.device.delete()
             assert not Device.objects.filter(pk=device_pk).exists()
