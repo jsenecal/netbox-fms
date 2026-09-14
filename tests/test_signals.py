@@ -176,6 +176,43 @@ class TestPortMappingProtection(TransactionTestCase):
         Device.objects.filter(pk=device_pk).delete()
         assert not Device.objects.filter(pk=device_pk).exists()
 
+    def test_patch_delete_origin_restores_forwarding(self):
+        """NetBox 4.5 shim (issue #136): when DeleteMixin.delete does not
+        forward the deletion origin to its collector, patch_delete_origin()
+        must replace it with one that does, so deleting a closure still
+        cascades through its protected PortMappings.
+        """
+        from django.db import router
+        from netbox.models import deletion
+
+        from netbox_fms.monkey_patches import patch_delete_origin
+
+        original = deletion.DeleteMixin.delete
+
+        def delete(self, using=None, keep_parents=False):  # the NetBox 4.5 shape
+            using = using or router.db_for_write(self.__class__, instance=self)
+            collector = deletion.CustomCollector(using=using)
+            collector.collect([self], keep_parents=keep_parents)
+            return collector.delete()
+
+        deletion.DeleteMixin.delete = delete
+        try:
+            patch_delete_origin()
+            assert deletion.DeleteMixin.delete is not delete
+            with fms_portmapping_bypass():
+                PortMapping.objects.create(
+                    device=self.device,
+                    front_port=self.fp,
+                    rear_port=self.rp,
+                    front_port_position=1,
+                    rear_port_position=1,
+                )
+            device_pk = self.device.pk
+            self.device.delete()
+            assert not Device.objects.filter(pk=device_pk).exists()
+        finally:
+            deletion.DeleteMixin.delete = original
+
     def test_non_fms_device_unprotected(self):
         site = Site.objects.create(name="NF Site", slug="nf-site")
         mfr = Manufacturer.objects.create(name="NF Mfr", slug="nf-mfr")
