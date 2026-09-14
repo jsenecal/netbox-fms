@@ -1495,6 +1495,17 @@ class ClosureCableEntry(NetBoxModel):
         label = self.entrance_label or "\u2014"
         return f"{self.closure} \u2192 {label} ({self.fiber_cable})"
 
+    def clean(self):
+        """Reject pairs where the fiber cable's dcim.Cable does not reach the closure."""
+        super().clean()
+        if self.closure_id and self.fiber_cable_id:
+            from .services import device_cable_ids
+
+            if self.fiber_cable.cable_id not in device_cable_ids(self.closure_id):
+                raise ValidationError(
+                    {"fiber_cable": _("This fiber cable does not terminate on the selected closure.")}
+                )
+
     def get_absolute_url(self):
         """Return the detail URL for this closure cable entry."""
         return reverse("plugins:netbox_fms:closurecableentry", args=[self.pk])

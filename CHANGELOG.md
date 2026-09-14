@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Cable.profile_class) were verified against a running NetBox 4.7.0 /
   Django 6.1 environment; no source changes were needed.
 
+### Fixed
+
+- Gland label updates now refuse a closure/cable pair with no physical
+  relationship: `ClosureCableEntry` validates that the fiber cable's
+  dcim.Cable terminates on the closure, and the gland-label endpoint
+  returns 404 for a mismatched pair instead of recording a bogus
+  entrance label. (#133)
+
 ## [0.3.0] - 2026-08-25
 
 ### Added

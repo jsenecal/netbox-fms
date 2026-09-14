@@ -2132,6 +2132,14 @@ class DeviceSpliceEditorView(View):
 # ---------------------------------------------------------------------------
 
 
+def _get_closure_fiber_cable_or_404(device, fiber_cable_id):
+    """Fetch a FiberCable only when its dcim.Cable terminates on this closure."""
+    fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+    if fiber_cable.cable_id not in device_cable_ids(device.pk):
+        raise Http404("Fiber cable does not terminate on this closure")
+    return fiber_cable
+
+
 class UpdateGlandLabelView(LoginRequiredMixin, View):
     """Edit the entrance/gland label for a closure cable entry via HTMX modal."""
 
@@ -2141,8 +2149,7 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
         ):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
-        fiber_cable_id = request.GET.get("fiber_cable_id")
-        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+        fiber_cable = _get_closure_fiber_cable_or_404(device, request.GET.get("fiber_cable_id"))
 
         entry = ClosureCableEntry.objects.filter(closure=device, fiber_cable=fiber_cable).first()
         current_label = entry.entrance_label if entry else ""
@@ -2164,8 +2171,7 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
         ):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
-        fiber_cable_id = request.POST.get("fiber_cable_id")
-        fiber_cable = get_object_or_404(FiberCable, pk=fiber_cable_id)
+        fiber_cable = _get_closure_fiber_cable_or_404(device, request.POST.get("fiber_cable_id"))
         entrance_label = request.POST.get("entrance_label", "").strip()
 
         ClosureCableEntry.objects.update_or_create(

@@ -84,7 +84,9 @@ class TestUpdateGlandLabelAction(TestCase):
             construction="loose_tube",
             strand_count=4,
         )
+        rp = RearPort.objects.create(device=cls.device, name="GL-RP", type="splice", positions=4)
         cable = Cable.objects.create()
+        CableTermination.objects.create(cable=cable, cable_end="A", termination=rp)
         cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
 
         cls.user = User.objects.create_user(username="gl_testuser", password="testpass", is_superuser=True)
@@ -133,6 +135,62 @@ class TestUpdateGlandLabelAction(TestCase):
 
         entry = ClosureCableEntry.objects.get(closure=self.device, fiber_cable=self.fiber_cable)
         assert entry.entrance_label == "New Label"
+
+
+class TestGlandLabelClosureGuard(TestCase):
+    """A gland entry only means something when the cable reaches the closure (issue #133)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="GG Site", slug="gg-site")
+        manufacturer = Manufacturer.objects.create(name="GG Mfr", slug="gg-mfr")
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="GG Closure", slug="gg-closure")
+        role = DeviceRole.objects.create(name="GG Role", slug="gg-role")
+        cls.closure_a = Device.objects.create(name="GG-A", site=site, device_type=device_type, role=role)
+        cls.closure_b = Device.objects.create(name="GG-B", site=site, device_type=device_type, role=role)
+
+        fct = FiberCableType.objects.create(
+            manufacturer=manufacturer,
+            model="GG-FCT",
+            construction="loose_tube",
+            strand_count=4,
+        )
+        rp_a = RearPort.objects.create(device=cls.closure_a, name="GG-RP-A", type="splice", positions=4)
+        cable = Cable.objects.create()
+        CableTermination.objects.create(cable=cable, cable_end="A", termination=rp_a)
+        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+
+        cls.user = User.objects.create_user(username="gg_testuser", password="testpass", is_superuser=True)
+
+    def test_clean_accepts_cable_terminated_at_closure(self):
+        entry = ClosureCableEntry(closure=self.closure_a, fiber_cable=self.fiber_cable, entrance_label="G1")
+        entry.full_clean()
+
+    def test_clean_rejects_cable_not_terminated_at_closure(self):
+        from django.core.exceptions import ValidationError
+
+        entry = ClosureCableEntry(closure=self.closure_b, fiber_cable=self.fiber_cable, entrance_label="G1")
+        with pytest.raises(ValidationError):
+            entry.full_clean()
+
+    def test_post_rejects_unrelated_closure_cable_pair(self):
+        self.client.force_login(self.user)
+        url = f"/plugins/fms/fiber-overview/{self.closure_b.pk}/update-gland/"
+        response = self.client.post(
+            url,
+            {
+                "fiber_cable_id": self.fiber_cable.pk,
+                "entrance_label": "Bogus",
+            },
+        )
+        assert response.status_code == 404
+        assert not ClosureCableEntry.objects.filter(closure=self.closure_b, fiber_cable=self.fiber_cable).exists()
+
+    def test_get_rejects_unrelated_closure_cable_pair(self):
+        self.client.force_login(self.user)
+        url = f"/plugins/fms/fiber-overview/{self.closure_b.pk}/update-gland/?fiber_cable_id={self.fiber_cable.pk}"
+        response = self.client.get(url)
+        assert response.status_code == 404
 
 
 class TestNavigationCleanup(TestCase):
