@@ -20,6 +20,8 @@ from netbox_fms.models import (
     BufferTubeTemplate,
     FiberCable,
     FiberCableType,
+    FiberCircuit,
+    FiberCircuitPath,
     FiberStrand,
     SlackLoop,
     SplicePlan,
@@ -92,13 +94,18 @@ class TestFullModeSplicePlanBuilder:
         far = Device.objects.create(name="FMSP-Far", site=rig.site, device_type=rig.device_type, role=rig.role)
         _make_tubed_cable(rig, rig.closure, far, "FMSP-A", 0)
         _make_tubed_cable(rig, rig.closure, far, "FMSP-B", 6)
+        # A closure reached by a single cable must be skipped without leaving
+        # an empty plan row behind.
+        lone_rig = make_closure_with_tray("FMSL", port_count=6)
+        _make_tubed_cable(lone_rig, lone_rig.closure, far, "FMSL-A", 0)
 
         cmd = Command()
         cmd.stdout = OutputWrapper(StringIO())
-        cmd.devices = {"BB-FMSP-01": rig.closure}
+        cmd.devices = {"BB-FMSP-01": rig.closure, "BB-FMSL-01": lone_rig.closure}
         cmd.fp_ct = ContentType.objects.get_for_model(FrontPort)
         cmd._create_splice_plans()
 
+        assert not SplicePlan.objects.filter(closure=lone_rig.closure).exists()
         plan = SplicePlan.objects.get(closure=rig.closure)
         entries = list(plan.entries.all())
         assert len(entries) == 6
@@ -106,3 +113,38 @@ class TestFullModeSplicePlanBuilder:
         for entry in entries:
             strand = FiberStrand.objects.get(front_port_a=entry.fiber_a)
             assert entry.is_express is (strand.buffer_tube.position > 2)
+
+
+@pytest.mark.django_db
+class TestFullModeFiberCircuitOrigins:
+    def test_origin_ports_found_via_strand_linkage(self):
+        """Issue #96: the circuit origin lookup parsed a '#<cable_pk>' name
+        prefix that label-derived port names never carry, so it always fell
+        back to "first two ports by name". Resolve through strands instead:
+        the decoy port (which sorts first by name) must not be picked.
+        """
+        rig = make_closure_with_tray("FMCO", port_count=2)
+        co = Device.objects.create(name="CO-Downtown", site=rig.site, device_type=rig.device_type, role=rig.role)
+        make_front_port(co, "AAA-Decoy")
+        fp1 = make_front_port(co, "FMCO-F1")
+        fp2 = make_front_port(co, "FMCO-F2")
+
+        fct = FiberCableType.objects.create(
+            manufacturer=rig.mfr, model="FMCO-FCT", construction="tight_buffer", strand_count=2
+        )
+        cable = Cable.objects.create(
+            a_terminations=[fp1, fp2], b_terminations=rig.ports, label="CO-Downtown → BB-DO-NO-A-01"
+        )
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        for strand, fp in zip(fc.fiber_strands.order_by("position"), [fp1, fp2], strict=True):
+            strand.front_port_a = fp
+            strand.save()
+
+        cmd = Command()
+        cmd.stdout = OutputWrapper(StringIO())
+        cmd.devices = {"CO-Downtown": co}
+        cmd._create_fiber_circuits()
+
+        circuit = FiberCircuit.objects.get(cid="BB-DT-NO-001")
+        origins = {path.origin_id for path in FiberCircuitPath.objects.filter(circuit=circuit)}
+        assert origins == {fp1.pk, fp2.pk}
