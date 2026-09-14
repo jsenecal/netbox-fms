@@ -35,6 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Cable.profile_class) were verified against a running NetBox 4.7.0 /
   Django 6.1 environment; no source changes were needed.
 
+### Fixed
+
+- The Cable detail page no longer offers "Link Fiber Cable" on splice
+  jumpers (cables joining front ports of a single closure, as created
+  by applying a splice plan), and `FiberCable` now refuses to attach to
+  such a cable everywhere (form, CSV import, REST API). Linking a
+  jumper made it reappear in the closure's Fiber Overview as if it were
+  real fiber topology. (#132)
+
 ## [0.3.0] - 2026-08-25
 
 ### Added

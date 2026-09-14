@@ -1,6 +1,7 @@
 from netbox.plugins import PluginTemplateExtension
 
 from .models import FiberCable
+from .services import is_intra_closure_jumper
 
 
 class CableFiberCablePanel(PluginTemplateExtension):
@@ -20,6 +21,10 @@ class CableFiberCablePanel(PluginTemplateExtension):
                     "tube_count": tube_count,
                 },
             )
+        # A splice jumper is not fiber topology; linking would be refused by
+        # FiberCable.clean(), so do not offer the action at all.
+        if is_intra_closure_jumper(cable):
+            return ""
         # Show "Link Fiber Cable" action button
         return self.render(
             "netbox_fms/inc/cable_link_action.html",
