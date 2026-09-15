@@ -24,6 +24,7 @@ Define fiber cable construction as reusable blueprints, auto-instantiate compone
 - **Fiber circuit provisioning** -- End-to-end provisioning with DAG-based pathfinding and multi-hop tracing.
 - **Device fiber overview** -- Per-device fiber connection view, splice closure management with tray and group organization.
 - **Slack loop tracking** -- Record slack loop locations and storage methods at splice closures, with insert-into-closure workflows.
+- **Port label templates** -- FMS-provisioned FrontPorts and RearPorts carry human-readable labels (cable, tube, ribbon, strand color, absolute fiber number) rendered from sandboxed Jinja2 templates, customizable plugin-wide through `PLUGINS_CONFIG` and refreshed automatically when the cable is relabeled.
 - **Full REST API and GraphQL** -- All models exposed via NetBox's standard API framework.
 
 ## Compatibility
