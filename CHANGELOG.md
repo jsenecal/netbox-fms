@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `create_sample_data` created 0 splice plans (and left empty plan rows
+  behind): it grouped front ports by parsing a `#<cable_pk>` prefix out
+  of port names, but ports are named from the cable label. Front ports
+  are now grouped by cable through their FiberStrand linkage, plans are
+  only created once a closure is known to have splice-able ports, and
+  the backbone express/pass-through decision reads the buffer tube
+  position structurally instead of comparing name fragments. The fiber
+  circuit origin lookup had the same name-parsing defect and now also
+  resolves ports through strands. (#96)
 - Gland label updates now refuse a closure/cable pair with no physical
   relationship: `ClosureCableEntry` validates that the fiber cable's
   dcim.Cable terminates on the closure, and the gland-label endpoint
