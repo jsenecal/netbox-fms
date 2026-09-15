@@ -46,6 +46,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position structurally instead of comparing name fragments. The fiber
   circuit origin lookup had the same name-parsing defect and now also
   resolves ports through strands. (#96)
+- The visual splice editor no longer loses saved connections after a
+  reload. The closure-strands endpoint only recognized plan entries and
+  live splices whose front ports sit on tray modules, but a strand's
+  closure-side port legitimately lives at device level while its buffer
+  tube is unassigned -- such splices saved fine and then never
+  rendered (ghost lines from other plans, which are fetched without
+  that filter, still showed). The endpoint now keys its plan/live
+  lookups on all of the closure's front ports and prefers the
+  closure-local port over the far end when a strand's tube is
+  unassigned. (#108)
 
 ## [0.3.0] - 2026-08-25
 
