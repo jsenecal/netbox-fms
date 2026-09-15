@@ -60,6 +60,15 @@ def _determine_cable_end(cable, device):
     return "A"
 
 
+def fiber_cable_terminates_on(fiber_cable, device_id):
+    """Return True when the fiber cable's dcim.Cable terminates on the device.
+
+    The single definition of "this cable reaches this closure" shared by
+    ClosureCableEntry validation and the gland-label view guard.
+    """
+    return fiber_cable.cable_id in device_cable_ids(device_id)
+
+
 def device_cable_ids(device_id):
     """Return the ids of every dcim.Cable terminating on a device."""
     return set(
