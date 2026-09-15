@@ -354,3 +354,66 @@ class TestProvisionedLabels(LabelFixtureMixin, TestCase):
 
         self._build("BAD")
         assert self._labels(self.dev_a, FrontPort) == ["", ""]
+
+
+class TestRelabelSignal(LabelFixtureMixin, TestCase):
+    """A cable save must re-render labels on the cable's FMS-provisioned ports."""
+
+    def test_cable_relabel_rerenders_labels(self):
+        from dcim.models import FrontPort, RearPort
+
+        _fct, fc = self._build("OLD")
+
+        fc.cable.label = "NEW"
+        fc.cable.save()
+
+        assert self._labels(self.dev_a, FrontPort) == [
+            "NEW / T1 (Blue) / Blue / F1",
+            "NEW / T1 (Blue) / Orange / F2",
+        ]
+        assert self._labels(self.dev_a, RearPort) == ["NEW / T1 (Blue)"]
+
+    def test_device_and_end_tokens_differ_per_side(self):
+        """The relabel path must resolve device and cable end per port."""
+        from dcim.models import FrontPort
+
+        _fct, fc = self._build("END")
+        with override_settings(
+            PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "{{ device }}:{{ end }}:F{{ strand }}"}}
+        ):
+            fc.cable.save()
+
+        assert self._labels(self.dev_a, FrontPort) == ["LBL-A:A:F1", "LBL-A:A:F2"]
+        assert self._labels(self.dev_b, FrontPort) == ["LBL-B:B:F1", "LBL-B:B:F2"]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "", "rear_port_label_template": ""}})
+    def test_operator_labels_survive_when_opted_out(self):
+        """The None protocol: no configured template means no label write."""
+        from dcim.models import FrontPort, RearPort
+
+        _fct, fc = self._build("KEEP")
+        fp = FrontPort.objects.filter(device=self.dev_a).order_by("name").first()
+        rp = RearPort.objects.filter(device=self.dev_a).order_by("name").first()
+        # Bypass save() so the operator labels are planted without side effects.
+        FrontPort.objects.filter(pk=fp.pk).update(label="Rack-A-01")
+        RearPort.objects.filter(pk=rp.pk).update(label="Rack-A-RP")
+
+        fc.cable.label = "KEEP2"
+        fc.cable.save()
+
+        fp.refresh_from_db()
+        rp.refresh_from_db()
+        assert fp.label == "Rack-A-01"
+        assert rp.label == "Rack-A-RP"
+
+    def test_malformed_config_degrades_and_leaves_labels_alone(self):
+        from dcim.models import FrontPort
+
+        _fct, fc = self._build("SAFE")
+        before = self._labels(self.dev_a, FrontPort)
+
+        with override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_label_template": MALFORMED}}):
+            fc.cable.description = "touched"
+            fc.cable.save()  # must not raise
+
+        assert self._labels(self.dev_a, FrontPort) == before
