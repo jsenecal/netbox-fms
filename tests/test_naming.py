@@ -417,3 +417,100 @@ class TestRelabelSignal(LabelFixtureMixin, TestCase):
             fc.cable.save()  # must not raise
 
         assert self._labels(self.dev_a, FrontPort) == before
+
+
+class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
+    """rerender_port_labels backfills labels on brownfield data."""
+
+    def _blank_labels(self):
+        from dcim.models import FrontPort, RearPort
+
+        FrontPort.objects.update(label="")
+        RearPort.objects.update(label="")
+
+    def _call(self, *args):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        out, err = StringIO(), StringIO()
+        call_command("rerender_port_labels", *args, stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    def test_backfills_default_labels(self):
+        from dcim.models import FrontPort, RearPort
+
+        self._build("BF")
+        self._blank_labels()
+
+        out, err = self._call()
+
+        assert err == ""
+        assert "->" in out
+        assert self._labels(self.dev_a, FrontPort) == [
+            "BF / T1 (Blue) / Blue / F1",
+            "BF / T1 (Blue) / Orange / F2",
+        ]
+        assert self._labels(self.dev_a, RearPort) == ["BF / T1 (Blue)"]
+
+    def test_dry_run_writes_nothing(self):
+        from dcim.models import FrontPort
+
+        self._build("DRY")
+        self._blank_labels()
+
+        out, _err = self._call("--dry-run")
+
+        assert "->" in out, "the dry run must still report the changes it would make"
+        assert self._labels(self.dev_a, FrontPort) == ["", ""]
+
+    def test_cable_type_restricts_the_walk(self):
+        from dcim.models import FrontPort
+
+        self._build("ONE")
+        self._build("TWO")
+        self._blank_labels()
+
+        self._call("--cable-type", "FCT-ONE")
+
+        labels = self._labels(self.dev_a, FrontPort)
+        assert "ONE / T1 (Blue) / Blue / F1" in labels
+        assert labels.count("") == 2, "the other cable type's ports must stay untouched"
+
+    def test_limit_stops_after_n_cables(self):
+        from dcim.models import FrontPort
+
+        _fct1, fc1 = self._build("LIM1")
+        self._build("LIM2")
+        self._blank_labels()
+
+        self._call("--limit", "1")
+
+        relabeled = FrontPort.objects.exclude(label="")
+        assert relabeled.count() == 4, "exactly one cable (two devices x two strands) must be processed"
+        strand_fp_ids = {fp_id for s in fc1.fiber_strands.all() for fp_id in (s.front_port_a_id, s.front_port_b_id)}
+        assert {fp.pk for fp in relabeled} == strand_fp_ids
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "", "rear_port_label_template": ""}})
+    def test_opted_out_run_leaves_operator_labels_alone(self):
+        from dcim.models import FrontPort
+
+        self._build("OPTC")
+        FrontPort.objects.update(label="Rack-7")
+
+        out, err = self._call()
+
+        assert out == "" and err == ""
+        assert set(FrontPort.objects.values_list("label", flat=True)) == {"Rack-7"}
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": MALFORMED}})
+    def test_broken_template_is_reported_not_raised(self):
+        from dcim.models import FrontPort
+
+        self._build("BRK")
+        self._blank_labels()
+
+        _out, err = self._call()
+
+        assert "syntax" in err
+        assert self._labels(self.dev_a, FrontPort) == ["", ""]
