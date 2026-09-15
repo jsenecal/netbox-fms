@@ -514,3 +514,16 @@ class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
 
         assert "syntax" in err
         assert self._labels(self.dev_a, FrontPort) == ["", ""]
+
+
+class TestProvisioningRenderFailure(LabelFixtureMixin, TestCase):
+    """A template that compiles but fails at render must not break provisioning."""
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "{{ bogus }}"}})
+    def test_undefined_token_degrades_to_blank_front_labels(self):
+        from dcim.models import FrontPort, RearPort
+
+        self._build("RF")
+        assert self._labels(self.dev_a, FrontPort) == ["", ""]
+        # The rear template is untouched and still renders.
+        assert self._labels(self.dev_a, RearPort) == ["RF / T1 (Blue)"]

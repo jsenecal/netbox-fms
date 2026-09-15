@@ -144,7 +144,7 @@ def _rename_ports_for_cable(cable):
 
     label = str(cable)
 
-    strand_by_fp_id, pms = _cable_strand_ports(fc)
+    _strand_by_fp_id, pms = _cable_strand_ports(fc)
     if not pms:
         return
 
