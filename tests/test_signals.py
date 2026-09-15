@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 from dcim.models import (
     Cable,
     CableTermination,
@@ -114,6 +116,17 @@ class TestPortMappingProtection(TransactionTestCase):
         )
         self.fp = FrontPort.objects.create(device=self.device, name="PM:F1", type="splice")
 
+    def _create_mapping(self):
+        """Create the fixture PortMapping under the FMS bypass."""
+        with fms_portmapping_bypass():
+            return PortMapping.objects.create(
+                device=self.device,
+                front_port=self.fp,
+                rear_port=self.rp,
+                front_port_position=1,
+                rear_port_position=1,
+            )
+
     def test_external_portmapping_create_blocked(self):
         with self.assertRaises(ValidationError):
             PortMapping.objects.create(
@@ -125,27 +138,77 @@ class TestPortMappingProtection(TransactionTestCase):
             )
 
     def test_bypass_allows_portmapping_create(self):
-        with fms_portmapping_bypass():
-            pm = PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+        pm = self._create_mapping()
         assert pm.pk is not None
 
     def test_external_portmapping_delete_blocked(self):
-        with fms_portmapping_bypass():
-            pm = PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+        pm = self._create_mapping()
         with self.assertRaises(ValidationError):
             pm.delete()
+
+    def test_device_delete_cascades_portmappings(self):
+        """Deleting the closure itself must not be blocked by the guard (issue #136)."""
+        self._create_mapping()
+        device_pk = self.device.pk
+        self.device.delete()
+        assert not Device.objects.filter(pk=device_pk).exists()
+        assert not PortMapping.objects.filter(device_id=device_pk).exists()
+
+    def test_device_queryset_delete_cascades_portmappings(self):
+        """Bulk device deletion must not be blocked by the guard either (issue #136)."""
+        self._create_mapping()
+        device_pk = self.device.pk
+        Device.objects.filter(pk=device_pk).delete()
+        assert not Device.objects.filter(pk=device_pk).exists()
+
+    @contextmanager
+    def _netbox_45_shaped_delete(self):
+        """Install a DeleteMixin.delete without forwarding (the NetBox 4.5
+        shape), apply the shim, and yield the unpatched function; the real
+        delete is restored on exit.
+        """
+        from django.db import router
+        from netbox.models import deletion
+
+        from netbox_fms.monkey_patches import patch_delete_origin
+
+        original = deletion.DeleteMixin.delete
+
+        def delete(self, using=None, keep_parents=False):
+            using = using or router.db_for_write(self.__class__, instance=self)
+            collector = deletion.CustomCollector(using=using)
+            collector.collect([self], keep_parents=keep_parents)
+            return collector.delete()
+
+        deletion.DeleteMixin.delete = delete
+        try:
+            patch_delete_origin()
+            yield delete
+        finally:
+            deletion.DeleteMixin.delete = original
+
+    def test_patch_delete_origin_restores_forwarding(self):
+        """NetBox 4.5 shim (issue #136): when DeleteMixin.delete does not
+        forward the deletion origin to its collector, patch_delete_origin()
+        must replace it with one that does, so deleting a closure still
+        cascades through its protected PortMappings.
+        """
+        from netbox.models import deletion
+
+        with self._netbox_45_shaped_delete() as unpatched:
+            assert deletion.DeleteMixin.delete is not unpatched
+            self._create_mapping()
+            device_pk = self.device.pk
+            self.device.delete()
+            assert not Device.objects.filter(pk=device_pk).exists()
+
+    def test_patched_delete_rejects_unsaved_instance(self):
+        """The shim keeps upstream's guard: an instance whose pk is None
+        cannot be deleted (issue #136).
+        """
+        with self._netbox_45_shaped_delete():
+            with self.assertRaises(ValueError):
+                Device(name="PM-Unsaved").delete()
 
     def test_non_fms_device_unprotected(self):
         site = Site.objects.create(name="NF Site", slug="nf-site")

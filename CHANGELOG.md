@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position structurally instead of comparing name fragments. The fiber
   circuit origin lookup had the same name-parsing defect and now also
   resolves ports through strands. (#96)
+- Deleting a splice closure with live (applied) splices no longer fails
+  with "PortMappings on FMS-managed devices can only be modified
+  through the FMS plugin": the PortMapping guard now lets a deletion
+  cascade through when it originates from the device itself, while
+  direct PortMapping deletion and port deletion stay blocked. On NetBox
+  4.5 a monkey patch makes DeleteMixin forward the deletion origin to
+  its collector, which upstream only does since 4.6. (#136)
 - The visual splice editor no longer loses saved connections after a
   reload. The closure-strands endpoint only recognized plan entries and
   live splices whose front ports sit on tray modules, but a strand's

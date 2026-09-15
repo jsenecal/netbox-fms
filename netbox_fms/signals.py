@@ -27,20 +27,45 @@ def _is_fms_managed_device(device_id):
     return FiberCable.objects.filter(cable_id__in=rear_port_cable_ids(device_id)).exists()
 
 
+def _block_external_portmapping_change(instance):
+    """Raise unless the change runs under the FMS bypass or the device is unmanaged."""
+    if _fms_bypass.get():
+        return
+    if _is_fms_managed_device(instance.device_id):
+        raise ValidationError("PortMappings on FMS-managed devices can only be modified through the FMS plugin.")
+
+
 def _portmapping_pre_save(sender, instance, **kwargs):
     """Block external PortMapping changes on FMS-managed devices."""
-    if _fms_bypass.get():
-        return
-    if _is_fms_managed_device(instance.device_id):
-        raise ValidationError("PortMappings on FMS-managed devices can only be modified through the FMS plugin.")
+    _block_external_portmapping_change(instance)
 
 
-def _portmapping_pre_delete(sender, instance, **kwargs):
-    """Block external PortMapping deletion on FMS-managed devices."""
-    if _fms_bypass.get():
+def _deletion_originates_from_device(origin):
+    """Return True when a deletion cascade started at a dcim.Device.
+
+    ``origin`` is the model instance or queryset ``delete()`` was called on,
+    passed along by Django with every cascaded pre_delete signal.
+    """
+    from dcim.models import Device
+    from django.db.models import QuerySet
+
+    if isinstance(origin, Device):
+        return True
+    return isinstance(origin, QuerySet) and origin.model is Device
+
+
+def _portmapping_pre_delete(sender, instance, origin=None, **kwargs):
+    """Block external PortMapping deletion on FMS-managed devices.
+
+    Deleting the device itself is allowed: removing a closure legitimately
+    cascades through its PortMappings (a PortMapping only ever references
+    ports of its own device, so a Device-originated cascade cannot reach
+    another device's mappings). Any other origin -- the mapping itself, or
+    a port being deleted out from under it -- stays blocked.
+    """
+    if _deletion_originates_from_device(origin):
         return
-    if _is_fms_managed_device(instance.device_id):
-        raise ValidationError("PortMappings on FMS-managed devices can only be modified through the FMS plugin.")
+    _block_external_portmapping_change(instance)
 
 
 def _invalidate_plans_for_cable(cable):
