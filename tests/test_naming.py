@@ -1,0 +1,271 @@
+"""Tests for the port label template engine.
+
+Covers the label slice of the naming-template design (regression surface for
+issue #69): the pure Jinja2 engine, plugin-config resolution, context
+builders, and the built-in non-blank defaults.
+"""
+
+import pytest
+from django.test import SimpleTestCase, override_settings
+
+from netbox_fms import naming
+
+
+class Stub:
+    """Attribute bag standing in for a model instance."""
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class TestDefaults(SimpleTestCase):
+    """The built-in defaults must carry the readable port identity."""
+
+    def setUp(self):
+        self.compiled = naming.compile_labels()
+
+    def test_front_label_tubed(self):
+        ctx = {
+            "cable": "CL-01 -- CL-02",
+            "tube_name": "T1",
+            "tube_color": "Blue",
+            "ribbon_name": None,
+            "strand_color": "Slate",
+            "strand": 25,
+        }
+        rendered = naming.render(naming.FRONT_PORT_LABEL, self.compiled, ctx)
+        assert rendered == "CL-01 -- CL-02 / T1 (Blue) / Slate / F25"
+
+    def test_front_label_tubeless(self):
+        ctx = {
+            "cable": "TB",
+            "tube_name": None,
+            "tube_color": None,
+            "ribbon_name": None,
+            "strand_color": "Orange",
+            "strand": 2,
+        }
+        assert naming.render(naming.FRONT_PORT_LABEL, self.compiled, ctx) == "TB / Orange / F2"
+
+    def test_front_label_ribbon(self):
+        ctx = {
+            "cable": "CR",
+            "tube_name": None,
+            "tube_color": None,
+            "ribbon_name": "R1",
+            "strand_color": "Blue",
+            "strand": 5,
+        }
+        assert naming.render(naming.FRONT_PORT_LABEL, self.compiled, ctx) == "CR / R1 / Blue / F5"
+
+    def test_front_label_tube_without_color(self):
+        ctx = {
+            "cable": "NC",
+            "tube_name": "T2",
+            "tube_color": None,
+            "ribbon_name": None,
+            "strand_color": None,
+            "strand": 13,
+        }
+        assert naming.render(naming.FRONT_PORT_LABEL, self.compiled, ctx) == "NC / T2 / F13"
+
+    def test_rear_label_tubed(self):
+        ctx = {"cable": "CL", "tube_name": "T3", "tube_color": "Green"}
+        assert naming.render(naming.REAR_PORT_LABEL, self.compiled, ctx) == "CL / T3 (Green)"
+
+    def test_rear_label_tubeless(self):
+        ctx = {"cable": "CL", "tube_name": None, "tube_color": None}
+        assert naming.render(naming.REAR_PORT_LABEL, self.compiled, ctx) == "CL"
+
+    def test_defaults_pass_their_own_validation(self):
+        """The shipped defaults must survive the validator they are checked by."""
+        assert naming.validate(naming.FRONT_PORT_LABEL, naming.DEFAULT_FRONT_PORT_LABEL) is None
+        assert naming.validate(naming.REAR_PORT_LABEL, naming.DEFAULT_REAR_PORT_LABEL) is None
+
+
+class TestResolution(SimpleTestCase):
+    """Plugin config beats the built-in default; empty string opts out."""
+
+    def test_builtin_when_nothing_set(self):
+        assert naming.resolve_source(naming.FRONT_PORT_LABEL) == naming.DEFAULT_FRONT_PORT_LABEL
+        assert naming.resolve_source(naming.REAR_PORT_LABEL) == naming.DEFAULT_REAR_PORT_LABEL
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "CFG-{{ strand }}"}})
+    def test_plugin_config_beats_builtin(self):
+        assert naming.resolve_source(naming.FRONT_PORT_LABEL) == "CFG-{{ strand }}"
+        # The other target still falls through to its default.
+        assert naming.resolve_source(naming.REAR_PORT_LABEL) == naming.DEFAULT_REAR_PORT_LABEL
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "", "rear_port_label_template": ""}})
+    def test_empty_config_disables_label_management(self):
+        """An explicit empty template compiles to None: leave stored labels alone."""
+        compiled = naming.compile_labels()
+        assert naming.render(naming.FRONT_PORT_LABEL, compiled, {}) is None
+        assert naming.render(naming.REAR_PORT_LABEL, compiled, {}) is None
+
+    def test_configured_template_rendering_empty_is_not_none(self):
+        """An empty render from a real template is a deliberate blank, not "unset"."""
+        with override_settings(
+            PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "{% if tube %}T{{ tube }}{% endif %}"}}
+        ):
+            compiled = naming.compile_labels()
+            assert naming.render(naming.FRONT_PORT_LABEL, compiled, {"tube": None}) == ""
+
+
+MALFORMED = "{{ cable "
+
+
+class TestPluginConfigSyntaxGuard(SimpleTestCase):
+    """A malformed PLUGINS_CONFIG template must surface as a NamingError.
+
+    A template set plugin-wide never passes through a form or serializer, so
+    it reaches ``compile_labels`` unvalidated -- and a raw
+    ``jinja2.TemplateSyntaxError`` is not a ``NamingError``, so the callers'
+    ``except NamingError`` guards would miss it and every FMS cable save and
+    provisioning call would raise.
+    """
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": MALFORMED}})
+    def test_compile_labels_raises_naming_error(self):
+        with pytest.raises(naming.NamingError, match="syntax"):
+            naming.compile_labels()
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_label_template": MALFORMED}})
+    def test_validate_plugin_config_names_the_setting(self):
+        problems = naming.validate_plugin_config()
+        assert [key for key, _msg in problems] == ["rear_port_label_template"]
+        assert "syntax" in problems[0][1]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "{{ cable }}:F{{ strand }}"}})
+    def test_validate_plugin_config_clean_config(self):
+        assert naming.validate_plugin_config() == []
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_label_template": MALFORMED}})
+    def test_startup_check_logs_without_raising(self):
+        """A bad setting must be reported at startup, never block NetBox booting."""
+        from netbox_fms import NetBoxFMSConfig
+
+        with self.assertLogs("netbox_fms", level="ERROR") as captured:
+            NetBoxFMSConfig._check_label_templates()
+        joined = "\n".join(captured.output)
+        assert "rear_port_label_template" in joined
+        assert "syntax" in joined
+
+
+class TestValidation(SimpleTestCase):
+    def test_syntax_error_rejected(self):
+        with pytest.raises(naming.NamingError, match="syntax"):
+            naming.validate(naming.FRONT_PORT_LABEL, MALFORMED)
+
+    def test_strand_token_rejected_on_rear_label(self):
+        """A rear port covers a whole tube; strand tokens are front-only."""
+        with pytest.raises(naming.NamingError, match="render"):
+            naming.validate(naming.REAR_PORT_LABEL, "{{ cable }}:{{ strand }}")
+
+    def test_unknown_token_rejected(self):
+        with pytest.raises(naming.NamingError, match="render"):
+            naming.validate(naming.FRONT_PORT_LABEL, "{{ tubes }}")
+
+    def test_overlong_dummy_render_rejected(self):
+        with pytest.raises(naming.NamingError, match="maximum"):
+            naming.validate(naming.FRONT_PORT_LABEL, "X" * 65)
+
+    def test_blank_is_valid(self):
+        assert naming.validate(naming.FRONT_PORT_LABEL, "") is None
+
+    def test_sandbox_blocks_attribute_escape(self):
+        """The sandboxed environment must refuse dunder attribute traversal."""
+        with pytest.raises(naming.NamingError):
+            naming.validate(naming.FRONT_PORT_LABEL, "{{ cable.__class__.__mro__ }}")
+
+
+class TestRender(SimpleTestCase):
+    def test_truncates_to_max_length(self):
+        """dcim port label columns are 64 characters; the render must fit them."""
+        with override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "{{ cable }}"}}):
+            compiled = naming.compile_labels()
+            rendered = naming.render(naming.FRONT_PORT_LABEL, compiled, {"cable": "L" * 100})
+        assert len(rendered) == 64
+
+    def test_context_scoped_to_target_tokens(self):
+        """A rear template cannot see strand tokens even if the caller passes them."""
+        with override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_label_template": "{{ strand }}"}}):
+            compiled = naming.compile_labels()
+            with pytest.raises(naming.NamingError):
+                naming.render(naming.REAR_PORT_LABEL, compiled, {"cable": "NST", "strand": 7})
+
+
+class TestColorName(SimpleTestCase):
+    def test_known_hex_returns_palette_name(self):
+        assert naming.color_name("0000ff", "eia_598") == "Blue"
+
+    def test_scheme_specific_name(self):
+        """708090 is Slate under EIA-598 and Gray under NBR-14771."""
+        assert naming.color_name("708090", "eia_598") == "Slate"
+        assert naming.color_name("708090", "nbr_14771") == "Gray"
+
+    def test_unknown_hex_falls_back_to_hex(self):
+        assert naming.color_name("abcdef", "eia_598") == "abcdef"
+
+    def test_blank_returns_none(self):
+        assert naming.color_name("", "eia_598") is None
+
+
+class TestPortContext(SimpleTestCase):
+    """The context builder maps model attributes to template tokens."""
+
+    def _strand(self):
+        ribbon = Stub(position=2, name="R2", color="ff8000")
+        return Stub(position=25, color="708090", ribbon=ribbon)
+
+    def test_front_context(self):
+        class _Cable:
+            pk = 17
+
+            def __str__(self):
+                return "CL-01"
+
+        tube = Stub(position=3, name="T3", color="0000ff")
+        ctx = naming.port_context(
+            cable=_Cable(),
+            cable_type="ACME 144F",
+            device=Stub(name="FOSC-1"),
+            end="A",
+            color_scheme="eia_598",
+            tube=tube,
+            strand=self._strand(),
+        )
+        assert ctx == {
+            "cable": "CL-01",
+            "cable_id": 17,
+            "cable_type": "ACME 144F",
+            "device": "FOSC-1",
+            "end": "A",
+            "tube": 3,
+            "tube_name": "T3",
+            "tube_color": "Blue",
+            "tube_color_hex": "0000ff",
+            "ribbon": 2,
+            "ribbon_name": "R2",
+            "ribbon_color": "Orange",
+            "ribbon_color_hex": "ff8000",
+            "strand": 25,
+            "strand_color": "Slate",
+            "strand_color_hex": "708090",
+        }
+
+    def test_rear_context_has_no_strand_or_ribbon_values(self):
+        ctx = naming.port_context(
+            cable=None,
+            cable_type="ACME 144F",
+            device=Stub(name="FOSC-1"),
+            end="B",
+            color_scheme="eia_598",
+            tube=None,
+        )
+        assert ctx["cable"] == ""
+        assert ctx["cable_id"] is None
+        assert ctx["end"] == "B"
+        assert ctx["tube"] is None
+        assert ctx["ribbon"] is None
+        assert ctx["strand"] is None
