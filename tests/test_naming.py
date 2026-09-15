@@ -276,12 +276,11 @@ class LabelFixtureMixin:
 
     @classmethod
     def setUpTestData(cls):
-        from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+        from dcim.models import Device
 
-        cls.mfr = Manufacturer.objects.create(name="Label Mfr", slug="label-mfr")
-        site = Site.objects.create(name="Label Site", slug="label-site")
-        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="Label Closure", slug="label-closure")
-        role = DeviceRole.objects.create(name="Label Role", slug="label-role")
+        from tests.conftest import make_infra
+
+        site, cls.mfr, dt, role = make_infra("Label")
         cls.dev_a = Device.objects.create(name="LBL-A", site=site, device_type=dt, role=role)
         cls.dev_b = Device.objects.create(name="LBL-B", site=site, device_type=dt, role=role)
 

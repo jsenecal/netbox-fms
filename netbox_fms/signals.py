@@ -144,7 +144,7 @@ def _rename_ports_for_cable(cable):
 
     label = str(cable)
 
-    _strand_by_fp_id, pms = _cable_strand_ports(fc)
+    strand_by_fp_id, pms = _cable_strand_ports(fc)
     if not pms:
         return
 
@@ -154,20 +154,16 @@ def _rename_ports_for_cable(cable):
     # Detect tubed vs non-tubed based on whether the FiberCable has buffer tubes
     is_tubed = fc.buffer_tubes.exists()
 
-    # Build tube position mapping from BufferTubes
+    # Build tube position mapping from the strands already discovered (the
+    # label-rerender path answers the same question from the same map)
     tube_positions = {}  # rp_id -> tube_position
     if is_tubed:
-        from django.db.models import Q
-
-        for rp_id in rps:
-            rp_fp_ids = {pm.front_port_id for pm in pms if pm.rear_port_id == rp_id}
-            strand = (
-                fc.fiber_strands.filter(Q(front_port_a_id__in=rp_fp_ids) | Q(front_port_b_id__in=rp_fp_ids))
-                .select_related("buffer_tube")
-                .first()
-            )
+        for pm in pms:
+            if pm.rear_port_id in tube_positions:
+                continue
+            strand = strand_by_fp_id.get(pm.front_port_id)
             if strand and strand.buffer_tube:
-                tube_positions[rp_id] = strand.buffer_tube.position
+                tube_positions[pm.rear_port_id] = strand.buffer_tube.position
 
     rps_to_update = []
     fps_to_update = []
