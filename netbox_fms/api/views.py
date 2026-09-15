@@ -1,7 +1,6 @@
 from collections import OrderedDict
 
 from dcim.models import CableTermination, Device, FrontPort, Module
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count
@@ -61,6 +60,7 @@ from ..services import (
     PlanNotApplicable,
     apply_diff,
     device_cable_ids,
+    front_port_splice_pairs,
     get_or_recompute_diff,
     import_live_state,
     protecting_nodes,
@@ -686,33 +686,22 @@ class ClosureStrandsAPIView(APIView):
                     pass
 
         # --- A) Build LIVE splice lookup (front_port_id → front_port_id) ---
-        fp_ct = ContentType.objects.get_for_model(FrontPort)
-        tray_front_port_ids = set(
+        # Keyed on ALL of the closure's front ports, not only tray-mounted
+        # ones: a strand's closure-side port sits at device level while its
+        # buffer tube is unassigned (and returns there when an assignment is
+        # deleted), and splices on such ports must still render.
+        device_front_port_ids = set(
             FrontPort.objects.filter(
                 device_id=device_id,
-                module__isnull=False,
             ).values_list("pk", flat=True)
         )
         live_lookup = {}  # front_port_id -> front_port_id
-        if tray_front_port_ids:
-            terms = CableTermination.objects.filter(
-                termination_type=fp_ct,
-                termination_id__in=tray_front_port_ids,
-            ).values_list("cable_id", "termination_id", "cable_end")
-
-            cable_terms = {}
-            for cable_id, term_id, cable_end in terms:
-                cable_terms.setdefault(cable_id, {})[cable_end] = term_id
-
-            for _cable_id, ends in cable_terms.items():
-                if "A" in ends and "B" in ends:
-                    a_id, b_id = ends["A"], ends["B"]
-                    if a_id in tray_front_port_ids and b_id in tray_front_port_ids:
-                        live_lookup[a_id] = b_id
-                        live_lookup[b_id] = a_id
+        for a_id, b_id in front_port_splice_pairs(device_front_port_ids):
+            live_lookup[a_id] = b_id
+            live_lookup[b_id] = a_id
 
         # --- B) Build PLAN splice lookup (optional, when plan_id param provided) ---
-        # Only include entries where both ports are on this device's tray modules.
+        # Only include entries where both ports are on this device.
         plan_lookup = {}
         plan_id = request.query_params.get("plan_id")
         if plan_id:
@@ -722,7 +711,7 @@ class ClosureStrandsAPIView(APIView):
                 .values_list("id", "fiber_a_id", "fiber_b_id", "is_express")
             )
             for entry_id, fa_id, fb_id, is_express in plan_entries:
-                if fa_id in tray_front_port_ids and fb_id in tray_front_port_ids:
+                if fa_id in device_front_port_ids and fb_id in device_front_port_ids:
                     plan_lookup[fa_id] = (entry_id, fb_id, is_express)
                     plan_lookup[fb_id] = (entry_id, fa_id, is_express)
 
@@ -761,10 +750,10 @@ class ClosureStrandsAPIView(APIView):
             tubes_dict = OrderedDict()
             loose = []
             for s in strands:
-                # Use the front_port that belongs to this closure's tray modules
-                if s.front_port_a_id and s.front_port_a_id in tray_front_port_ids:
+                # Use the front_port that belongs to this closure
+                if s.front_port_a_id and s.front_port_a_id in device_front_port_ids:
                     local_fp_id = s.front_port_a_id
-                elif s.front_port_b_id and s.front_port_b_id in tray_front_port_ids:
+                elif s.front_port_b_id and s.front_port_b_id in device_front_port_ids:
                     local_fp_id = s.front_port_b_id
                 else:
                     local_fp_id = s.front_port_a_id or s.front_port_b_id

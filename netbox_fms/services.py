@@ -316,6 +316,35 @@ def create_closure_cable(*, device_a, device_b, fiber_cable_type, port_type="spl
     return fc, warnings
 
 
+def front_port_splice_pairs(front_port_ids):
+    """Return (a_id, b_id) pairs of cables fully terminated inside a FrontPort id set.
+
+    Each pair is a live splice jumper within the given scope. Callers choose
+    the scope explicitly: get_live_state (feeding the diff/apply engine)
+    passes only tray-mounted ports, while the closure-strands editor view
+    passes every port of the closure so splices on device-level ports
+    (unassigned tubes) still render.
+    """
+    fp_ct = ContentType.objects.get_for_model(FrontPort)
+    terminations = CableTermination.objects.filter(
+        termination_type=fp_ct,
+        termination_id__in=front_port_ids,
+    ).values_list("cable_id", "termination_id", "cable_end")
+
+    cable_terms = {}
+    for cable_id, term_id, cable_end in terminations:
+        cable_terms.setdefault(cable_id, {})[cable_end] = term_id
+
+    pairs = []
+    for ends in cable_terms.values():
+        if "A" not in ends or "B" not in ends:
+            continue
+        a_id, b_id = ends["A"], ends["B"]
+        if a_id in front_port_ids and b_id in front_port_ids:
+            pairs.append((a_id, b_id))
+    return pairs
+
+
 def get_live_state(closure):
     """
     Read current FrontPort<->FrontPort connections on a closure's tray modules.
@@ -333,24 +362,8 @@ def get_live_state(closure):
     if not tray_frontport_ids:
         return {}
 
-    fp_ct = ContentType.objects.get_for_model(FrontPort)
-    terminations = CableTermination.objects.filter(
-        termination_type=fp_ct,
-        termination_id__in=tray_frontport_ids,
-    ).values_list("cable_id", "termination_id", "cable_end")
-
-    cable_terms = {}
-    for cable_id, term_id, cable_end in terminations:
-        cable_terms.setdefault(cable_id, {})[cable_end] = term_id
-
     state = {}
-    for _cable_id, ends in cable_terms.items():
-        if "A" not in ends or "B" not in ends:
-            continue
-        port_a_id, port_b_id = ends["A"], ends["B"]
-        if port_a_id not in tray_frontport_ids or port_b_id not in tray_frontport_ids:
-            continue
-
+    for port_a_id, port_b_id in front_port_splice_pairs(tray_frontport_ids):
         pair = (min(port_a_id, port_b_id), max(port_a_id, port_b_id))
 
         mod_a = port_to_module[port_a_id]
