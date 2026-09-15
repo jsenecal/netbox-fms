@@ -751,6 +751,18 @@ class FiberCable(NetBoxModel):
                     % {"t": self.cable.type}
                 }
             )
+        if self.cable_id:
+            from .services import is_intra_closure_jumper
+
+            if is_intra_closure_jumper(self.cable):
+                raise ValidationError(
+                    {
+                        "cable": _(
+                            "This cable joins front ports of a single device (a splice jumper); "
+                            "it cannot carry a FiberCable."
+                        )
+                    }
+                )
         if self.start_mark is not None and self.start_mark < 0:
             raise ValidationError({"start_mark": _("Start mark must be non-negative.")})
         if self.end_mark is not None and self.end_mark < 0:

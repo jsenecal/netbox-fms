@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Cable detail page no longer offers "Link Fiber Cable" on splice
+  jumpers (cables joining front ports of a single closure, as created
+  by applying a splice plan), and `FiberCable` now refuses to attach to
+  such a cable everywhere (form, CSV import, REST API). Linking a
+  jumper made it reappear in the closure's Fiber Overview as if it were
+  real fiber topology. (#132)
 - Gland label updates now refuse a closure/cable pair with no physical
   relationship: `ClosureCableEntry` validates that the fiber cable's
   dcim.Cable terminates on the closure, and the gland-label endpoint

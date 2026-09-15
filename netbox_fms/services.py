@@ -60,6 +60,22 @@ def _determine_cable_end(cable, device):
     return "A"
 
 
+def is_intra_closure_jumper(cable):
+    """Return True when every termination of a cable is a FrontPort on one device.
+
+    Such a cable is a splice jumper -- the zero-length cable applying a
+    splice plan creates between two tray front ports of a closure -- not
+    outside-plant fiber topology, so it must never carry a FiberCable.
+    """
+    terms = list(CableTermination.objects.filter(cable=cable).values_list("termination_type_id", "_device_id"))
+    if not terms:
+        return False
+    fp_ct_id = ContentType.objects.get_for_model(FrontPort).pk
+    if any(ct_id != fp_ct_id for ct_id, _ in terms):
+        return False
+    return len({device_id for _, device_id in terms}) == 1
+
+
 def fiber_cable_terminates_on(fiber_cable, device_id):
     """Return True when the fiber cable's dcim.Cable terminates on the device.
 
