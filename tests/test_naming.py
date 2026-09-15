@@ -6,7 +6,7 @@ builders, and the built-in non-blank defaults.
 """
 
 import pytest
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from netbox_fms import naming
 
@@ -269,3 +269,88 @@ class TestPortContext(SimpleTestCase):
         assert ctx["tube"] is None
         assert ctx["ribbon"] is None
         assert ctx["strand"] is None
+
+
+class LabelFixtureMixin:
+    """Closure pair plus a builder for provisioned FiberCables."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+
+        cls.mfr = Manufacturer.objects.create(name="Label Mfr", slug="label-mfr")
+        site = Site.objects.create(name="Label Site", slug="label-site")
+        dt = DeviceType.objects.create(manufacturer=cls.mfr, model="Label Closure", slug="label-closure")
+        role = DeviceRole.objects.create(name="Label Role", slug="label-role")
+        cls.dev_a = Device.objects.create(name="LBL-A", site=site, device_type=dt, role=role)
+        cls.dev_b = Device.objects.create(name="LBL-B", site=site, device_type=dt, role=role)
+
+    def _build(self, label, *, construction="loose_tube", tube=True, ribbon=False, strand_count=2):
+        from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
+        from netbox_fms.services import create_closure_cable
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model=f"FCT-{label}",
+            construction=construction,
+            strand_count=strand_count,
+        )
+        if tube:
+            BufferTubeTemplate.objects.create(
+                fiber_cable_type=fct, name="T1", position=1, fiber_count=strand_count, color="0000ff"
+            )
+        if ribbon:
+            RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=strand_count)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2", "label": label},
+        )
+        return fct, fc
+
+    def _labels(self, device, model):
+        return sorted(model.objects.filter(device=device).values_list("label", flat=True))
+
+
+class TestProvisionedLabels(LabelFixtureMixin, TestCase):
+    """_provision_device_ports must stamp default labels onto new ports."""
+
+    def test_loose_tube_labels(self):
+        from dcim.models import FrontPort, RearPort
+
+        self._build("LT")
+        expected_front = ["LT / T1 (Blue) / Blue / F1", "LT / T1 (Blue) / Orange / F2"]
+        assert self._labels(self.dev_a, FrontPort) == expected_front
+        assert self._labels(self.dev_b, FrontPort) == expected_front
+        assert self._labels(self.dev_a, RearPort) == ["LT / T1 (Blue)"]
+        assert self._labels(self.dev_b, RearPort) == ["LT / T1 (Blue)"]
+
+    def test_tight_buffer_labels(self):
+        from dcim.models import FrontPort, RearPort
+
+        self._build("TB", construction="tight_buffer", tube=False)
+        assert self._labels(self.dev_a, FrontPort) == ["TB / Blue / F1", "TB / Orange / F2"]
+        assert self._labels(self.dev_a, RearPort) == ["TB"]
+
+    def test_central_ribbon_labels(self):
+        from dcim.models import FrontPort
+
+        self._build("CRB", construction="ribbon", tube=False, ribbon=True)
+        assert self._labels(self.dev_a, FrontPort) == ["CRB / R1 / Blue / F1", "CRB / R1 / Orange / F2"]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "", "rear_port_label_template": ""}})
+    def test_opted_out_provisioning_leaves_labels_blank(self):
+        from dcim.models import FrontPort, RearPort
+
+        self._build("OPT")
+        assert self._labels(self.dev_a, FrontPort) == ["", ""]
+        assert self._labels(self.dev_a, RearPort) == [""]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": MALFORMED}})
+    def test_malformed_config_degrades_to_blank_labels(self):
+        """Provisioning must survive a broken plugin-config template."""
+        from dcim.models import FrontPort
+
+        self._build("BAD")
+        assert self._labels(self.dev_a, FrontPort) == ["", ""]
