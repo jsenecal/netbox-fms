@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position structurally instead of comparing name fragments. The fiber
   circuit origin lookup had the same name-parsing defect and now also
   resolves ports through strands. (#96)
+- Gland label updates now refuse a closure/cable pair with no physical
+  relationship: `ClosureCableEntry` validates that the fiber cable's
+  dcim.Cable terminates on the closure, and the gland-label endpoint
+  returns 404 for a mismatched pair instead of recording a bogus
+  entrance label. (#133)
 - Deleting a splice closure with live (applied) splices no longer fails
   with "PortMappings on FMS-managed devices can only be modified
   through the FMS plugin": the PortMapping guard now lets a deletion
