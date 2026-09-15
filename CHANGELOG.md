@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Port label templates: every FrontPort and RearPort provisioned by FMS
+  now carries a human-readable label rendered from a sandboxed Jinja2
+  template -- by default the cable's display label, tube name and color,
+  ribbon name, strand color, and the absolute cable-wide fiber number.
+  Templates are configurable plugin-wide via the
+  `front_port_label_template` and `rear_port_label_template` keys of
+  `PLUGINS_CONFIG['netbox_fms']` (an empty string opts a target out of
+  label management). Saving the linked cable re-renders the labels of its
+  provisioned ports, and a new `rerender_port_labels` management command
+  backfills labels on existing data. (#69)
+
 ### Changed
 
 - Fiber circuit path form: origin and destination are now API-backed
