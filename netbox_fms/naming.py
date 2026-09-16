@@ -1,15 +1,23 @@
-"""Jinja2 rendering of generated FrontPort and RearPort labels.
+"""Port name grammar and Jinja2 rendering of generated port labels.
 
 Pure by design: nothing here imports ``netbox_fms.models``, and model
 instances are read by attribute only. That keeps the module unit-testable
 without database fixtures and free of circular imports.
 
-Port labels are the display layer for FMS-provisioned ports: generated port
-names are machine-facing identifiers, so the label carries the readable
-identity (cable, tube, ribbon, strand color, absolute fiber number). The
-built-in defaults are therefore deliberately non-blank. Operators customize
-them plugin-wide through ``PLUGINS_CONFIG['netbox_fms']``; setting a template
-to the empty string opts that target out of label management entirely.
+Generated port NAMES are machine-facing, write-once identifiers built from
+the dcim.Cable primary key and the strand's absolute cable-wide fiber
+number (ArcFM FiberNumber / OSP convention: identity is cable + absolute
+number). The pk is immutable, so a name never has to change after
+provisioning. The grammar lives only here -- :func:`front_port_name` and
+:func:`rear_port_name` -- and every producer of generated names must call
+these helpers.
+
+Port LABELS are the display layer: names carry no readable identity, so the
+label does (cable display label, tube, ribbon, strand color, absolute fiber
+number). The built-in defaults are therefore deliberately non-blank.
+Operators customize them plugin-wide through ``PLUGINS_CONFIG['netbox_fms']``;
+setting a template to the empty string opts that target out of label
+management entirely.
 """
 
 from collections import namedtuple
@@ -30,7 +38,9 @@ __all__ = (
     "color_name",
     "compile_labels",
     "dummy_contexts",
+    "front_port_name",
     "port_context",
+    "rear_port_name",
     "render",
     "resolve_source",
     "validate",
@@ -40,6 +50,32 @@ __all__ = (
 
 class NamingError(ValueError):
     """A label template failed to compile or render."""
+
+
+def front_port_name(cable_id, position):
+    """Write-once FrontPort name: cable pk plus absolute fiber number.
+
+    ``position`` is ``FiberStrand.position``, the absolute cable-wide
+    number -- never a per-container renumbering. The ``F`` prefix keeps
+    the scheme uniform with the ``T``/``R`` rear-port containers and
+    disambiguates the fiber number from the pk.
+    """
+    return f"{cable_id}:F{position}"
+
+
+def rear_port_name(cable_id, tube=None, ribbon=None):
+    """Write-once RearPort name for a cable's container.
+
+    ``tube`` and ``ribbon`` are cable-wide container numbers (ints), not
+    model instances. A ribbon wins over its enclosing tube because the
+    ribbon is the mass-fusion splice unit the rear port represents; a
+    containerless (tight-buffer) cable gets the bare pk.
+    """
+    if ribbon is not None:
+        return f"{cable_id}:R{ribbon}"
+    if tube is not None:
+        return f"{cable_id}:T{tube}"
+    return str(cable_id)
 
 
 FRONT_PORT_LABEL = "front_port_label"
@@ -52,7 +88,7 @@ _STRAND = ("strand", "strand_color", "strand_color_hex")
 _PORT = ("device", "end")
 
 _FRONT_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND + _PORT)
-_REAR_TOKENS = frozenset(_CABLE + _TUBE + _PORT)
+_REAR_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _PORT)
 
 # Non-blank on purpose: with pk-based port names on the roadmap, the label is
 # the only human-readable identity a port carries. Every optional token is
@@ -66,7 +102,9 @@ DEFAULT_FRONT_PORT_LABEL = (
     " / F{{ strand }}"
 )
 DEFAULT_REAR_PORT_LABEL = (
-    "{{ cable }}{% if tube_name %} / {{ tube_name }}{% if tube_color %} ({{ tube_color }}){% endif %}{% endif %}"
+    "{{ cable }}"
+    "{% if tube_name %} / {{ tube_name }}{% if tube_color %} ({{ tube_color }}){% endif %}{% endif %}"
+    "{% if ribbon_name %} / {{ ribbon_name }}{% endif %}"
 )
 
 TargetSpec = namedtuple("TargetSpec", "setting max_length tokens default")
@@ -246,15 +284,17 @@ def _ribbon_tokens(ribbon, color_scheme):
     }
 
 
-def port_context(*, cable, cable_type, device, end, color_scheme, tube=None, strand=None):
+def port_context(*, cable, cable_type, device, end, color_scheme, tube=None, strand=None, ribbon=None):
     """Build the render context for the label targets.
 
     ``strand`` is a FiberStrand or None (a RearPort covers a whole container
-    and has no single strand); its ribbon, position and colour are read from
-    it. ``tube`` is the strand's BufferTube, passed separately because the
-    rear-port callers have a tube but no strand.
+    and has no single strand); its position and colour are read from it.
+    ``tube`` and ``ribbon`` are the strand's containers, passed separately
+    because the rear-port callers have a container but no strand; a front
+    port's ribbon falls back to the strand's own.
     """
-    ribbon = getattr(strand, "ribbon", None)
+    if ribbon is None:
+        ribbon = getattr(strand, "ribbon", None)
     ctx = {
         "cable": str(cable) if cable else "",
         "cable_id": getattr(cable, "pk", None),
