@@ -171,7 +171,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     provisioned = []
     tubes = list(fc.buffer_tubes.all().order_by("position"))
     strands = list(fc.fiber_strands.select_related("buffer_tube", "ribbon").order_by("position"))
-    cable_label = str(fc.cable)
+    cable_id = fc.cable_id
     fct = fc.fiber_cable_type
     compiled = _compile_label_templates()
     end = "A" if fk_field == "front_port_a" else "B"
@@ -193,7 +193,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                 tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
                 rp = RearPort.objects.create(
                     device=device,
-                    name=f"{cable_label}:T{tube.position}"[:64],
+                    name=naming.rear_port_name(cable_id, tube=tube.position),
                     label=_render_port_label(compiled, naming.REAR_PORT_LABEL, _ctx(tube=tube)),
                     type=port_type,
                     positions=len(tube_strands),
@@ -201,7 +201,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                 for i, strand in enumerate(tube_strands, start=1):
                     fp = FrontPort.objects.create(
                         device=device,
-                        name=f"{cable_label}:T{tube.position}:F{strand.position}"[:64],
+                        name=naming.front_port_name(cable_id, strand.position),
                         label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(tube=tube, strand=strand)),
                         type=port_type,
                     )
@@ -218,7 +218,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
         else:
             rp = RearPort.objects.create(
                 device=device,
-                name=cable_label[:64],
+                name=naming.rear_port_name(cable_id),
                 label=_render_port_label(compiled, naming.REAR_PORT_LABEL, _ctx()),
                 type=port_type,
                 positions=len(strands),
@@ -226,7 +226,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
             for i, strand in enumerate(strands, start=1):
                 fp = FrontPort.objects.create(
                     device=device,
-                    name=f"{cable_label}:F{strand.position}"[:64],
+                    name=naming.front_port_name(cable_id, strand.position),
                     label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(strand=strand)),
                     type=port_type,
                 )
@@ -242,6 +242,114 @@ def _provision_device_ports(fc, device, port_type, fk_field):
             provisioned.append((None, rp, len(strands)))
 
     return provisioned
+
+
+def ribbon_ordinals(strands):
+    """Cable-wide ribbon numbers, keyed by ribbon id, in fiber order.
+
+    ``Ribbon.position`` restarts inside every tube, so it cannot name a
+    ribbon uniquely across the cable. The absolute fiber positions can:
+    walking the strands in position order and numbering each ribbon on
+    first sight yields the physical count order (tube-major for
+    ribbon-in-tube, template order for central-core).
+    """
+    ordinals = {}
+    for strand in sorted(strands, key=lambda s: s.position):
+        if strand.ribbon_id is not None and strand.ribbon_id not in ordinals:
+            ordinals[strand.ribbon_id] = len(ordinals) + 1
+    return ordinals
+
+
+def plan_port_names(fc):
+    """Propose write-once names for a FiberCable's provisioned ports.
+
+    Names are rebuilt within the EXISTING rear-port structure: each rear
+    port is named for the one container (ribbon, else tube) shared by every
+    strand mapped to it, falling back to the bare cable pk when its strands
+    span containers (e.g. a legacy tube-grouped ribbon cable, or an adopted
+    panel port covering the whole cable). Front ports always get the
+    absolute-number name.
+
+    Returns ``(renames, problems)``: ``renames`` is ``[(port, new_name)]``
+    limited to ports whose name actually changes, and ``problems`` lists
+    human-readable collision descriptions. Callers must not apply a plan
+    that carries problems -- names are unique per device, so a partial
+    rename would strand the cable between schemes.
+    """
+    from dcim.models import FrontPort, RearPort
+
+    from .signals import _cable_strand_ports
+
+    strand_by_fp_id, pms = _cable_strand_ports(fc)
+    cable_id = fc.cable_id
+    ordinals = ribbon_ordinals(strand_by_fp_id.values())
+
+    strands_by_rp = {}
+    for pm in pms:
+        strands_by_rp.setdefault(pm.rear_port_id, []).append(strand_by_fp_id[pm.front_port_id])
+
+    proposed = {}  # port -> new name
+    seen_fp_ids = set()
+    for pm in pms:
+        if pm.front_port_id in seen_fp_ids:
+            continue
+        seen_fp_ids.add(pm.front_port_id)
+        strand = strand_by_fp_id[pm.front_port_id]
+        proposed[pm.front_port] = naming.front_port_name(cable_id, strand.position)
+
+    seen_rp_ids = set()
+    for pm in pms:
+        if pm.rear_port_id in seen_rp_ids:
+            continue
+        seen_rp_ids.add(pm.rear_port_id)
+        rp_strands = strands_by_rp[pm.rear_port_id]
+        ribbon_ids = {s.ribbon_id for s in rp_strands}
+        tube_ids = {s.buffer_tube_id for s in rp_strands}
+        if ribbon_ids != {None} and len(ribbon_ids) == 1:
+            name = naming.rear_port_name(cable_id, ribbon=ordinals[next(iter(ribbon_ids))])
+        elif tube_ids != {None} and len(tube_ids) == 1:
+            name = naming.rear_port_name(cable_id, tube=rp_strands[0].buffer_tube.position)
+        else:
+            name = naming.rear_port_name(cable_id)
+        proposed[pm.rear_port] = name
+
+    renames = [(port, name) for port, name in proposed.items() if port.name != name]
+
+    problems = []
+    for model in (FrontPort, RearPort):
+        planned = [(port, name) for port, name in renames if isinstance(port, model)]
+        by_device = {}
+        for port, name in planned:
+            key = (port.device_id, name)
+            if key in by_device:
+                problems.append(f"{model.__name__} name {name!r} proposed for two ports on device {port.device}")
+            by_device[key] = port
+        # A proposed name matching the current name of a DIFFERENT port in the
+        # plan is also refused: the end state would be consistent, but the
+        # non-deferrable unique constraint can reject the swap mid-update.
+        current = {(port.device_id, port.name): port.pk for port, _ in planned}
+        renamed_ids = {port.pk for port, _ in planned}
+        for (device_id, name), port in by_device.items():
+            if current.get((device_id, name), port.pk) != port.pk:
+                problems.append(f"{model.__name__} {name!r} is still held by another port being renamed")
+                continue
+            holder = model.objects.filter(device_id=device_id, name=name).exclude(pk__in=renamed_ids).first()
+            if holder is not None:
+                problems.append(
+                    f"{model.__name__} {name!r} would collide with existing port {holder.pk} on {holder.device}"
+                )
+
+    return renames, problems
+
+
+def apply_port_names(renames):
+    """Persist a collision-free rename plan, grouped per port model."""
+    by_model = {}
+    for port, name in renames:
+        port.name = name
+        by_model.setdefault(type(port), []).append(port)
+    for model, ports in by_model.items():
+        model.objects.bulk_update(ports, ["name"], batch_size=500)
 
 
 @transaction.atomic
@@ -327,6 +435,15 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                 if fp_id:
                     setattr(strand, fk_field, FrontPort.objects.get(pk=fp_id))
                     strand.save(update_fields=[fk_field])
+            # One-shot naming: converge the adopted ports on the write-once
+            # scheme now, because no ongoing sync will ever rename them later.
+            renames, problems = plan_port_names(fc)
+            if problems:
+                warnings.append(
+                    "Adopted port names left unchanged; generated names would collide: " + "; ".join(problems)
+                )
+            else:
+                apply_port_names(renames)
         else:
             # Greenfield path: create ports, then terminate the cable on them.
             # connector/positions enable profile-based tracing.

@@ -371,6 +371,51 @@ class TestLinkCableTopologyAdopt:
 
         assert RearPort.objects.filter(device=device).count() == 1  # no new RearPorts
 
+    def test_adopted_ports_converge_to_generated_names(self):
+        """Adoption applies the write-once naming once, at link time (issue #153).
+
+        There is no ongoing rename-on-cable-save sync any more, so this
+        one-shot pass is what brings foreign port names into the scheme.
+        """
+        from dcim.models import FrontPort
+
+        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
+
+        fp_names = set(FrontPort.objects.filter(device=device).values_list("name", flat=True))
+        assert fp_names == {f"{cable.pk}:F{i}" for i in range(1, 13)}
+        rp = RearPort.objects.get(device=device)
+        assert rp.name == str(cable.pk)  # tight buffer: bare pk
+        assert warnings == []
+
+    def test_adopted_rename_skipped_on_collision(self):
+        """A port already holding a target name blocks the pass; adoption still succeeds."""
+        from dcim.models import FrontPort
+
+        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        FrontPort.objects.create(device=device, name=f"{cable.pk}:F3", type="splice")
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
+
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
+        assert any("collide" in w.lower() or "collision" in w.lower() for w in warnings), warnings
+        fps[0].refresh_from_db()
+        assert fps[0].name == "EF1"  # nothing was half-renamed
+
+    def test_adopted_tubed_ports_get_tube_rear_names(self):
+        from dcim.models import FrontPort
+
+        device, cable, fct, fps = self._make_closure_with_multiple_rearports()
+        mapping = {pos: fps[pos - 1].pk for pos in range(1, 49)}
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
+
+        rp_names = set(RearPort.objects.filter(device=device).values_list("name", flat=True))
+        assert rp_names == {f"{cable.pk}:T{t}" for t in range(1, 5)}
+        fp_names = set(FrontPort.objects.filter(device=device).values_list("name", flat=True))
+        assert fp_names == {f"{cable.pk}:F{i}" for i in range(1, 49)}
+
     def test_count_mismatch_has_warning(self):
         device, cable, fct, fps = self._make_closure_with_existing_ports()
         fct.strand_count = 6

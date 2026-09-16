@@ -104,9 +104,9 @@ def _cable_strand_ports(fc):
 
     Walks FiberCable -> FiberStrand -> FrontPort -> PortMapping (the rear
     ports hang off the mappings), avoiding dependency on CableTerminations
-    which may be rebuilt during Cable.save(). Shared by the name-rename and
-    label-rerender paths so the two cannot drift apart on which ports count
-    as FMS-provisioned.
+    which may be rebuilt during Cable.save(). Shared by the label-rerender
+    path and the name planners (adoption one-shot, convert_port_names) so
+    they cannot drift apart on which ports count as FMS-provisioned.
 
     Returns ``(strand_by_fp_id, pms)``: the strand backing each FrontPort id
     (with buffer_tube and ribbon preloaded), and the PortMapping list (with
@@ -129,76 +129,6 @@ def _cable_strand_ports(fc):
         )
     )
     return strand_by_fp_id, pms
-
-
-def _rename_ports_for_cable(cable):
-    """Rebuild RearPort/FrontPort names from structural data for a cable."""
-    from dcim.models import FrontPort, RearPort
-
-    from .models import FiberCable
-
-    try:
-        fc = FiberCable.objects.get(cable=cable)
-    except FiberCable.DoesNotExist:
-        return
-
-    label = str(cable)
-
-    strand_by_fp_id, pms = _cable_strand_ports(fc)
-    if not pms:
-        return
-
-    rp_set = {pm.rear_port_id for pm in pms}
-    rps = {rp.pk: rp for rp in RearPort.objects.filter(pk__in=rp_set)}
-
-    # Detect tubed vs non-tubed based on whether the FiberCable has buffer tubes
-    is_tubed = fc.buffer_tubes.exists()
-
-    # Build tube position mapping from the strands already discovered (the
-    # label-rerender path answers the same question from the same map)
-    tube_positions = {}  # rp_id -> tube_position
-    if is_tubed:
-        for pm in pms:
-            if pm.rear_port_id in tube_positions:
-                continue
-            strand = strand_by_fp_id.get(pm.front_port_id)
-            if strand and strand.buffer_tube:
-                tube_positions[pm.rear_port_id] = strand.buffer_tube.position
-
-    rps_to_update = []
-    fps_to_update = []
-
-    for rp_id, rp in rps.items():
-        tube_pos = tube_positions.get(rp_id)
-
-        if is_tubed and tube_pos:
-            new_name = f"{label}:T{tube_pos}"
-        else:
-            new_name = label
-        new_name = new_name[:64]
-
-        if rp.name != new_name:
-            rp.name = new_name
-            rps_to_update.append(rp)
-
-        for pm in pms:
-            if pm.rear_port_id != rp_id:
-                continue
-            fp = pm.front_port
-            if is_tubed and tube_pos:
-                fp_new = f"{label}:T{tube_pos}:F{pm.rear_port_position}"
-            else:
-                fp_new = f"{label}:F{pm.rear_port_position}"
-            fp_new = fp_new[:64]
-
-            if fp.name != fp_new:
-                fp.name = fp_new
-                fps_to_update.append(fp)
-
-    if rps_to_update:
-        RearPort.objects.bulk_update(rps_to_update, ["name"])
-    if fps_to_update:
-        FrontPort.objects.bulk_update(fps_to_update, ["name"])
 
 
 def _render_cable_port_labels(fc):
@@ -306,9 +236,13 @@ def _relabel_ports_for_cable(cable):
 
 
 def _cable_post_save(sender, instance, **kwargs):
-    """Invalidate splice plan diff cache and sync port names and labels on cable save."""
+    """Invalidate splice plan diff cache and re-render port labels on cable save.
+
+    Port NAMES are deliberately not touched: they are write-once pk-based
+    identifiers, so nothing about a cable save can require a rename. Only
+    the labels -- the mutable display layer -- follow the cable.
+    """
     _invalidate_plans_for_cable(instance)
-    _rename_ports_for_cable(instance)
     _relabel_ports_for_cable(instance)
 
 
@@ -318,9 +252,8 @@ def _cable_pre_delete(sender, instance, **kwargs):
 
 
 def _fibercable_post_save(sender, instance, **kwargs):
-    """Sync port names and labels when a FiberCable is linked to a Cable."""
+    """Re-render port labels when a FiberCable is linked to a Cable."""
     if instance.cable_id:
-        _rename_ports_for_cable(instance.cable)
         _relabel_ports_for_cable(instance.cable)
 
 
