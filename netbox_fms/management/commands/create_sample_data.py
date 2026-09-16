@@ -444,19 +444,21 @@ class Command(BaseCommand):
             if SplicePlan.objects.filter(closure=closure).exists():
                 continue
 
+            # Group tray FrontPorts by cable via strand linkage; skip the
+            # closure BEFORE creating the plan row so a closure with fewer
+            # than two cables never leaves an empty plan behind
+            fps_by_cable, _tube_by_fp_id = self._tray_fps_by_cable(closure)
+
+            cable_pks = sorted(fps_by_cable.keys())
+            if len(cable_pks) < 2:
+                continue
+
             plan = SplicePlan.objects.create(
                 closure=closure,
                 name=f"{name} Plan",
                 description=f"Splice plan for {name}",
                 status="applied",
             )
-
-            # Group tray FrontPorts by cable via strand linkage
-            fps_by_cable, _tube_by_fp_id = self._tray_fps_by_cable(closure)
-
-            cable_pks = sorted(fps_by_cable.keys())
-            if len(cable_pks) < 2:
-                continue
 
             entries = []
             cable_a_fps = fps_by_cable[cable_pks[0]]
@@ -1458,19 +1460,21 @@ class Command(BaseCommand):
             if SplicePlan.objects.filter(closure=closure).exists():
                 continue
 
+            # Group tray FrontPorts by cable via strand linkage; skip the
+            # closure BEFORE creating the plan row so a closure with fewer
+            # than two cables never leaves an empty plan behind
+            fps_by_cable, tube_by_fp_id = self._tray_fps_by_cable(closure)
+
+            cable_pks = sorted(fps_by_cable.keys())
+            if len(cable_pks) < 2:
+                continue
+
             plan = SplicePlan.objects.create(
                 closure=closure,
                 name=f"{name} Plan",
                 description=f"Splice plan for {name}",
                 status="applied",
             )
-
-            # Group tray FrontPorts by cable via strand linkage
-            fps_by_cable, tube_by_fp_id = self._tray_fps_by_cable(closure)
-
-            cable_pks = sorted(fps_by_cable.keys())
-            if len(cable_pks) < 2:
-                continue
 
             # Determine if this is a backbone pass-through
             is_backbone_passthrough = name.startswith("BB-")
