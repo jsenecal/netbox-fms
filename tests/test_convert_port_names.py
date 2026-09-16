@@ -13,7 +13,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
-from netbox_fms.services import create_closure_cable
+from netbox_fms.services import create_closure_cable, plan_port_names
 from netbox_fms.signals import fms_portmapping_bypass
 from tests.conftest import make_infra
 
@@ -113,6 +113,50 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         assert self._names(self.dev_b, FrontPort) == sorted([f"COL:T1:F{n}" for n in (1, 2)])
         assert self._names(self.dev_a, RearPort) == ["COL:T1"]
         assert out == ""
+
+    def test_per_ribbon_rear_ports_recover_their_r_names(self):
+        """A cable already structured per ribbon converts back to R names."""
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr,
+            model="CVT-CC",
+            construction="ribbon",
+            strand_count=4,
+        )
+        for r in (1, 2):
+            RibbonTemplate.objects.create(fiber_cable_type=fct, name=f"R{r}", position=r, fiber_count=2)
+        fc, _ = create_closure_cable(
+            device_a=self.dev_a,
+            device_b=self.dev_b,
+            fiber_cable_type=fct,
+            cable_attrs={"label": "RCC"},
+        )
+        pk = fc.cable_id
+        for port in FrontPort.objects.all():
+            FrontPort.objects.filter(pk=port.pk).update(name=f"RCC-F-{port.pk}")
+        for port in RearPort.objects.all():
+            RearPort.objects.filter(pk=port.pk).update(name=f"RCC-R-{port.pk}")
+
+        _out, err = _call()
+
+        assert err == ""
+        for device in (self.dev_a, self.dev_b):
+            assert self._names(device, RearPort) == [f"{pk}:R1", f"{pk}:R2"]
+            assert self._names(device, FrontPort) == sorted(f"{pk}:F{n}" for n in range(1, 5))
+
+    def test_swap_shaped_rename_is_refused(self):
+        """A target name still held by another port in the same plan is a problem.
+
+        The end state would be consistent, but the non-deferrable unique
+        constraint can reject the swap mid-update, so the plan must refuse it.
+        """
+        fc = self._build_legacy("SWP")
+        pk = fc.cable_id
+        first, second = fc.fiber_strands.order_by("position")
+        FrontPort.objects.filter(pk=first.front_port_a_id).update(name=f"{pk}:F2")
+
+        _renames, problems = plan_port_names(fc)
+
+        assert any("still held" in p for p in problems)
 
     def test_tube_grouped_ribbon_cable_keeps_its_structure(self):
         """Rear-port STRUCTURE is not migrated: a legacy tube-grouped ribbon
