@@ -22,6 +22,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Generated port names for NEWLY provisioned cables are now fixed,
+  machine-facing, write-once identifiers built from the dcim.Cable
+  primary key and the strand's absolute cable-wide fiber number
+  (ArcFM/OSP convention): front ports are `{cable.id}:F{position}`
+  (e.g. `1043:F25`), rear ports `{cable.id}:T{n}` for a buffer tube,
+  `{cable.id}:R{n}` for a ribbon, and the bare `{cable.id}` for a
+  tight-buffer cable. The pk is immutable, so the rename-on-cable-save
+  sync is gone: relabeling a cable re-renders port labels (the display
+  layer) but never renames ports. Existing data is untouched unless the
+  new opt-in `convert_port_names` management command is run; it renames
+  legacy ports within their existing rear-port structure, skipping any
+  cable whose new names would collide. (#153)
+- Rear ports now mirror the cable's physical hierarchy on newly
+  provisioned cables: ribbon-in-tube and central-core ribbon
+  constructions get one rear port PER RIBBON (the mass-fusion splice
+  unit) instead of collapsing ribbons into their tube's rear port or a
+  single cable-wide port. Derived cable profiles and termination
+  connectors follow the ribbon grouping, and the default rear-port
+  label template now renders the ribbon name. Already-provisioned
+  ribbon cables keep their old rear-port structure. (#153)
 - Fiber circuit path form: origin and destination are now API-backed
   dropdowns scoped by new Origin Device / Destination Device selector
   fields, matching the NetBox cable connection form. Each port option

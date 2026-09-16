@@ -35,3 +35,13 @@ NetBox's built-in cable profiles cap at 16 positions. Fiber cables commonly have
 | trunk-12c24p | 12 | 24 | 288 |
 
 > **Note:** Profiles are registered via `PluginConfig.ready()`.
+
+## Profile derivation
+
+`FiberCableType.get_cable_profile()` picks the profile that matches the
+rear-port structure provisioning creates: one connector per **ribbon**
+for ribbon constructions (ribbon-in-tube and central-core alike), else
+one per buffer tube, else a single connector spanning every strand. A
+topology with no matching registered profile (mixed container sizes, or
+a connector count outside the tables above) derives no profile, and
+provisioning warns instead of failing.

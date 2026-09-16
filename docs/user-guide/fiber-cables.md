@@ -152,8 +152,10 @@ For a full color table and details on the cycling behavior, see
 
 The **Add Cable** button on a closure's **Fiber Overview** tab launches a
 three-step wizard that creates everything at once: the `dcim.Cable`, the
-FiberCable and its internal structure, per-tube RearPorts and per-strand
-FrontPorts on *both* end devices, the cable terminations (with the
+FiberCable and its internal structure, per-container RearPorts (one per
+buffer tube or ribbon) and per-strand FrontPorts on *both* end devices
+-- named per the write-once scheme in [Port Naming](port-naming.md) --
+the cable terminations (with the
 connector/position data the trace engine needs), the cable profile, and a
 blank ClosureCableEntry at each closure.
 
@@ -197,13 +199,17 @@ already terminate on existing rear ports at the closure.
 The service handles two paths:
 
 - **Greenfield** -- no existing ports on the device for this cable. The service
-  creates one RearPort per tube (or a single RearPort if the cable has no
-  tubes), then creates a FrontPort and PortMapping for every strand.
+  creates one RearPort per container -- buffer tube for loose-tube fibers,
+  ribbon for ribbon fibers, or a single RearPort for a containerless cable --
+  then creates a FrontPort and PortMapping for every strand.
 
 - **Adopt** -- the device already has RearPorts terminated by this cable. The
   service proposes a mapping between existing FrontPorts and strand positions.
   If the mapping has not been confirmed, it raises a `NeedsMappingConfirmation`
   exception with the proposed mapping so the caller can review and approve it.
+  Once confirmed, the adopted ports are renamed once into the write-once
+  naming scheme (skipped with a warning if the names would collide); their
+  existing rear-port structure is kept as-is.
 
 ---
 
