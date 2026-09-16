@@ -1,13 +1,18 @@
 """Diff computation engine for splice plans and link topology services."""
 
+import logging
+
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from . import naming
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from .models import ClosureCableEntry, FiberCable, FiberCircuitNode, SplicePlanEntry
 from .signals import fms_portmapping_bypass
+
+logger = logging.getLogger(__name__)
 
 
 class PlanNotApplicable(ValidationError):  # noqa: N818
@@ -121,6 +126,31 @@ def device_topology_cable_ids(device_id):
     return rear_terminated | linked
 
 
+def _render_port_label(compiled, target, context):
+    """Render one port label for a new port, degrading to "" if it fails.
+
+    ``None`` from :func:`naming.render` means the operator opted the target
+    out of label management; a new port then starts with a blank label, the
+    same coercion applied on a render failure.
+    """
+    if compiled is None:
+        return ""
+    try:
+        return naming.render(target, compiled, context) or ""
+    except naming.NamingError as exc:
+        logger.warning("Port label render failed; leaving the label blank: %s", exc)
+        return ""
+
+
+def _compile_label_templates():
+    """Compile the label templates, degrading to None (no labels) if broken."""
+    try:
+        return naming.compile_labels()
+    except naming.NamingError as exc:
+        logger.warning("Port label templates are invalid; provisioning ports without labels: %s", exc)
+        return None
+
+
 def _provision_device_ports(fc, device, port_type, fk_field):
     """Create greenfield ports on a device for every strand of a FiberCable.
 
@@ -131,13 +161,31 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     FrontPort. Does NOT create CableTerminations -- callers terminate the
     cable on the returned RearPorts themselves.
 
+    Every port is created with a rendered label (see ``netbox_fms.naming``);
+    a broken template degrades to blank labels rather than failing the
+    provisioning.
+
     Returns: list of (buffer_tube_or_None, rear_port, fiber_count) tuples,
     in tube-position order.
     """
     provisioned = []
     tubes = list(fc.buffer_tubes.all().order_by("position"))
-    strands = list(fc.fiber_strands.all().order_by("position"))
+    strands = list(fc.fiber_strands.select_related("buffer_tube", "ribbon").order_by("position"))
     cable_label = str(fc.cable)
+    fct = fc.fiber_cable_type
+    compiled = _compile_label_templates()
+    end = "A" if fk_field == "front_port_a" else "B"
+
+    def _ctx(tube=None, strand=None):
+        return naming.port_context(
+            cable=fc.cable,
+            cable_type=fct,
+            device=device,
+            end=end,
+            color_scheme=fct.color_scheme,
+            tube=tube,
+            strand=strand,
+        )
 
     with fms_portmapping_bypass():
         if tubes:
@@ -146,6 +194,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                 rp = RearPort.objects.create(
                     device=device,
                     name=f"{cable_label}:T{tube.position}"[:64],
+                    label=_render_port_label(compiled, naming.REAR_PORT_LABEL, _ctx(tube=tube)),
                     type=port_type,
                     positions=len(tube_strands),
                 )
@@ -153,6 +202,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                     fp = FrontPort.objects.create(
                         device=device,
                         name=f"{cable_label}:T{tube.position}:F{strand.position}"[:64],
+                        label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(tube=tube, strand=strand)),
                         type=port_type,
                     )
                     PortMapping.objects.create(
@@ -169,6 +219,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
             rp = RearPort.objects.create(
                 device=device,
                 name=cable_label[:64],
+                label=_render_port_label(compiled, naming.REAR_PORT_LABEL, _ctx()),
                 type=port_type,
                 positions=len(strands),
             )
@@ -176,6 +227,7 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                 fp = FrontPort.objects.create(
                     device=device,
                     name=f"{cable_label}:F{strand.position}"[:64],
+                    label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(strand=strand)),
                     type=port_type,
                 )
                 PortMapping.objects.create(

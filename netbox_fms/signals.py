@@ -1,9 +1,14 @@
 """Signal handlers for splice plan diff cache invalidation and PortMapping protection."""
 
 import contextvars
+import logging
 
 from django.core.exceptions import ValidationError
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
+
+from . import naming
+
+logger = logging.getLogger(__name__)
 
 _fms_bypass = contextvars.ContextVar("fms_bypass", default=False)
 
@@ -94,14 +99,41 @@ def _invalidate_plans_for_cable(cable):
         ).update(diff_stale=True)
 
 
-def _rename_ports_for_cable(cable):
-    """Rebuild RearPort/FrontPort names from structural data for a cable.
+def _cable_strand_ports(fc):
+    """Discover a FiberCable's provisioned ports, without touching CableTerminations.
 
-    Uses FiberCable -> FiberStrand -> FrontPort -> PortMapping -> RearPort
-    to discover ports, avoiding dependency on CableTerminations which may be
-    rebuilt during Cable.save().
+    Walks FiberCable -> FiberStrand -> FrontPort -> PortMapping (the rear
+    ports hang off the mappings), avoiding dependency on CableTerminations
+    which may be rebuilt during Cable.save(). Shared by the name-rename and
+    label-rerender paths so the two cannot drift apart on which ports count
+    as FMS-provisioned.
+
+    Returns ``(strand_by_fp_id, pms)``: the strand backing each FrontPort id
+    (with buffer_tube and ribbon preloaded), and the PortMapping list (with
+    both ports and their devices preloaded).
     """
-    from dcim.models import FrontPort, PortMapping, RearPort
+    from dcim.models import PortMapping
+
+    strand_by_fp_id = {}
+    for strand in fc.fiber_strands.select_related("buffer_tube", "ribbon"):
+        for fp_id in (strand.front_port_a_id, strand.front_port_b_id):
+            if fp_id is not None:
+                strand_by_fp_id[fp_id] = strand
+
+    if not strand_by_fp_id:
+        return strand_by_fp_id, []
+
+    pms = list(
+        PortMapping.objects.filter(front_port_id__in=strand_by_fp_id).select_related(
+            "front_port__device", "rear_port__device"
+        )
+    )
+    return strand_by_fp_id, pms
+
+
+def _rename_ports_for_cable(cable):
+    """Rebuild RearPort/FrontPort names from structural data for a cable."""
+    from dcim.models import FrontPort, RearPort
 
     from .models import FiberCable
 
@@ -112,17 +144,7 @@ def _rename_ports_for_cable(cable):
 
     label = str(cable)
 
-    # Collect all FrontPort IDs linked to this FiberCable's strands
-    fp_ids = set()
-    for field in ("front_port_a_id", "front_port_b_id"):
-        ids = fc.fiber_strands.exclude(**{field: None}).values_list(field, flat=True)
-        fp_ids.update(ids)
-
-    if not fp_ids:
-        return
-
-    # Get RearPorts via PortMappings on these FrontPorts
-    pms = list(PortMapping.objects.filter(front_port_id__in=fp_ids).select_related("rear_port", "front_port"))
+    strand_by_fp_id, pms = _cable_strand_ports(fc)
     if not pms:
         return
 
@@ -132,20 +154,16 @@ def _rename_ports_for_cable(cable):
     # Detect tubed vs non-tubed based on whether the FiberCable has buffer tubes
     is_tubed = fc.buffer_tubes.exists()
 
-    # Build tube position mapping from BufferTubes
+    # Build tube position mapping from the strands already discovered (the
+    # label-rerender path answers the same question from the same map)
     tube_positions = {}  # rp_id -> tube_position
     if is_tubed:
-        from django.db.models import Q
-
-        for rp_id in rps:
-            rp_fp_ids = {pm.front_port_id for pm in pms if pm.rear_port_id == rp_id}
-            strand = (
-                fc.fiber_strands.filter(Q(front_port_a_id__in=rp_fp_ids) | Q(front_port_b_id__in=rp_fp_ids))
-                .select_related("buffer_tube")
-                .first()
-            )
+        for pm in pms:
+            if pm.rear_port_id in tube_positions:
+                continue
+            strand = strand_by_fp_id.get(pm.front_port_id)
             if strand and strand.buffer_tube:
-                tube_positions[rp_id] = strand.buffer_tube.position
+                tube_positions[pm.rear_port_id] = strand.buffer_tube.position
 
     rps_to_update = []
     fps_to_update = []
@@ -183,10 +201,115 @@ def _rename_ports_for_cable(cable):
         FrontPort.objects.bulk_update(fps_to_update, ["name"])
 
 
+def _render_cable_port_labels(fc):
+    """Propose fresh labels for every FMS-provisioned port of a FiberCable.
+
+    Returns ``{port: label}`` covering the strand FrontPorts and, through
+    their PortMappings, the RearPorts on both ends. A target whose template
+    is opted out (``naming.render`` returns None) contributes nothing, so
+    the stored labels stay untouched. Raises :class:`naming.NamingError` on
+    a broken template -- callers decide how to degrade.
+    """
+    compiled = naming.compile_labels()
+    if not any(compiled.values()):
+        return {}
+
+    strand_by_fp_id, pms = _cable_strand_ports(fc)
+    if not pms:
+        return {}
+
+    fct = fc.fiber_cable_type
+    cable = fc.cable
+    end_by_device_id = {}
+
+    def _end(device):
+        # _determine_cable_end runs queries; a cable rarely spans more than
+        # two devices, so memoize per device.
+        if device.pk not in end_by_device_id:
+            from .services import _determine_cable_end
+
+            end_by_device_id[device.pk] = _determine_cable_end(cable, device)
+        return end_by_device_id[device.pk]
+
+    def _ctx(device, tube=None, strand=None):
+        return naming.port_context(
+            cable=cable,
+            cable_type=fct,
+            device=device,
+            end=_end(device),
+            color_scheme=fct.color_scheme,
+            tube=tube,
+            strand=strand,
+        )
+
+    proposed = {}
+    seen_rp_ids = set()
+    for pm in pms:
+        strand = strand_by_fp_id[pm.front_port_id]
+        tube = strand.buffer_tube
+        fp = pm.front_port
+        label = naming.render(naming.FRONT_PORT_LABEL, compiled, _ctx(fp.device, tube=tube, strand=strand))
+        if label is not None:
+            proposed[fp] = label
+
+        # Every FrontPort mapped to one RearPort belongs to the same buffer
+        # tube by construction, so the first mapping supplies the tube.
+        if pm.rear_port_id not in seen_rp_ids:
+            seen_rp_ids.add(pm.rear_port_id)
+            rp = pm.rear_port
+            label = naming.render(naming.REAR_PORT_LABEL, compiled, _ctx(rp.device, tube=tube))
+            if label is not None:
+                proposed[rp] = label
+    return proposed
+
+
+def _stage_label_changes(proposed):
+    """Assign changed labels onto the ports; return ``[(port, old_label)]``."""
+    staged = []
+    for port, label in proposed.items():
+        if port.label != label:
+            staged.append((port, port.label))
+            port.label = label
+    return staged
+
+
+def _write_label_changes(staged):
+    """Persist staged label changes, grouped per port model."""
+    by_model = {}
+    for port, _old_label in staged:
+        by_model.setdefault(type(port), []).append(port)
+    for model, ports in by_model.items():
+        model.objects.bulk_update(ports, ["label"], batch_size=500)
+
+
+def _relabel_ports_for_cable(cable):
+    """Re-render port labels after a cable save (e.g. a relabel).
+
+    The label defaults embed the cable's display label, so a rename of the
+    cable must flow into the labels of its provisioned ports. A broken
+    template degrades to leaving every label alone.
+    """
+    from .models import FiberCable
+
+    try:
+        fc = FiberCable.objects.select_related("cable", "fiber_cable_type").get(cable=cable)
+    except FiberCable.DoesNotExist:
+        return
+
+    try:
+        staged = _stage_label_changes(_render_cable_port_labels(fc))
+    except naming.NamingError as exc:
+        logger.warning("Port label re-render skipped for cable %s: %s", cable.pk, exc)
+        return
+    if staged:
+        _write_label_changes(staged)
+
+
 def _cable_post_save(sender, instance, **kwargs):
-    """Invalidate splice plan diff cache and sync port names when a cable is saved."""
+    """Invalidate splice plan diff cache and sync port names and labels on cable save."""
     _invalidate_plans_for_cable(instance)
     _rename_ports_for_cable(instance)
+    _relabel_ports_for_cable(instance)
 
 
 def _cable_pre_delete(sender, instance, **kwargs):
@@ -195,9 +318,10 @@ def _cable_pre_delete(sender, instance, **kwargs):
 
 
 def _fibercable_post_save(sender, instance, **kwargs):
-    """Sync port names when a FiberCable is linked to a Cable."""
+    """Sync port names and labels when a FiberCable is linked to a Cable."""
     if instance.cable_id:
         _rename_ports_for_cable(instance.cable)
+        _relabel_ports_for_cable(instance.cable)
 
 
 def _closure_cable_entry_post_delete(sender, instance, **kwargs):
