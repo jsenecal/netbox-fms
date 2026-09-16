@@ -2818,13 +2818,16 @@ class ClosureCableWizardView(LoginRequiredMixin, View):
         if far_device is None or fct is None:
             return None
         tube_count = fct.buffer_tube_templates.count()
+        # Rear ports mirror the physical hierarchy: one per ribbon for
+        # ribbon constructions, else one per tube, else one for the cable.
+        ribbon_count = fct.ribbon_templates.count()
         return {
             "far_device": far_device,
             "fiber_cable_type": fct,
             "port_type": state.get("port_type", "splice"),
             "tube_count": tube_count,
             "strand_count": fct.strand_count,
-            "rear_ports_per_device": tube_count or 1,
+            "rear_ports_per_device": ribbon_count or tube_count or 1,
             "profile_key": fct.get_cable_profile(),
             "cable_label": state.get("cable_label", ""),
             "cable_status": state.get("cable_status", ""),

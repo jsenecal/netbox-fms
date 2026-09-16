@@ -161,7 +161,7 @@ def _render_cable_port_labels(fc):
             end_by_device_id[device.pk] = _determine_cable_end(cable, device)
         return end_by_device_id[device.pk]
 
-    def _ctx(device, tube=None, strand=None):
+    def _ctx(device, tube=None, strand=None, ribbon=None):
         return naming.port_context(
             cable=cable,
             cable_type=fct,
@@ -170,7 +170,21 @@ def _render_cable_port_labels(fc):
             color_scheme=fct.color_scheme,
             tube=tube,
             strand=strand,
+            ribbon=ribbon,
         )
+
+    strands_by_rp = {}
+    for pm in pms:
+        strands_by_rp.setdefault(pm.rear_port_id, []).append(strand_by_fp_id[pm.front_port_id])
+
+    def _shared_ribbon(rp_strands):
+        # A rear port represents a ribbon only when every strand mapped to
+        # it belongs to that one ribbon; legacy tube-grouped ribbon cables
+        # span several ribbons per rear port and get no ribbon token.
+        ribbon_ids = {s.ribbon_id for s in rp_strands}
+        if len(ribbon_ids) == 1 and None not in ribbon_ids:
+            return rp_strands[0].ribbon
+        return None
 
     proposed = {}
     seen_rp_ids = set()
@@ -187,7 +201,8 @@ def _render_cable_port_labels(fc):
         if pm.rear_port_id not in seen_rp_ids:
             seen_rp_ids.add(pm.rear_port_id)
             rp = pm.rear_port
-            label = naming.render(naming.REAR_PORT_LABEL, compiled, _ctx(rp.device, tube=tube))
+            ribbon = _shared_ribbon(strands_by_rp[pm.rear_port_id])
+            label = naming.render(naming.REAR_PORT_LABEL, compiled, _ctx(rp.device, tube=tube, ribbon=ribbon))
             if label is not None:
                 proposed[rp] = label
     return proposed

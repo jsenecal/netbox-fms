@@ -158,6 +158,63 @@ class TestGetCableProfile:
             )
         assert fct.get_cable_profile() == "trunk-4c12p"
 
+    def test_central_core_ribbon_counts_ribbons(self):
+        """Rear ports are provisioned per ribbon, so the profile follows the ribbons."""
+        mfr = Manufacturer.objects.create(name="CCR-Mfr", slug="ccr-mfr")
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="CCR-24F",
+            strand_count=24,
+            construction="ribbon",
+        )
+        for r in (1, 2):
+            RibbonTemplate.objects.create(fiber_cable_type=fct, name=f"R{r}", position=r, fiber_count=12)
+        assert fct.get_cable_profile() == "trunk-2c12p"
+
+    def test_ribbon_in_tube_counts_ribbons_not_tubes(self):
+        """12 tubes x 2 ribbons x 12F terminates on 24 ribbon rear ports."""
+        mfr = Manufacturer.objects.create(name="RCT-Mfr", slug="rct-mfr")
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="RCT-288F",
+            strand_count=288,
+            construction="ribbon_in_tube",
+        )
+        for t in range(1, 13):
+            btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name=f"T{t}", position=t, fiber_count=None)
+            for r in (1, 2):
+                RibbonTemplate.objects.create(
+                    fiber_cable_type=fct,
+                    buffer_tube_template=btt,
+                    name=f"T{t}-R{r}",
+                    position=r,
+                    fiber_count=12,
+                )
+        assert fct.get_cable_profile() == "trunk-24c12p"
+
+    def test_single_ribbon_uses_single_profile(self):
+        mfr = Manufacturer.objects.create(name="SR-Mfr", slug="sr-mfr")
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="SR-12F",
+            strand_count=12,
+            construction="ribbon",
+        )
+        RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
+        assert fct.get_cable_profile() == "single-1c12p"
+
+    def test_mixed_ribbon_sizes_have_no_profile(self):
+        mfr = Manufacturer.objects.create(name="MRS-Mfr", slug="mrs-mfr")
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr,
+            model="MRS-36F",
+            strand_count=36,
+            construction="ribbon",
+        )
+        RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
+        RibbonTemplate.objects.create(fiber_cable_type=fct, name="R2", position=2, fiber_count=24)
+        assert fct.get_cable_profile() is None
+
     def test_mixed_tube_sizes(self):
         mfr = Manufacturer.objects.create(name="MX-Mfr", slug="mx-mfr")
         fct = FiberCableType.objects.create(
