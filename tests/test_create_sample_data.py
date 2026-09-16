@@ -7,10 +7,12 @@ A single smoke run of the command catches any constructor drift against the
 current models.
 """
 
+import re
+
 import pytest
 from django.core.management import call_command
 
-from netbox_fms.models import SlackLoop
+from netbox_fms.models import FiberStrand, SlackLoop, SplicePlanEntry
 
 
 @pytest.mark.django_db
@@ -25,3 +27,14 @@ class TestCreateSampleData:
         # a mark_unit.
         for loop in loops:
             loop.full_clean()
+
+        # Sample ports must use the shared write-once name grammar
+        # ({cable.id}:F{absolute fiber number}), not a private copy of it.
+        strand = FiberStrand.objects.select_related("fiber_cable", "front_port_a").first()
+        fp = strand.front_port_a
+        assert fp.name == f"{strand.fiber_cable.cable_id}:F{strand.position}"
+        assert re.fullmatch(r"\d+:F\d+", fp.name)
+
+        # The splice-plan builder groups tray ports via strand linkage, so
+        # the demo plans actually carry entries under the pk-based names.
+        assert SplicePlanEntry.objects.exists()
