@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `sync_tube_assignment_ports()` now refuses to park strand front ports
+  on a module that is not a splice tray, logging a warning instead --
+  defence in depth behind `TubeAssignment.clean()` for write paths that
+  bypass model validation (raw ORM writes, scripts). (#157)
 - A FiberCable created without strand links (e.g. through the plain
   FiberCable form on an already-wired cable) was a dead end: the Fiber
   Overview showed 0/N linked strands with no action, and the
