@@ -148,15 +148,18 @@ modules.
 - **`compute_diff(plan)`** -- Compares the desired splice state (from
   `SplicePlanEntry` records) against the live state (actual `PortMapping` entries
   in NetBox) and returns a per-tray breakdown of additions, removals, and unchanged
-  splices.
+  splices. Pairs touching device-level front ports (unassigned tubes) are grouped
+  under the `UNASSIGNED_TRAY_ID = 0` sentinel bucket instead of a tray.
 - **`get_live_state(closure)`** / **`get_desired_state(plan)`** -- Query helpers
-  that feed `compute_diff()`.
+  that feed `compute_diff()`. Both consider every front port of the closure.
 - **`apply_diff(plan)`** -- Applies the computed diff to NetBox's `PortMapping`
   table, creating and deleting mappings as needed. Refuses plans that are not
   in `approved` status and archives the plan after a successful apply, so
   every apply path honours the approval workflow.
 - **`import_live_state(plan)`** -- Imports the current live splice state into a
-  plan's entries for documentation purposes.
+  plan's entries for documentation purposes. Live pairs with no tray-mounted
+  port cannot become entries (an entry requires a tray); they are skipped and
+  the returned report carries the skipped count.
 - **`link_cable_topology(cable, fiber_cable_type, device, ...)`** -- Atomic
   transaction that creates a `FiberCable`, adopts or creates `FrontPort`/`RearPort`
   pairs on the device, and sets the cable profile.

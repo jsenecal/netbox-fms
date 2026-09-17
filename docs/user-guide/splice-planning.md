@@ -38,7 +38,7 @@ A SplicePlanEntry maps one fiber to another within a splice plan. Each entry def
 - **is_express** -- marks a fiber that passes through the closure without being physically spliced.
 - **change_note** -- a required message describing why this entry was added or modified in the current editing session.
 
-Both FrontPorts must belong to the plan's closure device, and the tray must match fiber A's parent module -- so every fiber used in a plan must first be assigned to a tray module (see [Preparing a Closure](#preparing-a-closure)).
+Both FrontPorts must belong to the plan's closure device, and the tray must match fiber A's parent module -- so fiber A must sit on a tray module (see [Preparing a Closure](#preparing-a-closure)). Fiber B may sit at device level while its buffer tube is not yet assigned to a tray; the diff groups such splices under a distinct **Unassigned tubes** warning bucket so the physically under-specified part of the plan stays visible.
 
 Each entry corresponds to a single physical fiber splice. A plan typically contains many entries, one for every fiber pair that will be spliced at the closure.
 
@@ -86,7 +86,7 @@ Assignments created before this feature are not back-filled automatically: re-sa
 Before a closure device can host splice plans, it needs its physical structure modeled. This mirrors the setup performed once per closure in the field:
 
 1. **Create the closure device and its trays** in one step via **FMS > Add Splice Closure**: pick the device type and role, a splice tray module type and count, and optionally an express basket. The wizard creates the device with "Tray 1..N" (and "Basket 1..N") module bays and installed modules atomically. Prerequisite (once per hardware model): a `dcim.DeviceType` for the closure and tray `dcim.ModuleType`s marked with a **TrayProfile** (role and capacity). The closure can also be assembled manually from those same primitives.
-2. **Terminate cables and provision ports.** Link each incoming cable's topology (see [Fiber Cables](fiber-cables.md#linking-cable-topology)) so every strand has a FrontPort on the closure. Splice plan entries require each fiber's FrontPort to belong to a tray module.
+2. **Terminate cables and provision ports.** Link each incoming cable's topology (see [Fiber Cables](fiber-cables.md#linking-cable-topology)) so every strand has a FrontPort on the closure. Splice plan entries require fiber A's FrontPort to belong to a tray module; splices touching ports still at device level are tracked, but flagged as **Unassigned tubes** until the tube is assigned.
 3. **Register cable entrances.** Create a **ClosureCableEntry** per cable, recording its gland or entrance label.
 4. **Assign tubes to trays.** Create **TubeAssignments** manually or use the auto-assign action on the closure's Fiber Overview tab, which pairs same-position tubes from different cables onto the same tray while capacity allows.
 
@@ -270,6 +270,10 @@ The `compute_diff()` method compares the planned splice state against the actual
 
 Running a diff before applying provides a clear summary of what will change, reducing the risk of unintended modifications. The diff is visible on both the plan detail page and the closure's Pending Work tab.
 
+The diff considers **every front port of the closure**, not only tray-mounted ones. Splices whose ports sit at device level -- their buffer tube is not assigned to any tray -- are grouped under a distinct **Unassigned tubes** bucket instead of a tray. Pending Work, the apply confirmation, and the draw.io export render this bucket as a warning group, so an operator can see the plan is physically under-specified before applying; the splices themselves are still created and removed like any other (a jumper between two front ports needs no tray). In the diff API payload the bucket appears under the key `0`, which no real tray can occupy.
+
+Bootstrapping a plan from the closure's live state (import-from-device) anchors each imported entry on a tray-mounted port. Live splices whose ports both sit at device level cannot become entries -- an entry requires a tray -- so the import skips them and reports the skipped count.
+
 ---
 
 ## Visual Editor
@@ -301,7 +305,7 @@ Ghost lines allow a planner to see the full fiber utilization picture for the cl
 
 The `generate_drawio()` function creates an mxGraph XML file suitable for opening in draw.io or diagrams.net. The export includes:
 
-- **Per-tray pages** -- each splice tray in the closure is rendered as a separate page in the diagram.
+- **Per-tray pages** -- each splice tray in the closure is rendered as a separate page in the diagram. Splices on tubes not assigned to any tray get their own **Unassigned tubes** page, flagged as an inconsistency in its header.
 - **EIA-598 color coding** -- fiber strands are drawn using their standard EIA-598 color assignments for easy visual identification.
 - **Diff annotations** -- fibers and splices are annotated to indicate whether they are added, removed, or unchanged relative to the current configuration.
 
