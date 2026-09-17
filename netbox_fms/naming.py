@@ -35,6 +35,7 @@ __all__ = (
     "REAR_PORT_LABEL",
     "TARGETS",
     "NamingError",
+    "labels_use_tray",
     "color_name",
     "compile_labels",
     "dummy_contexts",
@@ -86,8 +87,12 @@ _TUBE = ("tube", "tube_name", "tube_color", "tube_color_hex")
 _RIBBON = ("ribbon", "ribbon_name", "ribbon_color", "ribbon_color_hex")
 _STRAND = ("strand", "strand_color", "strand_color_hex")
 _PORT = ("device", "end")
+# Front-only: tube assignments move FRONT ports onto trays; rear ports stay
+# at device level, so a rear template has no tray to reference.
+_TRAY = ("tray", "tray_position")
+_TRAY_TOKENS = frozenset(_TRAY)
 
-_FRONT_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND + _PORT)
+_FRONT_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND + _PORT + _TRAY)
 _REAR_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _PORT)
 
 # Non-blank on purpose: with pk-based port names on the roadmap, the label is
@@ -136,6 +141,8 @@ _DUMMY_TUBED = {
     "strand_color_hex": "0000ff",
     "device": "DEVICE",
     "end": "A",
+    "tray": "Tray 1",
+    "tray_position": 1,
 }
 
 _DUMMY_BARE = {
@@ -150,6 +157,8 @@ _DUMMY_BARE = {
     "ribbon_color_hex": None,
     "strand_color": None,
     "strand_color_hex": None,
+    "tray": None,
+    "tray_position": None,
 }
 
 
@@ -161,6 +170,28 @@ def color_name(hex_value, scheme):
         if palette_hex == hex_value:
             return str(name)
     return hex_value
+
+
+def labels_use_tray():
+    """True when any effective label template references a tray token.
+
+    Gates the tube-assignment-driven re-render: with tray-free templates
+    (the defaults included) an assignment change cannot alter any label,
+    so the re-render is skipped entirely.
+    """
+    from jinja2 import meta
+
+    for target in TARGETS:
+        source = resolve_source(target)
+        if not source.strip():
+            continue
+        try:
+            ast = _ENV.parse(source)
+        except TemplateSyntaxError:
+            continue
+        if meta.find_undeclared_variables(ast) & _TRAY_TOKENS:
+            return True
+    return False
 
 
 def resolve_source(target):
@@ -284,18 +315,24 @@ def _ribbon_tokens(ribbon, color_scheme):
     }
 
 
-def port_context(*, cable, cable_type, device, end, color_scheme, tube=None, strand=None, ribbon=None):
+def port_context(
+    *, cable, cable_type, device, end, color_scheme, tube=None, strand=None, ribbon=None, tray_assignment=None
+):
     """Build the render context for the label targets.
 
     ``strand`` is a FiberStrand or None (a RearPort covers a whole container
     and has no single strand); its position and colour are read from it.
     ``tube`` and ``ribbon`` are the strand's containers, passed separately
     because the rear-port callers have a container but no strand; a front
-    port's ribbon falls back to the strand's own.
+    port's ribbon falls back to the strand's own. ``tray_assignment`` is the
+    TubeAssignment placing the strand's tube on this closure, when one
+    exists -- it feeds the front-only tray tokens.
     """
     if ribbon is None:
         ribbon = getattr(strand, "ribbon", None)
     ctx = {
+        "tray": str(tray_assignment.tray) if tray_assignment else None,
+        "tray_position": tray_assignment.position if tray_assignment else None,
         "cable": str(cable) if cable else "",
         "cable_id": getattr(cable, "pk", None),
         "cable_type": str(cable_type),

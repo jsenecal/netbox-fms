@@ -274,6 +274,8 @@ class TestPortContext(SimpleTestCase):
             "cable_type": "ACME 144F",
             "device": "FOSC-1",
             "end": "A",
+            "tray": None,
+            "tray_position": None,
             "tube": 3,
             "tube_name": "T3",
             "tube_color": "Blue",
@@ -572,3 +574,97 @@ class TestProvisioningRenderFailure(LabelFixtureMixin, TestCase):
         assert self._labels(self.dev_a, FrontPort) == ["", ""]
         # The rear template is untouched and still renders.
         assert self._labels(self.dev_a, RearPort) == ["RF / T1 (Blue)"]
+
+
+_TRAY_TEMPLATE = "{% if tray %}{{ tray }}:{{ tray_position }}/{% endif %}F{{ strand }}"
+
+
+class TestTrayLabelToken(LabelFixtureMixin, TestCase):
+    """Front labels can reference the tube's tray via TubeAssignment (#154 follow-up).
+
+    The tray tokens are front-only and driven by assignment changes: a tube
+    assignment save or delete re-renders the cable's labels, but only when a
+    configured template actually uses a tray token.
+    """
+
+    def _assigned_tray(self, fc):
+        from netbox_fms.models import TubeAssignment
+        from tests.conftest import make_tray_module, make_tray_type
+
+        tray = make_tray_module(self.dev_a, make_tray_type(self.mfr, "TRK Tray"), "TRK Bay")
+        assignment = TubeAssignment.objects.create(
+            closure=self.dev_a, tray=tray, buffer_tube=fc.buffer_tubes.first(), position=1
+        )
+        return tray, assignment
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": _TRAY_TEMPLATE}})
+    def test_assignment_save_renders_tray_into_labels(self):
+        from dcim.models import FrontPort
+
+        _fct, fc = self._build("TRK")
+        tray, _assignment = self._assigned_tray(fc)
+        assert self._labels(self.dev_a, FrontPort) == [f"{tray}:1/F1", f"{tray}:1/F2"]
+        # The far device has no assignment; its labels stay tray-less.
+        assert self._labels(self.dev_b, FrontPort) == ["F1", "F2"]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": _TRAY_TEMPLATE}})
+    def test_assignment_delete_clears_tray_from_labels(self):
+        from dcim.models import FrontPort
+
+        _fct, fc = self._build("TRD")
+        _tray, assignment = self._assigned_tray(fc)
+        assignment.delete()
+        assert self._labels(self.dev_a, FrontPort) == ["F1", "F2"]
+
+    def test_labels_use_tray_false_for_defaults(self):
+        from netbox_fms import naming
+
+        assert naming.labels_use_tray() is False
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": _TRAY_TEMPLATE}})
+    def test_labels_use_tray_detects_the_token(self):
+        from netbox_fms import naming
+
+        assert naming.labels_use_tray() is True
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": ""}})
+    def test_labels_use_tray_skips_opted_out_target(self):
+        from netbox_fms import naming
+
+        assert naming.labels_use_tray() is False
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "{% if tray %}{{ tray "}})
+    def test_labels_use_tray_tolerates_malformed_template(self):
+        """The gate must never raise: a malformed template is someone else's
+        problem (startup check, render guards); the gate just answers False.
+        """
+        from netbox_fms import naming
+
+        assert naming.labels_use_tray() is False
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": _TRAY_TEMPLATE}})
+    def test_relabel_guard_tolerates_cascading_tube_delete(self):
+        """A cascade that already removed the tube must not break the handler."""
+        from netbox_fms.models import BufferTube
+        from netbox_fms.signals import _relabel_for_tube_assignment
+
+        _fct, fc = self._build("TRC")
+        _tray, assignment = self._assigned_tray(fc)
+        BufferTube.objects.filter(pk=assignment.buffer_tube_id).delete()
+        # The handler receives an uncached instance whose tube is already
+        # gone, exactly what a cascading delete hands the post_delete signal.
+        from netbox_fms.models import TubeAssignment
+
+        stale = TubeAssignment(
+            pk=assignment.pk,
+            closure_id=assignment.closure_id,
+            tray_id=assignment.tray_id,
+            buffer_tube_id=assignment.buffer_tube_id,
+        )
+        _relabel_for_tube_assignment(stale)  # must not raise
+
+    def test_tray_token_rejected_for_rear_target(self):
+        from netbox_fms import naming
+
+        with pytest.raises(naming.NamingError):
+            naming.validate(naming.REAR_PORT_LABEL, "{{ tray }}")

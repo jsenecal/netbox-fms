@@ -179,7 +179,7 @@ def _render_cable_port_labels(fc):
             end_by_device_id[device.pk] = _determine_cable_end(cable, device)
         return end_by_device_id[device.pk]
 
-    def _ctx(device, tube=None, strand=None, ribbon=None):
+    def _ctx(device, tube=None, strand=None, ribbon=None, tray_assignment=None):
         return naming.port_context(
             cable=cable,
             cable_type=fct,
@@ -189,16 +189,36 @@ def _render_cable_port_labels(fc):
             tube=tube,
             strand=strand,
             ribbon=ribbon,
+            tray_assignment=tray_assignment,
         )
 
+    # (closure_id, buffer_tube_id) -> TubeAssignment, feeding the front-only
+    # tray tokens; one query for the whole cable
+    from .models import TubeAssignment
     from .services import shared_ribbon
+
+    tube_ids = {s.buffer_tube_id for s in strand_by_fp_id.values() if s.buffer_tube_id}
+    device_ids = {pm.front_port.device_id for pm in pms}
+    assignment_by_key = {
+        (ta.closure_id, ta.buffer_tube_id): ta
+        for ta in TubeAssignment.objects.filter(buffer_tube_id__in=tube_ids, closure_id__in=device_ids).select_related(
+            "tray"
+        )
+    }
 
     proposed = {}
     for pm in pms:
         strand = strand_by_fp_id[pm.front_port_id]
         fp = pm.front_port
         label = naming.render(
-            naming.FRONT_PORT_LABEL, compiled, _ctx(fp.device, tube=strand.buffer_tube, strand=strand)
+            naming.FRONT_PORT_LABEL,
+            compiled,
+            _ctx(
+                fp.device,
+                tube=strand.buffer_tube,
+                strand=strand,
+                tray_assignment=assignment_by_key.get((fp.device_id, strand.buffer_tube_id)),
+            ),
         )
         if label is not None:
             proposed[fp] = label
@@ -303,11 +323,32 @@ def _tube_assignment_pre_save(sender, instance, **kwargs):
         clear_tube_assignment_ports(old["closure_id"], old["tray_id"], old["buffer_tube_id"])
 
 
+def _relabel_for_tube_assignment(assignment):
+    """Re-render the tube's cable labels when a template uses a tray token.
+
+    Skipped entirely for tray-free templates (the defaults): an assignment
+    change cannot alter such labels, and cable saves already cover every
+    other trigger.
+    """
+    if not naming.labels_use_tray():
+        return
+    from django.core.exceptions import ObjectDoesNotExist
+
+    try:
+        fc = assignment.buffer_tube.fiber_cable
+    except ObjectDoesNotExist:
+        # Cascading delete: the tube is going away with its cable.
+        return
+    if fc.cable_id:
+        _relabel_ports_for_cable(fc.cable)
+
+
 def _tube_assignment_post_save(sender, instance, **kwargs):
     """Place the tube's closure-side front ports on the assigned tray."""
     from .services import sync_tube_assignment_ports
 
     sync_tube_assignment_ports(instance)
+    _relabel_for_tube_assignment(instance)
 
 
 def _tube_assignment_post_delete(sender, instance, **kwargs):
@@ -315,6 +356,7 @@ def _tube_assignment_post_delete(sender, instance, **kwargs):
     from .services import clear_tube_assignment_ports
 
     clear_tube_assignment_ports(instance.closure_id, instance.tray_id, instance.buffer_tube_id)
+    _relabel_for_tube_assignment(instance)
 
 
 def connect_signals():
