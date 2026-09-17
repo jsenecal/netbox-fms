@@ -23,10 +23,17 @@
             <label class="form-label">{% trans "Cable" %}</label>
             <input type="text" class="form-control" value="{{ cable }}" disabled>
         </div>
+        {% if fiber_cable %}
+        <div class="mb-3">
+            <label class="form-label">{% trans "Fiber Cable Type" %}</label>
+            <input type="text" class="form-control" value="{{ fiber_cable.fiber_cable_type }}" disabled>
+        </div>
+        {% else %}
         <div class="mb-3">
             <label for="id_fiber_cable_type" class="form-label">{% trans "Fiber Cable Type" %} *</label>
             {{ form.fiber_cable_type }}
         </div>
+        {% endif %}
         {% if show_port_type %}
         <div class="mb-3">
             <label for="id_port_type" class="form-label">{% trans "Port Type" %}</label>

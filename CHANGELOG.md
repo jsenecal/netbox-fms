@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A FiberCable created without strand links (e.g. through the plain
+  FiberCable form on an already-wired cable) was a dead end: the Fiber
+  Overview showed 0/N linked strands with no action, and the
+  link-topology service refused to touch a cable that already carried a
+  FiberCable. The overview now offers "Link Strands" on such rows, the
+  modal skips the type selector (the existing FiberCable fixes it), and
+  `link_cable_topology` links strands into the existing FiberCable --
+  adopting the device's ports or provisioning them -- and fills in the
+  missing cable profile. (#87)
+
+### Fixed
+
 - A `TrayProfile` can no longer leave the splice-tray role (or be
   recreated as an express basket) while `TubeAssignment` rows still
   reference trays of its module type: the flip previously saved

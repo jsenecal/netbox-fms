@@ -1,7 +1,6 @@
 from netbox.plugins import PluginTemplateExtension
 
-from .models import FiberCable
-from .services import is_intra_closure_jumper
+from .services import fiber_cable_for, is_intra_closure_jumper
 
 
 class CableFiberCablePanel(PluginTemplateExtension):
@@ -11,7 +10,7 @@ class CableFiberCablePanel(PluginTemplateExtension):
 
     def left_page(self):
         cable = self.context["object"]
-        fiber_cable = FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+        fiber_cable = fiber_cable_for(cable)
         if fiber_cable:
             tube_count = fiber_cable.buffer_tubes.count()
             return self.render(
