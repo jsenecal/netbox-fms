@@ -359,40 +359,52 @@ class TestBufferTubeClosureFilter(TestCase):
         assert field.query_params == {"closure_id": "$closure"}
 
 
+def _make_tube_rig(prefix, closure, manufacturer, *, entrance_label=None):
+    """FiberCableType -> Cable -> FiberCable -> BufferTube, plus an optional gland entry.
+
+    The rig four classes in this file used to hand-roll; new tests should
+    consume this instead of adding another copy.
+    """
+    from types import SimpleNamespace
+
+    from dcim.models import Cable
+
+    fct = FiberCableType.objects.create(
+        manufacturer=manufacturer,
+        model=f"{prefix} Cable",
+        construction="loose_tube",
+        strand_count=12,
+    )
+    fiber_cable = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+    tube = BufferTube.objects.create(fiber_cable=fiber_cable, name=f"{prefix} Tube 1", position=1)
+    entry = None
+    if entrance_label is not None:
+        entry = ClosureCableEntry.objects.create(
+            closure=closure, fiber_cable=fiber_cable, entrance_label=entrance_label
+        )
+    return SimpleNamespace(fiber_cable=fiber_cable, tube=tube, entry=entry)
+
+
 class TestTrayProfileRoleFlipGuard(TestCase):
     """A profile cannot leave the splice_tray role while assignments depend on it (issue #105)."""
 
     @classmethod
     def setUpTestData(cls):
-        from dcim.models import Cable, ModuleBay
+        from tests.conftest import make_closure_with_tray
 
-        site = Site.objects.create(name="RF Site", slug="rf-site")
-        manufacturer = Manufacturer.objects.create(name="RF Mfr", slug="rf-mfr")
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="Closure RF", slug="closure-rf")
-        role = DeviceRole.objects.create(name="Closure RF", slug="closure-rf")
-        cls.closure = Device.objects.create(name="Closure-RF", site=site, device_type=device_type, role=role)
-
-        cls.module_type = ModuleType.objects.create(manufacturer=manufacturer, model="RF Tray")
+        rig = make_closure_with_tray("RF")
+        cls.closure = rig.closure
+        cls.tray = rig.tray
+        cls.module_type = rig.tray.module_type
         cls.profile = TrayProfile.objects.create(module_type=cls.module_type, tray_role=TrayRoleChoices.SPLICE_TRAY)
-        bay = ModuleBay.objects.create(device=cls.closure, name="RF Bay 1")
-        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=cls.module_type)
 
-        fct = FiberCableType.objects.create(
-            manufacturer=manufacturer,
-            model="RF 12F",
-            construction="loose_tube",
-            strand_count=12,
-        )
-        cable = Cable.objects.create()
-        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        cls.tube = BufferTube.objects.create(fiber_cable=cls.fiber_cable, name="RF Tube 1", position=1)
-        ClosureCableEntry.objects.create(closure=cls.closure, fiber_cable=cls.fiber_cable, entrance_label="RF Gland")
+        tube_rig = _make_tube_rig("RF", cls.closure, rig.mfr, entrance_label="RF Gland")
         cls.assignment = TubeAssignment.objects.create(
-            closure=cls.closure, tray=cls.tray, buffer_tube=cls.tube, position=1
+            closure=cls.closure, tray=cls.tray, buffer_tube=tube_rig.tube, position=1
         )
 
         # A second splice-tray profile with no assignments: the control case.
-        cls.idle_mt = ModuleType.objects.create(manufacturer=manufacturer, model="RF Idle Tray")
+        cls.idle_mt = ModuleType.objects.create(manufacturer=rig.mfr, model="RF Idle Tray")
         cls.idle_profile = TrayProfile.objects.create(module_type=cls.idle_mt, tray_role=TrayRoleChoices.SPLICE_TRAY)
 
     def test_role_flip_blocked_while_assignments_exist(self):
@@ -402,7 +414,7 @@ class TestTrayProfileRoleFlipGuard(TestCase):
         with self.assertRaises(ValidationError) as ctx:
             self.profile.full_clean()
         # The error must name the offending closure so the operator can act.
-        assert "Closure-RF" in str(ctx.exception)
+        assert "RF-Closure" in str(ctx.exception)
 
     def test_role_flip_allowed_without_assignments(self):
         self.idle_profile.tray_role = TrayRoleChoices.EXPRESS_BASKET
