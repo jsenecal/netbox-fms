@@ -821,11 +821,18 @@ class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
         """Import live device connections into the splice plan."""
         plan = get_object_or_404(SplicePlan, pk=pk)
         try:
-            count = import_live_state(plan)
+            result = import_live_state(plan)
             messages.success(
                 request,
-                _('Imported {count} connections into "{plan}".').format(count=count, plan=plan),
+                _('Imported {count} connections into "{plan}".').format(count=result["imported"], plan=plan),
             )
+            if result["skipped_unassigned"]:
+                messages.warning(
+                    request,
+                    _(
+                        "Skipped {count} splice(s) on tubes not assigned to any tray -- plan entries require a tray."
+                    ).format(count=result["skipped_unassigned"]),
+                )
         except (ValueError, ValidationError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())

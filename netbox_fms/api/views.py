@@ -247,8 +247,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         try:
-            count = import_live_state(plan)
-            return Response({"imported": count})
+            return Response(import_live_state(plan))
         except (ValueError, ValidationError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

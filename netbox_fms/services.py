@@ -14,6 +14,13 @@ from .signals import fms_portmapping_bypass
 
 logger = logging.getLogger(__name__)
 
+# Diff-state bucket for splice pairs not attributable to any tray: a front
+# port sits at device level (module=None) while its buffer tube is not
+# assigned to a tray. Module pks start at 1, so 0 can never collide with a
+# real tray, and it survives get_or_recompute_diff()'s int/str cache
+# round-trip like any tray id.
+UNASSIGNED_TRAY_ID = 0
+
 
 class PlanNotApplicable(ValidationError):  # noqa: N818
     """Raised when a splice plan is not in a status that allows applying."""
@@ -562,10 +569,10 @@ def front_port_splice_pairs(front_port_ids):
     """Return (a_id, b_id) pairs of cables fully terminated inside a FrontPort id set.
 
     Each pair is a live splice jumper within the given scope. Callers choose
-    the scope explicitly: get_live_state (feeding the diff/apply engine)
-    passes only tray-mounted ports, while the closure-strands editor view
-    passes every port of the closure so splices on device-level ports
-    (unassigned tubes) still render.
+    the scope explicitly: get_live_state (feeding the diff/apply engine) and
+    the closure-strands editor view both pass every front port of the
+    closure, so splices on device-level ports (unassigned tubes) are seen
+    by the engine and the editor alike.
     """
     fp_ct = ContentType.objects.get_for_model(FrontPort)
     terminations = CableTermination.objects.filter(
@@ -589,27 +596,24 @@ def front_port_splice_pairs(front_port_ids):
 
 def get_live_state(closure):
     """
-    Read current FrontPort<->FrontPort connections on a closure's tray modules.
+    Read current FrontPort<->FrontPort connections on a closure's front ports.
     Returns: {tray_module_id: set((port_a_id, port_b_id), ...)}
-    Pairs are normalized: (min_id, max_id).
+    Pairs are normalized: (min_id, max_id). Every front port of the closure
+    is considered; pairs touching a device-level port (unassigned tube) are
+    grouped under UNASSIGNED_TRAY_ID for that end.
     """
-    port_module_pairs = FrontPort.objects.filter(
-        device=closure,
-        module__isnull=False,
-    ).values_list("pk", "module_id")
+    port_to_module = dict(FrontPort.objects.filter(device=closure).values_list("pk", "module_id"))
+    frontport_ids = set(port_to_module.keys())
 
-    port_to_module = dict(port_module_pairs)
-    tray_frontport_ids = set(port_to_module.keys())
-
-    if not tray_frontport_ids:
+    if not frontport_ids:
         return {}
 
     state = {}
-    for port_a_id, port_b_id in front_port_splice_pairs(tray_frontport_ids):
+    for port_a_id, port_b_id in front_port_splice_pairs(frontport_ids):
         pair = (min(port_a_id, port_b_id), max(port_a_id, port_b_id))
 
-        mod_a = port_to_module[port_a_id]
-        mod_b = port_to_module[port_b_id]
+        mod_a = port_to_module[port_a_id] or UNASSIGNED_TRAY_ID
+        mod_b = port_to_module[port_b_id] or UNASSIGNED_TRAY_ID
         state.setdefault(mod_a, set()).add(pair)
         if mod_a != mod_b:
             state.setdefault(mod_b, set()).add(pair)
@@ -622,27 +626,28 @@ def get_desired_state(plan):
     Read desired FrontPort<->FrontPort connections from a SplicePlan's entries.
     Returns: {tray_module_id: set((port_a_id, port_b_id), ...)}
     Only includes pairs where both ports belong to the closure device.
+    Fiber A keeps the entry's recorded tray attribution while it is
+    tray-mounted; a device-level port on either end books the pair under
+    UNASSIGNED_TRAY_ID instead, mirroring get_live_state's bucketing.
     """
     closure = plan.closure
-    local_fp_ids = set(FrontPort.objects.filter(device=closure, module__isnull=False).values_list("pk", flat=True))
+    local_fp_to_module = dict(FrontPort.objects.filter(device=closure).values_list("pk", "module_id"))
 
     entries = list(plan.entries.values_list("tray_id", "fiber_a_id", "fiber_b_id"))
 
-    fb_ids = {fb_id for _, _, fb_id in entries}
-    fb_to_module = dict(FrontPort.objects.filter(pk__in=fb_ids).values_list("pk", "module_id"))
-
     state = {}
     for tray_id, fa_id, fb_id in entries:
-        # Skip pairs where either port is not on this closure's trays
-        if fa_id not in local_fp_ids or fb_id not in local_fp_ids:
+        # Skip pairs where either port is not on this closure device
+        if fa_id not in local_fp_to_module or fb_id not in local_fp_to_module:
             continue
 
         pair = (min(fa_id, fb_id), max(fa_id, fb_id))
-        state.setdefault(tray_id, set()).add(pair)
+        fa_bucket = tray_id if local_fp_to_module[fa_id] is not None else UNASSIGNED_TRAY_ID
+        state.setdefault(fa_bucket, set()).add(pair)
 
-        fb_module_id = fb_to_module.get(fb_id)
-        if fb_module_id and fb_module_id != tray_id:
-            state.setdefault(fb_module_id, set()).add(pair)
+        fb_bucket = local_fp_to_module[fb_id] or UNASSIGNED_TRAY_ID
+        if fb_bucket != fa_bucket:
+            state.setdefault(fb_bucket, set()).add(pair)
 
     return state
 
@@ -651,7 +656,8 @@ def compute_diff(plan):
     """
     Compute the diff between desired and live state.
     Returns: {tray_module_id: {"add": list, "remove": list, "unchanged": list}}
-    Keys are int tray IDs. Values are lists of [port_a_id, port_b_id] pairs.
+    Keys are int tray IDs, plus UNASSIGNED_TRAY_ID for pairs touching
+    device-level ports. Values are lists of [port_a_id, port_b_id] pairs.
     """
     live = get_live_state(plan.closure)
     desired = get_desired_state(plan)
@@ -693,7 +699,13 @@ def import_live_state(plan):
     """
     Bootstrap a plan from the closure's current live connections.
     Creates SplicePlanEntry rows for each existing FrontPort<->FrontPort pair.
-    Returns the number of entries created.
+
+    A pair is anchored on a tray-mounted port (fiber_a, whose module is the
+    entry's tray); a pair whose ports both sit at device level (unassigned
+    tubes) cannot become an entry -- SplicePlanEntry.tray is NOT NULL -- so
+    it is skipped and counted instead of imported silently or crashing.
+
+    Returns {"imported": int, "skipped_unassigned": int}.
     """
     live = get_live_state(plan.closure)
 
@@ -710,9 +722,14 @@ def import_live_state(plan):
     port_to_module = dict(FrontPort.objects.filter(pk__in=port_ids).values_list("pk", "module_id"))
 
     entries = []
+    skipped_unassigned = 0
     for port_a_id, port_b_id in all_pairs:
+        if port_to_module.get(port_a_id) is None:
+            # fiber_a must carry the tray; lead with the tray-mounted port
+            port_a_id, port_b_id = port_b_id, port_a_id
         tray_id = port_to_module.get(port_a_id)
         if tray_id is None:
+            skipped_unassigned += 1
             continue
         entries.append(
             SplicePlanEntry(
@@ -729,7 +746,7 @@ def import_live_state(plan):
     SplicePlanEntry.objects.bulk_create(entries)
     plan.diff_stale = True
     plan.save(update_fields=["diff_stale"])
-    return len(entries)
+    return {"imported": len(entries), "skipped_unassigned": skipped_unassigned}
 
 
 def protecting_nodes(front_port_ids, user=None):
