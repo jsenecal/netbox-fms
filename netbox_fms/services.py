@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from . import naming
-from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .models import ClosureCableEntry, FiberCable, FiberCircuitNode, SplicePlanEntry
 from .signals import fms_portmapping_bypass
 
@@ -906,7 +906,19 @@ def sync_tube_assignment_ports(assignment):
     Overwrites unconditionally; conflict blocking happens at form/serializer
     validation. Saves ports individually so NetBox change logging records
     each move.
+
+    Defence in depth behind TubeAssignment.clean(): a write path that skips
+    validation must not park strand ports on a module that is not a splice
+    tray, so such a sync is skipped with a warning instead.
     """
+    profile = getattr(assignment.tray.module_type, "tray_profile", None)
+    if profile is None or profile.tray_role != TrayRoleChoices.SPLICE_TRAY:
+        logger.warning(
+            "Skipping port sync for tube assignment %s: module %s is not a splice tray.",
+            assignment.pk,
+            assignment.tray,
+        )
+        return
     for port in _tube_assignment_target_ports(assignment.closure_id, assignment.buffer_tube_id):
         if port.module_id != assignment.tray_id:
             port.snapshot()

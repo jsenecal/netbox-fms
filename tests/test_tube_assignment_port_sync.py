@@ -247,3 +247,50 @@ class TestConfirmReassign(PortSyncTestCase):
         )
         assert not form.is_valid()
         assert "PS-N1" in str(form.errors)
+
+
+class TestSyncRoleGuard(PortSyncTestCase):
+    """sync_tube_assignment_ports() refuses non-splice-tray targets (issue #157).
+
+    The splice-tray rule lives in TubeAssignment.clean(); a write path that
+    skips validation (raw ORM writes, scripts) must not be able to drive the
+    sync into parking strand ports on an express basket or unprofiled module.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        mfr = cls.tray1.module_type.manufacturer
+        basket_mt = ModuleType.objects.create(manufacturer=mfr, model="PS Basket")
+        TrayProfile.objects.create(module_type=basket_mt, tray_role=TrayRoleChoices.EXPRESS_BASKET)
+        bay_b = ModuleBay.objects.create(device=cls.closure, name="Bay B")
+        cls.basket = Module.objects.create(device=cls.closure, module_bay=bay_b, module_type=basket_mt)
+
+        plain_mt = ModuleType.objects.create(manufacturer=mfr, model="PS Plain")
+        bay_p = ModuleBay.objects.create(device=cls.closure, name="Bay P")
+        cls.plain_module = Module.objects.create(device=cls.closure, module_bay=bay_p, module_type=plain_mt)
+
+    def _save_unvalidated(self, tray):
+        # _assignment() saves without clean() on purpose: the bypassing write path.
+        self._assignment(tray=tray)
+        self._refresh_ports()
+
+    def test_sync_skips_express_basket_with_warning(self):
+        with self.assertLogs("netbox_fms.services", level="WARNING") as logs:
+            self._save_unvalidated(self.basket)
+        for port in self.near_ports:
+            assert port.module_id is None
+        assert any("splice tray" in message for message in logs.output)
+
+    def test_sync_skips_unprofiled_module_with_warning(self):
+        with self.assertLogs("netbox_fms.services", level="WARNING") as logs:
+            self._save_unvalidated(self.plain_module)
+        for port in self.near_ports:
+            assert port.module_id is None
+        assert any("splice tray" in message for message in logs.output)
+
+    def test_sync_on_splice_tray_stays_silent(self):
+        with self.assertNoLogs("netbox_fms.services", level="WARNING"):
+            self._save_unvalidated(self.tray1)
+        for port in self.near_ports:
+            assert port.module_id == self.tray1.pk
