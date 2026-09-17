@@ -21,7 +21,7 @@ from django.test import TransactionTestCase
 
 from netbox_fms.models import FiberCable, FiberCableType, SplicePlan
 from netbox_fms.signals import fms_portmapping_bypass
-from tests.conftest import make_front_port
+from tests.conftest import make_front_port, make_infra
 
 
 class TestDiffCacheInvalidation(TransactionTestCase):
@@ -231,10 +231,7 @@ class TestPortNaming(TransactionTestCase):
     """FMS-provisioned ports carry pk-based, absolute-number names."""
 
     def setUp(self):
-        site = Site.objects.create(name="PN Site", slug="pn-site")
-        self.mfr = Manufacturer.objects.create(name="PN Mfr", slug="pn-mfr")
-        dt = DeviceType.objects.create(manufacturer=self.mfr, model="PN Closure", slug="pn-closure")
-        role = DeviceRole.objects.create(name="PN Role", slug="pn-role")
+        site, self.mfr, dt, role = make_infra("PN")
         self.device = Device.objects.create(name="PN-Device", site=site, device_type=dt, role=role)
 
     def test_tubed_provisioning_uses_pk_and_absolute_numbers(self):
@@ -287,10 +284,7 @@ class TestPortNamesWriteOnce(TransactionTestCase):
     """pk-based names are write-once: a cable relabel never renames ports."""
 
     def setUp(self):
-        site = Site.objects.create(name="NS Site", slug="ns-site")
-        self.mfr = Manufacturer.objects.create(name="NS Mfr", slug="ns-mfr")
-        dt = DeviceType.objects.create(manufacturer=self.mfr, model="NS Closure", slug="ns-closure")
-        role = DeviceRole.objects.create(name="NS Role", slug="ns-role")
+        site, self.mfr, dt, role = make_infra("NS")
         self.device = Device.objects.create(name="NS-Device", site=site, device_type=dt, role=role)
 
     def test_cable_relabel_changes_labels_not_names(self):

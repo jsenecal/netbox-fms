@@ -2,6 +2,7 @@ import pytest
 from dcim.models import Cable, CableTermination, Device, DeviceRole, DeviceType, Manufacturer, RearPort, Site
 
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
+from tests.conftest import make_central_core_type, make_ribbon_in_tube_type
 
 
 @pytest.mark.django_db
@@ -136,71 +137,24 @@ class TestGetCableProfile:
 
     def test_ribbon_in_tube_4x12(self):
         mfr = Manufacturer.objects.create(name="RIT2-Mfr", slug="rit2-mfr")
-        fct = FiberCableType.objects.create(
-            manufacturer=mfr,
-            model="RIT-48F",
-            strand_count=48,
-            construction="ribbon_in_tube",
-        )
-        for i in range(1, 5):
-            btt = BufferTubeTemplate.objects.create(
-                fiber_cable_type=fct,
-                name=f"T{i}",
-                position=i,
-                fiber_count=None,
-            )
-            RibbonTemplate.objects.create(
-                fiber_cable_type=fct,
-                buffer_tube_template=btt,
-                name=f"R{i}",
-                position=1,
-                fiber_count=12,
-            )
+        fct = make_ribbon_in_tube_type(mfr, "RIT-48F", tubes=4, ribbons_per_tube=1)
         assert fct.get_cable_profile() == "trunk-4c12p"
 
     def test_central_core_ribbon_counts_ribbons(self):
         """Rear ports are provisioned per ribbon, so the profile follows the ribbons."""
         mfr = Manufacturer.objects.create(name="CCR-Mfr", slug="ccr-mfr")
-        fct = FiberCableType.objects.create(
-            manufacturer=mfr,
-            model="CCR-24F",
-            strand_count=24,
-            construction="ribbon",
-        )
-        for r in (1, 2):
-            RibbonTemplate.objects.create(fiber_cable_type=fct, name=f"R{r}", position=r, fiber_count=12)
+        fct = make_central_core_type(mfr, "CCR-24F", ribbons=2)
         assert fct.get_cable_profile() == "trunk-2c12p"
 
     def test_ribbon_in_tube_counts_ribbons_not_tubes(self):
         """12 tubes x 2 ribbons x 12F terminates on 24 ribbon rear ports."""
         mfr = Manufacturer.objects.create(name="RCT-Mfr", slug="rct-mfr")
-        fct = FiberCableType.objects.create(
-            manufacturer=mfr,
-            model="RCT-288F",
-            strand_count=288,
-            construction="ribbon_in_tube",
-        )
-        for t in range(1, 13):
-            btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name=f"T{t}", position=t, fiber_count=None)
-            for r in (1, 2):
-                RibbonTemplate.objects.create(
-                    fiber_cable_type=fct,
-                    buffer_tube_template=btt,
-                    name=f"T{t}-R{r}",
-                    position=r,
-                    fiber_count=12,
-                )
+        fct = make_ribbon_in_tube_type(mfr, "RCT-288F", tubes=12, ribbons_per_tube=2)
         assert fct.get_cable_profile() == "trunk-24c12p"
 
     def test_single_ribbon_uses_single_profile(self):
         mfr = Manufacturer.objects.create(name="SR-Mfr", slug="sr-mfr")
-        fct = FiberCableType.objects.create(
-            manufacturer=mfr,
-            model="SR-12F",
-            strand_count=12,
-            construction="ribbon",
-        )
-        RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
+        fct = make_central_core_type(mfr, "SR-12F", ribbons=1)
         assert fct.get_cable_profile() == "single-1c12p"
 
     def test_mixed_ribbon_sizes_have_no_profile(self):

@@ -24,7 +24,7 @@ from netbox_fms.forms import (
 )
 from netbox_fms.models import BufferTubeTemplate, ClosureCableEntry, FiberCable, FiberCableType, RibbonTemplate
 from netbox_fms.services import create_closure_cable
-from tests.conftest import make_infra
+from tests.conftest import make_central_core_type, make_closure_pair, make_infra, make_ribbon_in_tube_type
 
 
 class TestCreateClosureCable(TestCase):
@@ -164,39 +164,16 @@ class TestRibbonProvisioning(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, cls.mfr, dt, role = make_infra("RBP")
-        cls.device_a = Device.objects.create(name="RBP-A", site=site, device_type=dt, role=role)
-        cls.device_b = Device.objects.create(name="RBP-B", site=site, device_type=dt, role=role)
+        pair = make_closure_pair("RBP")
+        cls.mfr = pair.mfr
+        cls.device_a = pair.dev_a
+        cls.device_b = pair.dev_b
 
     def _ribbon_in_tube_type(self, model, tubes, ribbons_per_tube, fibers=12):
-        fct = FiberCableType.objects.create(
-            manufacturer=self.mfr,
-            model=model,
-            strand_count=tubes * ribbons_per_tube * fibers,
-            construction="ribbon_in_tube",
-        )
-        for t in range(1, tubes + 1):
-            btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name=f"T{t}", position=t, fiber_count=None)
-            for r in range(1, ribbons_per_tube + 1):
-                RibbonTemplate.objects.create(
-                    fiber_cable_type=fct,
-                    buffer_tube_template=btt,
-                    name=f"T{t}-R{r}",
-                    position=r,
-                    fiber_count=fibers,
-                )
-        return fct
+        return make_ribbon_in_tube_type(self.mfr, model, tubes, ribbons_per_tube, fibers)
 
     def _central_core_type(self, model, ribbons, fibers=12):
-        fct = FiberCableType.objects.create(
-            manufacturer=self.mfr,
-            model=model,
-            strand_count=ribbons * fibers,
-            construction="ribbon",
-        )
-        for r in range(1, ribbons + 1):
-            RibbonTemplate.objects.create(fiber_cable_type=fct, name=f"R{r}", position=r, fiber_count=fibers)
-        return fct
+        return make_central_core_type(self.mfr, model, ribbons, fibers)
 
     def test_ribbon_in_tube_provisions_rear_port_per_ribbon(self):
         fct = self._ribbon_in_tube_type("RBP-RIT24", tubes=1, ribbons_per_tube=2)

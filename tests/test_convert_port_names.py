@@ -8,14 +8,14 @@ any name collision rather than half-renaming it.
 
 from io import StringIO
 
-from dcim.models import Device, FrontPort, PortMapping, RearPort
+from dcim.models import FrontPort, PortMapping, RearPort
 from django.core.management import call_command
 from django.test import TestCase
 
-from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
+from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType
 from netbox_fms.services import create_closure_cable, plan_port_names
 from netbox_fms.signals import fms_portmapping_bypass
-from tests.conftest import make_infra
+from tests.conftest import make_central_core_type, make_closure_pair, make_ribbon_in_tube_type
 
 
 def _call(*args):
@@ -27,9 +27,10 @@ def _call(*args):
 class ConvertFixtureMixin:
     @classmethod
     def setUpTestData(cls):
-        site, cls.mfr, dt, role = make_infra("CVT")
-        cls.dev_a = Device.objects.create(name="CVT-A", site=site, device_type=dt, role=role)
-        cls.dev_b = Device.objects.create(name="CVT-B", site=site, device_type=dt, role=role)
+        pair = make_closure_pair("CVT")
+        cls.mfr = pair.mfr
+        cls.dev_a = pair.dev_a
+        cls.dev_b = pair.dev_b
 
     def _build_legacy(self, label, *, model=None, strand_count=2):
         """Provision a loose-tube cable, then plant legacy label-derived names."""
@@ -116,14 +117,7 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
 
     def test_per_ribbon_rear_ports_recover_their_r_names(self):
         """A cable already structured per ribbon converts back to R names."""
-        fct = FiberCableType.objects.create(
-            manufacturer=self.mfr,
-            model="CVT-CC",
-            construction="ribbon",
-            strand_count=4,
-        )
-        for r in (1, 2):
-            RibbonTemplate.objects.create(fiber_cable_type=fct, name=f"R{r}", position=r, fiber_count=2)
+        fct = make_central_core_type(self.mfr, "CVT-CC", ribbons=2, fibers=2)
         fc, _ = create_closure_cable(
             device_a=self.dev_a,
             device_b=self.dev_b,
@@ -164,17 +158,7 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         """
         from dcim.models import Cable
 
-        fct = FiberCableType.objects.create(
-            manufacturer=self.mfr,
-            model="CVT-RIT",
-            construction="ribbon_in_tube",
-            strand_count=4,
-        )
-        btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=None)
-        for r in (1, 2):
-            RibbonTemplate.objects.create(
-                fiber_cable_type=fct, buffer_tube_template=btt, name=f"T1-R{r}", position=r, fiber_count=2
-            )
+        fct = make_ribbon_in_tube_type(self.mfr, "CVT-RIT", tubes=1, ribbons_per_tube=2, fibers=2)
         cable = Cable.objects.create(label="RIB")
         fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
 

@@ -323,13 +323,12 @@ class LabelFixtureMixin:
 
     @classmethod
     def setUpTestData(cls):
-        from dcim.models import Device
+        from tests.conftest import make_closure_pair
 
-        from tests.conftest import make_infra
-
-        site, cls.mfr, dt, role = make_infra("Label")
-        cls.dev_a = Device.objects.create(name="LBL-A", site=site, device_type=dt, role=role)
-        cls.dev_b = Device.objects.create(name="LBL-B", site=site, device_type=dt, role=role)
+        pair = make_closure_pair("LBL")
+        cls.mfr = pair.mfr
+        cls.dev_a = pair.dev_a
+        cls.dev_b = pair.dev_b
 
     def _build(self, label, *, construction="loose_tube", tube=True, ribbon=False, strand_count=2):
         from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate

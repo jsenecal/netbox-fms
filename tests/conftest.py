@@ -61,6 +61,57 @@ def make_closure_with_tray(prefix, port_count=2, port_type="splice"):
     )
 
 
+def make_closure_pair(prefix):
+    """Two bare closure devices sharing one make_infra rigging.
+
+    Returns a SimpleNamespace with the make_infra quartet plus dev_a and
+    dev_b, named "<prefix>-A" / "<prefix>-B" -- the rigging every
+    provisioned-cable test starts from.
+    """
+    site, mfr, dt, role = make_infra(prefix)
+    dev_a = Device.objects.create(name=f"{prefix}-A", site=site, device_type=dt, role=role)
+    dev_b = Device.objects.create(name=f"{prefix}-B", site=site, device_type=dt, role=role)
+    return SimpleNamespace(site=site, mfr=mfr, device_type=dt, role=role, dev_a=dev_a, dev_b=dev_b)
+
+
+def make_ribbon_in_tube_type(mfr, model, tubes, ribbons_per_tube, fibers=12):
+    """FiberCableType with ``tubes`` buffer tubes of ``ribbons_per_tube`` ribbons each."""
+    from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
+
+    fct = FiberCableType.objects.create(
+        manufacturer=mfr,
+        model=model,
+        strand_count=tubes * ribbons_per_tube * fibers,
+        construction="ribbon_in_tube",
+    )
+    for t in range(1, tubes + 1):
+        btt = BufferTubeTemplate.objects.create(fiber_cable_type=fct, name=f"T{t}", position=t, fiber_count=None)
+        for r in range(1, ribbons_per_tube + 1):
+            RibbonTemplate.objects.create(
+                fiber_cable_type=fct,
+                buffer_tube_template=btt,
+                name=f"T{t}-R{r}",
+                position=r,
+                fiber_count=fibers,
+            )
+    return fct
+
+
+def make_central_core_type(mfr, model, ribbons, fibers=12):
+    """FiberCableType with ``ribbons`` central-core ribbons (no buffer tubes)."""
+    from netbox_fms.models import FiberCableType, RibbonTemplate
+
+    fct = FiberCableType.objects.create(
+        manufacturer=mfr,
+        model=model,
+        strand_count=ribbons * fibers,
+        construction="ribbon",
+    )
+    for r in range(1, ribbons + 1):
+        RibbonTemplate.objects.create(fiber_cable_type=fct, name=f"R{r}", position=r, fiber_count=fibers)
+    return fct
+
+
 def make_authed_client(username="api-test"):
     """Create a superuser and return a DRF APIClient authenticated as them."""
     user = get_user_model().objects.create_superuser(username=username, password="test")
