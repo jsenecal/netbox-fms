@@ -1575,6 +1575,39 @@ class TrayProfile(NetBoxModel):
     def get_absolute_url(self):
         return reverse("plugins:netbox_fms:trayprofile", args=[self.pk])
 
+    def clean(self):
+        """Refuse a non-splice-tray role while tube assignments depend on this module type.
+
+        TubeAssignment.clean() only accepts splice trays, so letting the
+        profile leave that role afterwards (or be recreated as an express
+        basket over leftover assignments) would strand assignments in a
+        state the rest of the plugin considers impossible.
+        """
+        super().clean()
+        if self.tray_role != TrayRoleChoices.SPLICE_TRAY and self.module_type_id:
+            from dcim.models import Device
+
+            closures = sorted(
+                {
+                    str(closure)
+                    for closure in Device.objects.filter(
+                        pk__in=TubeAssignment.objects.filter(tray__module_type_id=self.module_type_id).values(
+                            "closure_id"
+                        )
+                    )
+                }
+            )
+            if closures:
+                raise ValidationError(
+                    {
+                        "tray_role": _(
+                            "Cannot set role to %(role)s: tube assignments still reference trays of "
+                            "this module type on %(closures)s. Delete or re-point those assignments first."
+                        )
+                        % {"role": self.get_tray_role_display(), "closures": ", ".join(closures)}
+                    }
+                )
+
 
 class TubeAssignment(NetBoxModel):
     """Links a BufferTube to a splice tray (dcim.Module) on a closure device.
