@@ -22,9 +22,9 @@ from netbox_fms.forms import (
     ClosureCableWizardStep2Form,
     InsertSlackLoopForm,
 )
-from netbox_fms.models import BufferTubeTemplate, ClosureCableEntry, FiberCable, FiberCableType
+from netbox_fms.models import BufferTubeTemplate, ClosureCableEntry, FiberCable, FiberCableType, RibbonTemplate
 from netbox_fms.services import create_closure_cable
-from tests.conftest import make_infra
+from tests.conftest import make_central_core_type, make_closure_pair, make_infra, make_ribbon_in_tube_type
 
 
 class TestCreateClosureCable(TestCase):
@@ -154,6 +154,104 @@ class TestCreateClosureCable(TestCase):
         assert ClosureCableEntry.objects.count() == 0
 
 
+class TestRibbonProvisioning(TestCase):
+    """Ribbon constructions get one rear port PER RIBBON (issue #153).
+
+    The ribbon is the mass-fusion splice unit: ribbon-in-tube must not
+    flatten ribbons into their tube's rear port, and a central-core ribbon
+    cable must not collapse into a single cable-wide rear port.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair("RBP")
+        cls.mfr = pair.mfr
+        cls.device_a = pair.dev_a
+        cls.device_b = pair.dev_b
+
+    def _ribbon_in_tube_type(self, model, tubes, ribbons_per_tube, fibers=12):
+        return make_ribbon_in_tube_type(self.mfr, model, tubes, ribbons_per_tube, fibers)
+
+    def _central_core_type(self, model, ribbons, fibers=12):
+        return make_central_core_type(self.mfr, model, ribbons, fibers)
+
+    def test_ribbon_in_tube_provisions_rear_port_per_ribbon(self):
+        fct = self._ribbon_in_tube_type("RBP-RIT24", tubes=1, ribbons_per_tube=2)
+        fc, warnings = create_closure_cable(
+            device_a=self.device_a,
+            device_b=self.device_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2"},
+        )
+        pk = fc.cable_id
+        for device in (self.device_a, self.device_b):
+            rps = RearPort.objects.filter(device=device).order_by("name")
+            assert [rp.name for rp in rps] == [f"{pk}:R1", f"{pk}:R2"]
+            assert all(rp.positions == 12 for rp in rps)
+            # Mappings are numbered within the ribbon, front names absolutely.
+            for offset, rp in enumerate(rps):
+                pms = PortMapping.objects.filter(rear_port=rp).order_by("rear_port_position")
+                assert [pm.rear_port_position for pm in pms] == list(range(1, 13))
+                assert [pm.front_port.name for pm in pms] == [f"{pk}:F{offset * 12 + n}" for n in range(1, 13)]
+
+    def test_ribbon_in_tube_profile_and_connectors_follow_ribbons(self):
+        fct = self._ribbon_in_tube_type("RBP-RIT24B", tubes=1, ribbons_per_tube=2)
+        fc, warnings = create_closure_cable(
+            device_a=self.device_a,
+            device_b=self.device_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2"},
+        )
+        assert warnings == []
+        cable = fc.cable
+        cable.refresh_from_db()
+        assert cable.profile == "trunk-2c12p"
+        a_terms = CableTermination.objects.filter(cable=cable, cable_end="A")
+        assert sorted(t.connector for t in a_terms) == [1, 2]
+        assert all(t.positions == list(range(1, 13)) for t in a_terms)
+
+    def test_three_ribbons_in_one_tube(self):
+        """The shape the old code flattened: 3 ribbons sharing one tube."""
+        fct = self._ribbon_in_tube_type("RBP-RIT36", tubes=1, ribbons_per_tube=3)
+        fc, _ = create_closure_cable(
+            device_a=self.device_a,
+            device_b=self.device_b,
+            fiber_cable_type=fct,
+            cable_attrs={},
+        )
+        pk = fc.cable_id
+        rp_names = set(RearPort.objects.filter(device=self.device_a).values_list("name", flat=True))
+        assert rp_names == {f"{pk}:R1", f"{pk}:R2", f"{pk}:R3"}
+
+    def test_central_core_ribbon_provisions_rear_port_per_ribbon(self):
+        fct = self._central_core_type("RBP-CC24", ribbons=2)
+        fc, warnings = create_closure_cable(
+            device_a=self.device_a,
+            device_b=self.device_b,
+            fiber_cable_type=fct,
+            cable_attrs={"type": "smf-os2"},
+        )
+        assert warnings == []
+        pk = fc.cable_id
+        for device in (self.device_a, self.device_b):
+            rps = RearPort.objects.filter(device=device).order_by("name")
+            assert [rp.name for rp in rps] == [f"{pk}:R1", f"{pk}:R2"]
+        cable = fc.cable
+        cable.refresh_from_db()
+        assert cable.profile == "trunk-2c12p"
+
+    def test_ribbon_rear_labels_carry_the_ribbon(self):
+        fct = self._central_core_type("RBP-CC24L", ribbons=2)
+        fc, _ = create_closure_cable(
+            device_a=self.device_a,
+            device_b=self.device_b,
+            fiber_cable_type=fct,
+            cable_attrs={"label": "RBL"},
+        )
+        labels = sorted(RearPort.objects.filter(device=self.device_a).values_list("label", flat=True))
+        assert labels == ["RBL / R1", "RBL / R2"]
+
+
 class TestClosureCableWizardForms(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -256,6 +354,20 @@ class TestClosureCableWizardView(TestCase):
         assert CableTermination.objects.filter(cable=cable, cable_end="A").count() == 1
         assert CableTermination.objects.filter(cable=cable, cable_end="B").count() == 1
         assert ClosureCableEntry.objects.filter(fiber_cable=fc).count() == 2
+
+    def test_review_counts_rear_ports_per_ribbon(self):
+        """The step-3 review must predict one rear port per ribbon (issue #153)."""
+        from netbox_fms.views import ClosureCableWizardView
+
+        fct = FiberCableType.objects.create(
+            manufacturer=self.fct.manufacturer, model="WV-CC24", strand_count=24, construction="ribbon"
+        )
+        for r in (1, 2):
+            RibbonTemplate.objects.create(fiber_cable_type=fct, name=f"R{r}", position=r, fiber_count=12)
+        review = ClosureCableWizardView()._build_review(
+            {"far_end_device_id": self.device_b.pk, "fiber_cable_type_id": fct.pk}
+        )
+        assert review["rear_ports_per_device"] == 2
 
     def test_back_returns_to_previous_step(self):
         User = get_user_model()

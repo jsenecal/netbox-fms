@@ -151,32 +151,58 @@ def _compile_label_templates():
         return None
 
 
+def strand_port_groups(strands):
+    """Group strands by their innermost physical container, in fiber order.
+
+    The rear-port structure mirrors the cable's actual hierarchy: a strand
+    belongs to its ribbon when it has one (the mass-fusion splice unit,
+    even inside a tube), else its buffer tube, else the cable itself.
+    Returns ``[(container, [strands])]`` where ``container`` is a Ribbon,
+    a BufferTube, or None, ordered by first strand position.
+    """
+    groups = {}
+    ordered = []
+    for strand in strands:
+        if strand.ribbon_id is not None:
+            key, container = ("R", strand.ribbon_id), strand.ribbon
+        elif strand.buffer_tube_id is not None:
+            key, container = ("T", strand.buffer_tube_id), strand.buffer_tube
+        else:
+            key, container = ("N", None), None
+        if key not in groups:
+            groups[key] = (container, [])
+            ordered.append(groups[key])
+        groups[key][1].append(strand)
+    return ordered
+
+
 def _provision_device_ports(fc, device, port_type, fk_field):
     """Create greenfield ports on a device for every strand of a FiberCable.
 
-    Tubed cable: one RearPort per buffer tube (positions = fibers in the
-    tube) and one FrontPort per strand, joined by PortMappings. Tubeless
-    cable: a single RearPort covering all strands. Each strand's
-    ``fk_field`` ("front_port_a" or "front_port_b") is pointed at its new
-    FrontPort. Does NOT create CableTerminations -- callers terminate the
-    cable on the returned RearPorts themselves.
+    One RearPort per physical container -- buffer tube for loose-tube
+    fibers, RIBBON for ribbon fibers (ribbon-in-tube and central-core
+    alike), or a single RearPort for a containerless cable -- with one
+    FrontPort per strand joined by PortMappings numbered within the
+    container. Each strand's ``fk_field`` ("front_port_a"/"front_port_b")
+    is pointed at its new FrontPort. Does NOT create CableTerminations --
+    callers terminate the cable on the returned RearPorts themselves.
 
-    Every port is created with a rendered label (see ``netbox_fms.naming``);
-    a broken template degrades to blank labels rather than failing the
-    provisioning.
+    Names follow the write-once pk grammar (``netbox_fms.naming``); every
+    port is also created with a rendered label, degrading to blank labels
+    on a broken template rather than failing the provisioning.
 
-    Returns: list of (buffer_tube_or_None, rear_port, fiber_count) tuples,
-    in tube-position order.
+    Returns: list of (container_or_None, rear_port, fiber_count) tuples,
+    in fiber order.
     """
     provisioned = []
-    tubes = list(fc.buffer_tubes.all().order_by("position"))
     strands = list(fc.fiber_strands.select_related("buffer_tube", "ribbon").order_by("position"))
-    cable_label = str(fc.cable)
+    cable_id = fc.cable_id
     fct = fc.fiber_cable_type
     compiled = _compile_label_templates()
     end = "A" if fk_field == "front_port_a" else "B"
+    ordinals = ribbon_ordinals(strands)
 
-    def _ctx(tube=None, strand=None):
+    def _ctx(tube=None, strand=None, ribbon=None):
         return naming.port_context(
             cable=fc.cable,
             cable_type=fct,
@@ -185,49 +211,27 @@ def _provision_device_ports(fc, device, port_type, fk_field):
             color_scheme=fct.color_scheme,
             tube=tube,
             strand=strand,
+            ribbon=ribbon,
         )
 
     with fms_portmapping_bypass():
-        if tubes:
-            for tube in tubes:
-                tube_strands = [s for s in strands if s.buffer_tube_id == tube.pk]
-                rp = RearPort.objects.create(
-                    device=device,
-                    name=f"{cable_label}:T{tube.position}"[:64],
-                    label=_render_port_label(compiled, naming.REAR_PORT_LABEL, _ctx(tube=tube)),
-                    type=port_type,
-                    positions=len(tube_strands),
-                )
-                for i, strand in enumerate(tube_strands, start=1):
-                    fp = FrontPort.objects.create(
-                        device=device,
-                        name=f"{cable_label}:T{tube.position}:F{strand.position}"[:64],
-                        label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(tube=tube, strand=strand)),
-                        type=port_type,
-                    )
-                    PortMapping.objects.create(
-                        device=device,
-                        front_port=fp,
-                        rear_port=rp,
-                        front_port_position=1,
-                        rear_port_position=i,
-                    )
-                    setattr(strand, fk_field, fp)
-                    strand.save(update_fields=[fk_field])
-                provisioned.append((tube, rp, len(tube_strands)))
-        else:
+        for container, group_strands in strand_port_groups(strands):
+            first = group_strands[0]
+            rear_ctx = _ctx(tube=first.buffer_tube, ribbon=first.ribbon if first.ribbon_id is not None else None)
             rp = RearPort.objects.create(
                 device=device,
-                name=cable_label[:64],
-                label=_render_port_label(compiled, naming.REAR_PORT_LABEL, _ctx()),
+                name=rear_name_for_group(cable_id, group_strands, ordinals),
+                label=_render_port_label(compiled, naming.REAR_PORT_LABEL, rear_ctx),
                 type=port_type,
-                positions=len(strands),
+                positions=len(group_strands),
             )
-            for i, strand in enumerate(strands, start=1):
+            for i, strand in enumerate(group_strands, start=1):
                 fp = FrontPort.objects.create(
                     device=device,
-                    name=f"{cable_label}:F{strand.position}"[:64],
-                    label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(strand=strand)),
+                    name=naming.front_port_name(cable_id, strand.position),
+                    label=_render_port_label(
+                        compiled, naming.FRONT_PORT_LABEL, _ctx(tube=strand.buffer_tube, strand=strand)
+                    ),
                     type=port_type,
                 )
                 PortMapping.objects.create(
@@ -239,9 +243,143 @@ def _provision_device_ports(fc, device, port_type, fk_field):
                 )
                 setattr(strand, fk_field, fp)
                 strand.save(update_fields=[fk_field])
-            provisioned.append((None, rp, len(strands)))
+            provisioned.append((container, rp, len(group_strands)))
 
     return provisioned
+
+
+def ribbon_ordinals(strands):
+    """Cable-wide ribbon numbers, keyed by ribbon id, in fiber order.
+
+    ``Ribbon.position`` restarts inside every tube, so it cannot name a
+    ribbon uniquely across the cable. The absolute fiber positions can:
+    walking the strands in position order and numbering each ribbon on
+    first sight yields the physical count order (tube-major for
+    ribbon-in-tube, template order for central-core).
+    """
+    ordinals = {}
+    for strand in sorted(strands, key=lambda s: s.position):
+        if strand.ribbon_id is not None and strand.ribbon_id not in ordinals:
+            ordinals[strand.ribbon_id] = len(ordinals) + 1
+    return ordinals
+
+
+def shared_ribbon(strands):
+    """Return the one ribbon every strand belongs to, else None.
+
+    A rear port represents a ribbon only when every strand mapped to it
+    belongs to that one ribbon; legacy tube-grouped ribbon cables span
+    several ribbons per rear port and get no ribbon treatment.
+    """
+    ribbon_ids = {s.ribbon_id for s in strands}
+    if len(ribbon_ids) == 1 and None not in ribbon_ids:
+        return strands[0].ribbon
+    return None
+
+
+def shared_tube(strands):
+    """Return the one buffer tube every strand belongs to, else None."""
+    tube_ids = {s.buffer_tube_id for s in strands}
+    if len(tube_ids) == 1 and None not in tube_ids:
+        return strands[0].buffer_tube
+    return None
+
+
+def rear_name_for_group(cable_id, strands, ordinals):
+    """Write-once rear port name for the container shared by a strand group.
+
+    Ribbon wins over tube (it is the mass-fusion splice unit); strands
+    spanning containers -- a legacy tube-grouped ribbon cable, or an
+    adopted whole-cable panel port -- fall back to the bare cable pk.
+    """
+    ribbon = shared_ribbon(strands)
+    if ribbon is not None:
+        return naming.rear_port_name(cable_id, ribbon=ordinals[ribbon.pk])
+    tube = shared_tube(strands)
+    if tube is not None:
+        return naming.rear_port_name(cable_id, tube=tube.position)
+    return naming.rear_port_name(cable_id)
+
+
+def bulk_update_port_field(ports, field):
+    """bulk_update one changed field on a mixed FrontPort/RearPort set."""
+    by_model = {}
+    for port in ports:
+        by_model.setdefault(type(port), []).append(port)
+    for model, group in by_model.items():
+        model.objects.bulk_update(group, [field], batch_size=500)
+
+
+def plan_port_names(fc):
+    """Propose write-once names for a FiberCable's provisioned ports.
+
+    Names are rebuilt within the EXISTING rear-port structure: each rear
+    port is named for the one container (ribbon, else tube) shared by every
+    strand mapped to it, falling back to the bare cable pk when its strands
+    span containers (e.g. a legacy tube-grouped ribbon cable, or an adopted
+    panel port covering the whole cable). Front ports always get the
+    absolute-number name.
+
+    Returns ``(renames, problems)``: ``renames`` is ``[(port, new_name)]``
+    limited to ports whose name actually changes, and ``problems`` lists
+    human-readable collision descriptions. Callers must not apply a plan
+    that carries problems -- names are unique per device, so a partial
+    rename would strand the cable between schemes.
+    """
+    from dcim.models import FrontPort, RearPort
+
+    from .signals import _cable_strand_ports, _rear_port_strand_groups
+
+    strand_by_fp_id, pms = _cable_strand_ports(fc)
+    cable_id = fc.cable_id
+    ordinals = ribbon_ordinals(strand_by_fp_id.values())
+
+    proposed = {}  # port -> new name
+    seen_fp_ids = set()
+    for pm in pms:
+        if pm.front_port_id in seen_fp_ids:
+            continue
+        seen_fp_ids.add(pm.front_port_id)
+        strand = strand_by_fp_id[pm.front_port_id]
+        proposed[pm.front_port] = naming.front_port_name(cable_id, strand.position)
+
+    for rp, rp_strands in _rear_port_strand_groups(strand_by_fp_id, pms):
+        proposed[rp] = rear_name_for_group(cable_id, rp_strands, ordinals)
+
+    renames = [(port, name) for port, name in proposed.items() if port.name != name]
+
+    problems = []
+    for model in (FrontPort, RearPort):
+        planned = [(port, name) for port, name in renames if isinstance(port, model)]
+        by_device = {}
+        for port, name in planned:
+            key = (port.device_id, name)
+            if key in by_device:
+                problems.append(f"{model.__name__} name {name!r} proposed for two ports on device {port.device}")
+            by_device[key] = port
+        # A proposed name matching the current name of a DIFFERENT port in the
+        # plan is also refused: the end state would be consistent, but the
+        # non-deferrable unique constraint can reject the swap mid-update.
+        current = {(port.device_id, port.name): port.pk for port, _ in planned}
+        renamed_ids = {port.pk for port, _ in planned}
+        for (device_id, name), port in by_device.items():
+            if current.get((device_id, name), port.pk) != port.pk:
+                problems.append(f"{model.__name__} {name!r} is still held by another port being renamed")
+                continue
+            holder = model.objects.filter(device_id=device_id, name=name).exclude(pk__in=renamed_ids).first()
+            if holder is not None:
+                problems.append(
+                    f"{model.__name__} {name!r} would collide with existing port {holder.pk} on {holder.device}"
+                )
+
+    return renames, problems
+
+
+def apply_port_names(renames):
+    """Persist a collision-free rename plan."""
+    for port, name in renames:
+        port.name = name
+    bulk_update_port_field([port for port, _name in renames], "name")
 
 
 @transaction.atomic
@@ -327,16 +465,29 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                 if fp_id:
                     setattr(strand, fk_field, FrontPort.objects.get(pk=fp_id))
                     strand.save(update_fields=[fk_field])
+            # One-shot naming: converge the adopted ports on the write-once
+            # scheme now, because no ongoing sync will ever rename them later.
+            renames, problems = plan_port_names(fc)
+            if problems:
+                warnings.append(
+                    "Adopted port names left unchanged; generated names would collide: " + "; ".join(problems)
+                )
+            else:
+                apply_port_names(renames)
         else:
             # Greenfield path: create ports, then terminate the cable on them.
-            # connector/positions enable profile-based tracing.
-            for tube, rp, fiber_count in _provision_device_ports(fc, device, port_type, fk_field):
+            # connector/positions enable profile-based tracing: connectors are
+            # numbered over the provisioned groups (tubes or ribbons) in fiber
+            # order, matching the profile derived by get_cable_profile().
+            for connector, (_container, rp, fiber_count) in enumerate(
+                _provision_device_ports(fc, device, port_type, fk_field), start=1
+            ):
                 CableTermination.objects.create(
                     cable=cable,
                     cable_end=cable_end if cable_end != "AB" else "A",
                     termination_type=rp_ct,
                     termination_id=rp.pk,
-                    connector=tube.position if tube is not None else 1,
+                    connector=connector,
                     positions=list(range(1, fiber_count + 1)),
                 )
 

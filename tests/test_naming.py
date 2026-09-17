@@ -18,6 +18,30 @@ class Stub:
         self.__dict__.update(kwargs)
 
 
+class TestNameGrammar(SimpleTestCase):
+    """Write-once port names: cable pk plus absolute fiber number.
+
+    The grammar has exactly one home; every producer of generated port
+    names (provisioning, conversion, sample data) must call these helpers.
+    """
+
+    def test_front_port_name_is_pk_and_absolute_position(self):
+        assert naming.front_port_name(1043, 25) == "1043:F25"
+
+    def test_rear_port_name_for_buffer_tube(self):
+        assert naming.rear_port_name(1043, tube=3) == "1043:T3"
+
+    def test_rear_port_name_for_ribbon(self):
+        assert naming.rear_port_name(1043, ribbon=2) == "1043:R2"
+
+    def test_rear_port_name_bare_for_containerless_cable(self):
+        assert naming.rear_port_name(1043) == "1043"
+
+    def test_ribbon_wins_over_tube(self):
+        """A ribbon inside a tube is the splice unit; its rear port is R, not T."""
+        assert naming.rear_port_name(7, tube=1, ribbon=4) == "7:R4"
+
+
 class TestDefaults(SimpleTestCase):
     """The built-in defaults must carry the readable port identity."""
 
@@ -70,12 +94,21 @@ class TestDefaults(SimpleTestCase):
         assert naming.render(naming.FRONT_PORT_LABEL, self.compiled, ctx) == "NC / T2 / F13"
 
     def test_rear_label_tubed(self):
-        ctx = {"cable": "CL", "tube_name": "T3", "tube_color": "Green"}
+        ctx = {"cable": "CL", "tube_name": "T3", "tube_color": "Green", "ribbon_name": None}
         assert naming.render(naming.REAR_PORT_LABEL, self.compiled, ctx) == "CL / T3 (Green)"
 
     def test_rear_label_tubeless(self):
-        ctx = {"cable": "CL", "tube_name": None, "tube_color": None}
+        ctx = {"cable": "CL", "tube_name": None, "tube_color": None, "ribbon_name": None}
         assert naming.render(naming.REAR_PORT_LABEL, self.compiled, ctx) == "CL"
+
+    def test_rear_label_ribbon(self):
+        """A rear port can now cover a ribbon; its label must say which one."""
+        ctx = {"cable": "CL", "tube_name": None, "tube_color": None, "ribbon_name": "R2"}
+        assert naming.render(naming.REAR_PORT_LABEL, self.compiled, ctx) == "CL / R2"
+
+    def test_rear_label_ribbon_in_tube(self):
+        ctx = {"cable": "CL", "tube_name": "T1", "tube_color": "Blue", "ribbon_name": "R1"}
+        assert naming.render(naming.REAR_PORT_LABEL, self.compiled, ctx) == "CL / T1 (Blue) / R1"
 
     def test_defaults_pass_their_own_validation(self):
         """The shipped defaults must survive the validator they are checked by."""
@@ -270,19 +303,32 @@ class TestPortContext(SimpleTestCase):
         assert ctx["ribbon"] is None
         assert ctx["strand"] is None
 
+    def test_explicit_ribbon_feeds_rear_context(self):
+        """Rear-port callers have a ribbon but no strand to derive it from."""
+        ctx = naming.port_context(
+            cable=None,
+            cable_type="ACME 144F",
+            device=Stub(name="FOSC-1"),
+            end="A",
+            color_scheme="eia_598",
+            ribbon=Stub(position=2, name="R2", color="ff8000"),
+        )
+        assert ctx["ribbon_name"] == "R2"
+        assert ctx["ribbon_color"] == "Orange"
+        assert ctx["strand"] is None
+
 
 class LabelFixtureMixin:
     """Closure pair plus a builder for provisioned FiberCables."""
 
     @classmethod
     def setUpTestData(cls):
-        from dcim.models import Device
+        from tests.conftest import make_closure_pair
 
-        from tests.conftest import make_infra
-
-        site, cls.mfr, dt, role = make_infra("Label")
-        cls.dev_a = Device.objects.create(name="LBL-A", site=site, device_type=dt, role=role)
-        cls.dev_b = Device.objects.create(name="LBL-B", site=site, device_type=dt, role=role)
+        pair = make_closure_pair("LBL")
+        cls.mfr = pair.mfr
+        cls.dev_a = pair.dev_a
+        cls.dev_b = pair.dev_b
 
     def _build(self, label, *, construction="loose_tube", tube=True, ribbon=False, strand_count=2):
         from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate

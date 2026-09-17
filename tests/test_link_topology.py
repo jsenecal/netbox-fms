@@ -2,6 +2,7 @@ import pytest
 from dcim.models import Cable, CableTermination, Device, DeviceRole, DeviceType, Manufacturer, RearPort, Site
 
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
+from tests.conftest import make_central_core_type, make_ribbon_in_tube_type
 
 
 @pytest.mark.django_db
@@ -136,27 +137,37 @@ class TestGetCableProfile:
 
     def test_ribbon_in_tube_4x12(self):
         mfr = Manufacturer.objects.create(name="RIT2-Mfr", slug="rit2-mfr")
+        fct = make_ribbon_in_tube_type(mfr, "RIT-48F", tubes=4, ribbons_per_tube=1)
+        assert fct.get_cable_profile() == "trunk-4c12p"
+
+    def test_central_core_ribbon_counts_ribbons(self):
+        """Rear ports are provisioned per ribbon, so the profile follows the ribbons."""
+        mfr = Manufacturer.objects.create(name="CCR-Mfr", slug="ccr-mfr")
+        fct = make_central_core_type(mfr, "CCR-24F", ribbons=2)
+        assert fct.get_cable_profile() == "trunk-2c12p"
+
+    def test_ribbon_in_tube_counts_ribbons_not_tubes(self):
+        """12 tubes x 2 ribbons x 12F terminates on 24 ribbon rear ports."""
+        mfr = Manufacturer.objects.create(name="RCT-Mfr", slug="rct-mfr")
+        fct = make_ribbon_in_tube_type(mfr, "RCT-288F", tubes=12, ribbons_per_tube=2)
+        assert fct.get_cable_profile() == "trunk-24c12p"
+
+    def test_single_ribbon_uses_single_profile(self):
+        mfr = Manufacturer.objects.create(name="SR-Mfr", slug="sr-mfr")
+        fct = make_central_core_type(mfr, "SR-12F", ribbons=1)
+        assert fct.get_cable_profile() == "single-1c12p"
+
+    def test_mixed_ribbon_sizes_have_no_profile(self):
+        mfr = Manufacturer.objects.create(name="MRS-Mfr", slug="mrs-mfr")
         fct = FiberCableType.objects.create(
             manufacturer=mfr,
-            model="RIT-48F",
-            strand_count=48,
-            construction="ribbon_in_tube",
+            model="MRS-36F",
+            strand_count=36,
+            construction="ribbon",
         )
-        for i in range(1, 5):
-            btt = BufferTubeTemplate.objects.create(
-                fiber_cable_type=fct,
-                name=f"T{i}",
-                position=i,
-                fiber_count=None,
-            )
-            RibbonTemplate.objects.create(
-                fiber_cable_type=fct,
-                buffer_tube_template=btt,
-                name=f"R{i}",
-                position=1,
-                fiber_count=12,
-            )
-        assert fct.get_cable_profile() == "trunk-4c12p"
+        RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=12)
+        RibbonTemplate.objects.create(fiber_cable_type=fct, name="R2", position=2, fiber_count=24)
+        assert fct.get_cable_profile() is None
 
     def test_mixed_tube_sizes(self):
         mfr = Manufacturer.objects.create(name="MX-Mfr", slug="mx-mfr")
@@ -370,6 +381,51 @@ class TestLinkCableTopologyAdopt:
         assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
 
         assert RearPort.objects.filter(device=device).count() == 1  # no new RearPorts
+
+    def test_adopted_ports_converge_to_generated_names(self):
+        """Adoption applies the write-once naming once, at link time (issue #153).
+
+        There is no ongoing rename-on-cable-save sync any more, so this
+        one-shot pass is what brings foreign port names into the scheme.
+        """
+        from dcim.models import FrontPort
+
+        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
+
+        fp_names = set(FrontPort.objects.filter(device=device).values_list("name", flat=True))
+        assert fp_names == {f"{cable.pk}:F{i}" for i in range(1, 13)}
+        rp = RearPort.objects.get(device=device)
+        assert rp.name == str(cable.pk)  # tight buffer: bare pk
+        assert warnings == []
+
+    def test_adopted_rename_skipped_on_collision(self):
+        """A port already holding a target name blocks the pass; adoption still succeeds."""
+        from dcim.models import FrontPort
+
+        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        FrontPort.objects.create(device=device, name=f"{cable.pk}:F3", type="splice")
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
+
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
+        assert any("collide" in w.lower() or "collision" in w.lower() for w in warnings), warnings
+        fps[0].refresh_from_db()
+        assert fps[0].name == "EF1"  # nothing was half-renamed
+
+    def test_adopted_tubed_ports_get_tube_rear_names(self):
+        from dcim.models import FrontPort
+
+        device, cable, fct, fps = self._make_closure_with_multiple_rearports()
+        mapping = {pos: fps[pos - 1].pk for pos in range(1, 49)}
+        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
+
+        rp_names = set(RearPort.objects.filter(device=device).values_list("name", flat=True))
+        assert rp_names == {f"{cable.pk}:T{t}" for t in range(1, 5)}
+        fp_names = set(FrontPort.objects.filter(device=device).values_list("name", flat=True))
+        assert fp_names == {f"{cable.pk}:F{i}" for i in range(1, 49)}
 
     def test_count_mismatch_has_warning(self):
         device, cable, fct, fps = self._make_closure_with_existing_ports()

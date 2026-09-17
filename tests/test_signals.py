@@ -21,7 +21,7 @@ from django.test import TransactionTestCase
 
 from netbox_fms.models import FiberCable, FiberCableType, SplicePlan
 from netbox_fms.signals import fms_portmapping_bypass
-from tests.conftest import make_front_port
+from tests.conftest import make_front_port, make_infra
 
 
 class TestDiffCacheInvalidation(TransactionTestCase):
@@ -228,185 +228,90 @@ class TestPortMappingProtection(TransactionTestCase):
 
 
 class TestPortNaming(TransactionTestCase):
-    """Test that FMS-provisioned ports use Cable display label."""
+    """FMS-provisioned ports carry pk-based, absolute-number names."""
 
     def setUp(self):
-        site = Site.objects.create(name="PN Site", slug="pn-site")
-        self.mfr = Manufacturer.objects.create(name="PN Mfr", slug="pn-mfr")
-        dt = DeviceType.objects.create(manufacturer=self.mfr, model="PN Closure", slug="pn-closure")
-        role = DeviceRole.objects.create(name="PN Role", slug="pn-role")
+        site, self.mfr, dt, role = make_infra("PN")
         self.device = Device.objects.create(name="PN-Device", site=site, device_type=dt, role=role)
 
-    def test_tubed_provisioning_uses_cable_label(self):
+    def test_tubed_provisioning_uses_pk_and_absolute_numbers(self):
         from netbox_fms.models import BufferTubeTemplate, FiberCableType
         from netbox_fms.services import link_cable_topology
 
-        fct = FiberCableType.objects.create(model="PN-FCT", manufacturer=self.mfr, strand_count=2)
-        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
+        fct = FiberCableType.objects.create(model="PN-FCT", manufacturer=self.mfr, strand_count=4)
+        for i in (1, 2):
+            BufferTubeTemplate.objects.create(fiber_cable_type=fct, name=f"T{i}", position=i, fiber_count=2)
         cable = Cable.objects.create(label="CO-Downtown")
 
-        fc, _ = link_cable_topology(cable, fct, self.device)
+        link_cable_topology(cable, fct, self.device)
 
-        rp = RearPort.objects.filter(device=self.device).first()
-        assert rp.name == "CO-Downtown:T1", f"Got: {rp.name}"
+        rp_names = set(RearPort.objects.filter(device=self.device).values_list("name", flat=True))
+        assert rp_names == {f"{cable.pk}:T1", f"{cable.pk}:T2"}
+        # Front ports number fibers absolutely across the cable, never per tube.
+        fp_names = set(FrontPort.objects.filter(device=self.device).values_list("name", flat=True))
+        assert fp_names == {f"{cable.pk}:F{n}" for n in (1, 2, 3, 4)}
 
-        fp = FrontPort.objects.filter(device=self.device).first()
-        assert fp.name.startswith("CO-Downtown:T1:F"), f"Got: {fp.name}"
-
-    def test_no_tube_provisioning_uses_cable_label(self):
+    def test_no_tube_provisioning_uses_bare_pk_rear_port(self):
         from netbox_fms.models import FiberCableType
         from netbox_fms.services import link_cable_topology
 
         fct = FiberCableType.objects.create(model="PN-FCT2", manufacturer=self.mfr, strand_count=2)
         cable = Cable.objects.create(label="CO-East")
 
-        fc, _ = link_cable_topology(cable, fct, self.device)
+        link_cable_topology(cable, fct, self.device)
 
         rp = RearPort.objects.filter(device=self.device).first()
-        assert rp.name == "CO-East", f"Got: {rp.name}"
+        assert rp.name == str(cable.pk), f"Got: {rp.name}"
 
-        fp = FrontPort.objects.filter(device=self.device).first()
-        assert fp.name.startswith("CO-East:F"), f"Got: {fp.name}"
+        fp_names = set(FrontPort.objects.filter(device=self.device).values_list("name", flat=True))
+        assert fp_names == {f"{cable.pk}:F1", f"{cable.pk}:F2"}
 
-    def test_no_label_falls_back_to_pk(self):
+    def test_unlabeled_cable_gets_the_same_names(self):
+        """The name never embeds the display label, so its absence changes nothing."""
         from netbox_fms.models import FiberCableType
         from netbox_fms.services import link_cable_topology
 
         fct = FiberCableType.objects.create(model="PN-FCT3", manufacturer=self.mfr, strand_count=1)
         cable = Cable.objects.create()
 
-        fc, _ = link_cable_topology(cable, fct, self.device)
+        link_cable_topology(cable, fct, self.device)
 
         rp = RearPort.objects.filter(device=self.device).first()
-        assert rp.name == f"#{cable.pk}", f"Got: {rp.name}"
+        assert rp.name == str(cable.pk), f"Got: {rp.name}"
 
 
-class TestPortNameSync(TransactionTestCase):
-    """Test that port names stay in sync with Cable label changes."""
+class TestPortNamesWriteOnce(TransactionTestCase):
+    """pk-based names are write-once: a cable relabel never renames ports."""
 
     def setUp(self):
-        site = Site.objects.create(name="NS Site", slug="ns-site")
-        self.mfr = Manufacturer.objects.create(name="NS Mfr", slug="ns-mfr")
-        dt = DeviceType.objects.create(manufacturer=self.mfr, model="NS Closure", slug="ns-closure")
-        role = DeviceRole.objects.create(name="NS Role", slug="ns-role")
+        site, self.mfr, dt, role = make_infra("NS")
         self.device = Device.objects.create(name="NS-Device", site=site, device_type=dt, role=role)
 
-    def test_cable_rename_updates_rearport(self):
-        from netbox_fms.models import FiberCableType
+    def test_cable_relabel_changes_labels_not_names(self):
+        from netbox_fms.models import BufferTubeTemplate, FiberCableType
         from netbox_fms.services import link_cable_topology
 
         fct = FiberCableType.objects.create(model="NS-FCT", manufacturer=self.mfr, strand_count=2)
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
         cable = Cable.objects.create(label="Old Label")
-        fc, _ = link_cable_topology(cable, fct, self.device)
+        link_cable_topology(cable, fct, self.device)
 
-        rp = RearPort.objects.filter(device=self.device).first()
-        assert rp.name == "Old Label"
+        names_before = {
+            (type(p).__name__, p.pk): p.name
+            for model in (RearPort, FrontPort)
+            for p in model.objects.filter(device=self.device)
+        }
 
         cable.label = "New Label"
         cable.save()
 
-        rp.refresh_from_db()
-        assert rp.name == "New Label", f"Got: {rp.name}"
+        names_after = {
+            (type(p).__name__, p.pk): p.name
+            for model in (RearPort, FrontPort)
+            for p in model.objects.filter(device=self.device)
+        }
+        assert names_after == names_before
 
-    def test_cable_rename_updates_frontports(self):
-        from netbox_fms.models import FiberCableType
-        from netbox_fms.services import link_cable_topology
-
-        fct = FiberCableType.objects.create(model="NS-FCT2", manufacturer=self.mfr, strand_count=2)
-        cable = Cable.objects.create(label="Original")
-        fc, _ = link_cable_topology(cable, fct, self.device)
-
-        cable.label = "Renamed"
-        cable.save()
-
-        fps = FrontPort.objects.filter(device=self.device).order_by("name")
-        for fp in fps:
-            assert fp.name.startswith("Renamed:F"), f"Got: {fp.name}"
-
-    def test_cable_rename_updates_tubed_ports(self):
-        from netbox_fms.models import BufferTubeTemplate, FiberCableType
-        from netbox_fms.services import link_cable_topology
-
-        fct = FiberCableType.objects.create(model="NS-FCT3", manufacturer=self.mfr, strand_count=2)
-        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name="T1", position=1, fiber_count=2)
-        cable = Cable.objects.create(label="Tubed-Old")
-        fc, _ = link_cable_topology(cable, fct, self.device)
-
-        cable.label = "Tubed-New"
-        cable.save()
-
+        # The display layer still follows the relabel.
         rp = RearPort.objects.filter(device=self.device).first()
-        assert rp.name == "Tubed-New:T1", f"Got: {rp.name}"
-
-        fps = FrontPort.objects.filter(device=self.device).order_by("name")
-        for fp in fps:
-            assert fp.name.startswith("Tubed-New:T1:F"), f"Got: {fp.name}"
-
-    def test_rename_idempotent(self):
-        from netbox_fms.models import FiberCableType
-        from netbox_fms.services import link_cable_topology
-
-        fct = FiberCableType.objects.create(model="NS-FCT4", manufacturer=self.mfr, strand_count=1)
-        cable = Cable.objects.create(label="Same")
-        fc, _ = link_cable_topology(cable, fct, self.device)
-
-        rp = RearPort.objects.filter(device=self.device).first()
-        old_name = rp.name
-
-        cable.save()  # No label change
-
-        rp.refresh_from_db()
-        assert rp.name == old_name
-
-
-class TestFiberCableLinkNameSync(TransactionTestCase):
-    """Test that linking a FiberCable to a Cable triggers port rename."""
-
-    def setUp(self):
-        site = Site.objects.create(name="FL Site", slug="fl-site")
-        self.mfr = Manufacturer.objects.create(name="FL Mfr", slug="fl-mfr")
-        dt = DeviceType.objects.create(manufacturer=self.mfr, model="FL Closure", slug="fl-closure")
-        role = DeviceRole.objects.create(name="FL Role", slug="fl-role")
-        self.device = Device.objects.create(name="FL-Device", site=site, device_type=dt, role=role)
-
-    def test_fibercable_save_triggers_rename(self):
-        from netbox_fms.models import FiberCable, FiberCableType
-        from netbox_fms.signals import fms_portmapping_bypass
-
-        fct = FiberCableType.objects.create(model="FL-FCT", manufacturer=self.mfr, strand_count=1)
-        cable = Cable.objects.create(label="Before Link")
-
-        # Manually create ports with old names to simulate pre-existing state
-        rp = RearPort.objects.create(device=self.device, name="old-name", type="splice", positions=1)
-        rp_ct = ContentType.objects.get_for_model(RearPort)
-        CableTermination.objects.create(
-            cable=cable,
-            cable_end="A",
-            termination_type=rp_ct,
-            termination_id=rp.pk,
-            connector=1,
-        )
-        fp = FrontPort.objects.create(device=self.device, name="old-fp", type="splice")
-        with fms_portmapping_bypass():
-            PortMapping.objects.create(
-                device=self.device,
-                front_port=fp,
-                rear_port=rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
-
-        # Create FiberCable with a strand linked to the FrontPort
-        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        # Link the strand to the FrontPort so _rename_ports_for_cable can discover it
-        strand = fc.fiber_strands.first()
-        if strand:
-            strand.front_port_b = fp
-            strand.save(update_fields=["front_port_b"])
-            # Re-save FiberCable to trigger the signal now that strand linkage exists
-            fc.save()
-
-        rp.refresh_from_db()
-        assert rp.name == "Before Link", f"Got: {rp.name}"
-        fp.refresh_from_db()
-        assert fp.name == "Before Link:F1", f"Got: {fp.name}"
+        assert "New Label" in rp.label

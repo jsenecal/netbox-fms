@@ -104,9 +104,9 @@ def _cable_strand_ports(fc):
 
     Walks FiberCable -> FiberStrand -> FrontPort -> PortMapping (the rear
     ports hang off the mappings), avoiding dependency on CableTerminations
-    which may be rebuilt during Cable.save(). Shared by the name-rename and
-    label-rerender paths so the two cannot drift apart on which ports count
-    as FMS-provisioned.
+    which may be rebuilt during Cable.save(). Shared by the label-rerender
+    path and the name planners (adoption one-shot, convert_port_names) so
+    they cannot drift apart on which ports count as FMS-provisioned.
 
     Returns ``(strand_by_fp_id, pms)``: the strand backing each FrontPort id
     (with buffer_tube and ribbon preloaded), and the PortMapping list (with
@@ -131,74 +131,22 @@ def _cable_strand_ports(fc):
     return strand_by_fp_id, pms
 
 
-def _rename_ports_for_cable(cable):
-    """Rebuild RearPort/FrontPort names from structural data for a cable."""
-    from dcim.models import FrontPort, RearPort
+def _rear_port_strand_groups(strand_by_fp_id, pms):
+    """Yield ``(rear_port, strands)`` once per rear port, in mapping order.
 
-    from .models import FiberCable
-
-    try:
-        fc = FiberCable.objects.get(cable=cable)
-    except FiberCable.DoesNotExist:
-        return
-
-    label = str(cable)
-
-    strand_by_fp_id, pms = _cable_strand_ports(fc)
-    if not pms:
-        return
-
-    rp_set = {pm.rear_port_id for pm in pms}
-    rps = {rp.pk: rp for rp in RearPort.objects.filter(pk__in=rp_set)}
-
-    # Detect tubed vs non-tubed based on whether the FiberCable has buffer tubes
-    is_tubed = fc.buffer_tubes.exists()
-
-    # Build tube position mapping from the strands already discovered (the
-    # label-rerender path answers the same question from the same map)
-    tube_positions = {}  # rp_id -> tube_position
-    if is_tubed:
-        for pm in pms:
-            if pm.rear_port_id in tube_positions:
-                continue
-            strand = strand_by_fp_id.get(pm.front_port_id)
-            if strand and strand.buffer_tube:
-                tube_positions[pm.rear_port_id] = strand.buffer_tube.position
-
-    rps_to_update = []
-    fps_to_update = []
-
-    for rp_id, rp in rps.items():
-        tube_pos = tube_positions.get(rp_id)
-
-        if is_tubed and tube_pos:
-            new_name = f"{label}:T{tube_pos}"
-        else:
-            new_name = label
-        new_name = new_name[:64]
-
-        if rp.name != new_name:
-            rp.name = new_name
-            rps_to_update.append(rp)
-
-        for pm in pms:
-            if pm.rear_port_id != rp_id:
-                continue
-            fp = pm.front_port
-            if is_tubed and tube_pos:
-                fp_new = f"{label}:T{tube_pos}:F{pm.rear_port_position}"
-            else:
-                fp_new = f"{label}:F{pm.rear_port_position}"
-            fp_new = fp_new[:64]
-
-            if fp.name != fp_new:
-                fp.name = fp_new
-                fps_to_update.append(fp)
-
-    if rps_to_update:
-        RearPort.objects.bulk_update(rps_to_update, ["name"])
-    if fps_to_update:
-        FrontPort.objects.bulk_update(fps_to_update, ["name"])
+    The shared consumption of :func:`_cable_strand_ports` output for
+    per-rear-port decisions -- naming (services.plan_port_names) and
+    labeling (label re-render) must group the same way or drift.
+    """
+    strands_by_rp = {}
+    order = []
+    for pm in pms:
+        if pm.rear_port_id not in strands_by_rp:
+            strands_by_rp[pm.rear_port_id] = []
+            order.append(pm.rear_port)
+        strands_by_rp[pm.rear_port_id].append(strand_by_fp_id[pm.front_port_id])
+    for rp in order:
+        yield rp, strands_by_rp[rp.pk]
 
 
 def _render_cable_port_labels(fc):
@@ -231,7 +179,7 @@ def _render_cable_port_labels(fc):
             end_by_device_id[device.pk] = _determine_cable_end(cable, device)
         return end_by_device_id[device.pk]
 
-    def _ctx(device, tube=None, strand=None):
+    def _ctx(device, tube=None, strand=None, ribbon=None):
         return naming.port_context(
             cable=cable,
             cable_type=fct,
@@ -240,26 +188,32 @@ def _render_cable_port_labels(fc):
             color_scheme=fct.color_scheme,
             tube=tube,
             strand=strand,
+            ribbon=ribbon,
         )
 
+    from .services import shared_ribbon
+
     proposed = {}
-    seen_rp_ids = set()
     for pm in pms:
         strand = strand_by_fp_id[pm.front_port_id]
-        tube = strand.buffer_tube
         fp = pm.front_port
-        label = naming.render(naming.FRONT_PORT_LABEL, compiled, _ctx(fp.device, tube=tube, strand=strand))
+        label = naming.render(
+            naming.FRONT_PORT_LABEL, compiled, _ctx(fp.device, tube=strand.buffer_tube, strand=strand)
+        )
         if label is not None:
             proposed[fp] = label
 
-        # Every FrontPort mapped to one RearPort belongs to the same buffer
-        # tube by construction, so the first mapping supplies the tube.
-        if pm.rear_port_id not in seen_rp_ids:
-            seen_rp_ids.add(pm.rear_port_id)
-            rp = pm.rear_port
-            label = naming.render(naming.REAR_PORT_LABEL, compiled, _ctx(rp.device, tube=tube))
-            if label is not None:
-                proposed[rp] = label
+    for rp, rp_strands in _rear_port_strand_groups(strand_by_fp_id, pms):
+        # Every strand mapped to one rear port shares its buffer tube by
+        # construction, so the first strand supplies the tube; the ribbon
+        # only renders when the whole group shares it (services.shared_ribbon).
+        label = naming.render(
+            naming.REAR_PORT_LABEL,
+            compiled,
+            _ctx(rp.device, tube=rp_strands[0].buffer_tube, ribbon=shared_ribbon(rp_strands)),
+        )
+        if label is not None:
+            proposed[rp] = label
     return proposed
 
 
@@ -274,12 +228,10 @@ def _stage_label_changes(proposed):
 
 
 def _write_label_changes(staged):
-    """Persist staged label changes, grouped per port model."""
-    by_model = {}
-    for port, _old_label in staged:
-        by_model.setdefault(type(port), []).append(port)
-    for model, ports in by_model.items():
-        model.objects.bulk_update(ports, ["label"], batch_size=500)
+    """Persist staged label changes."""
+    from .services import bulk_update_port_field
+
+    bulk_update_port_field([port for port, _old_label in staged], "label")
 
 
 def _relabel_ports_for_cable(cable):
@@ -306,9 +258,13 @@ def _relabel_ports_for_cable(cable):
 
 
 def _cable_post_save(sender, instance, **kwargs):
-    """Invalidate splice plan diff cache and sync port names and labels on cable save."""
+    """Invalidate splice plan diff cache and re-render port labels on cable save.
+
+    Port NAMES are deliberately not touched: they are write-once pk-based
+    identifiers, so nothing about a cable save can require a rename. Only
+    the labels -- the mutable display layer -- follow the cable.
+    """
     _invalidate_plans_for_cable(instance)
-    _rename_ports_for_cable(instance)
     _relabel_ports_for_cable(instance)
 
 
@@ -318,9 +274,8 @@ def _cable_pre_delete(sender, instance, **kwargs):
 
 
 def _fibercable_post_save(sender, instance, **kwargs):
-    """Sync port names and labels when a FiberCable is linked to a Cable."""
+    """Re-render port labels when a FiberCable is linked to a Cable."""
     if instance.cable_id:
-        _rename_ports_for_cable(instance.cable)
         _relabel_ports_for_cable(instance.cable)
 
 

@@ -2,17 +2,17 @@
 
 NetBox FMS generates the `label` of every FrontPort and RearPort it
 provisions from Jinja2 templates. The label is the human-readable display
-layer for FMS-managed ports: generated port names are machine-facing
-identifiers, so the label carries the identity a technician needs -- the
-cable, the tube or ribbon, the strand color, and the absolute cable-wide
-fiber number.
+layer for FMS-managed ports: generated port names are opaque, write-once
+`{cable.id}`-based identifiers (see [Port Naming](port-naming.md)), so the
+label carries the identity a technician needs -- the cable, the tube or
+ribbon, the strand color, and the absolute cable-wide fiber number.
 
 Two templates control this:
 
 | Template | Controls |
 |----------|----------|
 | `front_port_label_template` | FrontPort `label` (one per strand) |
-| `rear_port_label_template` | RearPort `label` (one per container: buffer tube, or the whole cable) |
+| `rear_port_label_template` | RearPort `label` (one per container: buffer tube, ribbon, or the whole cable) |
 
 ## Resolution order
 
@@ -52,6 +52,7 @@ front_port_label_template =
 rear_port_label_template =
     {{ cable }}
     {% if tube_name %} / {{ tube_name }}{% if tube_color %} ({{ tube_color }}){% endif %}{% endif %}
+    {% if ribbon_name %} / {{ ribbon_name }}{% endif %}
 ```
 
 (The line breaks above are for readability; the shipped defaults are single
@@ -60,15 +61,16 @@ strings.) Rendered examples:
 | Construction | FrontPort label | RearPort label |
 |--------------|-----------------|----------------|
 | Loose tube | `CL-01 / T1 (Blue) / Slate / F25` | `CL-01 / T1 (Blue)` |
-| Central-core ribbon | `CL-01 / R1 / Blue / F1` | `CL-01` |
+| Ribbon-in-tube | `CL-01 / T1 (Blue) / T1-R1 / Blue / F1` | `CL-01 / T1 (Blue) / T1-R1` |
+| Central-core ribbon | `CL-01 / R1 / Blue / F1` | `CL-01 / R1` |
 | Tight buffer | `CL-01 / Orange / F2` | `CL-01` |
 
 ## Token reference
 
 Each target only sees a subset of tokens -- a RearPort covers a whole
-container and has no single strand, so ribbon and strand tokens are not
-available to rear-port templates. Referencing a token that is not available
-to a target fails validation and rendering.
+container and has no single strand, so strand tokens are not available to
+rear-port templates. Referencing a token that is not available to a target
+fails validation and rendering.
 
 | Token | Front | Rear | Meaning |
 |-------|:-----:|:----:|---------|
@@ -79,9 +81,9 @@ to a target fails validation and rendering.
 | `tube_name` | yes | yes | The BufferTube's `name`, or `None`. |
 | `tube_color` | yes | yes | The tube color resolved to a palette name under the cable type's color scheme (raw hex if off-palette), or `None`. |
 | `tube_color_hex` | yes | yes | The tube's raw hex color, or `None`. |
-| `ribbon` | yes | -- | The Ribbon's `position`, or `None` outside ribbon constructions. |
-| `ribbon_name` | yes | -- | The Ribbon's `name`, or `None`. |
-| `ribbon_color` / `ribbon_color_hex` | yes | -- | Same pattern as the tube colors, for the Ribbon. |
+| `ribbon` | yes | yes | The Ribbon's `position`, or `None` outside ribbon constructions. |
+| `ribbon_name` | yes | yes | The Ribbon's `name`, or `None`. |
+| `ribbon_color` / `ribbon_color_hex` | yes | yes | Same pattern as the tube colors, for the Ribbon. |
 | `strand` | yes | -- | The FiberStrand's **absolute, cable-wide** `position` -- the industry fiber number. |
 | `strand_color` / `strand_color_hex` | yes | -- | Resolved color name / raw hex of the strand. |
 | `device` | yes | yes | The port's device name. |

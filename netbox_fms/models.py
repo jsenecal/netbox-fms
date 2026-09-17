@@ -267,8 +267,12 @@ class FiberCableType(NetBoxModel):
     def get_cable_profile(self):
         """Derive the cable profile key from template topology.
 
-        Checks both built-in NetBox profiles (CableProfileChoices) and custom
-        fiber profiles registered via monkey-patch (FIBER_CABLE_PROFILES).
+        The profile mirrors the rear-port structure the provisioning
+        services create: one connector per RIBBON for ribbon constructions
+        (ribbon-in-tube and central-core alike), else one per buffer tube,
+        else a single connector spanning every strand. Checks both built-in
+        NetBox profiles (CableProfileChoices) and custom fiber profiles
+        registered via monkey-patch (FIBER_CABLE_PROFILES).
         """
         from dcim.choices import CableProfileChoices
 
@@ -278,6 +282,15 @@ class FiberCableType(NetBoxModel):
             for choice in group[1]:
                 if isinstance(choice, (list, tuple)):
                     valid.add(choice[0])
+
+        ribbons = list(self.ribbon_templates.all())
+        if ribbons:
+            fiber_counts = {rt.fiber_count for rt in ribbons}
+            if len(fiber_counts) != 1:
+                return None
+            fibers = next(iter(fiber_counts))
+            key = f"single-1c{fibers}p" if len(ribbons) == 1 else f"trunk-{len(ribbons)}c{fibers}p"
+            return key if key in valid else None
 
         tubes = list(self.buffer_tube_templates.all())
         if not tubes:
