@@ -86,6 +86,8 @@ fails validation and rendering.
 | `ribbon_color` / `ribbon_color_hex` | yes | yes | Same pattern as the tube colors, for the Ribbon. |
 | `strand` | yes | -- | The FiberStrand's **absolute, cable-wide** `position` -- the industry fiber number. |
 | `strand_color` / `strand_color_hex` | yes | -- | Resolved color name / raw hex of the strand. |
+| `tray` | yes | -- | The splice tray Module the strand's buffer tube is assigned to on this closure (its display name), or `None` when the tube is unassigned. |
+| `tray_position` | yes | -- | The TubeAssignment's `position` on that tray, or `None`. |
 | `device` | yes | yes | The port's device name. |
 | `end` | yes | yes | `"A"` or `"B"`, or `"AB"` for a cable that loops back onto one device. |
 
@@ -112,6 +114,10 @@ built-in defaults do.
 - **On cable save**: saving the linked `dcim.Cable` (for example after a
   relabel) re-renders the labels of all of that cable's FMS-provisioned
   ports, so labels track the cable's display name.
+- **On tube assignment changes**: assigning a buffer tube to a splice
+  tray (or deleting the assignment) re-renders the cable's labels -- but
+  only when a configured template actually references a tray token, so
+  tray-free templates (the defaults included) pay nothing.
 - **On demand**: the `rerender_port_labels` management command backfills
   labels on data provisioned before the engine existed, or after a
   template change:
@@ -126,6 +132,6 @@ python manage.py rerender_port_labels [--cable-type <pk-or-model>] [--dry-run] [
 
 - There are no per-FiberCableType template fields; templates are
   plugin-wide only.
-- Splice tray placement is not yet part of the label context: there is no
-  `{{ tray }}` token, and assigning a buffer tube to a tray does not
-  trigger a label re-render. This is a planned follow-up.
+- Tray tokens are front-port-only: tube assignments move front ports
+  onto trays, while rear ports stay at device level, so rear templates
+  have no tray to reference.

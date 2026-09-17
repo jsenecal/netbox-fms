@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Port label templates can reference the splice tray: new front-port
+  tokens `{{ tray }}` (the assigned tray module) and
+  `{{ tray_position }}` (the tube's position on it), resolved from the
+  tube's TubeAssignment on each closure. Assigning or unassigning a
+  tube re-renders the cable's labels when a configured template uses a
+  tray token; tray-free templates (the defaults included) skip the
+  re-render entirely. (#69)
+
 ### Fixed
 
 - `sync_tube_assignment_ports()` now refuses to park strand front ports
