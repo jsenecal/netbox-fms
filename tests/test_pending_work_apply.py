@@ -108,6 +108,24 @@ def test_apply_all_rolls_back_on_apply_error(client):
     assert Cable.objects.count() == 0
 
 
+@pytest.mark.django_db
+def test_pending_work_renders_unassigned_group_distinctly(client):
+    """The bucket-0 group renders as a warning, not a normal tray row (issue #164)."""
+    closure, plan, _fp1 = _build_closure_with_plan("PWUB")
+    tray = plan.entries.first().tray
+    fp3 = make_front_port(device=closure, module=tray, name="PWUB-F3")
+    loose = make_front_port(device=closure, name="PWUB-Loose")
+    SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fp3, fiber_b=loose)
+    _login_superuser(client, "pwub-admin")
+
+    response = client.get(f"/dcim/devices/{closure.pk}/pending-work/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Unassigned tubes" in content
+    assert "splices on tubes not assigned to any tray" in content
+
+
 @pytest.mark.django_db(transaction=True)
 def test_apply_all_approved_plans_in_autocommit(client):
     """Applying all approved plans must work outside a wrapping transaction.

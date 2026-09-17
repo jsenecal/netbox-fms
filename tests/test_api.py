@@ -1,6 +1,8 @@
 """API endpoint coverage tests for netbox_fms plugin."""
 
 from dcim.models import (
+    Cable,
+    CableTermination,
     Device,
     FrontPort,
     Module,
@@ -17,7 +19,7 @@ from netbox_fms.models import (
     SplicePlan,
     SplicePlanEntry,
 )
-from tests.conftest import make_infra
+from tests.conftest import make_closure_with_tray, make_front_port, make_infra
 
 
 def _make_authed_client():
@@ -261,6 +263,20 @@ class TestSplicePlanDiffAPI(TestCase):
         resp = self.client.get(url)
         assert resp.status_code == 200, resp.content
 
+    def test_diff_exposes_unassigned_bucket_as_key_zero(self):
+        """A splice on a device-level port shows up under the "0" key (issue #164)."""
+        rig = make_closure_with_tray("diffzero")
+        loose = make_front_port(rig.closure, "diffzero-loose")
+        plan = SplicePlan.objects.create(closure=rig.closure, name="Diff Zero Plan")
+        SplicePlanEntry.objects.create(plan=plan, tray=rig.tray, fiber_a=rig.ports[0], fiber_b=loose)
+
+        resp = self.client.get(f"/api/plugins/fms/splice-plans/{plan.pk}/diff/")
+        assert resp.status_code == 200, resp.content
+        data = resp.json()
+        pair = sorted([rig.ports[0].pk, loose.pk])
+        assert pair in data["0"]["add"]
+        assert pair in data[str(rig.tray.pk)]["add"]
+
 
 # ---------------------------------------------------------------------------
 # SplicePlan import-from-device action
@@ -285,6 +301,21 @@ class TestSplicePlanImportFromDeviceAPI(TestCase):
         assert resp.status_code == 200, resp.content
         data = resp.json()
         assert "imported" in data
+
+    def test_import_from_device_reports_skipped_unassigned(self):
+        """Live pairs on device-level ports are reported, not imported (issue #164)."""
+        loose_a = make_front_port(self.closure, "imp-loose-a")
+        loose_b = make_front_port(self.closure, "imp-loose-b")
+        cable = Cable.objects.create(length=0, length_unit="m")
+        CableTermination.objects.create(cable=cable, cable_end="A", termination=loose_a)
+        CableTermination.objects.create(cable=cable, cable_end="B", termination=loose_b)
+
+        url = f"/api/plugins/fms/splice-plans/{self.plan.pk}/import-from-device/"
+        resp = self.client.post(url, format="json")
+        assert resp.status_code == 200, resp.content
+        data = resp.json()
+        assert data["imported"] == 0
+        assert data["skipped_unassigned"] == 1
 
 
 # ---------------------------------------------------------------------------

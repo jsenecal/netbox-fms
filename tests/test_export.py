@@ -56,3 +56,12 @@ class TestDrawioExport(TestCase):
         SplicePlanEntry.objects.create(plan=plan, tray=self.tray, fiber_a=self.fp1, fiber_b=self.fp2)
         xml = generate_drawio(plan)
         assert "#00CC00" in xml or "green" in xml.lower() or "strokeColor=#00" in xml
+
+    def test_unassigned_bucket_gets_its_own_page(self):
+        """Splices on device-level ports render on an "Unassigned tubes" page (issue #164)."""
+        loose = make_front_port(self.closure, "F-Loose")
+        plan = SplicePlan.objects.create(closure=self.closure, name="Unassigned Plan")
+        SplicePlanEntry.objects.create(plan=plan, tray=self.tray, fiber_a=self.fp1, fiber_b=loose)
+        xml = generate_drawio(plan)
+        assert "Unassigned tubes" in xml
+        assert "F-Loose" in xml

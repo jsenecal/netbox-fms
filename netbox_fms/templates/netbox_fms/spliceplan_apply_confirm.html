@@ -37,11 +37,17 @@
 
     {# Per-tray diff tables #}
     {% for tray in diff %}
-    <div class="card mb-3">
-        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <div class="card mb-3{% if tray.is_unassigned %} border-warning{% endif %}">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center{% if tray.is_unassigned %} bg-warning bg-opacity-10{% endif %}">
             <span>
+                {% if tray.is_unassigned %}
+                <i class="mdi mdi-alert-outline text-warning"></i>
+                <strong>{{ tray.tray_name }}</strong>
+                <span class="text-muted small">{% trans "(splices on tubes not assigned to any tray)" %}</span>
+                {% else %}
                 <i class="mdi mdi-tray-full"></i>
                 <strong>{{ tray.tray_name }}</strong>
+                {% endif %}
             </span>
             <span class="text-muted small">
                 {% if tray.add %}
