@@ -61,6 +61,22 @@ def make_closure_with_tray(prefix, port_count=2, port_type="splice"):
     )
 
 
+def make_tray_type(mfr, model, role="splice_tray"):
+    """ModuleType with a TrayProfile of the given role; role=None leaves it unprofiled."""
+    from netbox_fms.models import TrayProfile
+
+    module_type = ModuleType.objects.create(manufacturer=mfr, model=model)
+    if role is not None:
+        TrayProfile.objects.create(module_type=module_type, tray_role=role)
+    return module_type
+
+
+def make_tray_module(closure, module_type, bay_name):
+    """Install a module of the given type on the closure in a fresh bay."""
+    bay = ModuleBay.objects.create(device=closure, name=bay_name)
+    return Module.objects.create(device=closure, module_bay=bay, module_type=module_type)
+
+
 def make_closure_pair(prefix):
     """Two bare closure devices sharing one make_infra rigging.
 

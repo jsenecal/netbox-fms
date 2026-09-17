@@ -1,6 +1,6 @@
 """Tests for tube-assignment driven FrontPort module sync (issue #68)."""
 
-from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Module, ModuleBay, ModuleType, Site
+from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.test import TestCase
 
 from netbox_fms.api.serializers import TubeAssignmentSerializer
@@ -12,11 +12,10 @@ from netbox_fms.models import (
     FiberCable,
     FiberCableType,
     FiberStrand,
-    TrayProfile,
     TubeAssignment,
 )
 from netbox_fms.services import clear_tube_assignment_ports, sync_tube_assignment_ports
-from tests.conftest import make_front_port
+from tests.conftest import make_front_port, make_tray_module, make_tray_type
 
 
 class PortSyncTestCase(TestCase):
@@ -31,12 +30,9 @@ class PortSyncTestCase(TestCase):
         cls.closure = Device.objects.create(name="PS-Closure", site=site, device_type=dt, role=role)
         cls.far_end = Device.objects.create(name="PS-FarEnd", site=site, device_type=dt, role=role)
 
-        mt = ModuleType.objects.create(manufacturer=mfr, model="PS Tray")
-        TrayProfile.objects.create(module_type=mt, tray_role=TrayRoleChoices.SPLICE_TRAY)
-        bay1 = ModuleBay.objects.create(device=cls.closure, name="Bay 1")
-        bay2 = ModuleBay.objects.create(device=cls.closure, name="Bay 2")
-        cls.tray1 = Module.objects.create(device=cls.closure, module_bay=bay1, module_type=mt)
-        cls.tray2 = Module.objects.create(device=cls.closure, module_bay=bay2, module_type=mt)
+        mt = make_tray_type(mfr, "PS Tray")
+        cls.tray1 = make_tray_module(cls.closure, mt, "Bay 1")
+        cls.tray2 = make_tray_module(cls.closure, mt, "Bay 2")
 
         fct = FiberCableType.objects.create(manufacturer=mfr, model="PS-2F", construction="loose_tube", strand_count=2)
         cls.fiber_cable = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
@@ -261,14 +257,10 @@ class TestSyncRoleGuard(PortSyncTestCase):
     def setUpTestData(cls):
         super().setUpTestData()
         mfr = cls.tray1.module_type.manufacturer
-        basket_mt = ModuleType.objects.create(manufacturer=mfr, model="PS Basket")
-        TrayProfile.objects.create(module_type=basket_mt, tray_role=TrayRoleChoices.EXPRESS_BASKET)
-        bay_b = ModuleBay.objects.create(device=cls.closure, name="Bay B")
-        cls.basket = Module.objects.create(device=cls.closure, module_bay=bay_b, module_type=basket_mt)
-
-        plain_mt = ModuleType.objects.create(manufacturer=mfr, model="PS Plain")
-        bay_p = ModuleBay.objects.create(device=cls.closure, name="Bay P")
-        cls.plain_module = Module.objects.create(device=cls.closure, module_bay=bay_p, module_type=plain_mt)
+        cls.basket = make_tray_module(
+            cls.closure, make_tray_type(mfr, "PS Basket", role=TrayRoleChoices.EXPRESS_BASKET), "Bay B"
+        )
+        cls.plain_module = make_tray_module(cls.closure, make_tray_type(mfr, "PS Plain", role=None), "Bay P")
 
     def _save_unvalidated(self, tray):
         # _assignment() saves without clean() on purpose: the bypassing write path.
