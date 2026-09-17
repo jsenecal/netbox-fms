@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from netbox_fms.choices import TrayRoleChoices
 from netbox_fms.models import BufferTube, ClosureCableEntry, FiberCable, FiberCableType, TrayProfile, TubeAssignment
+from tests.conftest import make_tray_module, make_tray_type
 
 
 class TestTrayProfile(TestCase):
@@ -74,44 +75,18 @@ class TestTubeAssignment(TestCase):
         role = DeviceRole.objects.create(name="Closure TA", slug="closure-ta")
         cls.closure = Device.objects.create(name="Closure-TA", site=site, device_type=device_type, role=role)
 
-        from dcim.models import ModuleBay
+        cls.module_type = make_tray_type(manufacturer, "24F Tray")
+        cls.tray_profile = cls.module_type.tray_profile
+        cls.tray = make_tray_module(cls.closure, cls.module_type, "Bay 1")
+        cls.express_mt = make_tray_type(manufacturer, "Express Basket", role=TrayRoleChoices.EXPRESS_BASKET)
+        cls.express_module = make_tray_module(cls.closure, cls.express_mt, "Bay 2")
+        cls.plain_mt = make_tray_type(manufacturer, "Plain Module", role=None)
+        cls.plain_module = make_tray_module(cls.closure, cls.plain_mt, "Bay 3")
 
-        # Create module type with tray profile
-        cls.module_type = ModuleType.objects.create(manufacturer=manufacturer, model="24F Tray")
-        cls.tray_profile = TrayProfile.objects.create(
-            module_type=cls.module_type, tray_role=TrayRoleChoices.SPLICE_TRAY
-        )
-        bay1 = ModuleBay.objects.create(device=cls.closure, name="Bay 1")
-        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay1, module_type=cls.module_type)
-
-        # Express basket module type
-        cls.express_mt = ModuleType.objects.create(manufacturer=manufacturer, model="Express Basket")
-        TrayProfile.objects.create(module_type=cls.express_mt, tray_role=TrayRoleChoices.EXPRESS_BASKET)
-        bay2 = ModuleBay.objects.create(device=cls.closure, name="Bay 2")
-        cls.express_module = Module.objects.create(device=cls.closure, module_bay=bay2, module_type=cls.express_mt)
-
-        # No-profile module type
-        cls.plain_mt = ModuleType.objects.create(manufacturer=manufacturer, model="Plain Module")
-        bay3 = ModuleBay.objects.create(device=cls.closure, name="Bay 3")
-        cls.plain_module = Module.objects.create(device=cls.closure, module_bay=bay3, module_type=cls.plain_mt)
-
-        # Fiber cable with buffer tube
-        fct = FiberCableType.objects.create(
-            manufacturer=manufacturer,
-            model="12F Cable",
-            construction="loose_tube",
-            strand_count=12,
-        )
-        from dcim.models import Cable
-
-        cable = Cable.objects.create()
-        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        cls.tube = BufferTube.objects.create(fiber_cable=cls.fiber_cable, name="Tube 1", position=1)
-
-        # ClosureCableEntry prerequisite
-        cls.cable_entry = ClosureCableEntry.objects.create(
-            closure=cls.closure, fiber_cable=cls.fiber_cable, entrance_label="Gland A"
-        )
+        rig = _make_tube_rig("TA", cls.closure, manufacturer, entrance_label="Gland A")
+        cls.fiber_cable = rig.fiber_cable
+        cls.tube = rig.tube
+        cls.cable_entry = rig.entry
 
     def test_create_tube_assignment(self):
         ta = TubeAssignment.objects.create(
@@ -202,24 +177,11 @@ class TestClosureCableEntryCascade(TestCase):
         role = DeviceRole.objects.create(name="Closure C", slug="closure-c")
         cls.closure = Device.objects.create(name="Closure-C", site=site, device_type=device_type, role=role)
 
-        from dcim.models import ModuleBay
+        cls.tray = make_tray_module(cls.closure, make_tray_type(manufacturer, "Tray C"), "Bay C")
 
-        module_type = ModuleType.objects.create(manufacturer=manufacturer, model="Tray C")
-        TrayProfile.objects.create(module_type=module_type, tray_role=TrayRoleChoices.SPLICE_TRAY)
-        bay = ModuleBay.objects.create(device=cls.closure, name="Bay C")
-        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=module_type)
-
-        fct = FiberCableType.objects.create(
-            manufacturer=manufacturer,
-            model="Cable C",
-            construction="loose_tube",
-            strand_count=12,
-        )
-        from dcim.models import Cable
-
-        cable = Cable.objects.create()
-        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        cls.tube = BufferTube.objects.create(fiber_cable=cls.fiber_cable, name="Tube C1", position=1)
+        rig = _make_tube_rig("Cascade", cls.closure, manufacturer)
+        cls.fiber_cable = rig.fiber_cable
+        cls.tube = rig.tube
 
     def test_deleting_cable_entry_removes_tube_assignments(self):
         entry = ClosureCableEntry.objects.create(
@@ -270,25 +232,11 @@ class TestTubeAssignmentAPI(TestCase):
         role = DeviceRole.objects.create(name="API Closure", slug="api-closure")
         cls.closure = Device.objects.create(name="API-Closure", site=site, device_type=device_type, role=role)
 
-        from dcim.models import ModuleBay
+        cls.tray = make_tray_module(cls.closure, make_tray_type(manufacturer, "API Tray TA"), "API Bay")
 
-        module_type = ModuleType.objects.create(manufacturer=manufacturer, model="API Tray TA")
-        TrayProfile.objects.create(module_type=module_type, tray_role=TrayRoleChoices.SPLICE_TRAY)
-        bay = ModuleBay.objects.create(device=cls.closure, name="API Bay")
-        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=module_type)
-
-        fct = FiberCableType.objects.create(
-            manufacturer=manufacturer,
-            model="API Cable",
-            construction="loose_tube",
-            strand_count=12,
-        )
-        from dcim.models import Cable
-
-        cable = Cable.objects.create()
-        cls.fiber_cable = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        cls.tube = BufferTube.objects.create(fiber_cable=cls.fiber_cable, name="API Tube", position=1)
-        ClosureCableEntry.objects.create(closure=cls.closure, fiber_cable=cls.fiber_cable, entrance_label="G1")
+        rig = _make_tube_rig("API", cls.closure, manufacturer, entrance_label="G1")
+        cls.fiber_cable = rig.fiber_cable
+        cls.tube = rig.tube
 
     def setUp(self):
         self.client = APIClient()
@@ -404,8 +352,8 @@ class TestTrayProfileRoleFlipGuard(TestCase):
         )
 
         # A second splice-tray profile with no assignments: the control case.
-        cls.idle_mt = ModuleType.objects.create(manufacturer=rig.mfr, model="RF Idle Tray")
-        cls.idle_profile = TrayProfile.objects.create(module_type=cls.idle_mt, tray_role=TrayRoleChoices.SPLICE_TRAY)
+        cls.idle_mt = make_tray_type(rig.mfr, "RF Idle Tray")
+        cls.idle_profile = cls.idle_mt.tray_profile
 
     def test_role_flip_blocked_while_assignments_exist(self):
         from django.core.exceptions import ValidationError

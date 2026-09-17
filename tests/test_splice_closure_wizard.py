@@ -10,6 +10,7 @@ from netbox_fms.choices import TrayRoleChoices
 from netbox_fms.forms import SpliceClosureCreateForm
 from netbox_fms.models import TrayProfile
 from netbox_fms.services import create_splice_closure
+from tests.conftest import make_tray_type
 
 
 class TestCreateSpliceClosure(TestCase):
@@ -19,10 +20,8 @@ class TestCreateSpliceClosure(TestCase):
         mfr = Manufacturer.objects.create(name="Wizard Mfr", slug="wizard-mfr")
         cls.device_type = DeviceType.objects.create(manufacturer=mfr, model="FOSC 450", slug="fosc-450")
         cls.role = DeviceRole.objects.create(name="Splice Closure", slug="splice-closure")
-        cls.tray_mt = ModuleType.objects.create(manufacturer=mfr, model="24F Tray")
-        TrayProfile.objects.create(module_type=cls.tray_mt, tray_role=TrayRoleChoices.SPLICE_TRAY)
-        cls.basket_mt = ModuleType.objects.create(manufacturer=mfr, model="Express Basket")
-        TrayProfile.objects.create(module_type=cls.basket_mt, tray_role=TrayRoleChoices.EXPRESS_BASKET)
+        cls.tray_mt = make_tray_type(mfr, "24F Tray")
+        cls.basket_mt = make_tray_type(mfr, "Express Basket", role=TrayRoleChoices.EXPRESS_BASKET)
 
     def test_creates_device_with_named_tray_bays_and_modules(self):
         device = create_splice_closure(
