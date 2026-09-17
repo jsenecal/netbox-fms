@@ -49,8 +49,8 @@ from netbox_fms.models import (
     TrayProfile,
     TubeAssignment,
 )
-from netbox_fms.naming import front_port_name, rear_port_name
-from netbox_fms.services import ribbon_ordinals, strand_port_groups
+from netbox_fms.naming import front_port_name
+from netbox_fms.services import rear_name_for_group, ribbon_ordinals, strand_port_groups
 from netbox_fms.signals import fms_portmapping_bypass
 
 
@@ -1013,20 +1013,12 @@ class Command(BaseCommand):
                 # One rear port per physical container (tube, ribbon, or the
                 # whole cable), mirroring services._provision_device_ports;
                 # names come from the shared write-once grammar.
-                for group_idx, (container, group_strands) in enumerate(strand_port_groups(strands)):
+                for group_idx, (_container, group_strands) in enumerate(strand_port_groups(strands)):
                     tray = trays[group_idx % len(trays)] if trays else None
-                    first = group_strands[0]
-                    if first.ribbon_id is not None:
-                        rp_name = rear_port_name(cable.pk, ribbon=ordinals[first.ribbon_id])
-                    elif first.buffer_tube_id is not None:
-                        rp_name = rear_port_name(cable.pk, tube=container.position)
-                    else:
-                        rp_name = rear_port_name(cable.pk)
-
                     rp = RearPort.objects.create(
                         device=device,
                         module=tray,
-                        name=rp_name,
+                        name=rear_name_for_group(cable.pk, group_strands, ordinals),
                         type="splice",
                         positions=len(group_strands),
                     )

@@ -131,6 +131,24 @@ def _cable_strand_ports(fc):
     return strand_by_fp_id, pms
 
 
+def _rear_port_strand_groups(strand_by_fp_id, pms):
+    """Yield ``(rear_port, strands)`` once per rear port, in mapping order.
+
+    The shared consumption of :func:`_cable_strand_ports` output for
+    per-rear-port decisions -- naming (services.plan_port_names) and
+    labeling (label re-render) must group the same way or drift.
+    """
+    strands_by_rp = {}
+    order = []
+    for pm in pms:
+        if pm.rear_port_id not in strands_by_rp:
+            strands_by_rp[pm.rear_port_id] = []
+            order.append(pm.rear_port)
+        strands_by_rp[pm.rear_port_id].append(strand_by_fp_id[pm.front_port_id])
+    for rp in order:
+        yield rp, strands_by_rp[rp.pk]
+
+
 def _render_cable_port_labels(fc):
     """Propose fresh labels for every FMS-provisioned port of a FiberCable.
 
@@ -173,38 +191,29 @@ def _render_cable_port_labels(fc):
             ribbon=ribbon,
         )
 
-    strands_by_rp = {}
-    for pm in pms:
-        strands_by_rp.setdefault(pm.rear_port_id, []).append(strand_by_fp_id[pm.front_port_id])
-
-    def _shared_ribbon(rp_strands):
-        # A rear port represents a ribbon only when every strand mapped to
-        # it belongs to that one ribbon; legacy tube-grouped ribbon cables
-        # span several ribbons per rear port and get no ribbon token.
-        ribbon_ids = {s.ribbon_id for s in rp_strands}
-        if len(ribbon_ids) == 1 and None not in ribbon_ids:
-            return rp_strands[0].ribbon
-        return None
+    from .services import shared_ribbon
 
     proposed = {}
-    seen_rp_ids = set()
     for pm in pms:
         strand = strand_by_fp_id[pm.front_port_id]
-        tube = strand.buffer_tube
         fp = pm.front_port
-        label = naming.render(naming.FRONT_PORT_LABEL, compiled, _ctx(fp.device, tube=tube, strand=strand))
+        label = naming.render(
+            naming.FRONT_PORT_LABEL, compiled, _ctx(fp.device, tube=strand.buffer_tube, strand=strand)
+        )
         if label is not None:
             proposed[fp] = label
 
-        # Every FrontPort mapped to one RearPort belongs to the same buffer
-        # tube by construction, so the first mapping supplies the tube.
-        if pm.rear_port_id not in seen_rp_ids:
-            seen_rp_ids.add(pm.rear_port_id)
-            rp = pm.rear_port
-            ribbon = _shared_ribbon(strands_by_rp[pm.rear_port_id])
-            label = naming.render(naming.REAR_PORT_LABEL, compiled, _ctx(rp.device, tube=tube, ribbon=ribbon))
-            if label is not None:
-                proposed[rp] = label
+    for rp, rp_strands in _rear_port_strand_groups(strand_by_fp_id, pms):
+        # Every strand mapped to one rear port shares its buffer tube by
+        # construction, so the first strand supplies the tube; the ribbon
+        # only renders when the whole group shares it (services.shared_ribbon).
+        label = naming.render(
+            naming.REAR_PORT_LABEL,
+            compiled,
+            _ctx(rp.device, tube=rp_strands[0].buffer_tube, ribbon=shared_ribbon(rp_strands)),
+        )
+        if label is not None:
+            proposed[rp] = label
     return proposed
 
 
@@ -219,12 +228,10 @@ def _stage_label_changes(proposed):
 
 
 def _write_label_changes(staged):
-    """Persist staged label changes, grouped per port model."""
-    by_model = {}
-    for port, _old_label in staged:
-        by_model.setdefault(type(port), []).append(port)
-    for model, ports in by_model.items():
-        model.objects.bulk_update(ports, ["label"], batch_size=500)
+    """Persist staged label changes."""
+    from .services import bulk_update_port_field
+
+    bulk_update_port_field([port for port, _old_label in staged], "label")
 
 
 def _relabel_ports_for_cable(cable):

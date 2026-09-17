@@ -217,18 +217,10 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     with fms_portmapping_bypass():
         for container, group_strands in strand_port_groups(strands):
             first = group_strands[0]
-            if first.ribbon_id is not None:
-                name = naming.rear_port_name(cable_id, ribbon=ordinals[first.ribbon_id])
-                rear_ctx = _ctx(tube=first.buffer_tube, ribbon=container)
-            elif first.buffer_tube_id is not None:
-                name = naming.rear_port_name(cable_id, tube=container.position)
-                rear_ctx = _ctx(tube=container)
-            else:
-                name = naming.rear_port_name(cable_id)
-                rear_ctx = _ctx()
+            rear_ctx = _ctx(tube=first.buffer_tube, ribbon=first.ribbon if first.ribbon_id is not None else None)
             rp = RearPort.objects.create(
                 device=device,
-                name=name,
+                name=rear_name_for_group(cable_id, group_strands, ordinals),
                 label=_render_port_label(compiled, naming.REAR_PORT_LABEL, rear_ctx),
                 type=port_type,
                 positions=len(group_strands),
@@ -272,6 +264,52 @@ def ribbon_ordinals(strands):
     return ordinals
 
 
+def shared_ribbon(strands):
+    """Return the one ribbon every strand belongs to, else None.
+
+    A rear port represents a ribbon only when every strand mapped to it
+    belongs to that one ribbon; legacy tube-grouped ribbon cables span
+    several ribbons per rear port and get no ribbon treatment.
+    """
+    ribbon_ids = {s.ribbon_id for s in strands}
+    if len(ribbon_ids) == 1 and None not in ribbon_ids:
+        return strands[0].ribbon
+    return None
+
+
+def shared_tube(strands):
+    """Return the one buffer tube every strand belongs to, else None."""
+    tube_ids = {s.buffer_tube_id for s in strands}
+    if len(tube_ids) == 1 and None not in tube_ids:
+        return strands[0].buffer_tube
+    return None
+
+
+def rear_name_for_group(cable_id, strands, ordinals):
+    """Write-once rear port name for the container shared by a strand group.
+
+    Ribbon wins over tube (it is the mass-fusion splice unit); strands
+    spanning containers -- a legacy tube-grouped ribbon cable, or an
+    adopted whole-cable panel port -- fall back to the bare cable pk.
+    """
+    ribbon = shared_ribbon(strands)
+    if ribbon is not None:
+        return naming.rear_port_name(cable_id, ribbon=ordinals[ribbon.pk])
+    tube = shared_tube(strands)
+    if tube is not None:
+        return naming.rear_port_name(cable_id, tube=tube.position)
+    return naming.rear_port_name(cable_id)
+
+
+def bulk_update_port_field(ports, field):
+    """bulk_update one changed field on a mixed FrontPort/RearPort set."""
+    by_model = {}
+    for port in ports:
+        by_model.setdefault(type(port), []).append(port)
+    for model, group in by_model.items():
+        model.objects.bulk_update(group, [field], batch_size=500)
+
+
 def plan_port_names(fc):
     """Propose write-once names for a FiberCable's provisioned ports.
 
@@ -290,15 +328,11 @@ def plan_port_names(fc):
     """
     from dcim.models import FrontPort, RearPort
 
-    from .signals import _cable_strand_ports
+    from .signals import _cable_strand_ports, _rear_port_strand_groups
 
     strand_by_fp_id, pms = _cable_strand_ports(fc)
     cable_id = fc.cable_id
     ordinals = ribbon_ordinals(strand_by_fp_id.values())
-
-    strands_by_rp = {}
-    for pm in pms:
-        strands_by_rp.setdefault(pm.rear_port_id, []).append(strand_by_fp_id[pm.front_port_id])
 
     proposed = {}  # port -> new name
     seen_fp_ids = set()
@@ -309,21 +343,8 @@ def plan_port_names(fc):
         strand = strand_by_fp_id[pm.front_port_id]
         proposed[pm.front_port] = naming.front_port_name(cable_id, strand.position)
 
-    seen_rp_ids = set()
-    for pm in pms:
-        if pm.rear_port_id in seen_rp_ids:
-            continue
-        seen_rp_ids.add(pm.rear_port_id)
-        rp_strands = strands_by_rp[pm.rear_port_id]
-        ribbon_ids = {s.ribbon_id for s in rp_strands}
-        tube_ids = {s.buffer_tube_id for s in rp_strands}
-        if ribbon_ids != {None} and len(ribbon_ids) == 1:
-            name = naming.rear_port_name(cable_id, ribbon=ordinals[next(iter(ribbon_ids))])
-        elif tube_ids != {None} and len(tube_ids) == 1:
-            name = naming.rear_port_name(cable_id, tube=rp_strands[0].buffer_tube.position)
-        else:
-            name = naming.rear_port_name(cable_id)
-        proposed[pm.rear_port] = name
+    for rp, rp_strands in _rear_port_strand_groups(strand_by_fp_id, pms):
+        proposed[rp] = rear_name_for_group(cable_id, rp_strands, ordinals)
 
     renames = [(port, name) for port, name in proposed.items() if port.name != name]
 
@@ -355,13 +376,10 @@ def plan_port_names(fc):
 
 
 def apply_port_names(renames):
-    """Persist a collision-free rename plan, grouped per port model."""
-    by_model = {}
+    """Persist a collision-free rename plan."""
     for port, name in renames:
         port.name = name
-        by_model.setdefault(type(port), []).append(port)
-    for model, ports in by_model.items():
-        model.objects.bulk_update(ports, ["name"], batch_size=500)
+    bulk_update_port_field([port for port, _name in renames], "name")
 
 
 @transaction.atomic

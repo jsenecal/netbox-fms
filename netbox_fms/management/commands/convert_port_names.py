@@ -12,14 +12,14 @@ collisions first and a conflicted cable is skipped whole, with a message,
 rather than half-renamed.
 """
 
-from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from netbox_fms.models import FiberCable
 from netbox_fms.services import apply_port_names, plan_port_names
 
+from ._fibercable_walk import FiberCableWalkCommand
 
-class Command(BaseCommand):
+
+class Command(FiberCableWalkCommand):
     help = (
         "Rewrite FMS-provisioned FrontPort and RearPort names from any legacy scheme to the "
         "write-once pk-based grammar ({cable.id}:F{n} fronts, {cable.id}:T{n}/{cable.id}:R{n} "
@@ -29,26 +29,6 @@ class Command(BaseCommand):
         "applies to newly provisioned cables only. A cable whose new names would collide with "
         "existing port names is reported and skipped whole."
     )
-
-    def add_arguments(self, parser):
-        parser.add_argument("--cable-type", help="Limit to one FiberCableType by pk or model name.")
-        parser.add_argument("--dry-run", action="store_true", help="Report renames without writing.")
-        parser.add_argument("--limit", type=int, help="Process at most N fiber cables.")
-
-    def handle(self, *args, **options):
-        cables = FiberCable.objects.select_related("cable", "fiber_cable_type").order_by("pk")
-        key = options["cable_type"]
-        if key:
-            filters = {"fiber_cable_type_id": key} if key.isdigit() else {"fiber_cable_type__model": key}
-            cables = cables.filter(**filters)
-
-        limit = options["limit"]
-        processed = 0
-        for fc in cables.iterator():
-            if limit and processed >= limit:
-                return
-            self._process_cable(fc, options["dry_run"])
-            processed += 1
 
     def _process_cable(self, fc, dry_run):
         renames, problems = plan_port_names(fc)
