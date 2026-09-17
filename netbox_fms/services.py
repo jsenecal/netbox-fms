@@ -90,6 +90,11 @@ def fiber_cable_terminates_on(fiber_cable, device_id):
     return fiber_cable.cable_id in device_cable_ids(device_id)
 
 
+def fiber_cable_for(cable):
+    """The cable's FiberCable with its type preloaded, or None."""
+    return FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+
+
 def device_cable_ids(device_id):
     """Return the ids of every dcim.Cable terminating on a device."""
     return set(
@@ -405,7 +410,7 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
     warnings = []
     rp_ct = ContentType.objects.get_for_model(RearPort)
 
-    existing_fc = FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+    existing_fc = fiber_cable_for(cable)
     if existing_fc is not None:
         if fiber_cable_type is not None and fiber_cable_type.pk != existing_fc.fiber_cable_type_id:
             raise ValueError(

@@ -128,6 +128,7 @@ from .services import (
     create_splice_closure,
     device_cable_ids,
     device_topology_cable_ids,
+    fiber_cable_for,
     fiber_cable_terminates_on,
     get_or_recompute_diff,
     import_live_state,
@@ -2181,10 +2182,7 @@ class UpdateGlandLabelView(LoginRequiredMixin, View):
             defaults={"entrance_label": entrance_label},
         )
 
-        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-        response = HttpResponse(status=200)
-        response["HX-Redirect"] = redirect_url
-        return response
+        return _hx_redirect_to_fiber_overview(pk)
 
 
 def _device_has_approved_plans(device):
@@ -2314,9 +2312,33 @@ def _get_closure_cable_or_404(device, cable_id):
     return cable
 
 
-def _cable_fiber_cable(cable):
-    """The cable's FiberCable, or None -- the modal links strands into it when present."""
-    return FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+def _hx_redirect_to_fiber_overview(pk):
+    """200 response redirecting the HTMX client to the device's Fiber Overview tab."""
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
+    return response
+
+
+def _link_topology_modal_context(device, cable, fiber_cable, form, pk):
+    """Context for the link-topology modal, shared by GET and the invalid-form re-render.
+
+    ``show_port_type`` hides the port-type field when the cable already
+    terminates on the device's rear ports (the adopt path creates none).
+    """
+    rp_ct = ContentType.objects.get_for_model(RearPort)
+    has_existing = CableTermination.objects.filter(
+        cable=cable,
+        termination_type=rp_ct,
+        termination_id__in=RearPort.objects.filter(device=device).values("pk"),
+    ).exists()
+    return {
+        "device": device,
+        "cable": cable,
+        "fiber_cable": fiber_cable,
+        "form": form,
+        "show_port_type": not has_existing,
+        "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
+    }
 
 
 def _link_topology_perm(fiber_cable):
@@ -2332,36 +2354,21 @@ class LinkTopologyView(LoginRequiredMixin, View):
         device = get_object_or_404(Device, pk=pk)
         cable_id = request.GET.get("cable_id")
         cable = _get_closure_cable_or_404(device, cable_id)
-        fiber_cable = _cable_fiber_cable(cable)
+        fiber_cable = fiber_cable_for(cable)
         if not request.user.has_perm(_link_topology_perm(fiber_cable)):
             return HttpResponse("Permission denied", status=403)
 
-        rp_ct = ContentType.objects.get_for_model(RearPort)
-        has_existing = CableTermination.objects.filter(
-            cable=cable,
-            termination_type=rp_ct,
-            termination_id__in=RearPort.objects.filter(device=device).values("pk"),
-        ).exists()
-
-        form = LinkTopologyForm()
         return render(
             request,
             "netbox_fms/htmx/link_topology_modal.html",
-            {
-                "device": device,
-                "cable": cable,
-                "fiber_cable": fiber_cable,
-                "form": form,
-                "show_port_type": not has_existing,
-                "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
-            },
+            _link_topology_modal_context(device, cable, fiber_cable, LinkTopologyForm(), pk),
         )
 
     def post(self, request, pk):
         """Link strands to ports, with optional mapping confirmation."""
         device = get_object_or_404(Device, pk=pk)
         cable = _get_closure_cable_or_404(device, request.POST.get("cable_id"))
-        fiber_cable = _cable_fiber_cable(cable)
+        fiber_cable = fiber_cable_for(cable)
         if not request.user.has_perm(_link_topology_perm(fiber_cable)):
             return HttpResponse("Permission denied", status=403)
 
@@ -2372,10 +2379,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
                 if key.startswith("mapping_"):
                     port_mapping[int(key.split("_")[1])] = int(value)
             fc, warnings = link_cable_topology(cable, fct, device, port_mapping=port_mapping)
-            redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-            response = HttpResponse(status=200)
-            response["HX-Redirect"] = redirect_url
-            return response
+            return _hx_redirect_to_fiber_overview(pk)
 
         form = LinkTopologyForm(request.POST)
         if fiber_cable:
@@ -2385,14 +2389,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
             return render(
                 request,
                 "netbox_fms/htmx/link_topology_modal.html",
-                {
-                    "device": device,
-                    "cable": cable,
-                    "fiber_cable": fiber_cable,
-                    "form": form,
-                    "show_port_type": True,
-                    "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
-                },
+                _link_topology_modal_context(device, cable, fiber_cable, form, pk),
             )
 
         fct = None if fiber_cable else form.cleaned_data["fiber_cable_type"]
@@ -2428,10 +2425,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
                 },
             )
 
-        redirect_url = reverse("dcim:device", kwargs={"pk": pk}) + "fiber-overview/"
-        response = HttpResponse(status=200)
-        response["HX-Redirect"] = redirect_url
-        return response
+        return _hx_redirect_to_fiber_overview(pk)
 
 
 class TraceDetailView(LoginRequiredMixin, View):
@@ -2459,7 +2453,7 @@ class TraceDetailView(LoginRequiredMixin, View):
 
         elif node_type == "cable":
             cable = get_object_or_404(Cable, pk=object_id)
-            fiber_cable = FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+            fiber_cable = fiber_cable_for(cable)
             return render(
                 request,
                 "netbox_fms/htmx/trace_cable_detail.html",

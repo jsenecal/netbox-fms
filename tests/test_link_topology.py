@@ -367,19 +367,23 @@ def _make_closure_with_existing_ports():
     return device, cable, fct, fps
 
 
+def _rig_with_existing_fibercable():
+    """The adopt rig plus a FiberCable already on the cable (the issue #87 state)."""
+    device, cable, fct, fps = _make_closure_with_existing_ports()
+    fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+    return device, cable, fct, fps, fc
+
+
 @pytest.mark.django_db
 class TestLinkCableTopologyAdopt:
-    def _make_closure_with_existing_ports(self):
-        return _make_closure_with_existing_ports()
-
     def test_raises_needs_mapping_without_port_mapping(self):
-        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        device, cable, fct, fps = _make_closure_with_existing_ports()
         with pytest.raises(NeedsMappingConfirmation) as exc_info:
             link_cable_topology(cable, fct, device)
         assert len(exc_info.value.proposed_mapping) == 12
 
     def test_adopts_existing_ports_with_mapping(self):
-        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        device, cable, fct, fps = _make_closure_with_existing_ports()
         mapping = {i: fps[i - 1].pk for i in range(1, 13)}
         fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
         assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
@@ -394,7 +398,7 @@ class TestLinkCableTopologyAdopt:
         """
         from dcim.models import FrontPort
 
-        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        device, cable, fct, fps = _make_closure_with_existing_ports()
         mapping = {i: fps[i - 1].pk for i in range(1, 13)}
         fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
 
@@ -408,7 +412,7 @@ class TestLinkCableTopologyAdopt:
         """A port already holding a target name blocks the pass; adoption still succeeds."""
         from dcim.models import FrontPort
 
-        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        device, cable, fct, fps = _make_closure_with_existing_ports()
         FrontPort.objects.create(device=device, name=f"{cable.pk}:F3", type="splice")
         mapping = {i: fps[i - 1].pk for i in range(1, 13)}
 
@@ -432,7 +436,7 @@ class TestLinkCableTopologyAdopt:
         assert fp_names == {f"{cable.pk}:F{i}" for i in range(1, 49)}
 
     def test_count_mismatch_has_warning(self):
-        device, cable, fct, fps = self._make_closure_with_existing_ports()
+        device, cable, fct, fps = _make_closure_with_existing_ports()
         fct.strand_count = 6
         fct.save()
         with pytest.raises(NeedsMappingConfirmation) as exc_info:
@@ -675,19 +679,14 @@ class TestLinkStrandsExistingFiberCable:
     and the overview offered no action.
     """
 
-    def _rig(self):
-        device, cable, fct, fps = _make_closure_with_existing_ports()
-        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        return device, cable, fct, fps, fc
-
     def test_proposes_mapping_for_existing_fibercable(self):
-        device, cable, fct, fps, fc = self._rig()
+        device, cable, fct, fps, fc = _rig_with_existing_fibercable()
         with pytest.raises(NeedsMappingConfirmation) as exc_info:
             link_cable_topology(cable, None, device)
         assert len(exc_info.value.proposed_mapping) == 12
 
     def test_links_strands_into_existing_fibercable(self):
-        device, cable, fct, fps, fc = self._rig()
+        device, cable, fct, fps, fc = _rig_with_existing_fibercable()
         mapping = {i: fps[i - 1].pk for i in range(1, 13)}
         linked_fc, _warnings = link_cable_topology(cable, None, device, port_mapping=mapping)
         assert linked_fc.pk == fc.pk
@@ -696,7 +695,7 @@ class TestLinkStrandsExistingFiberCable:
 
     def test_fills_missing_cable_profile(self):
         """The form path never sets the cable profile; linking strands does."""
-        device, cable, fct, fps, fc = self._rig()
+        device, cable, fct, fps, fc = _rig_with_existing_fibercable()
         assert not cable.profile
         mapping = {i: fps[i - 1].pk for i in range(1, 13)}
         link_cable_topology(cable, None, device, port_mapping=mapping)
@@ -704,7 +703,7 @@ class TestLinkStrandsExistingFiberCable:
         assert cable.profile == "single-1c12p"
 
     def test_conflicting_type_rejected(self):
-        device, cable, fct, fps, fc = self._rig()
+        device, cable, fct, fps, fc = _rig_with_existing_fibercable()
         other = FiberCableType.objects.create(
             manufacturer=fct.manufacturer, model="AD-Other", strand_count=12, construction="tight_buffer"
         )
@@ -754,8 +753,7 @@ class TestLinkTopologyViewPostFlow:
         client.force_login(user)
 
     def test_round_trip_adopts_into_existing_fibercable(self, client):
-        device, cable, fct, fps = _make_closure_with_existing_ports()
-        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        device, cable, fct, fps, fc = _rig_with_existing_fibercable()
         self._login(client)
         url = f"/plugins/fms/fiber-overview/{device.pk}/link-topology/"
 
@@ -786,8 +784,7 @@ class TestLinkTopologyViewPostFlow:
         assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
 
     def test_get_modal_for_linked_cable_hides_type_selector(self, client):
-        device, cable, fct, fps = _make_closure_with_existing_ports()
-        FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        device, cable, fct, fps, _fc = _rig_with_existing_fibercable()
         self._login(client)
         url = f"/plugins/fms/fiber-overview/{device.pk}/link-topology/?cable_id={cable.pk}"
 
