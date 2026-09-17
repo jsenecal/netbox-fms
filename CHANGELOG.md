@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A `TrayProfile` can no longer leave the splice-tray role (or be
+  recreated as an express basket) while `TubeAssignment` rows still
+  reference trays of its module type: the flip previously saved
+  cleanly and stranded the assignments -- and their tray-parked strand
+  front ports -- on a module the rest of the plugin treats as
+  splice-incapable. The validation error names the affected closures
+  so the operator can re-point or delete the assignments first. (#105)
+
 ### Added
 
 - Port label templates: every FrontPort and RearPort provisioned by FMS
