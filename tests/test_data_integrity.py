@@ -190,8 +190,8 @@ class TestImportLiveStateValidation:
         plan.closure_id = 1
 
         with patch("netbox_fms.services.get_live_state", return_value={}):
-            count = import_live_state(plan)
-            assert count == 0
+            result = import_live_state(plan)
+            assert result == {"imported": 0, "skipped_unassigned": 0}
 
 
 @pytest.mark.django_db
