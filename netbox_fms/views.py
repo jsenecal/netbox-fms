@@ -2314,16 +2314,27 @@ def _get_closure_cable_or_404(device, cable_id):
     return cable
 
 
+def _cable_fiber_cable(cable):
+    """The cable's FiberCable, or None -- the modal links strands into it when present."""
+    return FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+
+
+def _link_topology_perm(fiber_cable):
+    """Creating a FiberCable needs add; linking strands into an existing one needs change."""
+    return "netbox_fms.change_fibercable" if fiber_cable else "netbox_fms.add_fibercable"
+
+
 class LinkTopologyView(LoginRequiredMixin, View):
-    """Link a dcim.Cable to a FiberCableType — creates FiberCable and links strands."""
+    """Link a dcim.Cable's FiberCable strands to ports, creating the FiberCable if needed."""
 
     def get(self, request, pk):
-        """Render the link topology modal for associating a cable with a fiber cable type."""
-        if not request.user.has_perm("netbox_fms.add_fibercable"):
-            return HttpResponse("Permission denied", status=403)
+        """Render the link topology modal for a cable, with or without an existing FiberCable."""
         device = get_object_or_404(Device, pk=pk)
         cable_id = request.GET.get("cable_id")
         cable = _get_closure_cable_or_404(device, cable_id)
+        fiber_cable = _cable_fiber_cable(cable)
+        if not request.user.has_perm(_link_topology_perm(fiber_cable)):
+            return HttpResponse("Permission denied", status=403)
 
         rp_ct = ContentType.objects.get_for_model(RearPort)
         has_existing = CableTermination.objects.filter(
@@ -2339,6 +2350,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
             {
                 "device": device,
                 "cable": cable,
+                "fiber_cable": fiber_cable,
                 "form": form,
                 "show_port_type": not has_existing,
                 "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
@@ -2346,14 +2358,15 @@ class LinkTopologyView(LoginRequiredMixin, View):
         )
 
     def post(self, request, pk):
-        """Create a FiberCable and link strands to ports, with optional mapping confirmation."""
-        if not request.user.has_perm("netbox_fms.add_fibercable"):
-            return HttpResponse("Permission denied", status=403)
+        """Link strands to ports, with optional mapping confirmation."""
         device = get_object_or_404(Device, pk=pk)
         cable = _get_closure_cable_or_404(device, request.POST.get("cable_id"))
+        fiber_cable = _cable_fiber_cable(cable)
+        if not request.user.has_perm(_link_topology_perm(fiber_cable)):
+            return HttpResponse("Permission denied", status=403)
 
         if request.POST.get("confirm_mapping"):
-            fct = get_object_or_404(FiberCableType, pk=request.POST.get("fiber_cable_type_id"))
+            fct = None if fiber_cable else get_object_or_404(FiberCableType, pk=request.POST.get("fiber_cable_type_id"))
             port_mapping = {}
             for key, value in request.POST.items():
                 if key.startswith("mapping_"):
@@ -2365,6 +2378,9 @@ class LinkTopologyView(LoginRequiredMixin, View):
             return response
 
         form = LinkTopologyForm(request.POST)
+        if fiber_cable:
+            # The existing FiberCable fixes the type; the field is not asked for.
+            form.fields["fiber_cable_type"].required = False
         if not form.is_valid():
             return render(
                 request,
@@ -2372,20 +2388,22 @@ class LinkTopologyView(LoginRequiredMixin, View):
                 {
                     "device": device,
                     "cable": cable,
+                    "fiber_cable": fiber_cable,
                     "form": form,
                     "show_port_type": True,
                     "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),
                 },
             )
 
-        fct = form.cleaned_data["fiber_cable_type"]
+        fct = None if fiber_cable else form.cleaned_data["fiber_cable_type"]
         port_type = form.cleaned_data.get("port_type") or "splice"
+        strand_count = (fiber_cable.fiber_cable_type if fiber_cable else fct).strand_count
 
         try:
             fc, warnings = link_cable_topology(cable, fct, device, port_type=port_type)
         except NeedsMappingConfirmation as exc:
             mapping_entries = []
-            for pos in range(1, fct.strand_count + 1):
+            for pos in range(1, strand_count + 1):
                 fp_id = exc.proposed_mapping.get(pos)
                 fp_name = None
                 if fp_id:
@@ -2403,7 +2421,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
                 "netbox_fms/htmx/link_topology_confirm.html",
                 {
                     "cable_id": cable.pk,
-                    "fiber_cable_type_id": fct.pk,
+                    "fiber_cable_type_id": fct.pk if fct else "",
                     "mapping_entries": mapping_entries,
                     "warnings": exc.warnings,
                     "post_url": reverse("plugins:netbox_fms:fiber_overview_link_topology", kwargs={"pk": pk}),

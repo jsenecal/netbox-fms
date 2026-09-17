@@ -1,7 +1,7 @@
 import pytest
 from dcim.models import Cable, CableTermination, Device, DeviceRole, DeviceType, Manufacturer, RearPort, Site
 
-from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
+from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
 from tests.conftest import make_central_core_type, make_ribbon_in_tube_type
 
 
@@ -336,37 +336,41 @@ class TestLinkCableTopologyGreenfield:
         assert "profile" in warnings[0].lower()
 
 
+def _make_closure_with_existing_ports():
+    site = Site.objects.create(name="AD-Site", slug="ad-site")
+    mfr = Manufacturer.objects.create(name="AD-Mfr", slug="ad-mfr")
+    dt = DeviceType.objects.create(manufacturer=mfr, model="AD-Closure", slug="ad-closure")
+    role = DeviceRole.objects.create(name="AD-Role", slug="ad-role")
+    device = Device.objects.create(name="AD-Closure", site=site, device_type=dt, role=role)
+    cable = Cable.objects.create()
+
+    from dcim.models import CableTermination, FrontPort, PortMapping, RearPort
+    from django.contrib.contenttypes.models import ContentType
+
+    rp = RearPort.objects.create(device=device, name="Existing-RP", type="splice", positions=12)
+    rp_ct = ContentType.objects.get_for_model(RearPort)
+    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp.pk)
+    fps = []
+    for i in range(1, 13):
+        fp = FrontPort.objects.create(device=device, name=f"EF{i}", type="splice")
+        PortMapping.objects.create(
+            device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
+        )
+        fps.append(fp)
+
+    fct = FiberCableType.objects.create(
+        manufacturer=mfr,
+        model="AD-12F",
+        strand_count=12,
+        construction="tight_buffer",
+    )
+    return device, cable, fct, fps
+
+
 @pytest.mark.django_db
 class TestLinkCableTopologyAdopt:
     def _make_closure_with_existing_ports(self):
-        site = Site.objects.create(name="AD-Site", slug="ad-site")
-        mfr = Manufacturer.objects.create(name="AD-Mfr", slug="ad-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="AD-Closure", slug="ad-closure")
-        role = DeviceRole.objects.create(name="AD-Role", slug="ad-role")
-        device = Device.objects.create(name="AD-Closure", site=site, device_type=dt, role=role)
-        cable = Cable.objects.create()
-
-        from dcim.models import CableTermination, FrontPort, PortMapping, RearPort
-        from django.contrib.contenttypes.models import ContentType
-
-        rp = RearPort.objects.create(device=device, name="Existing-RP", type="splice", positions=12)
-        rp_ct = ContentType.objects.get_for_model(RearPort)
-        CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp.pk)
-        fps = []
-        for i in range(1, 13):
-            fp = FrontPort.objects.create(device=device, name=f"EF{i}", type="splice")
-            PortMapping.objects.create(
-                device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
-            )
-            fps.append(fp)
-
-        fct = FiberCableType.objects.create(
-            manufacturer=mfr,
-            model="AD-12F",
-            strand_count=12,
-            construction="tight_buffer",
-        )
-        return device, cable, fct, fps
+        return _make_closure_with_existing_ports()
 
     def test_raises_needs_mapping_without_port_mapping(self):
         device, cable, fct, fps = self._make_closure_with_existing_ports()
@@ -659,3 +663,135 @@ class TestCableTerminationConnectorPositions:
             rp.refresh_from_db()
             assert rp.cable_connector == i
             assert rp.cable_positions == list(range(1, 13))
+
+
+@pytest.mark.django_db
+class TestLinkStrandsExistingFiberCable:
+    """Issue #87: a FiberCable created without strand links must be linkable afterwards.
+
+    Creating the FiberCable through the plain form leaves 0/N strands linked
+    and, before this fix, no path existed to map them onto the device's
+    pre-existing ports: the service unconditionally created a new FiberCable
+    and the overview offered no action.
+    """
+
+    def _rig(self):
+        device, cable, fct, fps = _make_closure_with_existing_ports()
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        return device, cable, fct, fps, fc
+
+    def test_proposes_mapping_for_existing_fibercable(self):
+        device, cable, fct, fps, fc = self._rig()
+        with pytest.raises(NeedsMappingConfirmation) as exc_info:
+            link_cable_topology(cable, None, device)
+        assert len(exc_info.value.proposed_mapping) == 12
+
+    def test_links_strands_into_existing_fibercable(self):
+        device, cable, fct, fps, fc = self._rig()
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        linked_fc, _warnings = link_cable_topology(cable, None, device, port_mapping=mapping)
+        assert linked_fc.pk == fc.pk
+        assert FiberCable.objects.filter(cable=cable).count() == 1
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
+
+    def test_fills_missing_cable_profile(self):
+        """The form path never sets the cable profile; linking strands does."""
+        device, cable, fct, fps, fc = self._rig()
+        assert not cable.profile
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        link_cable_topology(cable, None, device, port_mapping=mapping)
+        cable.refresh_from_db()
+        assert cable.profile == "single-1c12p"
+
+    def test_conflicting_type_rejected(self):
+        device, cable, fct, fps, fc = self._rig()
+        other = FiberCableType.objects.create(
+            manufacturer=fct.manufacturer, model="AD-Other", strand_count=12, construction="tight_buffer"
+        )
+        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        with pytest.raises(ValueError):
+            link_cable_topology(cable, other, device, port_mapping=mapping)
+
+    def test_missing_type_without_fibercable_rejected(self):
+        device, cable, fct, fps = _make_closure_with_existing_ports()
+        with pytest.raises(ValueError):
+            link_cable_topology(cable, None, device)
+
+    def test_greenfield_provisioning_for_existing_fibercable(self):
+        """A device with no ports still gets them provisioned for an existing FiberCable."""
+        from dcim.models import RearPort
+
+        site = Site.objects.create(name="GX-Site", slug="gx-site")
+        mfr = Manufacturer.objects.create(name="GX-Mfr", slug="gx-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="GX-Closure", slug="gx-closure")
+        role = DeviceRole.objects.create(name="GX-Role", slug="gx-role")
+        device = Device.objects.create(name="GX-Closure", site=site, device_type=dt, role=role)
+        cable = Cable.objects.create()
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="GX-2F", strand_count=2, construction="tight_buffer"
+        )
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+
+        linked_fc, _warnings = link_cable_topology(cable, None, device)
+
+        assert linked_fc.pk == fc.pk
+        assert RearPort.objects.filter(device=device).count() == 1
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 2
+
+
+@pytest.mark.django_db
+class TestLinkTopologyViewPostFlow:
+    """View-level round trips through the link-topology modal (issue #87).
+
+    The POST side of this modal -- including the mapping_N field parsing and
+    the two-step confirmation -- previously had no view-level coverage.
+    """
+
+    def _login(self, client):
+        from django.contrib.auth import get_user_model
+
+        user = get_user_model().objects.create_superuser("ltp-admin", "ltp@test.com", "password")
+        client.force_login(user)
+
+    def test_round_trip_adopts_into_existing_fibercable(self, client):
+        device, cable, fct, fps = _make_closure_with_existing_ports()
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        self._login(client)
+        url = f"/plugins/fms/fiber-overview/{device.pk}/link-topology/"
+
+        # Step 1: no type field needed -- the FiberCable fixes it.
+        resp = client.post(url, {"cable_id": cable.pk})
+        assert resp.status_code == 200
+        assert b"confirm_mapping" in resp.content
+
+        # Step 2: confirm the proposed mapping.
+        data = {"cable_id": cable.pk, "confirm_mapping": "1"}
+        data.update({f"mapping_{i}": fps[i - 1].pk for i in range(1, 13)})
+        resp = client.post(url, data)
+        assert resp.status_code == 200
+        assert resp.has_header("HX-Redirect")
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
+
+    def test_confirm_mapping_parses_fields_for_new_fibercable(self, client):
+        device, cable, fct, fps = _make_closure_with_existing_ports()
+        self._login(client)
+        url = f"/plugins/fms/fiber-overview/{device.pk}/link-topology/"
+
+        data = {"cable_id": cable.pk, "confirm_mapping": "1", "fiber_cable_type_id": fct.pk}
+        data.update({f"mapping_{i}": fps[i - 1].pk for i in range(1, 13)})
+        resp = client.post(url, data)
+        assert resp.status_code == 200
+        assert resp.has_header("HX-Redirect")
+        fc = FiberCable.objects.get(cable=cable)
+        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
+
+    def test_get_modal_for_linked_cable_hides_type_selector(self, client):
+        device, cable, fct, fps = _make_closure_with_existing_ports()
+        FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        self._login(client)
+        url = f"/plugins/fms/fiber-overview/{device.pk}/link-topology/?cable_id={cable.pk}"
+
+        resp = client.get(url)
+        assert resp.status_code == 200
+        assert b"id_fiber_cable_type" not in resp.content
+        assert b"AD-12F" in resp.content

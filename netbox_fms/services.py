@@ -384,11 +384,17 @@ def apply_port_names(renames):
 
 @transaction.atomic
 def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", port_mapping=None):
-    """Create FiberCable, adopt or create ports, set cable profile.
+    """Link a cable's FiberCable strands to ports, adopting or creating them.
+
+    Creates the FiberCable when the cable has none; a cable that already
+    carries one (e.g. created through the FiberCable form, which links no
+    strands) is linked in place -- pass ``fiber_cable_type=None`` then, the
+    existing FiberCable fixes the type.
 
     Args:
         cable: dcim.Cable instance
-        fiber_cable_type: FiberCableType instance
+        fiber_cable_type: FiberCableType instance, or None when the cable
+            already carries a FiberCable
         device: dcim.Device where ports will be created/adopted
         port_type: port type string (default "splice")
         port_mapping: optional dict {strand_position: frontport_id} for adopt path
@@ -398,6 +404,17 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
     """
     warnings = []
     rp_ct = ContentType.objects.get_for_model(RearPort)
+
+    existing_fc = FiberCable.objects.filter(cable=cable).select_related("fiber_cable_type").first()
+    if existing_fc is not None:
+        if fiber_cable_type is not None and fiber_cable_type.pk != existing_fc.fiber_cable_type_id:
+            raise ValueError(
+                f"Cable already carries a FiberCable of type {existing_fc.fiber_cable_type}; "
+                "pass fiber_cable_type=None to link its strands."
+            )
+        fiber_cable_type = existing_fc.fiber_cable_type
+    elif fiber_cable_type is None:
+        raise ValueError("fiber_cable_type is required when the cable has no FiberCable yet.")
 
     # Detect pre-existing RearPorts terminated by this cable on this device
     existing_term_rp_ids = set(
@@ -442,8 +459,9 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                 )
             raise NeedsMappingConfirmation(proposed, confirm_warnings)
 
-    # Create FiberCable (triggers _instantiate_components)
-    fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fiber_cable_type)
+    # Create the FiberCable (triggers _instantiate_components) unless the
+    # cable already carries one, whose existing strands get linked instead
+    fc = existing_fc or FiberCable.objects.create(cable=cable, fiber_cable_type=fiber_cable_type)
 
     # Set cable profile (use queryset update to avoid Cable.save() side effects)
     profile_key = fiber_cable_type.get_cable_profile()

@@ -292,3 +292,45 @@ class TestFiberOverviewCableRows(TestCase):
         assert _get_closure_cable_or_404(self.closure, self.bare.pk) == self.bare
         with pytest.raises(Http404):
             _get_closure_cable_or_404(self.closure, self.jumper.pk)
+
+
+class TestFiberOverviewRowActions(TestCase):
+    """Every legitimate row state must render its next action (issue #87).
+
+    The overview's guards were well tested, but nothing asserted that each
+    state offers a way forward -- which is how a FiberCable with unlinked
+    strands shipped as a dead end.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        rig = make_closure_with_tray("ROW", port_count=2)
+        cls.closure = rig.closure
+        far = Device.objects.create(name="ROW-Far", site=rig.site, device_type=rig.device_type, role=rig.role)
+        fct = FiberCableType.objects.create(
+            manufacturer=rig.mfr, model="ROW-TB2", construction="tight_buffer", strand_count=2
+        )
+
+        # State 1: rear-terminated cable, no FiberCable -> "Link Topology".
+        rp_bare = RearPort.objects.create(device=cls.closure, name="ROW-RP-Bare", type="splice", positions=2)
+        cls.bare_cable = Cable.objects.create(a_terminations=[rp_bare])
+
+        # State 2: FiberCable with no linked strands -> "Link Strands".
+        rp_part = RearPort.objects.create(device=cls.closure, name="ROW-RP-Part", type="splice", positions=2)
+        partial_cable = Cable.objects.create(a_terminations=[rp_part])
+        cls.partial_fc = FiberCable.objects.create(cable=partial_cable, fiber_cable_type=fct)
+
+        # State 3: fully linked FiberCable -> check icon, no action.
+        cls.full_fc, _ = create_closure_cable(device_a=cls.closure, device_b=far, fiber_cable_type=fct)
+
+        cls.user = User.objects.create_user(username="row_testuser", password="testpass", is_superuser=True)
+
+    def test_each_row_state_offers_its_action(self):
+        self.client.force_login(self.user)
+        response = self.client.get(f"/dcim/devices/{self.closure.pk}/fiber-overview/")
+        assert response.status_code == 200
+        content = response.content.decode()
+
+        assert content.count("Link Topology") == 1, "bare rear-terminated cable must offer Link Topology"
+        assert content.count("Link Strands") == 1, "unlinked FiberCable must offer Link Strands"
+        assert "mdi-check-circle" in content, "fully linked FiberCable must show the check icon"

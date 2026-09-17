@@ -1,4 +1,4 @@
-from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Site
+from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, RearPort, Site
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -143,10 +143,16 @@ class TestHiddenFieldTampering(TestCase):
             strand_count=4,
         )
 
-        cls.cable_on_device = Cable.objects.create()
+        # Terminate each cable on its device so the object-scope guard
+        # (which runs before the permission check) admits it; the tamper
+        # tests then exercise real cross-device rejection, not an empty
+        # topology.
+        rp_device = RearPort.objects.create(device=cls.device, name="Tamper-RP", type="splice", positions=4)
+        cls.cable_on_device = Cable.objects.create(a_terminations=[rp_device])
         cls.fc_on_device = FiberCable.objects.create(cable=cls.cable_on_device, fiber_cable_type=fct)
 
-        cls.cable_on_other = Cable.objects.create()
+        rp_other = RearPort.objects.create(device=cls.other_device, name="Tamper-RP-O", type="splice", positions=4)
+        cls.cable_on_other = Cable.objects.create(a_terminations=[rp_other])
         cls.fc_on_other = FiberCable.objects.create(cable=cls.cable_on_other, fiber_cable_type=fct)
 
         cls.user = User.objects.create_user(username="tamper_user", password="testpass", is_superuser=True)

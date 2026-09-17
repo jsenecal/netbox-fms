@@ -42,6 +42,15 @@
             <span class="text-warning" title="{% trans 'Partially linked' %}">
                 <i class="mdi mdi-alert-circle-outline"></i> {{ row.strand_info.linked }}/{{ row.strand_info.total }}
             </span>
+            {% if perms.netbox_fms.change_fibercable %}
+            <button type="button" class="btn btn-sm btn-warning"
+                    hx-get="{% url 'plugins:netbox_fms:fiber_overview_link_topology' pk=device.pk %}"
+                    hx-vals='{"cable_id": "{{ row.cable.pk }}"}'
+                    hx-target="#htmx-modal-content" hx-swap="innerHTML"
+                    data-bs-toggle="modal" data-bs-target="#htmx-modal">
+                <i class="mdi mdi-link-variant"></i> {% trans "Link Strands" %}
+            </button>
+            {% endif %}
         {% endif %}
         {% if row.fiber_cable %}
             {% if perms.netbox_fms.add_closurecableentry or perms.netbox_fms.change_closurecableentry %}
