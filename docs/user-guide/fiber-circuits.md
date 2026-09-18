@@ -301,11 +301,50 @@ matching `FiberCircuitNode` with `on_delete=PROTECT`, so:
   `/api/plugins/fms/splice-plans/{id}/bulk-update/` and the closure
   Pending Work tab for the user-facing surface.
 
-The dedicated endpoint `GET /api/plugins/fms/fiber-circuits/protecting/`
-takes one or more of `cable=`, `front_port=`, `rear_port=`,
-`fiber_strand=`, or `splice_entry=` (comma-separated IDs) and returns the
-circuits whose paths reference any of them. Use it to surface "which
-circuits would be affected" in dashboards or pre-flight checks.
+The dedicated endpoint `/api/plugins/fms/fiber-circuits/protecting/`
+answers "which circuits would be affected" for dashboards and pre-flight
+checks. It understands five reference types, matching the FK fields on
+`FiberCircuitNode`: `cable`, `front_port`, `rear_port`, `fiber_strand`,
+and `splice_entry`.
+
+**GET** takes reference IDs as query parameters -- comma-separated
+(`?cable=42,43`), repeated (`?cable=42&cable=43`), or both -- and returns
+a flat list of the circuits whose paths reference any of them:
+
+```
+GET /api/plugins/fms/fiber-circuits/protecting/?cable=42,43&front_port=7
+-> [ {circuit}, {circuit}, ... ]
+```
+
+**POST** is the bulk maintenance-impact interface. The body maps
+reference types to ID lists, with no practical limit on set size (no URL
+length ceiling). The response carries the deduplicated affected circuits
+once, in `results`, plus a `by_reference` breakdown mapping every input
+ID to the IDs of the circuits it affects -- references that touch no
+circuit map to an empty list, so a maintenance window's harmless members
+are visible at a glance:
+
+```
+POST /api/plugins/fms/fiber-circuits/protecting/
+{"cable": [42, 43, 44], "front_port": [7]}
+->
+{
+  "results": [ {circuit 10}, {circuit 11} ],
+  "by_reference": {
+    "cable": {"42": [10], "43": [10, 11], "44": []},
+    "front_port": {"7": [11]}
+  }
+}
+```
+
+Unknown reference types, non-list values, and non-integer IDs return
+HTTP 400 with a message naming the offending key, so a typo like
+`"cables"` fails loudly instead of silently matching nothing.
+
+Although POST is normally a write verb, this endpoint's POST is a pure
+read: it requires the same `view_fibercircuit` permission as GET (not
+`add`), object-level permission constraints filter both `results` and
+`by_reference`, and read-only API tokens may call it.
 
 To take resources out from under protection, set the circuit to
 `decommissioned`. The `save()` override deletes its `FiberCircuitNode`
@@ -341,10 +380,26 @@ circuit = create_circuit_from_proposal(best, name="POP-A <-> POP-B (Pair 1)")
 
 ### Inventory all circuits affected by a planned outage
 
+For a quick look at a few resources, the GET form returns a standard
+fiber-circuit list, suitable for a customer notification spreadsheet or
+a maintenance ticket:
+
 ```bash
 curl -s -H "Authorization: Token $TOKEN" \
   "$NETBOX_URL/api/plugins/fms/fiber-circuits/protecting/?cable=42,43,44"
 ```
 
-The response is a standard fiber-circuit list, suitable for a customer
-notification spreadsheet or a maintenance ticket.
+For a real maintenance event -- say a dark fiber provider taking down a
+dozen cables in one window -- POST the whole set at once and read the
+combined impact from a single response:
+
+```bash
+curl -s -X POST -H "Authorization: Token $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"cable": [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]}' \
+  "$NETBOX_URL/api/plugins/fms/fiber-circuits/protecting/"
+```
+
+`results` is the deduplicated circuit list for the notification;
+`by_reference` tells you which input cable drives which impact, and
+which cables in the window carry nothing.

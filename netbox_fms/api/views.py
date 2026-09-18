@@ -4,9 +4,11 @@ from dcim.models import CableTermination, Device, FrontPort, Module
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count
+from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -63,6 +65,7 @@ from ..services import (
     front_port_splice_pairs,
     get_or_recompute_diff,
     import_live_state,
+    protecting_circuit_groups,
     protecting_nodes,
 )
 from ..trace_hops import build_hops
@@ -557,30 +560,84 @@ class FiberCircuitNodeViewSet(ModelViewSet):
         return super().get_queryset().restrict(self.request.user, "view")
 
 
+class ProtectingQueryPermissions(TokenPermissions):
+    """Permissions for the protecting endpoint, where POST is a read.
+
+    POST carries a query body, not a write, so it requires the same view
+    permission as GET (never add) and stays usable with read-only API
+    tokens, which TokenPermissions would otherwise reject on an unsafe
+    method.
+    """
+
+    perms_map = {**TokenPermissions.perms_map, "POST": TokenPermissions.perms_map["GET"]}
+
+    def _verify_write_permission(self, request):
+        return True
+
+
 class FiberCircuitProtectingAPIView(APIView):
-    """Return circuits protecting the given objects."""
+    """Return circuits protecting the given objects.
+
+    GET answers small ad-hoc lookups with a flat circuit list; POST is the
+    bulk maintenance-impact interface, returning the deduplicated circuits
+    together with a per-input-reference breakdown.
+    """
 
     queryset = FiberCircuit.objects.all()
+    permission_classes = [ProtectingQueryPermissions]
 
     def get(self, request):
-        """Return circuits that protect the specified cables, ports, or strands."""
-        filters = models.Q()
-        for param, field in [
-            ("cable", "paths__nodes__cable_id"),
-            ("front_port", "paths__nodes__front_port_id"),
-            ("rear_port", "paths__nodes__rear_port_id"),
-            ("fiber_strand", "paths__nodes__fiber_strand_id"),
-            ("splice_entry", "paths__nodes__splice_entry_id"),
-        ]:
-            values = request.query_params.get(param)
+        """Return a flat list of circuits protecting the referenced objects."""
+        references = self._parse_query_params(request.query_params)
+        circuit_ids, _ = protecting_circuit_groups(references, request.user)
+        return Response(self._serialize_circuits(request, circuit_ids))
+
+    def post(self, request):
+        """Return deduplicated circuits grouped by each input reference."""
+        references = self._parse_body(request.data)
+        circuit_ids, groups = protecting_circuit_groups(references, request.user)
+        by_reference = {
+            param: {str(ref_id): sorted(matched) for ref_id, matched in ref_groups.items()}
+            for param, ref_groups in groups.items()
+        }
+        return Response({"results": self._serialize_circuits(request, circuit_ids), "by_reference": by_reference})
+
+    def _serialize_circuits(self, request, circuit_ids):
+        circuits = FiberCircuit.objects.restrict(request.user, "view").filter(pk__in=circuit_ids)
+        return FiberCircuitSerializer(circuits, many=True, context={"request": request}).data
+
+    def _parse_query_params(self, query_params):
+        """Return {param: [ids]} from repeated and/or comma-separated GET params."""
+        references = {}
+        for param in FiberCircuitNode.REFERENCE_FIELDS:
+            values = [v for value in query_params.getlist(param) for v in value.split(",") if v.strip()]
             if values:
-                ids = [int(v) for v in values.split(",")]
-                filters |= models.Q(**{f"{field}__in": ids})
-        if not filters:
-            return Response([])
-        circuits = FiberCircuit.objects.restrict(request.user, "view").filter(filters).distinct()
-        serializer = FiberCircuitSerializer(circuits, many=True, context={"request": request})
-        return Response(serializer.data)
+                references[param] = self._coerce_ids(param, values)
+        return references
+
+    def _parse_body(self, data):
+        """Return {param: [ids]} from a POST body of reference ID lists."""
+        if not isinstance(data, dict):
+            raise RestValidationError("Expected a JSON object mapping reference types to ID lists.")
+        unknown = set(data) - set(FiberCircuitNode.REFERENCE_FIELDS)
+        if unknown:
+            raise RestValidationError(
+                f"Unknown reference type(s): {', '.join(sorted(unknown))}. "
+                f"Supported: {', '.join(FiberCircuitNode.REFERENCE_FIELDS)}."
+            )
+        references = {}
+        for param, values in data.items():
+            if not isinstance(values, list):
+                raise RestValidationError(f"Value for {param} must be a list of IDs.")
+            references[param] = self._coerce_ids(param, values)
+        return references
+
+    @staticmethod
+    def _coerce_ids(param, values):
+        try:
+            return [int(v) for v in values]
+        except (TypeError, ValueError):
+            raise RestValidationError(f"Invalid {param} ID: expected integers.") from None
 
 
 # ---------------------------------------------------------------------------
