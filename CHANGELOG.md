@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The diff/apply engine now sees splices on device-level front ports
+  (unassigned buffer tubes) instead of silently ignoring them: a planned
+  splice on an unassigned tube was rendered by the visual editor but
+  never created on apply, and a live jumper whose tube got unassigned
+  could never produce a "remove". `get_live_state()` and
+  `get_desired_state()` consider every closure front port; pairs not
+  attributable to a tray are grouped under the `UNASSIGNED_TRAY_ID = 0`
+  bucket, which Pending Work, the apply confirmation, the diff API
+  (key `0`) and the draw.io export surface as a distinct "Unassigned
+  tubes" warning group. Importing live state skips pairs with no
+  tray-mounted port and reports the skipped count instead of dropping
+  them silently. (#164)
+
 - `sync_tube_assignment_ports()` now refuses to park strand front ports
   on a module that is not a splice tray, logging a warning instead --
   defence in depth behind `TubeAssignment.clean()` for write paths that

@@ -122,6 +122,7 @@ from .models import (
 )
 from .provisioning import create_circuit_from_proposal, find_fiber_paths
 from .services import (
+    UNASSIGNED_TRAY_ID,
     NeedsMappingConfirmation,
     apply_diff,
     create_closure_cable,
@@ -821,11 +822,18 @@ class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
         """Import live device connections into the splice plan."""
         plan = get_object_or_404(SplicePlan, pk=pk)
         try:
-            count = import_live_state(plan)
+            result = import_live_state(plan)
             messages.success(
                 request,
-                _('Imported {count} connections into "{plan}".').format(count=count, plan=plan),
+                _('Imported {count} connections into "{plan}".').format(count=result["imported"], plan=plan),
             )
+            if result["skipped_unassigned"]:
+                messages.warning(
+                    request,
+                    _(
+                        "Skipped {count} splice(s) on tubes not assigned to any tray -- plan entries require a tray."
+                    ).format(count=result["skipped_unassigned"]),
+                )
         except (ValueError, ValidationError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())
@@ -875,15 +883,23 @@ def _build_enriched_diff(plan):
         total_remove += len(removes)
         total_unchanged += len(unchanged)
         if adds or removes or unchanged:
+            is_unassigned = tray_id == UNASSIGNED_TRAY_ID
             diff.append(
                 {
                     "tray_id": tray_id,
-                    "tray_name": tray_lookup.get(tray_id, f"Tray #{tray_id}"),
+                    "tray_name": _("Unassigned tubes")
+                    if is_unassigned
+                    else tray_lookup.get(tray_id, f"Tray #{tray_id}"),
+                    "is_unassigned": is_unassigned,
                     "add": adds,
                     "remove": removes,
                     "unchanged": unchanged,
                 }
             )
+
+    # The unassigned bucket is a plan inconsistency, not a tray: render it
+    # after the real trays so the warning group stands apart.
+    diff.sort(key=lambda group: group["is_unassigned"])
 
     return diff, total_add, total_remove, total_unchanged
 

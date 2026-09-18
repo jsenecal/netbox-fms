@@ -1,9 +1,9 @@
-"""Regression tests for the closure "Apply all Approved Plans" view (issue #65)."""
+"""Regression tests for the closure Pending Work and plan import views."""
 
 from unittest.mock import patch
 
 import pytest
-from dcim.models import Cable, Device, Module, ModuleBay, ModuleType
+from dcim.models import Cable, CableTermination, Device, Module, ModuleBay, ModuleType
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from users.models import ObjectPermission
@@ -106,6 +106,44 @@ def test_apply_all_rolls_back_on_apply_error(client):
     plan.refresh_from_db()
     assert plan.status == SplicePlanStatusChoices.APPROVED
     assert Cable.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_pending_work_renders_unassigned_group_distinctly(client):
+    """The bucket-0 group renders as a warning, not a normal tray row (issue #164)."""
+    closure, plan, _fp1 = _build_closure_with_plan("PWUB")
+    tray = plan.entries.first().tray
+    fp3 = make_front_port(device=closure, module=tray, name="PWUB-F3")
+    loose = make_front_port(device=closure, name="PWUB-Loose")
+    SplicePlanEntry.objects.create(plan=plan, tray=tray, fiber_a=fp3, fiber_b=loose)
+    _login_superuser(client, "pwub-admin")
+
+    response = client.get(f"/dcim/devices/{closure.pk}/pending-work/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Unassigned tubes" in content
+    assert "splices on tubes not assigned to any tray" in content
+
+
+@pytest.mark.django_db
+def test_import_view_warns_about_skipped_unassigned(client):
+    """The import view surfaces the count of skipped device-level pairs (issue #164)."""
+    closure, plan, _fp = _build_closure_with_plan("PWIW", plan_status=SplicePlanStatusChoices.DRAFT)
+    plan.entries.all().delete()
+    loose_a = make_front_port(device=closure, name="PWIW-LA")
+    loose_b = make_front_port(device=closure, name="PWIW-LB")
+    cable = Cable.objects.create(length=0, length_unit="m")
+    CableTermination.objects.create(cable=cable, cable_end="A", termination=loose_a)
+    CableTermination.objects.create(cable=cable, cable_end="B", termination=loose_b)
+    _login_superuser(client, "pwiw-admin")
+
+    response = client.post(f"/plugins/fms/splice-plans/{plan.pk}/import/", follow=True)
+
+    rendered_messages = [str(m) for m in response.context["messages"]]
+    assert any(m.startswith("Imported 0 connections") for m in rendered_messages)
+    assert any("Skipped 1 splice(s) on tubes not assigned to any tray" in m for m in rendered_messages)
+    assert plan.entries.count() == 0
 
 
 @pytest.mark.django_db(transaction=True)
