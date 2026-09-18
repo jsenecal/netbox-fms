@@ -15,7 +15,7 @@ from dcim.models import (
 )
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from users.models import ObjectPermission
 
@@ -126,6 +126,9 @@ class TestCircuitEndpointPermissions(TestCase):
         perm_a_circuit = self.nodes["Perm-A"].path.circuit
         assert resp.data["by_reference"] == {"cable": {str(self.cable.pk): [perm_a_circuit.pk]}}
 
+    # v2 token digests need a pepper; pin one so the test does not depend
+    # on the environment's NetBox configuration (CI's has none defined).
+    @override_settings(API_TOKEN_PEPPERS={1: "TEST-VALUE-DO-NOT-USE-TEST-VALUE-DO-NOT-USE-TEST-VALUE-DO-NOT-USE"})
     def test_protecting_post_allows_read_only_token(self):
         """A token with write_enabled=False must still be able to POST the
         bulk query: the body is a read, not a write. Regression test for
