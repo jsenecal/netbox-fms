@@ -2061,6 +2061,11 @@ class FiberCircuitPath(NetBoxModel):
 class FiberCircuitNode(models.Model):
     """Relational index of objects in a fiber circuit path for PROTECT-based deletion prevention."""
 
+    # The reference FK fields, exactly one of which is populated per node
+    # (enforced by the check constraint below). The protecting API accepts
+    # these names as its reference types.
+    REFERENCE_FIELDS = ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry")
+
     # Not a NetBoxModel, so wire up the restricted manager explicitly --
     # the API exposes this model and must be able to enforce object
     # permissions on it via .restrict().
@@ -2164,7 +2169,7 @@ class FiberCircuitNode(models.Model):
 
     def __str__(self):
         """Return the populated reference field and its value."""
-        for field in ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry"):
+        for field in self.REFERENCE_FIELDS:
             obj = getattr(self, field)
             if obj is not None:
                 return f"{field}: {obj}"

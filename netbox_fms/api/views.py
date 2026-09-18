@@ -8,6 +8,7 @@ from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -64,6 +65,7 @@ from ..services import (
     front_port_splice_pairs,
     get_or_recompute_diff,
     import_live_state,
+    protecting_circuit_groups,
     protecting_nodes,
 )
 from ..trace_hops import build_hops
@@ -584,78 +586,58 @@ class FiberCircuitProtectingAPIView(APIView):
     queryset = FiberCircuit.objects.all()
     permission_classes = [ProtectingQueryPermissions]
 
-    REFERENCE_PARAMS = ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry")
-
     def get(self, request):
         """Return a flat list of circuits protecting the referenced objects."""
-        try:
-            references = self._parse_query_params(request.query_params)
-        except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        if not references:
-            return Response([])
-        filters = models.Q()
-        for param, ids in references.items():
-            filters |= models.Q(**{f"paths__nodes__{param}_id__in": ids})
-        circuits = FiberCircuit.objects.restrict(request.user, "view").filter(filters).distinct()
-        serializer = FiberCircuitSerializer(circuits, many=True, context={"request": request})
-        return Response(serializer.data)
+        references = self._parse_query_params(request.query_params)
+        circuit_ids, _ = protecting_circuit_groups(references, request.user)
+        return Response(self._serialize_circuits(request, circuit_ids))
 
     def post(self, request):
         """Return deduplicated circuits grouped by each input reference."""
-        try:
-            references = self._parse_body(request.data)
-        except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        references = self._parse_body(request.data)
+        circuit_ids, groups = protecting_circuit_groups(references, request.user)
+        by_reference = {
+            param: {str(ref_id): sorted(matched) for ref_id, matched in ref_groups.items()}
+            for param, ref_groups in groups.items()
+        }
+        return Response({"results": self._serialize_circuits(request, circuit_ids), "by_reference": by_reference})
 
-        restricted = FiberCircuit.objects.restrict(request.user, "view")
-        by_reference = {}
-        circuit_ids = set()
-        for param, ids in references.items():
-            groups = {str(ref_id): set() for ref_id in ids}
-            node_pairs = FiberCircuitNode.objects.filter(
-                **{f"{param}_id__in": ids}, path__circuit__in=restricted
-            ).values_list(f"{param}_id", "path__circuit_id")
-            for ref_id, circuit_id in node_pairs:
-                groups[str(ref_id)].add(circuit_id)
-                circuit_ids.add(circuit_id)
-            by_reference[param] = {ref_id: sorted(matched) for ref_id, matched in groups.items()}
-
-        circuits = restricted.filter(pk__in=circuit_ids)
-        serializer = FiberCircuitSerializer(circuits, many=True, context={"request": request})
-        return Response({"results": serializer.data, "by_reference": by_reference})
+    def _serialize_circuits(self, request, circuit_ids):
+        circuits = FiberCircuit.objects.restrict(request.user, "view").filter(pk__in=circuit_ids)
+        return FiberCircuitSerializer(circuits, many=True, context={"request": request}).data
 
     def _parse_query_params(self, query_params):
         """Return {param: [ids]} from repeated and/or comma-separated GET params."""
         references = {}
-        for param in self.REFERENCE_PARAMS:
-            try:
-                ids = [int(v) for value in query_params.getlist(param) for v in value.split(",") if v.strip()]
-            except ValueError:
-                raise ValueError(f"Invalid {param} ID: expected integers.") from None
-            if ids:
-                references[param] = ids
+        for param in FiberCircuitNode.REFERENCE_FIELDS:
+            values = [v for value in query_params.getlist(param) for v in value.split(",") if v.strip()]
+            if values:
+                references[param] = self._coerce_ids(param, values)
         return references
 
     def _parse_body(self, data):
         """Return {param: [ids]} from a POST body of reference ID lists."""
         if not isinstance(data, dict):
-            raise ValueError("Expected a JSON object mapping reference types to ID lists.")
-        unknown = set(data) - set(self.REFERENCE_PARAMS)
+            raise RestValidationError("Expected a JSON object mapping reference types to ID lists.")
+        unknown = set(data) - set(FiberCircuitNode.REFERENCE_FIELDS)
         if unknown:
-            raise ValueError(
+            raise RestValidationError(
                 f"Unknown reference type(s): {', '.join(sorted(unknown))}. "
-                f"Supported: {', '.join(self.REFERENCE_PARAMS)}."
+                f"Supported: {', '.join(FiberCircuitNode.REFERENCE_FIELDS)}."
             )
         references = {}
         for param, values in data.items():
             if not isinstance(values, list):
-                raise ValueError(f"Value for {param} must be a list of IDs.")
-            try:
-                references[param] = [int(v) for v in values]
-            except (TypeError, ValueError):
-                raise ValueError(f"Invalid {param} ID: expected integers.") from None
+                raise RestValidationError(f"Value for {param} must be a list of IDs.")
+            references[param] = self._coerce_ids(param, values)
         return references
+
+    @staticmethod
+    def _coerce_ids(param, values):
+        try:
+            return [int(v) for v in values]
+        except (TypeError, ValueError):
+            raise RestValidationError(f"Invalid {param} ID: expected integers.") from None
 
 
 # ---------------------------------------------------------------------------

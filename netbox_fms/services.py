@@ -9,7 +9,7 @@ from django.db import transaction
 
 from . import naming
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
-from .models import ClosureCableEntry, FiberCable, FiberCircuitNode, SplicePlanEntry
+from .models import ClosureCableEntry, FiberCable, FiberCircuit, FiberCircuitNode, SplicePlanEntry
 from .signals import fms_portmapping_bypass
 
 logger = logging.getLogger(__name__)
@@ -767,6 +767,36 @@ def protecting_nodes(front_port_ids, user=None):
         .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
         .select_related("path__circuit")
     )
+
+
+def protecting_circuit_groups(references, user):
+    """
+    Map each input reference to the circuits whose paths it carries.
+
+    ``references`` maps FiberCircuitNode reference field names ("cable",
+    "front_port", ...) to lists of object IDs. Returns ``(circuit_ids,
+    groups)``: ``groups`` is ``{param: {ref_id: set of circuit IDs}}``
+    covering every input ID (an empty set marks a reference carrying no
+    circuit), and ``circuit_ids`` is their union.
+
+    Rows are restricted to circuits the user may view. Decommissioned
+    circuits are excluded for the same reason ``protecting_nodes`` excludes
+    them; since decommissioning deletes a circuit's nodes, the exclusion is
+    belt-and-suspenders rather than load-bearing.
+    """
+    restricted = FiberCircuit.objects.restrict(user, "view").exclude(status=FiberCircuitStatusChoices.DECOMMISSIONED)
+    circuit_ids = set()
+    groups = {}
+    for param, ids in references.items():
+        matched = {ref_id: set() for ref_id in ids}
+        pairs = FiberCircuitNode.objects.filter(**{f"{param}_id__in": ids}, path__circuit__in=restricted).values_list(
+            f"{param}_id", "path__circuit_id"
+        )
+        for ref_id, circuit_id in pairs:
+            matched[ref_id].add(circuit_id)
+            circuit_ids.add(circuit_id)
+        groups[param] = matched
+    return circuit_ids, groups
 
 
 def apply_diff(plan):
