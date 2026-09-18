@@ -1,8 +1,6 @@
 """API endpoint coverage tests for netbox_fms plugin."""
 
 from dcim.models import (
-    Cable,
-    CableTermination,
     Device,
     FrontPort,
     Module,
@@ -19,7 +17,7 @@ from netbox_fms.models import (
     SplicePlan,
     SplicePlanEntry,
 )
-from tests.conftest import make_closure_with_tray, make_front_port, make_infra
+from tests.conftest import connect_front_ports, make_closure_with_tray, make_front_port, make_infra
 
 
 def _make_authed_client():
@@ -306,9 +304,7 @@ class TestSplicePlanImportFromDeviceAPI(TestCase):
         """Live pairs on device-level ports are reported, not imported (issue #164)."""
         loose_a = make_front_port(self.closure, "imp-loose-a")
         loose_b = make_front_port(self.closure, "imp-loose-b")
-        cable = Cable.objects.create(length=0, length_unit="m")
-        CableTermination.objects.create(cable=cable, cable_end="A", termination=loose_a)
-        CableTermination.objects.create(cable=cable, cable_end="B", termination=loose_b)
+        connect_front_ports(loose_a, loose_b)
 
         url = f"/api/plugins/fms/splice-plans/{self.plan.pk}/import-from-device/"
         resp = self.client.post(url, format="json")

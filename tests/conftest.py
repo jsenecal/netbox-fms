@@ -61,6 +61,18 @@ def make_closure_with_tray(prefix, port_count=2, port_type="splice"):
     )
 
 
+def connect_front_ports(port_a, port_b):
+    """Create a zero-length jumper cable between two FrontPorts."""
+    from dcim.models import Cable, CableTermination
+    from django.contrib.contenttypes.models import ContentType
+
+    fp_ct = ContentType.objects.get_for_model(FrontPort)
+    cable = Cable.objects.create(length=0, length_unit="m")
+    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=fp_ct, termination_id=port_a.pk)
+    CableTermination.objects.create(cable=cable, cable_end="B", termination_type=fp_ct, termination_id=port_b.pk)
+    return cable
+
+
 def make_tray_type(mfr, model, role="splice_tray"):
     """ModuleType with a TrayProfile of the given role; role=None leaves it unprofiled."""
     from netbox_fms.models import TrayProfile

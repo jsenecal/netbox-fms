@@ -24,18 +24,7 @@ from netbox_fms.services import (
     get_or_recompute_diff,
     import_live_state,
 )
-from tests.conftest import make_closure_with_tray, make_front_port
-
-
-def connect_front_ports(port_a, port_b):
-    """Create a zero-length jumper cable between two FrontPorts."""
-    from django.contrib.contenttypes.models import ContentType
-
-    fp_ct = ContentType.objects.get_for_model(FrontPort)
-    cable = Cable.objects.create(length=0, length_unit="m")
-    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=fp_ct, termination_id=port_a.pk)
-    CableTermination.objects.create(cable=cable, cable_end="B", termination_type=fp_ct, termination_id=port_b.pk)
-    return cable
+from tests.conftest import connect_front_ports, make_closure_with_tray, make_front_port
 
 
 class TestLiveStateReader(TestCase):
