@@ -1,0 +1,72 @@
+{% load i18n %}
+{# One tray's diff card, shared by the Pending Work tab and the apply
+   confirmation. Pass show_plan=True to add the per-pair plan column
+   (Pending Work aggregates several plans). The unassigned bucket
+   (tray.is_unassigned) renders as a warning, not a normal tray. #}
+<div class="card mb-3{% if tray.is_unassigned %} border-warning{% endif %}">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center{% if tray.is_unassigned %} bg-warning bg-opacity-10{% endif %}">
+        <span>
+            {% if tray.is_unassigned %}
+            <i class="mdi mdi-alert-outline text-warning"></i>
+            <strong>{{ tray.tray_name }}</strong>
+            <span class="text-muted small">{% trans "(splices on tubes not assigned to any tray)" %}</span>
+            {% else %}
+            <i class="mdi mdi-tray-full"></i>
+            <strong>{{ tray.tray_name }}</strong>
+            {% endif %}
+        </span>
+        <span class="text-muted small">
+            {% if tray.add %}
+                <span class="fms-badge fms-badge--live">+{{ tray.add|length }}</span>
+            {% endif %}
+            {% if tray.remove %}
+                <span class="fms-badge fms-badge--protected">-{{ tray.remove|length }}</span>
+            {% endif %}
+            {% if tray.unchanged %}
+                <span class="text-muted">{{ tray.unchanged|length }} {% trans "kept" %}</span>
+            {% endif %}
+        </span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead>
+                <tr>
+                    <th style="width:100px">{% trans "Action" %}</th>
+                    <th>{% trans "Fiber A" %}</th>
+                    <th></th>
+                    <th>{% trans "Fiber B" %}</th>
+                    {% if show_plan %}<th>{% trans "Plan" %}</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for pair in tray.add %}
+                <tr>
+                    <td><span class="fms-badge fms-badge--live">{% trans "Add" %}</span></td>
+                    <td>{{ pair.name_a }}</td>
+                    <td class="text-muted text-center">&harr;</td>
+                    <td>{{ pair.name_b }}</td>
+                    {% if show_plan %}<td class="text-muted small">{{ pair.plan_name }}</td>{% endif %}
+                </tr>
+                {% endfor %}
+                {% for pair in tray.remove %}
+                <tr class="text-decoration-line-through" style="opacity:0.6">
+                    <td><span class="fms-badge fms-badge--protected">{% trans "Remove" %}</span></td>
+                    <td>{{ pair.name_a }}</td>
+                    <td class="text-muted text-center">&harr;</td>
+                    <td>{{ pair.name_b }}</td>
+                    {% if show_plan %}<td class="text-muted small">{{ pair.plan_name }}</td>{% endif %}
+                </tr>
+                {% endfor %}
+                {% for pair in tray.unchanged %}
+                <tr class="text-muted">
+                    <td><span class="badge text-bg-secondary">{% trans "Keep" %}</span></td>
+                    <td>{{ pair.name_a }}</td>
+                    <td class="text-center">&harr;</td>
+                    <td>{{ pair.name_b }}</td>
+                    {% if show_plan %}<td class="text-muted small">{{ pair.plan_name }}</td>{% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
