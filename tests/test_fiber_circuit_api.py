@@ -1,8 +1,26 @@
+from dcim.models import Cable, Device
 from django.test import TestCase
-from rest_framework.test import APIClient
 
 from netbox_fms.choices import FiberCircuitStatusChoices
 from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath
+from tests.conftest import make_authed_client, make_front_port, make_infra
+
+
+def make_protected_circuit(name, origin, node_refs):
+    """Active circuit with one path from ``origin`` and one FiberCircuitNode
+    per entry of ``node_refs``, each a single-key dict naming the node's
+    reference FK (e.g. ``{"cable": cable}`` or ``{"front_port": fp}``)."""
+    circuit = FiberCircuit.objects.create(name=name, status=FiberCircuitStatusChoices.ACTIVE, strand_count=1)
+    path = FiberCircuitPath.objects.create(
+        circuit=circuit,
+        position=1,
+        origin=origin,
+        path=[{"type": "cable", "id": ref["cable"].pk} for ref in node_refs if "cable" in ref],
+        is_complete=False,
+    )
+    for position, ref in enumerate(node_refs, start=1):
+        FiberCircuitNode.objects.create(path=path, position=position, **ref)
+    return circuit
 
 
 class TestFiberCircuitAPI(TestCase):
@@ -15,12 +33,7 @@ class TestFiberCircuitAPI(TestCase):
         )
 
     def setUp(self):
-        from django.contrib.auth import get_user_model
-
-        user_model = get_user_model()
-        self.user = user_model.objects.create_superuser("apicircuit", "apicircuit@test.com", "password")
-        self.client_api = APIClient()
-        self.client_api.force_authenticate(self.user)
+        self.client_api = make_authed_client("apicircuit")
 
     def test_list_circuits(self):
         response = self.client_api.get("/api/plugins/fms/fiber-circuits/")
@@ -47,37 +60,14 @@ class TestFiberCircuitAPI(TestCase):
 class TestProtectionQueryAPI(TestCase):
     @classmethod
     def setUpTestData(cls):
-        from dcim.models import Cable, Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Site
-
-        site = Site.objects.create(name="Prot Site", slug="prot-site")
-        mfr = Manufacturer.objects.create(name="Prot Mfr", slug="prot-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="ProtDev", slug="protdev")
-        role = DeviceRole.objects.create(name="Prot Role", slug="prot-role")
+        site, mfr, dt, role = make_infra("Prot")
         device = Device.objects.create(name="ProtDev-1", site=site, device_type=dt, role=role)
-        fp = FrontPort.objects.create(device=device, name="ProtFP", type="lc")
-
+        fp = make_front_port(device, "ProtFP")
         cls.cable = Cable.objects.create()
-        cls.circuit = FiberCircuit.objects.create(
-            name="Prot-Circuit",
-            status=FiberCircuitStatusChoices.ACTIVE,
-            strand_count=1,
-        )
-        cls.path = FiberCircuitPath.objects.create(
-            circuit=cls.circuit,
-            position=1,
-            origin=fp,
-            path=[{"type": "cable", "id": cls.cable.pk}],
-            is_complete=False,
-        )
-        FiberCircuitNode.objects.create(path=cls.path, position=1, cable=cls.cable)
+        make_protected_circuit("Prot-Circuit", fp, [{"cable": cls.cable}])
 
     def setUp(self):
-        from django.contrib.auth import get_user_model
-
-        user_model = get_user_model()
-        self.user = user_model.objects.create_superuser("prottest", "prot@test.com", "password")
-        self.client_api = APIClient()
-        self.client_api.force_authenticate(self.user)
+        self.client_api = make_authed_client("prottest")
 
     def test_query_by_cable(self):
         response = self.client_api.get(f"/api/plugins/fms/fiber-circuits/protecting/?cable={self.cable.pk}")
@@ -85,8 +75,6 @@ class TestProtectionQueryAPI(TestCase):
         assert len(response.data) >= 1
 
     def test_query_no_match(self):
-        from dcim.models import Cable
-
         other_cable = Cable.objects.create()
         response = self.client_api.get(f"/api/plugins/fms/fiber-circuits/protecting/?cable={other_cable.pk}")
         assert response.status_code == 200
@@ -103,54 +91,21 @@ class TestProtectionBulkQueryAPI(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from dcim.models import Cable, Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Site
-
-        site = Site.objects.create(name="Bulk Site", slug="bulk-site")
-        mfr = Manufacturer.objects.create(name="Bulk Mfr", slug="bulk-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="BulkDev", slug="bulkdev")
-        role = DeviceRole.objects.create(name="Bulk Role", slug="bulk-role")
+        site, mfr, dt, role = make_infra("Bulk")
         device = Device.objects.create(name="BulkDev-1", site=site, device_type=dt, role=role)
-        cls.fp = FrontPort.objects.create(device=device, name="BulkFP", type="lc")
+        cls.fp = make_front_port(device, "BulkFP")
 
         cls.cable1 = Cable.objects.create()
         cls.cable2 = Cable.objects.create()
         cls.cable3 = Cable.objects.create()
 
-        # Circuit A rides cable1 and terminates on cls.fp.
-        cls.circuit_a = FiberCircuit.objects.create(
-            name="Bulk-A", status=FiberCircuitStatusChoices.ACTIVE, strand_count=1
-        )
-        path_a = FiberCircuitPath.objects.create(
-            circuit=cls.circuit_a,
-            position=1,
-            origin=cls.fp,
-            path=[{"type": "cable", "id": cls.cable1.pk}],
-            is_complete=False,
-        )
-        FiberCircuitNode.objects.create(path=path_a, position=1, cable=cls.cable1)
-        FiberCircuitNode.objects.create(path=path_a, position=2, front_port=cls.fp)
-
-        # Circuit B rides cable1 and cable2. Cable3 carries nothing.
-        cls.circuit_b = FiberCircuit.objects.create(
-            name="Bulk-B", status=FiberCircuitStatusChoices.ACTIVE, strand_count=1
-        )
-        path_b = FiberCircuitPath.objects.create(
-            circuit=cls.circuit_b,
-            position=1,
-            origin=cls.fp,
-            path=[{"type": "cable", "id": cls.cable1.pk}],
-            is_complete=False,
-        )
-        FiberCircuitNode.objects.create(path=path_b, position=1, cable=cls.cable1)
-        FiberCircuitNode.objects.create(path=path_b, position=2, cable=cls.cable2)
+        # Circuit A rides cable1 and terminates on cls.fp; circuit B rides
+        # cable1 and cable2. Cable3 carries nothing.
+        cls.circuit_a = make_protected_circuit("Bulk-A", cls.fp, [{"cable": cls.cable1}, {"front_port": cls.fp}])
+        cls.circuit_b = make_protected_circuit("Bulk-B", cls.fp, [{"cable": cls.cable1}, {"cable": cls.cable2}])
 
     def setUp(self):
-        from django.contrib.auth import get_user_model
-
-        user_model = get_user_model()
-        self.user = user_model.objects.create_superuser("bulkprot", "bulkprot@test.com", "password")
-        self.client_api = APIClient()
-        self.client_api.force_authenticate(self.user)
+        self.client_api = make_authed_client("bulkprot")
 
     URL = "/api/plugins/fms/fiber-circuits/protecting/"
 
