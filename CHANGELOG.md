@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bulk maintenance-impact queries on
+  `/api/plugins/fms/fiber-circuits/protecting/`: GET now accepts
+  repeated query parameters (`?cable=1&cable=2`) in addition to
+  comma-separated IDs, and a new POST form takes reference ID lists in
+  the body for large sets, returning the deduplicated affected circuits
+  in `results` plus a `by_reference` map of every input ID to the
+  circuit IDs it affects. POST requires only the view permission and
+  works with read-only API tokens; malformed reference types or IDs now
+  return HTTP 400 instead of crashing. (#134)
+
 - Port label templates can reference the splice tray: new front-port
   tokens `{{ tray }}` (the assigned tray module) and
   `{{ tray_position }}` (the tube's position on it), resolved from the

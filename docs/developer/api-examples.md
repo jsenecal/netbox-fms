@@ -513,3 +513,88 @@ Transition a splice plan through its lifecycle states using POST actions on the 
 
 Transitions are performed via POST to the plan's detail page with the appropriate action parameter. The `submitted_by` field is automatically set when submitting for approval.
 
+
+---
+
+## 10. Bulk Maintenance Impact Query
+
+Answer "which circuits does this maintenance window affect?" for many
+resources in one call. The `protecting/` endpoint accepts five reference
+types (`cable`, `front_port`, `rear_port`, `fiber_strand`,
+`splice_entry`); GET returns a flat circuit list, POST additionally
+groups the impact by input reference. POST is a pure read: it requires
+`view_fibercircuit` (not `add`) and works with read-only tokens.
+
+**Request**
+
+```
+POST /api/plugins/fms/fiber-circuits/protecting/
+Content-Type: application/json
+
+{"cable": [42, 43, 44], "front_port": [7]}
+```
+
+**curl**
+
+```bash
+curl -s -X POST -H "Authorization: Token $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"cable": [42, 43, 44], "front_port": [7]}' \
+  "$NETBOX_URL/api/plugins/fms/fiber-circuits/protecting/" | python3 -m json.tool
+```
+
+**Python**
+
+```python
+import requests
+
+headers = {"Authorization": f"Token {TOKEN}"}
+body = {"cable": [42, 43, 44], "front_port": [7]}
+response = requests.post(
+    f"{NETBOX_URL}/api/plugins/fms/fiber-circuits/protecting/",
+    headers=headers,
+    json=body,
+)
+impact = response.json()
+
+affected = {c["id"]: c["name"] for c in impact["results"]}
+print(f"{len(affected)} circuit(s) affected")
+for ref_type, groups in impact["by_reference"].items():
+    for ref_id, circuit_ids in groups.items():
+        names = [affected[cid] for cid in circuit_ids] or ["-- none --"]
+        print(f"{ref_type} {ref_id}: {', '.join(names)}")
+```
+
+**Sample response**
+
+```json
+{
+  "results": [
+    {
+      "id": 10,
+      "url": "https://netbox.example.com/api/plugins/fms/fiber-circuits/10/",
+      "display": "CIRCUIT-010",
+      "name": "CIRCUIT-010",
+      "status": "active",
+      "strand_count": 2
+    },
+    {
+      "id": 11,
+      "url": "https://netbox.example.com/api/plugins/fms/fiber-circuits/11/",
+      "display": "CIRCUIT-011",
+      "name": "CIRCUIT-011",
+      "status": "active",
+      "strand_count": 2
+    }
+  ],
+  "by_reference": {
+    "cable": {"42": [10], "43": [10, 11], "44": []},
+    "front_port": {"7": [11]}
+  }
+}
+```
+
+`results` is deduplicated: a circuit riding several referenced cables
+appears once. Every input ID appears in `by_reference`, so an empty list
+positively confirms a reference carries no protected circuit. Unknown
+reference types, non-list values, and non-integer IDs return HTTP 400.

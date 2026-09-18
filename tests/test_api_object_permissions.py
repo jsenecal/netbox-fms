@@ -110,6 +110,44 @@ class TestCircuitEndpointPermissions(TestCase):
         names = {c["name"] for c in resp.data}
         assert names == {"Perm-A"}
 
+    def test_protecting_post_honours_constraints_with_view_permission(self):
+        """POST is a read-only bulk query: the view permission must suffice
+        (never add), and constraints must filter both the results and the
+        by_reference groups. Regression test for jsenecal/netbox-fms#134."""
+        client = _constrained_client(FiberCircuit, {"name": "Perm-A"}, "perm-protecting-post")
+        resp = client.post(
+            "/api/plugins/fms/fiber-circuits/protecting/",
+            {"cable": [self.cable.pk]},
+            format="json",
+        )
+        assert resp.status_code == 200, resp.content
+        names = {c["name"] for c in resp.data["results"]}
+        assert names == {"Perm-A"}
+        perm_a_circuit = self.nodes["Perm-A"].path.circuit
+        assert resp.data["by_reference"] == {"cable": {str(self.cable.pk): [perm_a_circuit.pk]}}
+
+    def test_protecting_post_allows_read_only_token(self):
+        """A token with write_enabled=False must still be able to POST the
+        bulk query: the body is a read, not a write. Regression test for
+        jsenecal/netbox-fms#134."""
+        from users.constants import TOKEN_PREFIX
+        from users.models import Token
+
+        user = User.objects.create_user(username="perm-ro-token", password="x")  # noqa: S106
+        perm = ObjectPermission.objects.create(name="perm-ro-token", enabled=True, actions=["view"], constraints=None)
+        perm.object_types.set([ContentType.objects.get_for_model(FiberCircuit)])
+        perm.users.add(user)
+        token = Token.objects.create(user=user, write_enabled=False)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {TOKEN_PREFIX}{token.key}.{token.token}")
+        resp = client.post(
+            "/api/plugins/fms/fiber-circuits/protecting/",
+            {"cable": [self.cable.pk]},
+            format="json",
+        )
+        assert resp.status_code == 200, resp.content
+        assert {c["name"] for c in resp.data["results"]} == {"Perm-A", "Perm-B"}
+
 
 class TestClaimsEndpointPermissions(TestCase):
     """The fiber-claims view must not serve plan entries the user cannot view."""
