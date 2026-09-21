@@ -29,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Tracing a fiber circuit through a multi-tube trunk cable (one rear port
+  per tube, distinguished by `CableTermination.connector`) no longer
+  crosses onto a different tube at the far end: the trace now matches the
+  near termination's connector to the far termination's connector instead
+  of picking an arbitrary rear port. Legacy cables with a single,
+  connector-less rear port per end are unaffected. A trace that reaches a
+  far rear port with no `PortMapping` at the entered position now stops
+  and reports incomplete instead of grabbing an unrelated front port and
+  continuing on the wrong fiber. (#168)
+
 - The diff/apply engine now sees splices on device-level front ports
   (unassigned buffer tubes) instead of silently ignoring them: a planned
   splice on an unassigned tube was rendered by the visual editor but
