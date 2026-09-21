@@ -160,3 +160,58 @@ class TestTraceMultiTubeCrossing(TestCase):
             {"type": "cable", "id": self.cable1.pk},
             {"type": "rear_port", "id": self.rp_y_c1_2.pk},
         ]
+
+    def test_null_connector_multiple_far_candidates_is_incomplete(self):
+        """Both ends connector-less with more than one rear port: refuse to guess."""
+        CableTermination.objects.filter(cable=self.cable1).update(connector=None)
+
+        result = FiberCircuitPath.from_origin(self.fp_x2a)
+
+        assert result.is_complete is False
+        assert result.destination is None
+        assert result.path == [
+            {"type": "front_port", "id": self.fp_x2a.pk},
+            {"type": "rear_port", "id": self.rp_x2.pk},
+            {"type": "cable", "id": self.cable1.pk},
+        ]
+
+
+class TestTraceMixedConnectorSingleRP(TestCase):
+    """Near end records a connector, far end doesn't -- still unambiguous for a single-RP cable."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="MixedConnector Site", slug="mixed-connector-site")
+        mfr = Manufacturer.objects.create(name="MixedConnector Mfr", slug="mixed-connector-mfr")
+
+        cls.dev_a, cls.tray_a = _make_closure(site, mfr, "MC-ClosureA")
+        cls.dev_b, cls.tray_b = _make_closure(site, mfr, "MC-ClosureB")
+
+        cls.rp_a = RearPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="RP-MC-A", type="lc", positions=1)
+        cls.fp_a = FrontPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="FP-MC-A", type="lc")
+        PortMapping.objects.create(
+            device=cls.dev_a, front_port=cls.fp_a, rear_port=cls.rp_a, front_port_position=1, rear_port_position=1
+        )
+
+        cls.rp_b = RearPort.objects.create(device=cls.dev_b, module=cls.tray_b, name="RP-MC-B", type="lc", positions=1)
+        cls.fp_b = FrontPort.objects.create(device=cls.dev_b, module=cls.tray_b, name="FP-MC-B", type="lc")
+        PortMapping.objects.create(
+            device=cls.dev_b, front_port=cls.fp_b, rear_port=cls.rp_b, front_port_position=1, rear_port_position=1
+        )
+
+        cls.cable = Cable.objects.create()
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        # Near end (A) records a connector; far end (B) doesn't. Both ends
+        # are single-RP, so there is exactly one way to align them.
+        CableTermination.objects.create(
+            cable=cls.cable, cable_end="A", termination_type=rp_ct, termination_id=cls.rp_a.pk, connector=1
+        )
+        CableTermination.objects.create(
+            cable=cls.cable, cable_end="B", termination_type=rp_ct, termination_id=cls.rp_b.pk
+        )
+
+    def test_mixed_connector_single_rp_still_traces(self):
+        result = FiberCircuitPath.from_origin(self.fp_a)
+
+        assert result.is_complete is True
+        assert result.destination == self.fp_b
