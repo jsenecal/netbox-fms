@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- PortMapping protection now follows the individual port pair instead of
+  the whole device. A mapping is blocked from out-of-band edits only when
+  a FiberStrand has landed on its front port, when any mapping on its
+  rear port serves such a strand, or when a non-archived splice plan
+  splices its front port. Unrelated port pairs on a device that also
+  hosts FMS cables -- and the far end of a trunk brought into FMS on one
+  side only -- stay editable through the normal NetBox UI and API. (#172)
+
 ## [0.4.0] - 2026-09-21
 
 ### Added
