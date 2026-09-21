@@ -29,6 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Tracing a fiber circuit through a multi-tube trunk cable (one rear port
+  per tube, distinguished by `CableTermination.connector`) no longer
+  crosses onto a different tube at the far end: the trace now matches the
+  near termination's connector to the far termination's connector instead
+  of picking an arbitrary rear port. Cables where neither end records a
+  connector (both single-RP) still trace unchanged, and a single-RP cable
+  where only the near end records a connector (the far end doesn't) still
+  traces, since a lone rear port on each side leaves nothing to
+  disambiguate. A multi-tube near end crossing to a connector-less far end
+  now reports incomplete instead of guessing which far tube it lines up
+  with, and the same applies when both ends are connector-less but the far
+  end has more than one rear port. A trace that reaches a far rear port
+  with no `PortMapping` at the entered position now stops and reports
+  incomplete instead of grabbing an unrelated front port and continuing on
+  the wrong fiber. (#168)
+
 - `create_sample_data` now retraces every stale core `CablePath` after the
   splice jumpers between closures exist: the jumper cables are
   bulk-created with hand-built `CableTermination` rows to keep the

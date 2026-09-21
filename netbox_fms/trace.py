@@ -69,14 +69,42 @@ def trace_fiber_path(origin_front_port):
 
         cable = term.cable
         cable_end = term.cable_end
+        near_connector = term.connector
         path.append({"type": "cable", "id": cable.pk})
 
         far_end = "B" if cable_end == "A" else "A"
-        far_term = CableTermination.objects.filter(
+        far_terminations = CableTermination.objects.filter(
             cable=cable,
             cable_end=far_end,
             termination_type=rp_ct,
-        ).first()
+        )
+
+        if near_connector is not None:
+            # Symmetric trunk profile: the far tube is the one sharing the same
+            # connector number as the near termination we just crossed.
+            far_term = far_terminations.filter(connector=near_connector).first()
+            if far_term is None:
+                # Mixed-connector cable: the near end records a connector but
+                # the far end doesn't. Only bridge this when both ends are
+                # single-RP -- there is exactly one way to align positions and
+                # nothing to disambiguate. A multi-RP near end must not guess
+                # which far rear port it lines up with.
+                near_candidates = list(
+                    CableTermination.objects.filter(
+                        cable=cable,
+                        cable_end=cable_end,
+                        termination_type=rp_ct,
+                    )[:2]
+                )
+                far_candidates = list(far_terminations[:2])
+                if len(near_candidates) == 1 and len(far_candidates) == 1:
+                    far_term = far_candidates[0]
+        else:
+            # Legacy/simple cable with no connector recorded. Only safe to
+            # continue when the far end is unambiguous (a single rear port);
+            # with several candidates there is nothing to disambiguate on.
+            far_candidates = list(far_terminations[:2])
+            far_term = far_candidates[0] if len(far_candidates) == 1 else None
 
         if far_term is None:
             return {"origin": origin_front_port, "destination": None, "path": path, "is_complete": False}
@@ -93,15 +121,6 @@ def trace_fiber_path(origin_front_port):
             .select_related("front_port")
             .first()
         )
-
-        if egress_mapping is None:
-            egress_mapping = (
-                PortMapping.objects.filter(
-                    rear_port=far_rp,
-                )
-                .select_related("front_port")
-                .first()
-            )
 
         if egress_mapping is None:
             return {"origin": origin_front_port, "destination": None, "path": path, "is_complete": False}

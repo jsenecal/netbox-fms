@@ -3,36 +3,19 @@
 Uses PortMapping model (NOT FrontPort.rear_port FK which doesn't exist in NetBox 4.5+).
 """
 
-from dcim.models import (
-    Cable,
-    CableTermination,
-    Device,
-    DeviceRole,
-    DeviceType,
-    FrontPort,
-    Manufacturer,
-    Module,
-    ModuleBay,
-    ModuleType,
-    PortMapping,
-    RearPort,
-    Site,
-)
+from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import FiberCircuitPath, SplicePlan, SplicePlanEntry
+from tests.conftest import connect_front_ports, make_closure_with_tray
 
 
-def _make_closure(site, mfr, name):
-    dt, _ = DeviceType.objects.get_or_create(manufacturer=mfr, model=f"{name}-Type", slug=f"{name}-type".lower())
-    role, _ = DeviceRole.objects.get_or_create(name=f"{name}-Role", slug=f"{name}-role".lower())
-    device = Device.objects.create(name=name, site=site, device_type=dt, role=role)
-    mt, _ = ModuleType.objects.get_or_create(manufacturer=mfr, model=f"{name}-Tray")
-    bay = ModuleBay.objects.create(device=device, name="Bay1")
-    tray = Module.objects.create(device=device, module_bay=bay, module_type=mt)
-    return device, tray
+def _make_closure(name):
+    """Bare closure Device + tray Module, no pre-made ports."""
+    ns = make_closure_with_tray(name, port_count=0)
+    return ns.closure, ns.tray
 
 
 def _connect_cable(cable, rear_port_a, rear_port_b):
@@ -41,22 +24,11 @@ def _connect_cable(cable, rear_port_a, rear_port_b):
     CableTermination.objects.create(cable=cable, cable_end="B", termination_type=rp_ct, termination_id=rear_port_b.pk)
 
 
-def _make_splice(fp_a, fp_b):
-    cable = Cable.objects.create(length=0, length_unit="m")
-    fp_ct = ContentType.objects.get_for_model(FrontPort)
-    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=fp_ct, termination_id=fp_a.pk)
-    CableTermination.objects.create(cable=cable, cable_end="B", termination_type=fp_ct, termination_id=fp_b.pk)
-    return cable
-
-
 class TestTraceSingleCable(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="Trace1 Site", slug="trace1-site")
-        mfr = Manufacturer.objects.create(name="Trace1 Mfr", slug="trace1-mfr")
-
-        cls.dev_a, cls.tray_a = _make_closure(site, mfr, "ClosureA")
-        cls.dev_b, cls.tray_b = _make_closure(site, mfr, "ClosureB")
+        cls.dev_a, cls.tray_a = _make_closure("ClosureA")
+        cls.dev_b, cls.tray_b = _make_closure("ClosureB")
 
         cls.rp_a = RearPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="RP-A1", type="lc", positions=1)
         cls.fp_a = FrontPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="FP-A1", type="lc")
@@ -92,12 +64,9 @@ class TestTraceSingleCable(TestCase):
 class TestTraceMultiHop(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="Trace2 Site", slug="trace2-site")
-        mfr = Manufacturer.objects.create(name="Trace2 Mfr", slug="trace2-mfr")
-
-        cls.dev_a, cls.tray_a = _make_closure(site, mfr, "MH-ClosA")
-        cls.dev_b, cls.tray_b = _make_closure(site, mfr, "MH-ClosB")
-        cls.dev_c, cls.tray_c = _make_closure(site, mfr, "MH-ClosC")
+        cls.dev_a, cls.tray_a = _make_closure("MH-ClosA")
+        cls.dev_b, cls.tray_b = _make_closure("MH-ClosB")
+        cls.dev_c, cls.tray_c = _make_closure("MH-ClosC")
 
         cls.rp_a = RearPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="RP-A", type="lc", positions=1)
         cls.fp_a = FrontPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="FP-A", type="lc")
@@ -125,7 +94,7 @@ class TestTraceMultiHop(TestCase):
         cls.cable1 = Cable.objects.create()
         _connect_cable(cls.cable1, cls.rp_a, cls.rp_b1)
 
-        cls.splice_cable = _make_splice(cls.fp_b1, cls.fp_b2)
+        connect_front_ports(cls.fp_b1, cls.fp_b2)
         cls.plan_b = SplicePlan.objects.create(
             closure=cls.dev_b, name="Plan-B", status=SplicePlanStatusChoices.ARCHIVED
         )
@@ -159,10 +128,8 @@ class TestTraceMultiHop(TestCase):
 class TestTraceIncomplete(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="Trace3 Site", slug="trace3-site")
-        mfr = Manufacturer.objects.create(name="Trace3 Mfr", slug="trace3-mfr")
-        cls.dev_a, cls.tray_a = _make_closure(site, mfr, "IC-ClosA")
-        cls.dev_b, cls.tray_b = _make_closure(site, mfr, "IC-ClosB")
+        cls.dev_a, cls.tray_a = _make_closure("IC-ClosA")
+        cls.dev_b, cls.tray_b = _make_closure("IC-ClosB")
 
         cls.rp_a = RearPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="RP-A", type="lc", positions=1)
         cls.fp_a = FrontPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="FP-A", type="lc")
@@ -185,9 +152,7 @@ class TestTraceIncomplete(TestCase):
         assert result.is_complete is True
 
     def test_no_port_mapping_incomplete(self):
-        site = Site.objects.create(name="NoMap Site", slug="nomap-site")
-        mfr = Manufacturer.objects.create(name="NoMap Mfr", slug="nomap-mfr")
-        dev, tray = _make_closure(site, mfr, "NoMap")
+        dev, tray = _make_closure("NoMap")
         fp = FrontPort.objects.create(device=dev, module=tray, name="OrphanFP", type="lc")
         result = FiberCircuitPath.from_origin(fp)
         assert result.is_complete is False
