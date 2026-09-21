@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   incomplete instead of grabbing an unrelated front port and continuing on
   the wrong fiber. (#168)
 
+- `create_sample_data` now retraces every stale core `CablePath` after the
+  splice jumpers between closures exist: the jumper cables are
+  bulk-created with hand-built `CableTermination` rows to keep the
+  command fast, which bypasses `Cable.save()` and NetBox's own path
+  recalculation, so any patch cable created before its splices existed
+  was left with a dead core trace that stopped at the first closure. The
+  core trace now matches the plugin's own FMS trace for both the full
+  build and `--simple` mode. (#96)
+
 - The diff/apply engine now sees splices on device-level front ports
   (unassigned buffer tubes) instead of silently ignoring them: a planned
   splice on an unassigned tube was rendered by the visual editor but

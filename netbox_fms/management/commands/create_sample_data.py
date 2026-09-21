@@ -13,6 +13,7 @@ from decimal import Decimal
 from dcim.choices import CableLengthUnitChoices, CableTypeChoices, InterfaceTypeChoices
 from dcim.models import (
     Cable,
+    CablePath,
     CableTermination,
     Device,
     DeviceRole,
@@ -443,6 +444,8 @@ class Command(BaseCommand):
             1 for name, closure in closures.items() if self._build_splice_plan_for_closure(name, closure)
         )
         self.stdout.write(f"  {plans_created} splice plans with splice cables")
+
+        self._retrace_incomplete_cable_paths()
 
         # --- Fiber circuit ---
         self.stdout.write("Creating fiber circuit...")
@@ -1454,6 +1457,27 @@ class Command(BaseCommand):
             fps_to_update.append(fp_b)
         FrontPort.objects.bulk_update(fps_to_update, ["cable", "cable_end", "cable_connector", "cable_positions"])
 
+    def _retrace_incomplete_cable_paths(self):
+        """Retrace every incomplete CablePath once all splice cables exist.
+
+        Patch cables (interface -> ODF front port) go through Cable.save(),
+        so NetBox computes and stores their CablePath immediately. The
+        splice jumpers between closures are bulk-created afterwards with
+        hand-built CableTerminations to keep the command fast, which
+        bypasses Cable.save() and therefore NetBox's own path
+        recalculation. A path computed before its jumpers existed can only
+        have dead-ended at a front port that had no jumper yet, and adding
+        a jumper elsewhere cannot invalidate an already-complete path, so
+        the stale set is exactly the incomplete ones. Calling this once
+        here -- after all splice cables for this run exist -- retraces
+        each stale path exactly once, instead of recomputing the same
+        paths after every closure's splice plan.
+        """
+        stale_paths = list(CablePath.objects.filter(is_complete=False))
+        for path in stale_paths:
+            path.retrace()
+        self.stdout.write(f"  Retraced {len(stale_paths)} incomplete cable paths")
+
     def _create_splice_plans(self):
         self.stdout.write("Creating splice plans...")
         closures = {n: d for n, d in self.devices.items() if n.startswith(("BB-", "MR-", "BS-", "RS-"))}
@@ -1470,6 +1494,8 @@ class Command(BaseCommand):
             if self._build_splice_plan_for_closure(name, closure, backbone_express=name.startswith("BB-"))
         )
         self.stdout.write(f"  Created {plans_created} splice plans with splice cables")
+
+        self._retrace_incomplete_cable_paths()
 
     # ------------------------------------------------------------------
     # Closure cable entries

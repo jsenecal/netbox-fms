@@ -41,6 +41,55 @@ class TestCreateSampleData:
 
 
 @pytest.mark.django_db
+class TestSampleDataRetracesSplicedCorePaths:
+    def test_simple_mode_core_path_reaches_far_end_after_splicing(self):
+        """Issue #96 follow-up: _create_splice_cables bulk-creates the
+        FP-to-FP splice jumpers with hand-built CableTerminations, bypassing
+        Cable.save() and NetBox's automatic CablePath recalculation. Every
+        core CablePath computed from a patch cable created before its
+        splice jumpers existed is left dead-ending at the first closure it
+        reached, even though the plugin's own live trace walks the full
+        spliced path.
+        """
+        from dcim.models import CablePath, Device, FrontPort, Interface
+
+        call_command("create_sample_data", "--simple")
+
+        co = Device.objects.get(name="CO-Main")
+        router = Device.objects.get(name="CO-Main-Router")
+        hub_switch = Device.objects.get(name="Hub-East-Switch")
+
+        # The core-router interface patched to the CO ODF's lowest-named
+        # FrontPort -- found from the data via its patch cable, not
+        # hard-coded, since the interface/port naming is an implementation
+        # detail of the sample-data build.
+        candidates = []
+        for intf in Interface.objects.filter(device=router).exclude(cable=None):
+            fp_term = intf.cable.terminations.exclude(cable_end=intf.cable_end).first()
+            if fp_term is None or not isinstance(fp_term.termination, FrontPort):
+                continue
+            fp = fp_term.termination
+            if fp.device_id != co.pk:
+                continue
+            candidates.append((fp.name, intf))
+        assert candidates, "expected a core-router interface patched to the CO ODF"
+        _, origin_intf = min(candidates, key=lambda pair: pair[0])
+
+        origin_intf.refresh_from_db()
+        assert origin_intf._path_id, "origin interface has no stored CablePath"
+        path = CablePath.objects.get(pk=origin_intf._path_id)
+
+        # On unfixed code this path is stale: it was computed when the patch
+        # cable was created, before the splice jumpers existed, so it dead-
+        # ends at the first closure (is_complete=False).
+        assert path.is_complete, "core CablePath is stale and dead-ends before reaching the far end"
+        destinations = path.destinations
+        assert len(destinations) == 1
+        assert isinstance(destinations[0], Interface)
+        assert destinations[0].device_id == hub_switch.pk
+
+
+@pytest.mark.django_db
 class TestSplicePlanRowLeak:
     def test_lone_cable_closure_leaves_no_empty_plan(self):
         """Issue #96: a closure reached by fewer than two cables must be
