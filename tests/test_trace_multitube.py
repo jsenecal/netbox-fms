@@ -8,35 +8,18 @@ RearPorts per end, distinguished by CableTermination.connector), spliced
 fiber-for-fiber at Y, and prove the trace stays on its own tube end to end.
 """
 
-from dcim.models import (
-    Cable,
-    CableTermination,
-    Device,
-    DeviceRole,
-    DeviceType,
-    FrontPort,
-    Manufacturer,
-    Module,
-    ModuleBay,
-    ModuleType,
-    PortMapping,
-    RearPort,
-    Site,
-)
+from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
 from netbox_fms.models import FiberCircuitPath
+from tests.conftest import connect_front_ports, make_closure_with_tray
 
 
-def _make_closure(site, mfr, name):
-    dt, _ = DeviceType.objects.get_or_create(manufacturer=mfr, model=f"{name}-Type", slug=f"{name}-type".lower())
-    role, _ = DeviceRole.objects.get_or_create(name=f"{name}-Role", slug=f"{name}-role".lower())
-    device = Device.objects.create(name=name, site=site, device_type=dt, role=role)
-    mt, _ = ModuleType.objects.get_or_create(manufacturer=mfr, model=f"{name}-Tray")
-    bay = ModuleBay.objects.create(device=device, name="Bay1")
-    tray = Module.objects.create(device=device, module_bay=bay, module_type=mt)
-    return device, tray
+def _make_closure(name):
+    """Bare closure Device + tray Module, no pre-made ports."""
+    ns = make_closure_with_tray(name, port_count=0)
+    return ns.closure, ns.tray
 
 
 def _make_dual_tube(device, tray, prefix):
@@ -45,53 +28,43 @@ def _make_dual_tube(device, tray, prefix):
     Tube 1 is created before tube 2 so an unordered `.first()` query on
     CableTermination would deterministically return tube 1's row.
     """
-    rp1 = RearPort.objects.create(device=device, module=tray, name=f"RP-{prefix}-T1", type="lc", positions=2)
-    fp1a = FrontPort.objects.create(device=device, module=tray, name=f"FP-{prefix}-T1P1", type="lc")
-    fp1b = FrontPort.objects.create(device=device, module=tray, name=f"FP-{prefix}-T1P2", type="lc")
-    PortMapping.objects.create(
-        device=device, front_port=fp1a, rear_port=rp1, front_port_position=1, rear_port_position=1
-    )
-    PortMapping.objects.create(
-        device=device, front_port=fp1b, rear_port=rp1, front_port_position=1, rear_port_position=2
-    )
+    tubes = []
+    for n in (1, 2):
+        rp = RearPort.objects.create(device=device, module=tray, name=f"RP-{prefix}-T{n}", type="lc", positions=2)
+        fp_a = FrontPort.objects.create(device=device, module=tray, name=f"FP-{prefix}-T{n}P1", type="lc")
+        fp_b = FrontPort.objects.create(device=device, module=tray, name=f"FP-{prefix}-T{n}P2", type="lc")
+        PortMapping.objects.create(
+            device=device, front_port=fp_a, rear_port=rp, front_port_position=1, rear_port_position=1
+        )
+        PortMapping.objects.create(
+            device=device, front_port=fp_b, rear_port=rp, front_port_position=1, rear_port_position=2
+        )
+        tubes.append((rp, fp_a, fp_b))
 
-    rp2 = RearPort.objects.create(device=device, module=tray, name=f"RP-{prefix}-T2", type="lc", positions=2)
-    fp2a = FrontPort.objects.create(device=device, module=tray, name=f"FP-{prefix}-T2P1", type="lc")
-    fp2b = FrontPort.objects.create(device=device, module=tray, name=f"FP-{prefix}-T2P2", type="lc")
-    PortMapping.objects.create(
-        device=device, front_port=fp2a, rear_port=rp2, front_port_position=1, rear_port_position=1
-    )
-    PortMapping.objects.create(
-        device=device, front_port=fp2b, rear_port=rp2, front_port_position=1, rear_port_position=2
-    )
-
+    (rp1, fp1a, fp1b), (rp2, fp2a, fp2b) = tubes
     return rp1, fp1a, fp1b, rp2, fp2a, fp2b
 
 
 def _connect_dual_tube_cable(cable, near_rp1, near_rp2, far_rp1, far_rp2):
     """Terminate a two-tube trunk cable, tube 1 first (the ordering trap)."""
     rp_ct = ContentType.objects.get_for_model(RearPort)
-    CableTermination.objects.create(
-        cable=cable, cable_end="A", termination_type=rp_ct, termination_id=near_rp1.pk, connector=1, positions=[1, 2]
-    )
-    CableTermination.objects.create(
-        cable=cable, cable_end="B", termination_type=rp_ct, termination_id=far_rp1.pk, connector=1, positions=[1, 2]
-    )
-    CableTermination.objects.create(
-        cable=cable, cable_end="A", termination_type=rp_ct, termination_id=near_rp2.pk, connector=2, positions=[1, 2]
-    )
-    CableTermination.objects.create(
-        cable=cable, cable_end="B", termination_type=rp_ct, termination_id=far_rp2.pk, connector=2, positions=[1, 2]
-    )
-
-
-def _make_jumper(fp_a, fp_b):
-    """Splice jumper: an FP-to-FP Cable, mirroring test_fiber_circuit_trace._make_splice."""
-    cable = Cable.objects.create(length=0, length_unit="m")
-    fp_ct = ContentType.objects.get_for_model(FrontPort)
-    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=fp_ct, termination_id=fp_a.pk)
-    CableTermination.objects.create(cable=cable, cable_end="B", termination_type=fp_ct, termination_id=fp_b.pk)
-    return cable
+    for near_rp, far_rp, connector in [(near_rp1, far_rp1, 1), (near_rp2, far_rp2, 2)]:
+        CableTermination.objects.create(
+            cable=cable,
+            cable_end="A",
+            termination_type=rp_ct,
+            termination_id=near_rp.pk,
+            connector=connector,
+            positions=[1, 2],
+        )
+        CableTermination.objects.create(
+            cable=cable,
+            cable_end="B",
+            termination_type=rp_ct,
+            termination_id=far_rp.pk,
+            connector=connector,
+            positions=[1, 2],
+        )
 
 
 class TestTraceMultiTubeCrossing(TestCase):
@@ -99,12 +72,9 @@ class TestTraceMultiTubeCrossing(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="MultiTube Site", slug="multitube-site")
-        mfr = Manufacturer.objects.create(name="MultiTube Mfr", slug="multitube-mfr")
-
-        cls.dev_x, cls.tray_x = _make_closure(site, mfr, "MT-ClosureX")
-        cls.dev_y, cls.tray_y = _make_closure(site, mfr, "MT-ClosureY")
-        cls.dev_z, cls.tray_z = _make_closure(site, mfr, "MT-ClosureZ")
+        cls.dev_x, cls.tray_x = _make_closure("MT-ClosureX")
+        cls.dev_y, cls.tray_y = _make_closure("MT-ClosureY")
+        cls.dev_z, cls.tray_z = _make_closure("MT-ClosureZ")
 
         cls.rp_x1, cls.fp_x1a, cls.fp_x1b, cls.rp_x2, cls.fp_x2a, cls.fp_x2b = _make_dual_tube(
             cls.dev_x, cls.tray_x, "X"
@@ -126,10 +96,10 @@ class TestTraceMultiTubeCrossing(TestCase):
         _connect_dual_tube_cable(cls.cable2, cls.rp_y_c2_1, cls.rp_y_c2_2, cls.rp_z1, cls.rp_z2)
 
         # Splice jumpers at Y, fiber-for-fiber: tube 1 <-> tube 1, tube 2 <-> tube 2.
-        _make_jumper(cls.fp_y_c1_1a, cls.fp_y_c2_1a)
-        _make_jumper(cls.fp_y_c1_1b, cls.fp_y_c2_1b)
-        _make_jumper(cls.fp_y_c1_2a, cls.fp_y_c2_2a)
-        _make_jumper(cls.fp_y_c1_2b, cls.fp_y_c2_2b)
+        connect_front_ports(cls.fp_y_c1_1a, cls.fp_y_c2_1a)
+        connect_front_ports(cls.fp_y_c1_1b, cls.fp_y_c2_1b)
+        connect_front_ports(cls.fp_y_c1_2a, cls.fp_y_c2_2a)
+        connect_front_ports(cls.fp_y_c1_2b, cls.fp_y_c2_2b)
 
     def test_tube2_fiber_stays_on_tube2(self):
         """A fiber entered on tube 2 must exit on tube 2's rear port at every hop."""
@@ -181,11 +151,8 @@ class TestTraceMixedConnectorSingleRP(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="MixedConnector Site", slug="mixed-connector-site")
-        mfr = Manufacturer.objects.create(name="MixedConnector Mfr", slug="mixed-connector-mfr")
-
-        cls.dev_a, cls.tray_a = _make_closure(site, mfr, "MC-ClosureA")
-        cls.dev_b, cls.tray_b = _make_closure(site, mfr, "MC-ClosureB")
+        cls.dev_a, cls.tray_a = _make_closure("MC-ClosureA")
+        cls.dev_b, cls.tray_b = _make_closure("MC-ClosureB")
 
         cls.rp_a = RearPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="RP-MC-A", type="lc", positions=1)
         cls.fp_a = FrontPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="FP-MC-A", type="lc")
