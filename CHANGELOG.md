@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-21
+
 ### Added
 
 - Bulk maintenance-impact queries on
@@ -19,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   works with read-only API tokens; malformed reference types or IDs now
   return HTTP 400 instead of crashing. (#134)
 
+- Port label templates: every FrontPort and RearPort provisioned by FMS
+  now carries a human-readable label rendered from a sandboxed Jinja2
+  template -- by default the cable's display label, tube name and color,
+  ribbon name, strand color, and the absolute cable-wide fiber number.
+  Templates are configurable plugin-wide via the
+  `front_port_label_template` and `rear_port_label_template` keys of
+  `PLUGINS_CONFIG['netbox_fms']` (an empty string opts a target out of
+  label management). Saving the linked cable re-renders the labels of its
+  provisioned ports, and a new `rerender_port_labels` management command
+  backfills labels on existing data. (#69)
+
 - Port label templates can reference the splice tray: new front-port
   tokens `{{ tray }}` (the assigned tray module) and
   `{{ tray_position }}` (the tube's position on it), resolved from the
@@ -26,6 +39,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tube re-renders the cable's labels when a configured template uses a
   tray token; tray-free templates (the defaults included) skip the
   re-render entirely. (#69)
+
+### Changed
+
+- Generated port names for NEWLY provisioned cables are now fixed,
+  machine-facing, write-once identifiers built from the dcim.Cable
+  primary key and the strand's absolute cable-wide fiber number
+  (ArcFM/OSP convention): front ports are `{cable.id}:F{position}`
+  (e.g. `1043:F25`), rear ports `{cable.id}:T{n}` for a buffer tube,
+  `{cable.id}:R{n}` for a ribbon, and the bare `{cable.id}` for a
+  tight-buffer cable. The pk is immutable, so the rename-on-cable-save
+  sync is gone: relabeling a cable re-renders port labels (the display
+  layer) but never renames ports. Existing data is untouched unless the
+  new opt-in `convert_port_names` management command is run; it renames
+  legacy ports within their existing rear-port structure, skipping any
+  cable whose new names would collide. (#153)
+- Rear ports now mirror the cable's physical hierarchy on newly
+  provisioned cables: ribbon-in-tube and central-core ribbon
+  constructions get one rear port PER RIBBON (the mass-fusion splice
+  unit) instead of collapsing ribbons into their tube's rear port or a
+  single cable-wide port. Derived cable profiles and termination
+  connectors follow the ribbon grouping, and the default rear-port
+  label template now renders the ribbon name. Already-provisioned
+  ribbon cables keep their old rear-port structure. (#153)
+- Fiber circuit path form: origin and destination are now API-backed
+  dropdowns scoped by new Origin Device / Destination Device selector
+  fields, matching the NetBox cable connection form. Each port option
+  shows its parent device, and editing a path preselects the devices
+  from the saved ports. Previously every front port in the database was
+  rendered into the page, which made the form unusable when port names
+  repeat across devices and extremely slow on large databases. (#137)
+- Splice plan entry form: plan, tray, and both fiber dropdowns now chain
+  off a new Closure selector field (back-filled from the plan when
+  editing), and Fiber A is additionally narrowed to the selected tray's
+  ports, mirroring the model's own validation rules. Fiber options show
+  their parent device.
+- Fiber cable form: a new optional Device selector narrows the cable
+  dropdown to cables terminated at that device.
+- Closure pickers on the splice plan, closure cable entry, and tube
+  assignment forms now offer the advanced device selector modal.
+- CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
+  and 4.6.10, previously 4.5.4 and 4.5.5); the README compatibility
+  matrix reflects NetBox 4.5-4.6 support.
+- CI now also tests against NetBox 4.7.0; the README compatibility
+  matrix reflects NetBox 4.5-4.7 support. The cable-profile monkey
+  patches in `monkey_patches.py` (CableProfileChoices.CHOICES/
+  ._choices, the Cable `profile` field's choices, and
+  Cable.profile_class) were verified against a running NetBox 4.7.0 /
+  Django 6.1 environment; no source changes were needed.
 
 ### Fixed
 
@@ -81,8 +142,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   adopting the device's ports or provisioning them -- and fills in the
   missing cable profile. (#87)
 
-### Fixed
-
 - A `TrayProfile` can no longer leave the splice-tray role (or be
   recreated as an express basket) while `TubeAssignment` rows still
   reference trays of its module type: the flip previously saved
@@ -90,69 +149,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   front ports -- on a module the rest of the plugin treats as
   splice-incapable. The validation error names the affected closures
   so the operator can re-point or delete the assignments first. (#105)
-
-### Added
-
-- Port label templates: every FrontPort and RearPort provisioned by FMS
-  now carries a human-readable label rendered from a sandboxed Jinja2
-  template -- by default the cable's display label, tube name and color,
-  ribbon name, strand color, and the absolute cable-wide fiber number.
-  Templates are configurable plugin-wide via the
-  `front_port_label_template` and `rear_port_label_template` keys of
-  `PLUGINS_CONFIG['netbox_fms']` (an empty string opts a target out of
-  label management). Saving the linked cable re-renders the labels of its
-  provisioned ports, and a new `rerender_port_labels` management command
-  backfills labels on existing data. (#69)
-
-### Changed
-
-- Generated port names for NEWLY provisioned cables are now fixed,
-  machine-facing, write-once identifiers built from the dcim.Cable
-  primary key and the strand's absolute cable-wide fiber number
-  (ArcFM/OSP convention): front ports are `{cable.id}:F{position}`
-  (e.g. `1043:F25`), rear ports `{cable.id}:T{n}` for a buffer tube,
-  `{cable.id}:R{n}` for a ribbon, and the bare `{cable.id}` for a
-  tight-buffer cable. The pk is immutable, so the rename-on-cable-save
-  sync is gone: relabeling a cable re-renders port labels (the display
-  layer) but never renames ports. Existing data is untouched unless the
-  new opt-in `convert_port_names` management command is run; it renames
-  legacy ports within their existing rear-port structure, skipping any
-  cable whose new names would collide. (#153)
-- Rear ports now mirror the cable's physical hierarchy on newly
-  provisioned cables: ribbon-in-tube and central-core ribbon
-  constructions get one rear port PER RIBBON (the mass-fusion splice
-  unit) instead of collapsing ribbons into their tube's rear port or a
-  single cable-wide port. Derived cable profiles and termination
-  connectors follow the ribbon grouping, and the default rear-port
-  label template now renders the ribbon name. Already-provisioned
-  ribbon cables keep their old rear-port structure. (#153)
-- Fiber circuit path form: origin and destination are now API-backed
-  dropdowns scoped by new Origin Device / Destination Device selector
-  fields, matching the NetBox cable connection form. Each port option
-  shows its parent device, and editing a path preselects the devices
-  from the saved ports. Previously every front port in the database was
-  rendered into the page, which made the form unusable when port names
-  repeat across devices and extremely slow on large databases. (#137)
-- Splice plan entry form: plan, tray, and both fiber dropdowns now chain
-  off a new Closure selector field (back-filled from the plan when
-  editing), and Fiber A is additionally narrowed to the selected tray's
-  ports, mirroring the model's own validation rules. Fiber options show
-  their parent device.
-- Fiber cable form: a new optional Device selector narrows the cable
-  dropdown to cables terminated at that device.
-- Closure pickers on the splice plan, closure cable entry, and tube
-  assignment forms now offer the advanced device selector modal.
-- CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
-  and 4.6.10, previously 4.5.4 and 4.5.5); the README compatibility
-  matrix reflects NetBox 4.5-4.6 support.
-- CI now also tests against NetBox 4.7.0; the README compatibility
-  matrix reflects NetBox 4.5-4.7 support. The cable-profile monkey
-  patches in `monkey_patches.py` (CableProfileChoices.CHOICES/
-  ._choices, the Cable `profile` field's choices, and
-  Cable.profile_class) were verified against a running NetBox 4.7.0 /
-  Django 6.1 environment; no source changes were needed.
-
-### Fixed
 
 - The Cable detail page no longer offers "Link Fiber Cable" on splice
   jumpers (cables joining front ports of a single closure, as created
