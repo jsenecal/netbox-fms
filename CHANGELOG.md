@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tube rows on the Fiber Overview tab (assigned tubes in each tray and
+  the Unassigned Tubes list) now highlight on hover, making it easier to
+  track which tube is being assigned on closures with many tubes. (#176)
 - PortMapping protection now follows the individual port pair instead of
   the whole device. A mapping is blocked from out-of-band edits only when
   a FiberStrand has landed on its front port, when any mapping on its
