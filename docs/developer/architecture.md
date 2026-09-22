@@ -157,9 +157,13 @@ modules.
   in `approved` status and archives the plan after a successful apply, so
   every apply path honours the approval workflow.
 - **`import_live_state(plan)`** -- Imports the current live splice state into a
-  plan's entries for documentation purposes. Live pairs with no tray-mounted
-  port cannot become entries (an entry requires a tray); they are skipped and
-  the returned report carries the skipped count.
+  plan's entries. Runs automatically when a plan is created through the web
+  form or the API, so a new plan starts as a copy of the live state instead
+  of an implicit delete-everything. The import is an idempotent sync: pairs
+  the plan's own entries already cover are skipped, as are live pairs with
+  no tray-mounted port (an entry requires a tray) and pairs on fibers
+  claimed by another active plan; the returned report carries a count for
+  each skip reason.
 - **`link_cable_topology(cable, fiber_cable_type, device, ...)`** -- Atomic
   transaction that creates a `FiberCable`, adopts or creates `FrontPort`/`RearPort`
   pairs on the device, and sets the cable profile.

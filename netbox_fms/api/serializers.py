@@ -34,6 +34,7 @@ from ..models import (
     TrayProfile,
     TubeAssignment,
 )
+from ..services import import_live_state
 
 # Re-export FrontPortSerializer for use in nested fields
 __all__ = ("FrontPortSerializer",)
@@ -397,6 +398,15 @@ class SplicePlanSerializer(NetBoxModelSerializer):
             if new_status == SplicePlanStatusChoices.PENDING_APPROVAL and not data.get("submitted_by"):
                 data["submitted_by"] = user
         return super().validate(data)
+
+    def create(self, validated_data):
+        # A plan's entries are its full desired state: any live splice the
+        # plan omits becomes a pending delete. A new plan therefore starts
+        # as a copy of the closure's live state, so it means "keep
+        # everything" until the client edits it.
+        plan = super().create(validated_data)
+        import_live_state(plan)
+        return plan
 
     class Meta:
         model = SplicePlan

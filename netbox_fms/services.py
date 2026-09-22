@@ -6,6 +6,7 @@ from dcim.models import Cable, CableTermination, Device, FrontPort, Module, Modu
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 
 from . import naming
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
@@ -695,6 +696,36 @@ def get_or_recompute_diff(plan):
     return diff
 
 
+def _claimed_front_port_ids(plan, port_ids):
+    """Front port ids among ``port_ids`` claimed by other active plans on the closure.
+
+    Fiber exclusivity lets only one non-archived plan reference a fiber, so a
+    live-state import must leave those fibers to the plan that holds them
+    instead of tripping SplicePlanEntry's validation.
+    """
+    if not port_ids:
+        return set()
+    active_statuses = (
+        SplicePlanStatusChoices.DRAFT,
+        SplicePlanStatusChoices.PENDING_APPROVAL,
+        SplicePlanStatusChoices.APPROVED,
+    )
+    rows = (
+        SplicePlanEntry.objects.filter(
+            plan__closure_id=plan.closure_id,
+            plan__status__in=active_statuses,
+        )
+        .exclude(plan_id=plan.pk)
+        .filter(Q(fiber_a_id__in=port_ids) | Q(fiber_b_id__in=port_ids))
+        .values_list("fiber_a_id", "fiber_b_id")
+    )
+    claimed = set()
+    for fa_id, fb_id in rows:
+        claimed.add(fa_id)
+        claimed.add(fb_id)
+    return claimed
+
+
 def import_live_state(plan):
     """
     Bootstrap a plan from the closure's current live connections.
@@ -703,9 +734,15 @@ def import_live_state(plan):
     A pair is anchored on a tray-mounted port (fiber_a, whose module is the
     entry's tray); a pair whose ports both sit at device level (unassigned
     tubes) cannot become an entry -- SplicePlanEntry.tray is NOT NULL -- so
-    it is skipped and counted instead of imported silently or crashing.
+    it is skipped and counted instead of imported silently or crashing. Pairs
+    touching a fiber already claimed by another active plan are likewise
+    skipped and counted: fiber exclusivity reserves them for that plan.
+    Pairs touching a fiber the plan's own entries already reference are
+    skipped too, making a re-import a sync that only picks up live splices
+    the plan does not know about yet.
 
-    Returns {"imported": int, "skipped_unassigned": int}.
+    Returns {"imported": int, "skipped_unassigned": int, "skipped_claimed": int,
+    "skipped_existing": int}.
     """
     live = get_live_state(plan.closure)
 
@@ -720,10 +757,25 @@ def import_live_state(plan):
         port_ids.add(pa)
         port_ids.add(pb)
     port_to_module = dict(FrontPort.objects.filter(pk__in=port_ids).values_list("pk", "module_id"))
+    claimed_ids = _claimed_front_port_ids(plan, port_ids)
+
+    own_ids = set()
+    if all_pairs:
+        for fa_id, fb_id in plan.entries.values_list("fiber_a_id", "fiber_b_id"):
+            own_ids.add(fa_id)
+            own_ids.add(fb_id)
 
     entries = []
     skipped_unassigned = 0
+    skipped_claimed = 0
+    skipped_existing = 0
     for port_a_id, port_b_id in all_pairs:
+        if port_a_id in own_ids or port_b_id in own_ids:
+            skipped_existing += 1
+            continue
+        if port_a_id in claimed_ids or port_b_id in claimed_ids:
+            skipped_claimed += 1
+            continue
         if port_to_module.get(port_a_id) is None:
             # fiber_a must carry the tray; lead with the tray-mounted port
             port_a_id, port_b_id = port_b_id, port_a_id
@@ -746,7 +798,12 @@ def import_live_state(plan):
     SplicePlanEntry.objects.bulk_create(entries)
     plan.diff_stale = True
     plan.save(update_fields=["diff_stale"])
-    return {"imported": len(entries), "skipped_unassigned": skipped_unassigned}
+    return {
+        "imported": len(entries),
+        "skipped_unassigned": skipped_unassigned,
+        "skipped_claimed": skipped_claimed,
+        "skipped_existing": skipped_existing,
+    }
 
 
 def protecting_nodes(front_port_ids, user=None):

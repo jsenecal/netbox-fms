@@ -72,6 +72,7 @@ from .models import (
     TrayProfile,
     TubeAssignment,
 )
+from .services import import_live_state
 
 # ---------------------------------------------------------------------------
 # FiberCableType
@@ -696,6 +697,17 @@ class SplicePlanForm(NetBoxModelForm):
     class Meta:
         model = SplicePlan
         fields = ("closure", "name", "description", "project", "tags")
+
+    def save(self, *args, **kwargs):
+        # A plan's entries are its full desired state: any live splice the
+        # plan omits becomes a pending delete. A new plan therefore starts
+        # as a copy of the closure's live state, so it means "keep
+        # everything" until the user edits it.
+        creating = self.instance.pk is None
+        obj = super().save(*args, **kwargs)
+        if creating and obj.pk:
+            import_live_state(obj)
+        return obj
 
 
 class SplicePlanQuickAddForm(forms.ModelForm):
