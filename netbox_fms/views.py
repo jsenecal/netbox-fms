@@ -2482,11 +2482,7 @@ class TraceDetailView(LoginRequiredMixin, View):
 
         elif node_type == "port":
             port = get_object_or_404(FrontPort, pk=object_id)
-            strand = (
-                FiberStrand.objects.filter(models.Q(front_port_a=port) | models.Q(front_port_b=port))
-                .select_related("buffer_tube")
-                .first()
-            )
+            strand = FiberStrand.objects.landed_on([port.pk]).select_related("buffer_tube").first()
             return render(
                 request,
                 "netbox_fms/htmx/trace_port_detail.html",

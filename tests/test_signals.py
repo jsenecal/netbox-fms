@@ -4,13 +4,7 @@ from dcim.models import (
     Cable,
     CableTermination,
     Device,
-    DeviceRole,
-    DeviceType,
     FrontPort,
-    Manufacturer,
-    Module,
-    ModuleBay,
-    ModuleType,
     PortMapping,
     RearPort,
     Site,
@@ -22,40 +16,25 @@ from django.test import TransactionTestCase
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import FiberCable, FiberCableType, SplicePlan, SplicePlanEntry
 from netbox_fms.signals import fms_portmapping_bypass
-from tests.conftest import make_front_port, make_infra
+from tests.conftest import connect_front_ports, make_closure_with_tray, make_infra
+
+
+def make_mapping(device, front_port, rear_port, rear_port_position=1):
+    """Create a FrontPort-to-RearPort PortMapping, positions defaulting to 1."""
+    return PortMapping.objects.create(
+        device=device,
+        front_port=front_port,
+        rear_port=rear_port,
+        front_port_position=1,
+        rear_port_position=rear_port_position,
+    )
 
 
 class TestDiffCacheInvalidation(TransactionTestCase):
     def setUp(self):
-        site = Site.objects.create(name="Sig Site", slug="sig-site")
-        mfr = Manufacturer.objects.create(name="Sig Mfr", slug="sig-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="sig-closure")
-        role = DeviceRole.objects.create(name="Sig Role", slug="sig-role")
-        self.closure = Device.objects.create(name="C-Sig", site=site, device_type=dt, role=role)
-
-        mt = ModuleType.objects.create(manufacturer=mfr, model="Tray")
-        bay = ModuleBay.objects.create(device=self.closure, name="Bay 1")
-        self.tray = Module.objects.create(device=self.closure, module_bay=bay, module_type=mt)
-
-        self.fp1 = make_front_port(device=self.closure, module=self.tray, name="F1")
-        self.fp2 = make_front_port(device=self.closure, module=self.tray, name="F2")
-
-    def _make_cable_with_terminations(self, port_a, port_b):
-        fp_ct = ContentType.objects.get_for_model(FrontPort)
-        cable = Cable.objects.create(length=0, length_unit="m")
-        CableTermination.objects.create(
-            cable=cable,
-            cable_end="A",
-            termination_type=fp_ct,
-            termination_id=port_a.pk,
-        )
-        CableTermination.objects.create(
-            cable=cable,
-            cable_end="B",
-            termination_type=fp_ct,
-            termination_id=port_b.pk,
-        )
-        return cable
+        rig = make_closure_with_tray("Sig")
+        self.closure = rig.closure
+        self.fp1, self.fp2 = rig.ports
 
     def test_cable_create_invalidates_cache(self):
         plan = SplicePlan.objects.create(closure=self.closure, name="Plan")
@@ -63,7 +42,7 @@ class TestDiffCacheInvalidation(TransactionTestCase):
         plan.cached_diff = {"some": "data"}
         plan.save(update_fields=["diff_stale", "cached_diff"])
 
-        cable = self._make_cable_with_terminations(self.fp1, self.fp2)
+        cable = connect_front_ports(self.fp1, self.fp2)
         cable.save()  # Trigger post_save again after terminations exist
 
         plan.refresh_from_db()
@@ -71,7 +50,7 @@ class TestDiffCacheInvalidation(TransactionTestCase):
 
     def test_cable_delete_invalidates_cache(self):
         plan = SplicePlan.objects.create(closure=self.closure, name="Plan")
-        cable = self._make_cable_with_terminations(self.fp1, self.fp2)
+        cable = connect_front_ports(self.fp1, self.fp2)
 
         plan.diff_stale = False
         plan.cached_diff = {"some": "data"}
@@ -100,10 +79,7 @@ class TestPortMappingProtection(TransactionTestCase):
     """FMS-managed port pairs are protected; unrelated pairs are not."""
 
     def setUp(self):
-        site = Site.objects.create(name="PM Site", slug="pm-site")
-        mfr = Manufacturer.objects.create(name="PM Mfr", slug="pm-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="PM Closure", slug="pm-closure")
-        role = DeviceRole.objects.create(name="PM Role", slug="pm-role")
+        site, mfr, dt, role = make_infra("PM")
         self.device = Device.objects.create(name="PM-Device", site=site, device_type=dt, role=role)
 
         self.fct = FiberCableType.objects.create(model="PM-FCT", manufacturer=mfr, strand_count=2)
@@ -123,23 +99,11 @@ class TestPortMappingProtection(TransactionTestCase):
     def _create_mapping(self):
         """Create the fixture PortMapping under the FMS bypass."""
         with fms_portmapping_bypass():
-            return PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+            return make_mapping(self.device, self.fp, self.rp)
 
     def test_external_portmapping_create_blocked(self):
         with self.assertRaises(ValidationError):
-            PortMapping.objects.create(
-                device=self.device,
-                front_port=self.fp,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=1,
-            )
+            make_mapping(self.device, self.fp, self.rp)
 
     def test_bypass_allows_portmapping_create(self):
         pm = self._create_mapping()
@@ -223,13 +187,7 @@ class TestPortMappingProtection(TransactionTestCase):
         rp2 = RearPort.objects.create(device=self.device, name="MPO-RP", type="lc", positions=1)
         fp2 = FrontPort.objects.create(device=self.device, name="MPO-FP", type="lc")
 
-        pm = PortMapping.objects.create(
-            device=self.device,
-            front_port=fp2,
-            rear_port=rp2,
-            front_port_position=1,
-            rear_port_position=1,
-        )
+        pm = make_mapping(self.device, fp2, rp2)
         assert pm.pk is not None
 
         pm.delete()
@@ -243,13 +201,7 @@ class TestPortMappingProtection(TransactionTestCase):
         fp2 = FrontPort.objects.create(device=self.device, name="PM:FX", type="splice")
 
         with self.assertRaises(ValidationError):
-            PortMapping.objects.create(
-                device=self.device,
-                front_port=fp2,
-                rear_port=self.rp,
-                front_port_position=1,
-                rear_port_position=2,
-            )
+            make_mapping(self.device, fp2, self.rp, rear_port_position=2)
 
     def test_repointing_fms_mapping_away_blocked(self):
         """Repointing an FMS mapping at innocent ports is still an external
@@ -280,13 +232,7 @@ class TestPortMappingProtection(TransactionTestCase):
         )
         fp_b = FrontPort.objects.create(device=panel, name="Panel-FP", type="lc")
 
-        pm = PortMapping.objects.create(
-            device=panel,
-            front_port=fp_b,
-            rear_port=rp_b,
-            front_port_position=1,
-            rear_port_position=1,
-        )
+        pm = make_mapping(panel, fp_b, rp_b)
         assert pm.pk is not None
 
     def test_null_port_ids_are_not_fms_managed(self):
@@ -301,19 +247,11 @@ class TestPortMappingProtection(TransactionTestCase):
         assert _rear_port_is_fms_managed(None) is False
 
     def test_non_fms_device_unprotected(self):
-        site = Site.objects.create(name="NF Site", slug="nf-site")
-        mfr = Manufacturer.objects.create(name="NF Mfr", slug="nf-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="NF Device", slug="nf-device")
-        device2 = Device.objects.create(name="NF-Device", site=site, device_type=dt, role=self.device.role)
+        site, _mfr, dt, role = make_infra("NF")
+        device2 = Device.objects.create(name="NF-Device", site=site, device_type=dt, role=role)
         rp2 = RearPort.objects.create(device=device2, name="NF-RP", type="8p8c", positions=1)
         fp2 = FrontPort.objects.create(device=device2, name="NF-FP", type="8p8c")
-        pm = PortMapping.objects.create(
-            device=device2,
-            front_port=fp2,
-            rear_port=rp2,
-            front_port_position=1,
-            rear_port_position=1,
-        )
+        pm = make_mapping(device2, fp2, rp2)
         assert pm.pk is not None
 
 
@@ -321,27 +259,16 @@ class TestPlanPortProtection(TransactionTestCase):
     """Front ports spliced in a live plan are protected without a strand."""
 
     def setUp(self):
-        site, mfr, dt, role = make_infra("PP")
-        self.closure = Device.objects.create(name="PP-Closure", site=site, device_type=dt, role=role)
-        mt = ModuleType.objects.create(manufacturer=mfr, model="PP Tray")
-        bay = ModuleBay.objects.create(device=self.closure, name="Bay 1")
-        self.tray = Module.objects.create(device=self.closure, module_bay=bay, module_type=mt)
-
-        self.pigtail = make_front_port(device=self.closure, module=self.tray, name="Pigtail")
-        fiber_b = make_front_port(device=self.closure, module=self.tray, name="Trunk-F1")
+        rig = make_closure_with_tray("PP")
+        self.closure = rig.closure
+        self.pigtail, fiber_b = rig.ports
         self.plan = SplicePlan.objects.create(closure=self.closure, name="PP Plan")
-        SplicePlanEntry.objects.create(plan=self.plan, tray=self.tray, fiber_a=self.pigtail, fiber_b=fiber_b)
+        SplicePlanEntry.objects.create(plan=self.plan, tray=rig.tray, fiber_a=self.pigtail, fiber_b=fiber_b)
 
         self.rp = RearPort.objects.create(device=self.closure, name="PP-RP", type="lc", positions=1)
 
     def _create_pigtail_mapping(self):
-        return PortMapping.objects.create(
-            device=self.closure,
-            front_port=self.pigtail,
-            rear_port=self.rp,
-            front_port_position=1,
-            rear_port_position=1,
-        )
+        return make_mapping(self.closure, self.pigtail, self.rp)
 
     def test_mapping_on_live_plan_port_blocked(self):
         """A strand-less pigtail referenced by a non-archived plan entry

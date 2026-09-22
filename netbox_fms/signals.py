@@ -35,20 +35,13 @@ def _front_port_is_fms_managed(front_port_id):
     are covered while a live plan references them, and released when
     every referencing plan is archived.
     """
-    from django.db.models import Q
-
-    from .choices import SplicePlanStatusChoices
     from .models import FiberStrand, SplicePlanEntry
 
     if front_port_id is None:
         return False
-    if FiberStrand.objects.filter(Q(front_port_a_id=front_port_id) | Q(front_port_b_id=front_port_id)).exists():
+    if FiberStrand.objects.landed_on([front_port_id]).exists():
         return True
-    return (
-        SplicePlanEntry.objects.filter(Q(fiber_a_id=front_port_id) | Q(fiber_b_id=front_port_id))
-        .exclude(plan__status=SplicePlanStatusChoices.ARCHIVED)
-        .exists()
-    )
+    return SplicePlanEntry.objects.referencing(front_port_id).live().exists()
 
 
 def _rear_port_is_fms_managed(rear_port_id):
@@ -59,16 +52,13 @@ def _rear_port_is_fms_managed(rear_port_id):
     the far end of a single-end-managed trunk belongs to the user.
     """
     from dcim.models import PortMapping
-    from django.db.models import Q
 
     from .models import FiberStrand
 
     if rear_port_id is None:
         return False
     sibling_fp_ids = PortMapping.objects.filter(rear_port_id=rear_port_id).values("front_port_id")
-    return FiberStrand.objects.filter(
-        Q(front_port_a_id__in=sibling_fp_ids) | Q(front_port_b_id__in=sibling_fp_ids)
-    ).exists()
+    return FiberStrand.objects.landed_on(sibling_fp_ids).exists()
 
 
 def _is_fms_managed_mapping(front_port_id, rear_port_id):

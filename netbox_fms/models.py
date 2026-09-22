@@ -1045,6 +1045,17 @@ class Ribbon(NetBoxModel):
         return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
 
 
+class FiberStrandQuerySet(RestrictedQuerySet):
+    def landed_on(self, front_port_ids):
+        """Strands whose A or B end landed on any of the given FrontPort ids.
+
+        The single definition of "a strand is landed on this port" -- FMS
+        ownership checks, circuit node creation, and trace prefetches must
+        all agree on it.
+        """
+        return self.filter(models.Q(front_port_a_id__in=front_port_ids) | models.Q(front_port_b_id__in=front_port_ids))
+
+
 class FiberStrand(NetBoxModel):
     """
     An individual fiber strand within a FiberCable, optionally inside a BufferTube
@@ -1114,6 +1125,8 @@ class FiberStrand(NetBoxModel):
         verbose_name=_("front port (B-side)"),
         help_text=_("The dcim FrontPort on the cable's B-side termination."),
     )
+
+    objects = FiberStrandQuerySet.as_manager()
 
     class Meta:
         ordering = ("fiber_cable", "position")
@@ -1338,6 +1351,16 @@ class SplicePlan(NetBoxModel):
         return reverse("plugins:netbox_fms:spliceplan", args=[self.pk])
 
 
+class SplicePlanEntryQuerySet(RestrictedQuerySet):
+    def referencing(self, front_port_id):
+        """Entries splicing the given FrontPort on either side."""
+        return self.filter(models.Q(fiber_a_id=front_port_id) | models.Q(fiber_b_id=front_port_id))
+
+    def live(self):
+        """Entries of plans that are not archived."""
+        return self.exclude(plan__status=SplicePlanStatusChoices.ARCHIVED)
+
+
 class SplicePlanEntry(NetBoxModel):
     """
     A single desired FrontPort↔FrontPort connection within a splice plan.
@@ -1383,6 +1406,8 @@ class SplicePlanEntry(NetBoxModel):
         blank=True,
         help_text=_("Changelog message from the save that created/modified this entry."),
     )
+
+    objects = SplicePlanEntryQuerySet.as_manager()
 
     class Meta:
         ordering = ("plan", "pk")
@@ -1454,7 +1479,7 @@ class SplicePlanEntry(NetBoxModel):
                 SplicePlanEntry.objects.filter(
                     plan_id__in=other_plan_ids,
                 )
-                .filter(models.Q(fiber_a_id=self.fiber_a_id) | models.Q(fiber_b_id=self.fiber_a_id))
+                .referencing(self.fiber_a_id)
                 .select_related("plan")
                 .first()
             )
@@ -1470,7 +1495,7 @@ class SplicePlanEntry(NetBoxModel):
                 SplicePlanEntry.objects.filter(
                     plan_id__in=other_plan_ids,
                 )
-                .filter(models.Q(fiber_a_id=self.fiber_b_id) | models.Q(fiber_b_id=self.fiber_b_id))
+                .referencing(self.fiber_b_id)
                 .select_related("plan")
                 .first()
             )
@@ -2049,9 +2074,7 @@ class FiberCircuitPath(NetBoxModel):
     def _create_strand_nodes(self, start_position):
         """Create FiberCircuitNode entries for FiberStrands derived from path FrontPorts."""
         fp_ids = [e["id"] for e in self.path if e["type"] == "front_port"]
-        strands = FiberStrand.objects.filter(
-            models.Q(front_port_a_id__in=fp_ids) | models.Q(front_port_b_id__in=fp_ids)
-        ).distinct()
+        strands = FiberStrand.objects.landed_on(fp_ids).distinct()
         pos = start_position
         for strand in strands:
             FiberCircuitNode.objects.create(path=self, position=pos, fiber_strand=strand)

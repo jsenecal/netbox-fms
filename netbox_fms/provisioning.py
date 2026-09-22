@@ -15,7 +15,6 @@ from itertools import combinations
 from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.db.models import Q
 
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from .models import (
@@ -633,9 +632,7 @@ def create_circuit_from_proposal(proposal, name_template="Circuit-{n}", name=Non
 
             # Create strand nodes
             fp_ids = [e["id"] for e in path_json if e["type"] == "front_port"]
-            strands = FiberStrand.objects.filter(
-                Q(front_port_a_id__in=fp_ids) | Q(front_port_b_id__in=fp_ids)
-            ).distinct()
+            strands = FiberStrand.objects.landed_on(fp_ids).distinct()
             for fs in strands:
                 FiberCircuitNode.objects.create(path=fcp, position=node_pos, fiber_strand=fs)
                 node_pos += 1
