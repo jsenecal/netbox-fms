@@ -24,24 +24,70 @@ class fms_portmapping_bypass:  # noqa: N801
         _fms_bypass.reset(self._token)
 
 
-def _is_fms_managed_device(device_id):
-    """Return True if the device has FMS-provisioned fiber ports."""
-    from .models import FiberCable
-    from .services import rear_port_cable_ids
+def _front_port_is_fms_managed(front_port_id):
+    """Return True if a FiberStrand landed on the front port, or a
+    non-archived splice plan splices it.
 
-    return FiberCable.objects.filter(cable_id__in=rear_port_cable_ids(device_id)).exists()
+    The strand FK is the authoritative record of FMS provisioning and
+    adoption, so protection follows the individual port pair rather than
+    the whole device: a housing may legitimately mix FMS-managed cables
+    with port pairs FMS has no stake in. Strand-less ports (pigtails)
+    are covered while a live plan references them, and released when
+    every referencing plan is archived.
+    """
+    from .models import FiberStrand, SplicePlanEntry
+
+    if front_port_id is None:
+        return False
+    if FiberStrand.objects.landed_on([front_port_id]).exists():
+        return True
+    return SplicePlanEntry.objects.referencing(front_port_id).live().exists()
+
+
+def _rear_port_is_fms_managed(rear_port_id):
+    """Return True if any mapping on the rear port serves an FMS strand.
+
+    Free positions of such a rear port stay FMS territory. A rear port
+    that merely terminates a FiberCable-carrying cable does not qualify:
+    the far end of a single-end-managed trunk belongs to the user.
+    """
+    from dcim.models import PortMapping
+
+    from .models import FiberStrand
+
+    if rear_port_id is None:
+        return False
+    sibling_fp_ids = PortMapping.objects.filter(rear_port_id=rear_port_id).values("front_port_id")
+    return FiberStrand.objects.landed_on(sibling_fp_ids).exists()
+
+
+def _is_fms_managed_mapping(front_port_id, rear_port_id):
+    """Return True if FMS owns the port pair."""
+    return _front_port_is_fms_managed(front_port_id) or _rear_port_is_fms_managed(rear_port_id)
 
 
 def _block_external_portmapping_change(instance):
-    """Raise unless the change runs under the FMS bypass or the device is unmanaged."""
+    """Raise unless the change runs under the FMS bypass or the port pair is unmanaged.
+
+    On updates the previously stored pair is checked as well, so an FMS
+    mapping cannot be freed by repointing it at unmanaged ports.
+    """
     if _fms_bypass.get():
         return
-    if _is_fms_managed_device(instance.device_id):
-        raise ValidationError("PortMappings on FMS-managed devices can only be modified through the FMS plugin.")
+    pairs = {(instance.front_port_id, instance.rear_port_id)}
+    if instance.pk:
+        from dcim.models import PortMapping
+
+        old = PortMapping.objects.filter(pk=instance.pk).values_list("front_port_id", "rear_port_id").first()
+        if old:
+            pairs.add(old)
+    for front_port_id, rear_port_id in pairs:
+        if _is_fms_managed_mapping(front_port_id, rear_port_id):
+            raise ValidationError("This PortMapping is FMS-managed and can only be modified through the FMS plugin.")
 
 
 def _portmapping_pre_save(sender, instance, **kwargs):
-    """Block external PortMapping changes on FMS-managed devices."""
+    """Block external changes to FMS-managed PortMappings."""
     _block_external_portmapping_change(instance)
 
 
@@ -60,7 +106,7 @@ def _deletion_originates_from_device(origin):
 
 
 def _portmapping_pre_delete(sender, instance, origin=None, **kwargs):
-    """Block external PortMapping deletion on FMS-managed devices.
+    """Block external deletion of FMS-managed PortMappings.
 
     Deleting the device itself is allowed: removing a closure legitimately
     cascades through its PortMappings (a PortMapping only ever references

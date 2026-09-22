@@ -1,7 +1,6 @@
 """Transform flat trace path entries into semantic hop objects."""
 
 from dcim.models import Cable, FrontPort, RearPort
-from django.db.models import Q
 
 from .models import FiberStrand, SplicePlanEntry
 
@@ -42,9 +41,7 @@ def build_hops(path_entries):
     # Prefetch strands for all FrontPorts in path
     strand_by_fp = {}
     if fp_ids:
-        strands = FiberStrand.objects.filter(
-            Q(front_port_a_id__in=fp_ids) | Q(front_port_b_id__in=fp_ids)
-        ).select_related("fiber_cable__fiber_cable_type", "buffer_tube")
+        strands = FiberStrand.objects.landed_on(fp_ids).select_related("fiber_cable__fiber_cable_type", "buffer_tube")
         for s in strands:
             if s.front_port_a_id:
                 strand_by_fp[s.front_port_a_id] = s

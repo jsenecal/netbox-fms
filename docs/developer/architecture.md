@@ -232,10 +232,14 @@ Registered via `connect_signals()` in `PluginConfig.ready()`.
 - **`cable_pre_delete`** -- Same invalidation logic, but on `pre_delete` (before
   cascade removes the termination records needed for the device lookup).
 - **`portmapping_pre_save`** / **`portmapping_pre_delete`** -- Block external
-  `PortMapping` changes on FMS-managed devices, preventing out-of-band edits that
-  would bypass splice plan enforcement. Internal operations that legitimately need
-  to write `PortMapping` records must use the `fms_portmapping_bypass` context
-  manager to suppress the guard.
+  changes to FMS-managed `PortMapping` rows, preventing out-of-band edits that
+  would bypass splice plan enforcement. A mapping is FMS-managed when a
+  `FiberStrand` has landed on its front port, when any mapping on its rear port
+  serves such a strand, or when a non-archived `SplicePlan` splices its front
+  port. Other port pairs on the same device stay user-editable, so a housing
+  can mix FMS-managed cables with unmanaged ones. Internal operations that
+  legitimately need to write `PortMapping` records must use the
+  `fms_portmapping_bypass` context manager to suppress the guard.
 - **`fibercable_post_save`** -- Syncs port names on the associated closure device
   when a `FiberCable` is linked to a `dcim.Cable`.
 - **`closure_cable_entry_post_delete`** -- Cleans up orphaned `TubeAssignment`
