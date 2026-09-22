@@ -3,14 +3,14 @@
 from unittest.mock import patch
 
 import pytest
-from dcim.models import Cable, CableTermination, Device, Module, ModuleBay, ModuleType
+from dcim.models import Cable, Device, Module, ModuleBay, ModuleType
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from users.models import ObjectPermission
 
 from netbox_fms.choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath, SplicePlan, SplicePlanEntry
-from tests.conftest import make_front_port, make_infra
+from tests.conftest import connect_front_ports, make_front_port, make_infra
 
 User = get_user_model()
 
@@ -133,9 +133,7 @@ def test_import_view_warns_about_skipped_unassigned(client):
     plan.entries.all().delete()
     loose_a = make_front_port(device=closure, name="PWIW-LA")
     loose_b = make_front_port(device=closure, name="PWIW-LB")
-    cable = Cable.objects.create(length=0, length_unit="m")
-    CableTermination.objects.create(cable=cable, cable_end="A", termination=loose_a)
-    CableTermination.objects.create(cable=cable, cable_end="B", termination=loose_b)
+    connect_front_ports(loose_a, loose_b)
     _login_superuser(client, "pwiw-admin")
 
     response = client.post(f"/plugins/fms/splice-plans/{plan.pk}/import/", follow=True)
@@ -143,6 +141,23 @@ def test_import_view_warns_about_skipped_unassigned(client):
     rendered_messages = [str(m) for m in response.context["messages"]]
     assert any(m.startswith("Imported 0 connections") for m in rendered_messages)
     assert any("Skipped 1 splice(s) on tubes not assigned to any tray" in m for m in rendered_messages)
+    assert plan.entries.count() == 0
+
+
+@pytest.mark.django_db
+def test_import_view_warns_about_skipped_claimed(client):
+    """The import view surfaces the count of pairs claimed by another plan (issue #174)."""
+    closure, claimer, fp1 = _build_closure_with_plan("PWIC", plan_status=SplicePlanStatusChoices.DRAFT)
+    fp2 = claimer.entries.get().fiber_b
+    connect_front_ports(fp1, fp2)
+    plan = SplicePlan.objects.create(closure=closure, name="PWIC Second Plan")
+    _login_superuser(client, "pwic-admin")
+
+    response = client.post(f"/plugins/fms/splice-plans/{plan.pk}/import/", follow=True)
+
+    rendered_messages = [str(m) for m in response.context["messages"]]
+    assert any(m.startswith("Imported 0 connections") for m in rendered_messages)
+    assert any("Skipped 1 splice(s) on fibers already claimed by another active plan" in m for m in rendered_messages)
     assert plan.entries.count() == 0
 
 

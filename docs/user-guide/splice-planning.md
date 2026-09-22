@@ -28,6 +28,8 @@ A SpliceProject is a grouping container for related splice plans. It is used to 
 
 A SplicePlan represents the intended splice configuration for a single closure device. Each plan links to a `dcim.Device` (the closure) and carries a status that governs its lifecycle. See [Splice Plan Lifecycle](#splice-plan-lifecycle) for the full state machine and allowed transitions.
 
+A plan's entries are its *complete* desired state: any live splice the plan omits counts as a pending removal. A newly created plan therefore starts as a copy of the closure's current live state -- creating a plan on a live closure shows every existing splice as unchanged ("keep") until you deliberately change something. Fibers already claimed by another active plan, and live pairs on tubes not assigned to any tray, cannot be seeded and are left out of the new plan.
+
 ### SplicePlanEntry
 
 A SplicePlanEntry maps one fiber to another within a splice plan. Each entry defines:
@@ -272,7 +274,7 @@ Running a diff before applying provides a clear summary of what will change, red
 
 The diff considers **every front port of the closure**, not only tray-mounted ones. Splices whose ports sit at device level -- their buffer tube is not assigned to any tray -- are grouped under a distinct **Unassigned tubes** bucket instead of a tray. Pending Work, the apply confirmation, and the draw.io export render this bucket as a warning group, so an operator can see the plan is physically under-specified before applying; the splices themselves are still created and removed like any other (a jumper between two front ports needs no tray). In the diff API payload the bucket appears under the key `0`, which no real tray can occupy.
 
-Bootstrapping a plan from the closure's live state (import-from-device) anchors each imported entry on a tray-mounted port. Live splices whose ports both sit at device level cannot become entries -- an entry requires a tray -- so the import skips them and reports the skipped count.
+Bootstrapping a plan from the closure's live state -- done automatically when a plan is created, and available on demand via import-from-device -- anchors each imported entry on a tray-mounted port. The import is an idempotent sync: pairs the plan's entries already cover are skipped, so running it on a seeded plan only picks up live splices the plan does not know about yet (for example, splices made out-of-band after the plan was created). Live splices whose ports both sit at device level cannot become entries -- an entry requires a tray -- so the import skips them and reports the skipped count. Pairs touching a fiber already claimed by another active plan are also skipped and reported separately, since fiber exclusivity reserves them for that plan.
 
 ---
 

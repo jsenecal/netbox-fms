@@ -834,6 +834,13 @@ class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
                         "Skipped {count} splice(s) on tubes not assigned to any tray -- plan entries require a tray."
                     ).format(count=result["skipped_unassigned"]),
                 )
+            if result["skipped_claimed"]:
+                messages.warning(
+                    request,
+                    _("Skipped {count} splice(s) on fibers already claimed by another active plan.").format(
+                        count=result["skipped_claimed"]
+                    ),
+                )
         except (ValueError, ValidationError) as e:
             messages.error(request, str(e))
         return redirect(plan.get_absolute_url())

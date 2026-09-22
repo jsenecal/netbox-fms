@@ -191,7 +191,12 @@ class TestImportLiveStateValidation:
 
         with patch("netbox_fms.services.get_live_state", return_value={}):
             result = import_live_state(plan)
-            assert result == {"imported": 0, "skipped_unassigned": 0}
+            assert result == {
+                "imported": 0,
+                "skipped_unassigned": 0,
+                "skipped_claimed": 0,
+                "skipped_existing": 0,
+            }
 
 
 @pytest.mark.django_db

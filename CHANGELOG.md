@@ -17,6 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hosts FMS cables -- and the far end of a trunk brought into FMS on one
   side only -- stay editable through the normal NetBox UI and API. (#172)
 
+- `import_live_state` (and the import-from-device action built on it) is
+  now an idempotent sync: live pairs the plan's own entries already cover
+  are skipped (`skipped_existing`) instead of failing the import on the
+  plan's unique constraints, and pairs whose fibers are claimed by another
+  active plan on the same closure are skipped (`skipped_claimed`) instead
+  of failing the whole import with a validation error. Import from Device
+  on a seeded plan therefore only picks up live splices the plan does not
+  know about yet.
+
+### Fixed
+
+- New splice plans created through the web form or the REST API (including
+  the visual editor's quick-create modal) now bootstrap their entries from
+  the closure's live splice state, so a fresh plan on a live closure reads
+  as "keep everything" instead of marking every existing splice as a
+  pending delete. Live pairs on unassigned tubes still cannot become
+  entries and keep appearing in the Unassigned tubes warning bucket. (#174)
+
 ## [0.4.0] - 2026-09-21
 
 ### Added
