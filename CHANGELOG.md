@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the profile -- when the module type has one, or an "Add Tray Profile"
   action when it does not.
 
+### Fixed
+
+- `create_sample_data` now refreshes planner statistics between build
+  phases. The whole build runs in one transaction, so the planner never
+  saw the rows it was creating and, once the tables held 100k+ rows,
+  chose seq-scan nested loops for every later query; the full dataset
+  took hours instead of minutes.
+
 ## [0.4.1] - 2026-09-22
 
 ### Changed
