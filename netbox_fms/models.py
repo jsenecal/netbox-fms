@@ -2073,16 +2073,8 @@ class FiberCircuitPath(NetBoxModel):
             node_type = entry["type"]
             obj_id = entry["id"]
             kwargs = {"path": self, "position": position}
-            if node_type == "cable":
-                kwargs["cable_id"] = obj_id
-            elif node_type == "front_port":
-                kwargs["front_port_id"] = obj_id
-            elif node_type == "rear_port":
-                kwargs["rear_port_id"] = obj_id
-            elif node_type == "splice_entry":
-                kwargs["splice_entry_id"] = obj_id
-            elif node_type == "provider_circuit":
-                kwargs["provider_circuit_id"] = obj_id
+            if node_type in FiberCircuitNode.REFERENCE_FIELDS:
+                kwargs[f"{node_type}_id"] = obj_id
             FiberCircuitNode.objects.create(**kwargs)
             position += 1
         self._create_strand_nodes(position)
@@ -2098,6 +2090,12 @@ class FiberCircuitPath(NetBoxModel):
             pos += 1
 
 
+# The reference FK fields of FiberCircuitNode, exactly one of which is
+# populated per node. Module-level so the Meta check constraint is built
+# from the same tuple the model exposes as REFERENCE_FIELDS.
+NODE_REFERENCE_FIELDS = ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry", "provider_circuit")
+
+
 def _exactly_one_of(*fields):
     """Build a Q requiring exactly one of the given FK fields to be set."""
     condition = models.Q()
@@ -2109,10 +2107,9 @@ def _exactly_one_of(*fields):
 class FiberCircuitNode(models.Model):
     """Relational index of objects in a fiber circuit path for PROTECT-based deletion prevention."""
 
-    # The reference FK fields, exactly one of which is populated per node
-    # (enforced by the check constraint below). The protecting API accepts
-    # these names as its reference types.
-    REFERENCE_FIELDS = ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry", "provider_circuit")
+    # Path entry types map 1:1 onto these FK names; the protecting API
+    # accepts them as its reference types.
+    REFERENCE_FIELDS = NODE_REFERENCE_FIELDS
 
     # Not a NetBoxModel, so wire up the restricted manager explicitly --
     # the API exposes this model and must be able to enforce object
@@ -2183,9 +2180,7 @@ class FiberCircuitNode(models.Model):
         constraints = [
             models.CheckConstraint(
                 name="fibercircuitnode_exactly_one_ref",
-                condition=_exactly_one_of(
-                    "cable", "front_port", "rear_port", "fiber_strand", "splice_entry", "provider_circuit"
-                ),
+                condition=_exactly_one_of(*NODE_REFERENCE_FIELDS),
             ),
         ]
 
