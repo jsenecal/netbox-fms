@@ -157,3 +157,93 @@ class TestTraceIncomplete(TestCase):
         result = FiberCircuitPath.from_origin(fp)
         assert result.is_complete is False
         assert len(result.path) == 1
+
+
+class TestTraceProviderCircuit(TestCase):
+    """Mid-span provider circuits are crossed as opaque segments (issue #135)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from tests.conftest import connect_rp_to_ct, make_mapped_endpoint, make_provider_circuit
+
+        end_a = make_mapped_endpoint("PC-ClosA")
+        end_b = make_mapped_endpoint("PC-ClosB")
+        cls.fp_a = end_a.fp
+        cls.fp_b = end_b.fp
+
+        cls.span = make_provider_circuit("PC1")
+        connect_rp_to_ct(end_a.rp, cls.span.term_a)
+        cls.cable_z = connect_rp_to_ct(end_b.rp, cls.span.term_z)
+
+    def test_trace_across_provider_circuit(self):
+        result = FiberCircuitPath.from_origin(self.fp_a)
+        assert result.destination == self.fp_b
+        assert result.is_complete is True
+        types = [e["type"] for e in result.path]
+        assert types == ["front_port", "rear_port", "cable", "provider_circuit", "cable", "rear_port", "front_port"]
+        assert {"type": "provider_circuit", "id": self.span.circuit.pk} in result.path
+
+    def test_incomplete_when_far_termination_uncabled(self):
+        self.cable_z.delete()
+        result = FiberCircuitPath.from_origin(self.fp_a)
+        assert result.is_complete is False
+        assert result.destination is None
+        assert result.path[-1] == {"type": "provider_circuit", "id": self.span.circuit.pk}
+
+    def test_incomplete_when_egress_cable_dangles(self):
+        from circuits.models import CircuitTermination
+
+        self.cable_z.delete()
+        dangling = Cable.objects.create()
+        ct_ct = ContentType.objects.get_for_model(CircuitTermination)
+        CableTermination.objects.create(
+            cable=dangling, cable_end="A", termination_type=ct_ct, termination_id=self.span.term_z.pk
+        )
+        result = FiberCircuitPath.from_origin(self.fp_a)
+        assert result.is_complete is False
+        assert result.path[-1] == {"type": "cable", "id": dangling.pk}
+
+    def test_incomplete_when_no_far_termination(self):
+        self.cable_z.delete()
+        self.span.term_z.delete()
+        result = FiberCircuitPath.from_origin(self.fp_a)
+        assert result.is_complete is False
+        assert result.path[-1] == {"type": "provider_circuit", "id": self.span.circuit.pk}
+
+
+class TestTraceChainedProviderCircuits(TestCase):
+    """Back-to-back provider circuits and the revisit guard (issue #135)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from tests.conftest import connect_ct_to_ct, connect_rp_to_ct, make_mapped_endpoint, make_provider_circuit
+
+        end_a = make_mapped_endpoint("CH-ClosA")
+        end_b = make_mapped_endpoint("CH-ClosB")
+        cls.fp_a = end_a.fp
+        cls.fp_b = end_b.fp
+
+        cls.span1 = make_provider_circuit("CH1")
+        cls.span2 = make_provider_circuit("CH2")
+        cls.cable1 = connect_rp_to_ct(end_a.rp, cls.span1.term_a)
+        connect_ct_to_ct(cls.span1.term_z, cls.span2.term_a)
+        connect_rp_to_ct(end_b.rp, cls.span2.term_z)
+
+    def test_trace_across_chained_circuits(self):
+        result = FiberCircuitPath.from_origin(self.fp_a)
+        assert result.destination == self.fp_b
+        assert result.is_complete is True
+        pc_ids = [e["id"] for e in result.path if e["type"] == "provider_circuit"]
+        assert pc_ids == [self.span1.circuit.pk, self.span2.circuit.pk]
+
+    def test_revisit_guard_stops_the_walk(self):
+        # A circuit cannot legitimately appear twice in one walk (one cable
+        # per termination), so exercise the guard directly on the helper.
+        from circuits.models import CircuitTermination
+
+        from netbox_fms.trace import _hop_provider_circuits
+
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        ct_ct = ContentType.objects.get_for_model(CircuitTermination)
+        entry_term = CableTermination.objects.get(cable=self.cable1, cable_end="B")
+        assert _hop_provider_circuits(entry_term, [], {self.span1.circuit.pk}, rp_ct, ct_ct) is None

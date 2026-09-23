@@ -57,8 +57,9 @@ The plugin focuses on four problems:
   `SpliceProject`, `FiberCircuit`, `SlackLoop`, and `TrayProfile` are
   registered with NetBox's global search.
 - **Sample data.** A `create_sample_data` management command builds a full
-  ISP-scale topology (380+ closures, 460+ plant cables, 5 fiber circuits) for
-  demo, screenshots, and benchmarking.
+  ISP-scale topology (380+ closures, 460+ plant cables, 5 fiber circuits,
+  one backbone segment leased as a provider circuit) for demo, screenshots,
+  and benchmarking.
 
 ## Quick install
 

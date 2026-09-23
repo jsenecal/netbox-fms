@@ -146,3 +146,57 @@ def make_authed_client(username="api-test"):
     client = APIClient()
     client.force_authenticate(user)
     return client
+
+
+def make_provider_circuit(prefix):
+    """Provider + type + circuit with A and Z terminations, uncabled."""
+    from circuits.models import Circuit, CircuitTermination, CircuitType, Provider
+
+    provider = Provider.objects.create(name=f"{prefix} Provider", slug=f"{prefix.lower()}-provider")
+    ctype, _ = CircuitType.objects.get_or_create(name="Dark Fiber", slug="dark-fiber")
+    circuit = Circuit.objects.create(cid=f"{prefix}-DF-1", provider=provider, type=ctype)
+    term_a = CircuitTermination.objects.create(circuit=circuit, term_side="A")
+    term_z = CircuitTermination.objects.create(circuit=circuit, term_side="Z")
+    return SimpleNamespace(provider=provider, circuit=circuit, term_a=term_a, term_z=term_z)
+
+
+def connect_rp_to_ct(rear_port, circuit_termination):
+    """Cable a RearPort (end A) to a CircuitTermination (end B)."""
+    from circuits.models import CircuitTermination
+    from dcim.models import Cable, CableTermination, RearPort
+    from django.contrib.contenttypes.models import ContentType
+
+    cable = Cable.objects.create()
+    rp_ct = ContentType.objects.get_for_model(RearPort)
+    ct_ct = ContentType.objects.get_for_model(CircuitTermination)
+    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rear_port.pk)
+    CableTermination.objects.create(
+        cable=cable, cable_end="B", termination_type=ct_ct, termination_id=circuit_termination.pk
+    )
+    return cable
+
+
+def connect_ct_to_ct(termination_a, termination_b):
+    """Cable two CircuitTerminations together (back-to-back circuits)."""
+    from circuits.models import CircuitTermination
+    from dcim.models import Cable, CableTermination
+    from django.contrib.contenttypes.models import ContentType
+
+    cable = Cable.objects.create()
+    ct_ct = ContentType.objects.get_for_model(CircuitTermination)
+    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=ct_ct, termination_id=termination_a.pk)
+    CableTermination.objects.create(cable=cable, cable_end="B", termination_type=ct_ct, termination_id=termination_b.pk)
+    return cable
+
+
+def make_mapped_endpoint(prefix):
+    """Closure with one RearPort mapped 1:1 to one FrontPort, ready to cable."""
+    from dcim.models import PortMapping, RearPort
+
+    ns = make_closure_with_tray(prefix, port_count=0)
+    rp = RearPort.objects.create(device=ns.closure, module=ns.tray, name=f"{prefix}-RP", type="lc", positions=1)
+    fp = make_front_port(ns.closure, f"{prefix}-FP", module=ns.tray)
+    PortMapping.objects.create(
+        device=ns.closure, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=1
+    )
+    return SimpleNamespace(closure=ns.closure, tray=ns.tray, rp=rp, fp=fp)

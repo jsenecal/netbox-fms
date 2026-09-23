@@ -246,3 +246,30 @@ class TestBuildHopsClosurePattern(TestCase):
         hops = build_hops(self._make_path())
         for hop in hops:
             assert "_pending_device_id" not in hop
+
+
+class TestProviderCircuitHop(TestCase):
+    """build_hops renders provider circuits as opaque edge hops (issue #135)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from tests.conftest import make_provider_circuit
+
+        cls.span = make_provider_circuit("Hop")
+
+    def test_provider_circuit_hop_shape(self):
+        hops = build_hops([{"type": "provider_circuit", "id": self.span.circuit.pk}])
+        assert hops == [
+            {
+                "type": "provider_circuit",
+                "id": self.span.circuit.pk,
+                "cid": self.span.circuit.cid,
+                "provider": self.span.provider.name,
+                "url": self.span.circuit.get_absolute_url(),
+            }
+        ]
+
+    def test_missing_circuit_degrades(self):
+        hops = build_hops([{"type": "provider_circuit", "id": 999999}])
+        assert hops[0]["cid"] == "Circuit #999999"
+        assert hops[0]["provider"] is None

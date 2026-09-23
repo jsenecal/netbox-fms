@@ -73,6 +73,30 @@ class TestFiberCircuitNode(TestCase):
         with self.assertRaises(models.ProtectedError):
             fp.delete()
 
+    def test_create_provider_circuit_node(self):
+        from tests.conftest import make_provider_circuit
+
+        span = make_provider_circuit("Node")
+        node = FiberCircuitNode.objects.create(path=self.path, position=90, provider_circuit=span.circuit)
+        assert node.provider_circuit == span.circuit
+
+    def test_protect_provider_circuit_deletion(self):
+        from tests.conftest import make_provider_circuit
+
+        span = make_provider_circuit("Prot")
+        FiberCircuitNode.objects.create(path=self.path, position=91, provider_circuit=span.circuit)
+        with self.assertRaises(models.ProtectedError):
+            span.circuit.delete()
+
+    def test_rebuild_nodes_creates_provider_circuit_node(self):
+        from tests.conftest import make_provider_circuit
+
+        span = make_provider_circuit("Rebuild")
+        self.path.path = [{"type": "provider_circuit", "id": span.circuit.pk}]
+        self.path.save()
+        self.path.rebuild_nodes()
+        assert self.path.nodes.filter(provider_circuit=span.circuit).exists()
+
     def test_cascade_on_path_delete(self):
         circuit = FiberCircuit.objects.create(
             name="Cascade-Test",
@@ -147,3 +171,48 @@ class TestFiberCircuitLifecycle(TestCase):
         assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 1
         node = FiberCircuitNode.objects.get(path=path)
         assert node.cable_id == self.cable.pk
+
+
+class TestProviderCircuitProjection(TestCase):
+    """provider_circuits mirrors the node index (issue #135)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from tests.conftest import connect_rp_to_ct, make_mapped_endpoint, make_provider_circuit
+
+        end_a = make_mapped_endpoint("ProjA")
+        end_b = make_mapped_endpoint("ProjB")
+        cls.fp_a = end_a.fp
+
+        cls.span = make_provider_circuit("Proj")
+        connect_rp_to_ct(end_a.rp, cls.span.term_a)
+        connect_rp_to_ct(end_b.rp, cls.span.term_z)
+
+        cls.fc = FiberCircuit.objects.create(name="Proj-FC", status=FiberCircuitStatusChoices.ACTIVE, strand_count=1)
+        cls.path = FiberCircuitPath.from_origin(cls.fp_a)
+        cls.path.circuit = cls.fc
+        cls.path.position = 1
+        cls.path.save()
+
+    def test_rebuild_populates_projection(self):
+        self.path.rebuild_nodes()
+        assert list(self.fc.provider_circuits.all()) == [self.span.circuit]
+
+    def test_decommission_empties_projection(self):
+        self.path.rebuild_nodes()
+        self.fc.status = FiberCircuitStatusChoices.DECOMMISSIONED
+        self.fc.save()
+        assert self.fc.provider_circuits.count() == 0
+
+    def test_reactivate_repopulates_projection(self):
+        self.path.rebuild_nodes()
+        self.fc.status = FiberCircuitStatusChoices.DECOMMISSIONED
+        self.fc.save()
+        self.fc.status = FiberCircuitStatusChoices.ACTIVE
+        self.fc.save()
+        assert list(self.fc.provider_circuits.all()) == [self.span.circuit]
+
+    def test_path_delete_resyncs_projection(self):
+        self.path.rebuild_nodes()
+        self.path.delete()
+        assert self.fc.provider_circuits.count() == 0

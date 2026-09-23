@@ -1,3 +1,4 @@
+from circuits.api.serializers import CircuitSerializer
 from dcim.api.serializers import (
     CableSerializer,
     DeviceSerializer,
@@ -578,6 +579,8 @@ class TubeAssignmentSerializer(NetBoxModelSerializer):
 class FiberCircuitSerializer(NetBoxModelSerializer):
     """Serializer for FiberCircuit model."""
 
+    provider_circuits = CircuitSerializer(nested=True, many=True, read_only=True)
+
     class Meta:
         model = FiberCircuit
         fields = (
@@ -590,6 +593,7 @@ class FiberCircuitSerializer(NetBoxModelSerializer):
             "description",
             "strand_count",
             "tenant",
+            "provider_circuits",
             "comments",
             "tags",
             "custom_fields",
@@ -640,7 +644,17 @@ class FiberCircuitNodeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FiberCircuitNode
-        fields = ("id", "path", "position", "cable", "front_port", "rear_port", "fiber_strand", "splice_entry")
+        fields = (
+            "id",
+            "path",
+            "position",
+            "cable",
+            "front_port",
+            "rear_port",
+            "fiber_strand",
+            "splice_entry",
+            "provider_circuit",
+        )
         read_only_fields = fields
 
 

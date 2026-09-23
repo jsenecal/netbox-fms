@@ -13,6 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tray profile details -- role, max fibers, description, and a link to
   the profile -- when the module type has one, or an "Add Tray Profile"
   action when it does not.
+- The trace engine crosses provider circuits: a trunk cable landing on a
+  `CircuitTermination` hops the core Circuit to its other termination and
+  keeps walking, recording the span as an opaque `provider_circuit` path
+  entry. Back-to-back circuits chain; dangling terminations end the trace
+  incomplete. (#135)
+- Fiber circuits carry an automatically synced `provider_circuits`
+  relation derived from their traced paths, shown on the detail page,
+  in the trace view, and in the API. Provider circuits carrying an
+  active fiber circuit are protected from deletion, like cables and
+  ports. (#135)
+- New fiber-circuit filters `provider_id` and `provider_circuit_id`, and
+  a `provider_circuit` reference type on the protecting endpoint, answer
+  "which fiber circuits ride provider X / core circuit Y". (#135)
+- Both sample datasets lease one backbone segment from a provider
+  (`DF-EAST-01` between CL-03 and Hub-East in `--simple`, one NO->SO Path
+  A segment in the full set) so a sample fiber circuit crosses a provider
+  circuit and demonstrates the derived `provider_circuits` relation. (#135)
 
 ### Fixed
 

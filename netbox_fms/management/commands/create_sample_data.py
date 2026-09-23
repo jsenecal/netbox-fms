@@ -10,6 +10,7 @@ Scale: ~380 closures, ~460 plant cables, ~170 patch cables, ~65 routers/switches
 
 from decimal import Decimal
 
+from circuits.models import Circuit, CircuitTermination, CircuitType, Provider
 from dcim.choices import CableLengthUnitChoices, CableTypeChoices, InterfaceTypeChoices
 from dcim.models import (
     Cable,
@@ -32,6 +33,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
 from django.db.models.signals import post_save
+from django.utils.text import slugify
 
 from netbox_fms.choices import StorageMethodChoices, TrayRoleChoices
 from netbox_fms.models import (
@@ -107,6 +109,11 @@ BACKBONE_PAIRS = [
     ("CO-South", "CO-Downtown"),
 ]
 
+# One backbone segment is leased from a provider so a sample circuit
+# crosses a provider circuit: (co_a, co_b, path_label) -> chain segment index
+LEASED_BACKBONE_SEGMENTS = {("CO-North", "CO-South", "A"): 5}
+PROVIDER_NAME = "Metro Carrier"
+
 
 class Command(BaseCommand):
     help = "Create sample data (use --simple for a smaller dataset)"
@@ -178,7 +185,8 @@ class Command(BaseCommand):
     # Simple mode: small dataset for quick demos
     # ------------------------------------------------------------------
     # Topology:
-    #   CO-Main (ODF-96) ──96F──> CL-01 ──96F──> CL-02 ──96F──> CL-03 ──96F──> Hub-East (ODF-96)
+    #   CO-Main (ODF-96) ──96F──> CL-01 ──96F──> CL-02 ──96F──> CL-03 ──12F──[DF-EAST-01]──12F──> Hub-East (ODF-96)
+    #                                                            (leased provider span: Metro Carrier)
     #                                              │
     #                                         (junction: 3 cables)
     #                                              │
@@ -316,16 +324,17 @@ class Command(BaseCommand):
         # Building endpoint
         bldg = self._get_or_create_device("Bldg-Elm", "elm-st", "panel", "wall_box")
 
-        # --- Backbone cables (96F): CO → CL-01 → CL-02 → CL-03 → Hub ---
+        # --- Backbone cables (96F): CO → CL-01 → CL-02 → CL-03, then a leased span to Hub ---
         self.stdout.write("Building backbone...")
-        backbone_chain = [co, cl01, cl02, cl03, hub]
+        backbone_chain = [co, cl01, cl02, cl03]
         for i in range(len(backbone_chain) - 1):
             a, b = backbone_chain[i], backbone_chain[i + 1]
             label = f"{a.name} → {b.name}"
-            length = 500 + i * 300  # 500m, 800m, 1100m, 1400m
+            length = 500 + i * 300  # 500m, 800m, 1100m
             info = self._create_cable_segment(label, a, b, "96f", length)
             self._create_ports_and_link_strands(info)
-        self.stdout.write("  4 backbone segments")
+        self._create_provider_span(cl03, hub, "DF-EAST-01")
+        self.stdout.write("  3 backbone segments + 1 leased provider span")
         self._refresh_planner_stats()
 
         # --- Spur cables (48F): CL-02 → CL-04 → CL-05 → CL-06 ---
@@ -398,7 +407,7 @@ class Command(BaseCommand):
             if not fc:
                 continue
             for device in [info["a_device"], info["b_device"]]:
-                if device.name in closures:
+                if device is not None and device.name in closures:
                     key = (device.pk, fc.pk)
                     if key not in seen:
                         seen.add(key)
@@ -907,29 +916,35 @@ class Command(BaseCommand):
         """Create RearPorts, FrontPorts, PortMappings on both sides of a cable.
         Link FiberStrands to their FrontPorts. Set cable profile and terminations
         so Cable.save() creates CableTerminations with proper connector/positions
-        for profile-based tracing."""
+        for profile-based tracing.
+
+        A provider tail (``b_termination`` set to a CircuitTermination) gets
+        device ports on its A side only; its B end lands on the termination
+        and carries no profile, so the single rear port resolves unambiguously
+        when the trace crosses the circuit."""
         cable = cable_info["cable"]
         fc = cable_info["fiber_cable"]
         if not fc:
             return
 
         # Check idempotency: skip if both sides already have terminations
-        a_exists = CableTermination.objects.filter(cable=cable, cable_end="A", termination_type=self.rp_ct).exists()
-        b_exists = CableTermination.objects.filter(cable=cable, cable_end="B", termination_type=self.rp_ct).exists()
+        a_exists = CableTermination.objects.filter(cable=cable, cable_end="A").exists()
+        b_exists = CableTermination.objects.filter(cable=cable, cable_end="B").exists()
         if a_exists and b_exists:
             return
         if a_exists or b_exists:
             return  # Inconsistent state — skip
 
         fct = fc.fiber_cable_type
-        profile_key = fct.get_cable_profile()
+        b_termination = cable_info.get("b_termination")
+        profile_key = None if b_termination is not None else fct.get_cable_profile()
         side_rps = {"A": [], "B": []}
+        sides = [(cable_info["a_device"], "A", "front_port_a")]
+        if b_termination is None:
+            sides.append((cable_info["b_device"], "B", "front_port_b"))
 
         with fms_portmapping_bypass():
-            for device, cable_end, fk_field in [
-                (cable_info["a_device"], "A", "front_port_a"),
-                (cable_info["b_device"], "B", "front_port_b"),
-            ]:
+            for device, cable_end, fk_field in sides:
                 strands = list(fc.fiber_strands.select_related("buffer_tube", "ribbon").order_by("position"))
                 trays = list(Module.objects.filter(device=device).order_by("module_bay__position"))
                 ordinals = ribbon_ordinals(strands)
@@ -979,12 +994,38 @@ class Command(BaseCommand):
 
         # Set cable profile and terminations — Cable.save() calls update_terminations()
         # which creates CableTerminations with connector/positions for profile-based tracing
-        if side_rps["A"] and side_rps["B"]:
+        b_terminations = [b_termination] if b_termination is not None else side_rps["B"]
+        if side_rps["A"] and b_terminations:
             cable.a_terminations = side_rps["A"]
-            cable.b_terminations = side_rps["B"]
+            cable.b_terminations = b_terminations
             if profile_key:
                 cable.profile = profile_key
             cable.save()
+
+    def _create_provider_span(self, a_device, b_device, cid, tail_type_key="12f", tail_length_m=120):
+        """Lease the a_device -> b_device segment from a provider.
+
+        Models the span the way the trace engine expects: a core Circuit
+        with an A and a Z termination, each cabled to a short tail cable
+        whose device end is provisioned like any other plant cable. The
+        provider's own infrastructure is not modeled -- the circuit is an
+        opaque hop between the two tails.
+        """
+        provider, _ = Provider.objects.get_or_create(name=PROVIDER_NAME, defaults={"slug": slugify(PROVIDER_NAME)})
+        ctype, _ = CircuitType.objects.get_or_create(name="Dark Fiber", defaults={"slug": "dark-fiber"})
+        circuit, _ = Circuit.objects.get_or_create(cid=cid, provider=provider, defaults={"type": ctype})
+
+        for term_side, device in (("A", a_device), ("Z", b_device)):
+            termination = CircuitTermination.objects.filter(circuit=circuit, term_side=term_side).first()
+            if termination is None:
+                termination = CircuitTermination.objects.create(
+                    circuit=circuit, term_side=term_side, termination=device.site
+                )
+            label = f"{device.name} \u2192 {cid} ({term_side})"
+            info = self._create_cable_segment(label, device, None, tail_type_key, tail_length_m)
+            info["b_termination"] = termination
+            self._create_ports_and_link_strands(info)
+        return circuit
 
     def _tray_fps_by_cable(self, closure):
         """Group a closure's tray-mounted FrontPorts by dcim.Cable id.
@@ -1058,7 +1099,12 @@ class Command(BaseCommand):
     def _build_backbone_path(
         self, co_a_name, co_b_name, co_a_slug, co_b_slug, path_label, cable_type_key, num_closures, a_short, b_short
     ):
-        """Build one backbone path between two COs with intermediate closures."""
+        """Build one backbone path between two COs with intermediate closures.
+
+        The segment listed in LEASED_BACKBONE_SEGMENTS for this path is
+        leased from a provider instead of being a plant cable.
+        """
+        leased_segment = LEASED_BACKBONE_SEGMENTS.get((co_a_name, co_b_name, path_label))
         # Use the site of co_a for all intermediate closures (simplification)
         closures = []
         for i in range(1, num_closures + 1):
@@ -1072,13 +1118,18 @@ class Command(BaseCommand):
         chain = [self.devices[co_a_name], *closures, self.devices[co_b_name]]
         for i in range(len(chain) - 1):
             dev_a, dev_b = chain[i], chain[i + 1]
+            if i == leased_segment:
+                self._create_provider_span(dev_a, dev_b, f"DF-{a_short}{b_short}-{path_label}-{i:02d}")
+                continue
             seg_label = f"{dev_a.name} \u2192 {dev_b.name}"
             length = 800 + (hash(seg_label) % 3000)  # 800-3800m
             info = self._create_cable_segment(seg_label, dev_a, dev_b, cable_type_key, length)
             self._create_ports_and_link_strands(info)
 
+        leased_note = " (one segment leased)" if leased_segment is not None else ""
         self.stdout.write(
-            f"  Backbone {a_short}\u2192{b_short} Path {path_label}: {num_closures} closures, {num_closures + 1} cables"
+            f"  Backbone {a_short}\u2192{b_short} Path {path_label}: {num_closures} closures, "
+            f"{num_closures + 1} segments{leased_note}"
         )
 
     # ------------------------------------------------------------------
@@ -1535,7 +1586,7 @@ class Command(BaseCommand):
             if not fc:
                 continue
             for device in [info["a_device"], info["b_device"]]:
-                if device.name.startswith(("BB-", "MR-", "BS-", "RS-")):
+                if device is not None and device.name.startswith(("BB-", "MR-", "BS-", "RS-")):
                     key = (device.pk, fc.pk)
                     if key not in seen:
                         seen.add(key)
