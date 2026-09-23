@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Module Type detail pages (Devices > Module Types) now show the FMS
+  tray profile details -- role, max fibers, description, and a link to
+  the profile -- when the module type has one, or an "Add Tray Profile"
+  action when it does not.
+
 ### Fixed
 
 - `create_sample_data` now refreshes planner statistics between build
