@@ -134,12 +134,6 @@ export class TraceRenderer {
         this.deselect();
       }
     });
-
-    document.addEventListener('trace:deselect', () => {
-      if (this.selectedIndex !== null) {
-        this.deselect();
-      }
-    });
   }
 
   // -------------------------------------------------------------------

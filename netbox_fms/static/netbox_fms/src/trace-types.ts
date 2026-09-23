@@ -2,7 +2,6 @@
 export interface TraceConfig {
   pathId: number;
   traceUrl: string;
-  detailBaseUrl: string;
   circuitName: string;
   pathPosition: number;
 }

@@ -2,7 +2,6 @@ import type { TraceConfig, TraceResponse } from './trace-types';
 import { TraceRenderer } from './trace-renderer';
 
 declare const d3: typeof import('d3');
-declare const htmx: any;
 
 const config = (window as unknown as { TRACE_VIEW_CONFIG?: TraceConfig }).TRACE_VIEW_CONFIG;
 if (config) {
@@ -69,21 +68,4 @@ async function initTraceView(config: TraceConfig): Promise<void> {
       el.appendChild(msg);
     }
   }
-}
-
-/** Called from HTMX back button in sidebar templates. */
-export function deselectNode(): void {
-  const panel = document.getElementById('trace-detail-panel');
-  if (panel) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'trace-sidebar-empty';
-    const p = document.createElement('p');
-    p.textContent = 'Click a node to view details';
-    wrapper.appendChild(p);
-    while (panel.firstChild) {
-      panel.removeChild(panel.firstChild);
-    }
-    panel.appendChild(wrapper);
-  }
-  document.dispatchEvent(new CustomEvent('trace:deselect'));
 }
