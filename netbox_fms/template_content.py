@@ -31,4 +31,23 @@ class CableFiberCablePanel(PluginTemplateExtension):
         )
 
 
-template_extensions = [CableFiberCablePanel]
+class ModuleTypeTrayProfilePanel(PluginTemplateExtension):
+    """Template extension that surfaces the FMS tray profile on the ModuleType detail view."""
+
+    models = ["dcim.moduletype"]
+
+    def left_page(self):
+        module_type = self.context["object"]
+        tray_profile = getattr(module_type, "tray_profile", None)
+        if tray_profile:
+            return self.render(
+                "netbox_fms/inc/moduletype_trayprofile_panel.html",
+                extra_context={"tray_profile": tray_profile},
+            )
+        return self.render(
+            "netbox_fms/inc/moduletype_trayprofile_action.html",
+            extra_context={"module_type": module_type},
+        )
+
+
+template_extensions = [CableFiberCablePanel, ModuleTypeTrayProfilePanel]
