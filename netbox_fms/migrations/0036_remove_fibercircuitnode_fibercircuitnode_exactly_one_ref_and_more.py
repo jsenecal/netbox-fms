@@ -6,8 +6,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("circuits", "0060_denormalization_triggers"),
-        ("dcim", "0250_cooling_infrastructure"),
+        ("circuits", "0056_gfk_indexes"),
+        ("dcim", "0226_modulebay_rebuild_tree"),
         ("netbox_fms", "0035_fibercabletype_color_scheme"),
     ]
 
