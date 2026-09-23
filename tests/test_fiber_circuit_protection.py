@@ -73,6 +73,30 @@ class TestFiberCircuitNode(TestCase):
         with self.assertRaises(models.ProtectedError):
             fp.delete()
 
+    def test_create_provider_circuit_node(self):
+        from tests.conftest import make_provider_circuit
+
+        span = make_provider_circuit("Node")
+        node = FiberCircuitNode.objects.create(path=self.path, position=90, provider_circuit=span.circuit)
+        assert node.provider_circuit == span.circuit
+
+    def test_protect_provider_circuit_deletion(self):
+        from tests.conftest import make_provider_circuit
+
+        span = make_provider_circuit("Prot")
+        FiberCircuitNode.objects.create(path=self.path, position=91, provider_circuit=span.circuit)
+        with self.assertRaises(models.ProtectedError):
+            span.circuit.delete()
+
+    def test_rebuild_nodes_creates_provider_circuit_node(self):
+        from tests.conftest import make_provider_circuit
+
+        span = make_provider_circuit("Rebuild")
+        self.path.path = [{"type": "provider_circuit", "id": span.circuit.pk}]
+        self.path.save()
+        self.path.rebuild_nodes()
+        assert self.path.nodes.filter(provider_circuit=span.circuit).exists()
+
     def test_cascade_on_path_delete(self):
         circuit = FiberCircuit.objects.create(
             name="Cascade-Test",

@@ -1853,6 +1853,13 @@ class FiberCircuit(NetBoxModel):
         related_name="fiber_circuits",
         verbose_name=_("tenant"),
     )
+    provider_circuits = models.ManyToManyField(
+        to="circuits.Circuit",
+        related_name="fiber_circuits",
+        blank=True,
+        verbose_name=_("provider circuits"),
+        help_text=_("Provider circuits this fiber circuit crosses. Derived from traced paths; not editable."),
+    )
     comments = models.TextField(blank=True, verbose_name=_("comments"))
 
     clone_fields = ("status", "strand_count", "tenant")
@@ -2067,6 +2074,8 @@ class FiberCircuitPath(NetBoxModel):
                 kwargs["rear_port_id"] = obj_id
             elif node_type == "splice_entry":
                 kwargs["splice_entry_id"] = obj_id
+            elif node_type == "provider_circuit":
+                kwargs["provider_circuit_id"] = obj_id
             FiberCircuitNode.objects.create(**kwargs)
             position += 1
         self._create_strand_nodes(position)
@@ -2081,13 +2090,21 @@ class FiberCircuitPath(NetBoxModel):
             pos += 1
 
 
+def _exactly_one_of(*fields):
+    """Build a Q requiring exactly one of the given FK fields to be set."""
+    condition = models.Q()
+    for populated in fields:
+        condition |= models.Q(**{f"{field}__isnull": field != populated for field in fields})
+    return condition
+
+
 class FiberCircuitNode(models.Model):
     """Relational index of objects in a fiber circuit path for PROTECT-based deletion prevention."""
 
     # The reference FK fields, exactly one of which is populated per node
     # (enforced by the check constraint below). The protecting API accepts
     # these names as its reference types.
-    REFERENCE_FIELDS = ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry")
+    REFERENCE_FIELDS = ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry", "provider_circuit")
 
     # Not a NetBoxModel, so wire up the restricted manager explicitly --
     # the API exposes this model and must be able to enforce object
@@ -2141,6 +2158,14 @@ class FiberCircuitNode(models.Model):
         related_name="fiber_circuit_nodes",
         verbose_name=_("splice entry"),
     )
+    provider_circuit = models.ForeignKey(
+        to="circuits.Circuit",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="fiber_circuit_nodes",
+        verbose_name=_("provider circuit"),
+    )
 
     class Meta:
         ordering = ("path", "position")
@@ -2150,42 +2175,8 @@ class FiberCircuitNode(models.Model):
         constraints = [
             models.CheckConstraint(
                 name="fibercircuitnode_exactly_one_ref",
-                condition=(
-                    models.Q(
-                        cable__isnull=False,
-                        front_port__isnull=True,
-                        rear_port__isnull=True,
-                        fiber_strand__isnull=True,
-                        splice_entry__isnull=True,
-                    )
-                    | models.Q(
-                        cable__isnull=True,
-                        front_port__isnull=False,
-                        rear_port__isnull=True,
-                        fiber_strand__isnull=True,
-                        splice_entry__isnull=True,
-                    )
-                    | models.Q(
-                        cable__isnull=True,
-                        front_port__isnull=True,
-                        rear_port__isnull=False,
-                        fiber_strand__isnull=True,
-                        splice_entry__isnull=True,
-                    )
-                    | models.Q(
-                        cable__isnull=True,
-                        front_port__isnull=True,
-                        rear_port__isnull=True,
-                        fiber_strand__isnull=False,
-                        splice_entry__isnull=True,
-                    )
-                    | models.Q(
-                        cable__isnull=True,
-                        front_port__isnull=True,
-                        rear_port__isnull=True,
-                        fiber_strand__isnull=True,
-                        splice_entry__isnull=False,
-                    )
+                condition=_exactly_one_of(
+                    "cable", "front_port", "rear_port", "fiber_strand", "splice_entry", "provider_circuit"
                 ),
             ),
         ]
