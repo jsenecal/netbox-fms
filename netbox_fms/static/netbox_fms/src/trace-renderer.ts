@@ -263,7 +263,7 @@ export class TraceRenderer {
       if (isDeviceHop(entry.hop)) {
         this.drawDeviceNode(entry, i, isDark, colors);
       } else if (isCableHop(entry.hop)) {
-        this.drawCableEdge(entry, i, isDark, colors);
+        this.drawCableEdge(entry, i, colors);
       } else if (isProviderCircuitHop(entry.hop)) {
         this.drawProviderCircuitEdge(entry, i, colors);
       }
@@ -482,22 +482,15 @@ export class TraceRenderer {
   }
 
   // -------------------------------------------------------------------
-  // Cable edge drawing
+  // Edge drawing (cables and provider circuits)
   // -------------------------------------------------------------------
 
-  private drawCableEdge(
-    entry: LayoutEntry,
-    index: number,
-    isDark: boolean,
-    colors: ThemeColors,
-  ): void {
-    const hop = entry.hop as CableHop;
+  /** Create the clipped, clickable group every edge hop is drawn into. */
+  private beginEdge(entry: LayoutEntry, index: number, className: string): any {
     const isSelected = this.selectedIndex === index;
     const dimmed = this.selectedIndex !== null && !isSelected;
 
-    const centerX = entry.x + entry.width / 2;
-
-    const clipId = 'cable-clip-' + index;
+    const clipId = 'edge-clip-' + index;
     this.svg.append('defs').append('clipPath')
       .attr('id', clipId)
       .append('rect')
@@ -507,42 +500,96 @@ export class TraceRenderer {
       .attr('height', entry.height + 8);
 
     const g = this.mainGroup.append('g')
-      .attr('class', 'trace-cable-edge')
+      .attr('class', className)
       .attr('clip-path', `url(#${clipId})`)
       .style('cursor', 'pointer')
       .style('opacity', dimmed ? 0.5 : 1);
 
-    // Click handler
     g.on('click', (event: Event) => {
       event.stopPropagation();
       this.selectNode(index);
     });
+    return g;
+  }
 
-    // Vertical connection line
-    const lineStroke = isSelected ? colors.selectedStroke : colors.cableLine;
-    const lineWidth = isSelected ? 3 : 2;
-    g.append('line')
+  /** Vertical connector line through the edge; dashed for opaque spans. */
+  private drawEdgeConnector(
+    g: any,
+    entry: LayoutEntry,
+    isSelected: boolean,
+    colors: ThemeColors,
+    dash?: string,
+  ): void {
+    const centerX = entry.x + entry.width / 2;
+    const line = g.append('line')
       .attr('x1', centerX)
       .attr('y1', entry.y)
       .attr('x2', centerX)
       .attr('y2', entry.y + entry.height)
-      .attr('stroke', lineStroke)
-      .attr('stroke-width', lineWidth);
+      .attr('stroke', isSelected ? colors.selectedStroke : colors.cableLine)
+      .attr('stroke-width', isSelected ? 3 : 2);
+    if (dash) line.attr('stroke-dasharray', dash);
+  }
 
-    // Hover effect on line
+  /** Centered content box of the given height with hover feedback; returns its top y. */
+  private drawEdgeBox(
+    g: any,
+    entry: LayoutEntry,
+    boxHeight: number,
+    isSelected: boolean,
+    colors: ThemeColors,
+    dash?: string,
+  ): number {
+    const boxTop = entry.y + (entry.height - boxHeight) / 2;
+    const rect = g.append('rect')
+      .attr('x', entry.x)
+      .attr('y', boxTop)
+      .attr('width', entry.width)
+      .attr('height', boxHeight)
+      .attr('rx', NODE_RX)
+      .attr('fill', colors.badgeFill)
+      .attr('stroke', isSelected ? colors.selectedStroke : colors.cableLine)
+      .attr('stroke-width', isSelected ? 1.5 : 0.5);
+    if (dash) rect.attr('stroke-dasharray', dash);
+
     g.on('mouseover', function (this: SVGGElement) {
-      d3.select(this).select('line').attr('stroke-width', lineWidth + 1);
+      d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1.5);
     });
     g.on('mouseout', function (this: SVGGElement) {
-      d3.select(this).select('line').attr('stroke-width', lineWidth);
+      d3.select(this).select('rect').attr('stroke-width', isSelected ? 1.5 : 0.5);
     });
+    return boxTop;
+  }
 
-    // Cable box — single container for all content, resizes when expanded
-    const labelText = hop.label || 'Cable';
+  /** Centered text line inside an edge box. */
+  private drawEdgeText(
+    g: any,
+    x: number,
+    y: number,
+    text: string,
+    fill: string,
+    fontSize: number,
+    weight?: string,
+  ): void {
+    const t = g.append('text')
+      .attr('x', x)
+      .attr('y', y)
+      .attr('text-anchor', 'middle')
+      .attr('fill', fill)
+      .attr('font-size', fontSize + 'px')
+      .text(text);
+    if (weight) t.attr('font-weight', weight);
+  }
+
+  private drawCableEdge(entry: LayoutEntry, index: number, colors: ThemeColors): void {
+    const hop = entry.hop as CableHop;
+    const isSelected = this.selectedIndex === index;
+    const centerX = entry.x + entry.width / 2;
+    const g = this.beginEdge(entry, index, 'trace-cable-edge');
+    this.drawEdgeConnector(g, entry, isSelected, colors);
+
+    // Cable box: single container for all content, resizes when expanded
     const boxWidth = entry.width;
-    const truncatedLabel = truncateText(labelText, boxWidth - 24, 12);
-
-    // Calculate text block height to center within edge area
     const hasInfo = !!(hop.strand_count || hop.fiber_type);
     const LINE_LABEL = 16;
     const LINE_INFO = 14;
@@ -557,39 +604,12 @@ export class TraceRenderer {
       if (detailRows > 0) textBlockHeight += sep + detailRows * 18;
     }
     const boxPad = 12;
-    const boxHeight = textBlockHeight + boxPad * 2;
-    const boxTop = entry.y + (entry.height - boxHeight) / 2;
-
-    // Box background
-    g.append('rect')
-      .attr('x', entry.x)
-      .attr('y', boxTop)
-      .attr('width', boxWidth)
-      .attr('height', boxHeight)
-      .attr('rx', NODE_RX)
-      .attr('fill', colors.badgeFill)
-      .attr('stroke', isSelected ? colors.selectedStroke : colors.cableLine)
-      .attr('stroke-width', isSelected ? 1.5 : 0.5);
-
-    // Hover effect on box
-    g.on('mouseover', function (this: SVGGElement) {
-      d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1.5);
-    });
-    g.on('mouseout', function (this: SVGGElement) {
-      d3.select(this).select('rect').attr('stroke-width', isSelected ? 1.5 : 0.5);
-    });
+    const boxTop = this.drawEdgeBox(g, entry, textBlockHeight + boxPad * 2, isSelected, colors);
 
     let textY = boxTop + boxPad + 12; // baseline of first text line
-
-    // Label text
-    g.append('text')
-      .attr('x', centerX)
-      .attr('y', textY)
-      .attr('text-anchor', 'middle')
-      .attr('fill', colors.text)
-      .attr('font-size', '12px')
-      .attr('font-weight', '500')
-      .text(truncatedLabel);
+    this.drawEdgeText(
+      g, centerX, textY, truncateText(hop.label || 'Cable', boxWidth - 24, 12), colors.text, 12, '500',
+    );
     textY += LINE_INFO;
 
     // Strand count + fiber type
@@ -597,13 +617,9 @@ export class TraceRenderer {
       const infoParts: string[] = [];
       if (hop.strand_count) infoParts.push(hop.strand_count + 'F');
       if (hop.fiber_type) infoParts.push(hop.fiber_type);
-      g.append('text')
-        .attr('x', centerX)
-        .attr('y', textY)
-        .attr('text-anchor', 'middle')
-        .attr('fill', colors.subtitleText)
-        .attr('font-size', '10px')
-        .text(truncateText(infoParts.join(' \u2022 '), boxWidth - 24, 10));
+      this.drawEdgeText(
+        g, centerX, textY, truncateText(infoParts.join(' \u2022 '), boxWidth - 24, 10), colors.subtitleText, 10,
+      );
       textY += 16;
     }
 
@@ -669,89 +685,27 @@ export class TraceRenderer {
     }
   }
 
-
-
-  // -------------------------------------------------------------------
-  // Provider circuit edge drawing
-  // -------------------------------------------------------------------
-
-  private drawProviderCircuitEdge(
-    entry: LayoutEntry,
-    index: number,
-    colors: ThemeColors,
-  ): void {
+  private drawProviderCircuitEdge(entry: LayoutEntry, index: number, colors: ThemeColors): void {
     const hop = entry.hop as ProviderCircuitHop;
     const isSelected = this.selectedIndex === index;
-    const dimmed = this.selectedIndex !== null && !isSelected;
-
     const centerX = entry.x + entry.width / 2;
+    const g = this.beginEdge(entry, index, 'trace-provider-circuit-edge');
+    // Dashed strokes mark the opaque leased span
+    this.drawEdgeConnector(g, entry, isSelected, colors, '6,4');
 
-    const g = this.mainGroup.append('g')
-      .attr('class', 'trace-provider-circuit-edge')
-      .style('cursor', 'pointer')
-      .style('opacity', dimmed ? 0.5 : 1);
-
-    g.on('click', (event: Event) => {
-      event.stopPropagation();
-      this.selectNode(index);
-    });
-
-    // Dashed vertical connection line marks the opaque leased span
-    const lineStroke = isSelected ? colors.selectedStroke : colors.cableLine;
-    const lineWidth = isSelected ? 3 : 2;
-    g.append('line')
-      .attr('x1', centerX)
-      .attr('y1', entry.y)
-      .attr('x2', centerX)
-      .attr('y2', entry.y + entry.height)
-      .attr('stroke', lineStroke)
-      .attr('stroke-width', lineWidth)
-      .attr('stroke-dasharray', '6,4');
-
-    const boxWidth = entry.width;
-    const labelText = hop.provider || 'Provider circuit';
     const LINE_LABEL = 16;
     const LINE_INFO = 16;
     const boxPad = 12;
-    const boxHeight = LINE_LABEL + LINE_INFO + boxPad * 2;
-    const boxTop = entry.y + (entry.height - boxHeight) / 2;
+    const boxTop = this.drawEdgeBox(g, entry, LINE_LABEL + LINE_INFO + boxPad * 2, isSelected, colors, '4,3');
 
-    g.append('rect')
-      .attr('x', entry.x)
-      .attr('y', boxTop)
-      .attr('width', boxWidth)
-      .attr('height', boxHeight)
-      .attr('rx', NODE_RX)
-      .attr('fill', colors.badgeFill)
-      .attr('stroke', isSelected ? colors.selectedStroke : colors.cableLine)
-      .attr('stroke-width', isSelected ? 1.5 : 0.5)
-      .attr('stroke-dasharray', '4,3');
-
-    g.on('mouseover', function (this: SVGGElement) {
-      d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1.5);
-    });
-    g.on('mouseout', function (this: SVGGElement) {
-      d3.select(this).select('rect').attr('stroke-width', isSelected ? 1.5 : 0.5);
-    });
-
-    let textY = boxTop + boxPad + 12;
-    g.append('text')
-      .attr('x', centerX)
-      .attr('y', textY)
-      .attr('text-anchor', 'middle')
-      .attr('fill', colors.text)
-      .attr('font-size', '12px')
-      .attr('font-weight', '500')
-      .text(truncateText(labelText, boxWidth - 24, 12));
-    textY += LINE_INFO;
-
-    g.append('text')
-      .attr('x', centerX)
-      .attr('y', textY)
-      .attr('text-anchor', 'middle')
-      .attr('fill', colors.subtitleText)
-      .attr('font-size', '10px')
-      .text(truncateText(hop.cid + ' \u2022 provider circuit', boxWidth - 24, 10));
+    const textY = boxTop + boxPad + 12;
+    this.drawEdgeText(
+      g, centerX, textY, truncateText(hop.provider || 'Provider circuit', entry.width - 24, 12), colors.text, 12, '500',
+    );
+    this.drawEdgeText(
+      g, centerX, textY + LINE_INFO,
+      truncateText(hop.cid + ' \u2022 provider circuit', entry.width - 24, 10), colors.subtitleText, 10,
+    );
   }
 
   // -------------------------------------------------------------------
@@ -989,29 +943,58 @@ export class TraceRenderer {
     panel.appendChild(body);
   }
 
-  private renderDeviceDetail(body: HTMLElement, hop: DeviceHop): void {
-    // Title
+  /** Title plus optional badge at the top of a sidebar detail panel. */
+  private appendDetailHeader(body: HTMLElement, title: string, badge?: { text: string; className: string }): void {
     const h6 = document.createElement('h6');
-    h6.textContent = hop.name;
+    h6.textContent = title;
     body.appendChild(h6);
-
-    // Role badge
-    if (hop.role) {
-      const badge = document.createElement('span');
-      badge.className = 'badge bg-secondary';
-      badge.textContent = hop.role;
-      body.appendChild(badge);
+    if (badge) {
+      const span = document.createElement('span');
+      span.className = 'badge ' + badge.className;
+      span.textContent = badge.text;
+      body.appendChild(span);
     }
+  }
 
-    // Details table
+  /** Two-column details table; returned so callers can add custom rows. */
+  private appendDetailTable(body: HTMLElement, rows: [string, string][]): HTMLTableElement {
     const table = document.createElement('table');
     table.className = 'table table-sm trace-detail-table mt-3';
+    for (const [label, value] of rows) {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = label;
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(th);
+      tr.appendChild(td);
+      table.appendChild(tr);
+    }
+    body.appendChild(table);
+    return table;
+  }
+
+  /** Button-styled link in a panel's action row. */
+  private appendActionLink(
+    container: HTMLElement,
+    href: string,
+    text: string,
+    className = 'btn btn-sm btn-outline-primary',
+  ): void {
+    const link = document.createElement('a');
+    link.href = href;
+    link.className = className;
+    link.textContent = text;
+    container.appendChild(link);
+  }
+
+  private renderDeviceDetail(body: HTMLElement, hop: DeviceHop): void {
+    this.appendDetailHeader(body, hop.name, hop.role ? { text: hop.role, className: 'bg-secondary' } : undefined);
+
     const rows: [string, string][] = [
       ['Site', hop.site || '\u2014'],
       ['Role', hop.role || '\u2014'],
     ];
-
-    // Port info
     if (hop.ports) {
       rows.push(['Front Port', hop.ports.front_port.name]);
       if (hop.ports.rear_port) rows.push(['Rear Port', hop.ports.rear_port.name]);
@@ -1029,70 +1012,26 @@ export class TraceRenderer {
       if (hop.splice.tray) rows.push(['Tray', hop.splice.tray]);
       rows.push(['Type', hop.splice.is_express ? 'Express' : 'Fusion']);
     }
+    this.appendDetailTable(body, rows);
 
-    for (const [label, value] of rows) {
-      const tr = document.createElement('tr');
-      const th = document.createElement('th');
-      th.textContent = label;
-      const td = document.createElement('td');
-      td.textContent = value;
-      tr.appendChild(th);
-      tr.appendChild(td);
-      table.appendChild(tr);
-    }
-    body.appendChild(table);
-
-    // Action links
     const links = document.createElement('div');
     links.className = 'mt-3';
-    const viewLink = document.createElement('a');
-    viewLink.href = hop.url;
-    viewLink.className = 'btn btn-sm btn-outline-primary me-2';
-    viewLink.textContent = 'View Device';
-    links.appendChild(viewLink);
-
+    this.appendActionLink(links, hop.url, 'View Device', 'btn btn-sm btn-outline-primary me-2');
     if (isClosure(hop)) {
-      const spliceLink = document.createElement('a');
-      spliceLink.href = hop.url + 'splice-editor/';
-      spliceLink.className = 'btn btn-sm btn-outline-info';
-      spliceLink.textContent = 'Splice Editor';
-      links.appendChild(spliceLink);
+      this.appendActionLink(links, hop.url + 'splice-editor/', 'Splice Editor', 'btn btn-sm btn-outline-info');
     }
     body.appendChild(links);
   }
 
   private renderCableDetail(body: HTMLElement, hop: CableHop): void {
-    // Title
-    const h6 = document.createElement('h6');
-    h6.textContent = hop.label || 'Cable';
-    body.appendChild(h6);
+    this.appendDetailHeader(body, hop.label || 'Cable', { text: 'Cable', className: 'bg-info' });
 
-    // Badge
-    const badge = document.createElement('span');
-    badge.className = 'badge bg-info';
-    badge.textContent = 'Cable';
-    body.appendChild(badge);
-
-    // Details table
-    const table = document.createElement('table');
-    table.className = 'table table-sm trace-detail-table mt-3';
     const rows: [string, string][] = [];
-
     if (hop.fiber_type) rows.push(['Fiber Type', hop.fiber_type]);
     if (hop.strand_count) rows.push(['Strand Count', hop.strand_count + 'F']);
     if (hop.strand_position != null) rows.push(['Strand Position', '#' + hop.strand_position]);
     if (hop.tube_name) rows.push(['Tube', hop.tube_name]);
-
-    for (const [label, value] of rows) {
-      const tr = document.createElement('tr');
-      const th = document.createElement('th');
-      th.textContent = label;
-      const td = document.createElement('td');
-      td.textContent = value;
-      tr.appendChild(th);
-      tr.appendChild(td);
-      table.appendChild(tr);
-    }
+    const table = this.appendDetailTable(body, rows);
 
     // Strand color swatch row
     if (hop.strand_color) {
@@ -1109,42 +1048,17 @@ export class TraceRenderer {
       table.appendChild(tr);
     }
 
-    body.appendChild(table);
-
-    // Action links
     const links = document.createElement('div');
     links.className = 'mt-3';
     if (hop.fiber_cable_url) {
-      const fcLink = document.createElement('a');
-      fcLink.href = hop.fiber_cable_url;
-      fcLink.className = 'btn btn-sm btn-outline-primary';
-      fcLink.textContent = 'View Fiber Cable';
-      links.appendChild(fcLink);
+      this.appendActionLink(links, hop.fiber_cable_url, 'View Fiber Cable');
     }
     body.appendChild(links);
   }
 
   private renderProviderCircuitDetail(body: HTMLElement, hop: ProviderCircuitHop): void {
-    const h6 = document.createElement('h6');
-    h6.textContent = hop.cid;
-    body.appendChild(h6);
-
-    const badge = document.createElement('span');
-    badge.className = 'badge bg-info';
-    badge.textContent = 'Provider Circuit';
-    body.appendChild(badge);
-
-    const table = document.createElement('table');
-    table.className = 'table table-sm trace-detail-table mt-3';
-    const tr = document.createElement('tr');
-    const th = document.createElement('th');
-    th.textContent = 'Provider';
-    const td = document.createElement('td');
-    td.textContent = hop.provider || '\u2014';
-    tr.appendChild(th);
-    tr.appendChild(td);
-    table.appendChild(tr);
-    body.appendChild(table);
+    this.appendDetailHeader(body, hop.cid, { text: 'Provider Circuit', className: 'bg-info' });
+    this.appendDetailTable(body, [['Provider', hop.provider || '\u2014']]);
 
     const note = document.createElement('p');
     note.className = 'text-muted small mb-0';
@@ -1155,11 +1069,7 @@ export class TraceRenderer {
     if (hop.url) {
       const links = document.createElement('div');
       links.className = 'mt-3';
-      const viewLink = document.createElement('a');
-      viewLink.href = hop.url;
-      viewLink.className = 'btn btn-sm btn-outline-primary';
-      viewLink.textContent = 'View Circuit';
-      links.appendChild(viewLink);
+      this.appendActionLink(links, hop.url, 'View Circuit');
       body.appendChild(links);
     }
   }
