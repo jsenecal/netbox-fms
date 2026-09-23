@@ -2514,6 +2514,19 @@ class TraceDetailView(LoginRequiredMixin, View):
                 },
             )
 
+        elif node_type == "provider_circuit":
+            from circuits.models import Circuit
+
+            provider_circuit = get_object_or_404(Circuit.objects.select_related("provider"), pk=object_id)
+            return render(
+                request,
+                "netbox_fms/htmx/trace_provider_circuit_detail.html",
+                {
+                    "circuit": provider_circuit,
+                    "path": path_obj,
+                },
+            )
+
         return HttpResponse("Unknown node type", status=400)
 
 

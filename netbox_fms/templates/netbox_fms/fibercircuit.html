@@ -44,6 +44,16 @@
                     <th scope="row">{% trans "Tenant" %}</th>
                     <td>{% if object.tenant %}{{ object.tenant|linkify }}{% else %}&mdash;{% endif %}</td>
                 </tr>
+                <tr>
+                    <th scope="row">{% trans "Provider Circuits" %}</th>
+                    <td>
+                        {% for pc in object.provider_circuits.all %}
+                            {{ pc|linkify }} ({{ pc.provider|linkify }}){% if not forloop.last %}<br />{% endif %}
+                        {% empty %}
+                            &mdash;
+                        {% endfor %}
+                    </td>
+                </tr>
             </table>
         </div>
     </div>

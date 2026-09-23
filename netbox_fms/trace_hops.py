@@ -1,5 +1,6 @@
 """Transform flat trace path entries into semantic hop objects."""
 
+from circuits.models import Circuit
 from dcim.models import Cable, FrontPort, RearPort
 
 from .models import FiberStrand, SplicePlanEntry
@@ -37,6 +38,11 @@ def build_hops(path_entries):
         splice_map = {
             se.pk: se for se in SplicePlanEntry.objects.filter(pk__in=splice_ids).select_related("plan", "tray")
         }
+
+    pc_ids = [e["id"] for e in path_entries if e["type"] == "provider_circuit"]
+    pc_map = {}
+    if pc_ids:
+        pc_map = {c.pk: c for c in Circuit.objects.filter(pk__in=pc_ids).select_related("provider")}
 
     # Prefetch strands for all FrontPorts in path
     strand_by_fp = {}
@@ -131,6 +137,19 @@ def build_hops(path_entries):
                 i += 2
             else:
                 i += 1
+
+        elif entry["type"] == "provider_circuit":
+            circuit = pc_map.get(entry["id"])
+            hops.append(
+                {
+                    "type": "provider_circuit",
+                    "id": entry["id"],
+                    "cid": circuit.cid if circuit else f"Circuit #{entry['id']}",
+                    "provider": circuit.provider.name if circuit else None,
+                    "url": circuit.get_absolute_url() if circuit else None,
+                }
+            )
+            i += 1
 
         elif entry["type"] == "splice_entry":
             se = splice_map.get(entry["id"])

@@ -56,8 +56,17 @@ export interface CableHop {
   fiber_cable_url?: string | null;
 }
 
+/** A provider circuit hop (leased span crossed mid-path, opaque). */
+export interface ProviderCircuitHop {
+  type: 'provider_circuit';
+  id: number;
+  cid: string;
+  provider: string | null;
+  url: string | null;
+}
+
 /** Union of all hop types. */
-export type Hop = DeviceHop | CableHop;
+export type Hop = DeviceHop | CableHop | ProviderCircuitHop;
 
 /** Response from the trace API endpoint. */
 export interface TraceResponse {

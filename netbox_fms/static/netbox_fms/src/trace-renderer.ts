@@ -1,6 +1,6 @@
 declare const d3: any;
 
-import type { TraceConfig, TraceResponse, Hop, DeviceHop, CableHop } from './trace-types';
+import type { TraceConfig, TraceResponse, Hop, DeviceHop, CableHop, ProviderCircuitHop } from './trace-types';
 
 // Layout constants
 const NODE_WIDTH = 280;
@@ -73,6 +73,10 @@ function isDeviceHop(hop: Hop): hop is DeviceHop {
 
 function isCableHop(hop: Hop): hop is CableHop {
   return hop.type === 'cable';
+}
+
+function isProviderCircuitHop(hop: Hop): hop is ProviderCircuitHop {
+  return hop.type === 'provider_circuit';
 }
 
 function isClosure(hop: DeviceHop): boolean {
@@ -166,7 +170,7 @@ export class TraceRenderer {
         height = isDeviceHop(hop) ? NODE_HEIGHT : EDGE_HEIGHT;
       }
 
-      const w = isCableHop(hop) ? CABLE_WIDTH : NODE_WIDTH;
+      const w = isDeviceHop(hop) ? NODE_WIDTH : CABLE_WIDTH;
       this.layout.push({
         hop,
         x: centerX - w / 2,
@@ -266,6 +270,8 @@ export class TraceRenderer {
         this.drawDeviceNode(entry, i, isDark, colors);
       } else if (isCableHop(entry.hop)) {
         this.drawCableEdge(entry, i, isDark, colors);
+      } else if (isProviderCircuitHop(entry.hop)) {
+        this.drawProviderCircuitEdge(entry, i, colors);
       }
     }
 
@@ -672,6 +678,89 @@ export class TraceRenderer {
 
 
   // -------------------------------------------------------------------
+  // Provider circuit edge drawing
+  // -------------------------------------------------------------------
+
+  private drawProviderCircuitEdge(
+    entry: LayoutEntry,
+    index: number,
+    colors: ThemeColors,
+  ): void {
+    const hop = entry.hop as ProviderCircuitHop;
+    const isSelected = this.selectedIndex === index;
+    const dimmed = this.selectedIndex !== null && !isSelected;
+
+    const centerX = entry.x + entry.width / 2;
+
+    const g = this.mainGroup.append('g')
+      .attr('class', 'trace-provider-circuit-edge')
+      .style('cursor', 'pointer')
+      .style('opacity', dimmed ? 0.5 : 1);
+
+    g.on('click', (event: Event) => {
+      event.stopPropagation();
+      this.selectNode(index);
+    });
+
+    // Dashed vertical connection line marks the opaque leased span
+    const lineStroke = isSelected ? colors.selectedStroke : colors.cableLine;
+    const lineWidth = isSelected ? 3 : 2;
+    g.append('line')
+      .attr('x1', centerX)
+      .attr('y1', entry.y)
+      .attr('x2', centerX)
+      .attr('y2', entry.y + entry.height)
+      .attr('stroke', lineStroke)
+      .attr('stroke-width', lineWidth)
+      .attr('stroke-dasharray', '6,4');
+
+    const boxWidth = entry.width;
+    const labelText = hop.provider || 'Provider circuit';
+    const LINE_LABEL = 16;
+    const LINE_INFO = 16;
+    const boxPad = 12;
+    const boxHeight = LINE_LABEL + LINE_INFO + boxPad * 2;
+    const boxTop = entry.y + (entry.height - boxHeight) / 2;
+
+    g.append('rect')
+      .attr('x', entry.x)
+      .attr('y', boxTop)
+      .attr('width', boxWidth)
+      .attr('height', boxHeight)
+      .attr('rx', NODE_RX)
+      .attr('fill', colors.badgeFill)
+      .attr('stroke', isSelected ? colors.selectedStroke : colors.cableLine)
+      .attr('stroke-width', isSelected ? 1.5 : 0.5)
+      .attr('stroke-dasharray', '4,3');
+
+    g.on('mouseover', function (this: SVGGElement) {
+      d3.select(this).select('rect').attr('stroke-width', isSelected ? 2 : 1.5);
+    });
+    g.on('mouseout', function (this: SVGGElement) {
+      d3.select(this).select('rect').attr('stroke-width', isSelected ? 1.5 : 0.5);
+    });
+
+    let textY = boxTop + boxPad + 12;
+    g.append('text')
+      .attr('x', centerX)
+      .attr('y', textY)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.text)
+      .attr('font-size', '12px')
+      .attr('font-weight', '500')
+      .text(truncateText(labelText, boxWidth - 24, 12));
+    textY += LINE_INFO;
+
+    g.append('text')
+      .attr('x', centerX)
+      .attr('y', textY)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.subtitleText)
+      .attr('font-size', '10px')
+      .text(truncateText(hop.cid + ' • provider circuit', boxWidth - 24, 10));
+  }
+
+  // -------------------------------------------------------------------
   // Incomplete path indicator
   // -------------------------------------------------------------------
 
@@ -784,6 +873,8 @@ export class TraceRenderer {
       dot.className = 'trace-list-dot';
       if (isDeviceHop(hop)) {
         dot.style.background = isClosure(hop) ? '#4caf50' : '#2196f3';
+      } else if (isProviderCircuitHop(hop)) {
+        dot.style.background = '#9c27b0';
       } else {
         dot.style.background = '#ff9800';
       }
@@ -796,6 +887,8 @@ export class TraceRenderer {
         name.textContent = hop.name;
       } else if (isCableHop(hop)) {
         name.textContent = hop.label || 'Cable';
+      } else if (isProviderCircuitHop(hop)) {
+        name.textContent = hop.cid;
       }
       item.appendChild(name);
 
@@ -804,6 +897,8 @@ export class TraceRenderer {
       badge.className = 'trace-list-badge';
       if (isDeviceHop(hop)) {
         badge.textContent = isClosure(hop) ? 'closure' : 'device';
+      } else if (isProviderCircuitHop(hop)) {
+        badge.textContent = 'provider circuit';
       } else {
         badge.textContent = 'cable';
       }
@@ -822,6 +917,8 @@ export class TraceRenderer {
         if (hop.strand_count) parts.push(hop.strand_count + 'F');
         if (hop.fiber_type) parts.push(hop.fiber_type);
         subtitle.textContent = parts.join(' \u00b7 ');
+      } else if (isProviderCircuitHop(hop)) {
+        subtitle.textContent = hop.provider || '';
       }
       if (subtitle.textContent) item.appendChild(subtitle);
 
@@ -845,6 +942,8 @@ export class TraceRenderer {
     } else if (isCableHop(hop)) {
       parts.push(hop.label || '', hop.fiber_type || '', 'cable');
       if (hop.tube_name) parts.push(hop.tube_name);
+    } else if (isProviderCircuitHop(hop)) {
+      parts.push(hop.cid, hop.provider || '', 'provider circuit');
     }
     return parts.join(' ').toLowerCase();
   }
@@ -876,6 +975,8 @@ export class TraceRenderer {
       this.renderDeviceDetail(body, hop);
     } else if (isCableHop(hop)) {
       this.renderCableDetail(body, hop);
+    } else if (isProviderCircuitHop(hop)) {
+      this.renderProviderCircuitDetail(body, hop);
     }
 
     // Loss summary footer
@@ -1029,6 +1130,46 @@ export class TraceRenderer {
     body.appendChild(links);
   }
 
+  private renderProviderCircuitDetail(body: HTMLElement, hop: ProviderCircuitHop): void {
+    const h6 = document.createElement('h6');
+    h6.textContent = hop.cid;
+    body.appendChild(h6);
+
+    const badge = document.createElement('span');
+    badge.className = 'badge bg-info';
+    badge.textContent = 'Provider Circuit';
+    body.appendChild(badge);
+
+    const table = document.createElement('table');
+    table.className = 'table table-sm trace-detail-table mt-3';
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.textContent = 'Provider';
+    const td = document.createElement('td');
+    td.textContent = hop.provider || '—';
+    tr.appendChild(th);
+    tr.appendChild(td);
+    table.appendChild(tr);
+    body.appendChild(table);
+
+    const note = document.createElement('p');
+    note.className = 'text-muted small mb-0';
+    note.textContent =
+      "This span is documented as an opaque provider circuit; the provider's own infrastructure is not modeled.";
+    body.appendChild(note);
+
+    if (hop.url) {
+      const links = document.createElement('div');
+      links.className = 'mt-3';
+      const viewLink = document.createElement('a');
+      viewLink.href = hop.url;
+      viewLink.className = 'btn btn-sm btn-outline-primary';
+      viewLink.textContent = 'View Circuit';
+      links.appendChild(viewLink);
+      body.appendChild(links);
+    }
+  }
+
   private clearSidebar(): void {
     this.renderSidebarList();
   }
@@ -1074,6 +1215,8 @@ export class TraceRenderer {
           nodeSpan.textContent = hop.name;
         } else if (isCableHop(hop)) {
           nodeSpan.textContent = hop.label || 'Cable';
+        } else if (isProviderCircuitHop(hop)) {
+          nodeSpan.textContent = hop.cid;
         }
         el.appendChild(nodeSpan);
       }
