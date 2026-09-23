@@ -757,7 +757,7 @@ export class TraceRenderer {
       .attr('text-anchor', 'middle')
       .attr('fill', colors.subtitleText)
       .attr('font-size', '10px')
-      .text(truncateText(hop.cid + ' • provider circuit', boxWidth - 24, 10));
+      .text(truncateText(hop.cid + ' \u2022 provider circuit', boxWidth - 24, 10));
   }
 
   // -------------------------------------------------------------------
@@ -1146,7 +1146,7 @@ export class TraceRenderer {
     const th = document.createElement('th');
     th.textContent = 'Provider';
     const td = document.createElement('td');
-    td.textContent = hop.provider || '—';
+    td.textContent = hop.provider || '\u2014';
     tr.appendChild(th);
     tr.appendChild(td);
     table.appendChild(tr);
