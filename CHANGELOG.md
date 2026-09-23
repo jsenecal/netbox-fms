@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The trace engine crosses provider circuits: a trunk cable landing on a
+  `CircuitTermination` hops the core Circuit to its other termination and
+  keeps walking, recording the span as an opaque `provider_circuit` path
+  entry. Back-to-back circuits chain; dangling terminations end the trace
+  incomplete. (#135)
+- Fiber circuits carry an automatically synced `provider_circuits`
+  relation derived from their traced paths, shown on the detail page,
+  in the trace view, and in the API. Provider circuits carrying an
+  active fiber circuit are protected from deletion, like cables and
+  ports. (#135)
+- New fiber-circuit filters `provider_id` and `provider_circuit_id`, and
+  a `provider_circuit` reference type on the protecting endpoint, answer
+  "which fiber circuits ride provider X / core circuit Y". (#135)
+
 ## [0.4.1] - 2026-09-22
 
 ### Changed

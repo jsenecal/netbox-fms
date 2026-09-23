@@ -78,10 +78,10 @@ is populated.
 ### FiberCircuitNode
 
 A relational index of every object on a path. Each node references one of
-`cable`, `front_port`, `rear_port`, `fiber_strand`, or `splice_entry` via
-`on_delete=PROTECT`. This is what enforces circuit protection: as long as
-the circuit is not decommissioned, deleting any of those underlying objects
-raises `ProtectedError`.
+`cable`, `front_port`, `rear_port`, `fiber_strand`, `splice_entry`, or
+`provider_circuit` via `on_delete=PROTECT`. This is what enforces circuit
+protection: as long as the circuit is not decommissioned, deleting any of
+those underlying objects raises `ProtectedError`.
 
 Nodes are not edited directly. They are rebuilt automatically on path
 retrace, on circuit status transitions, and during provisioning.
@@ -241,7 +241,9 @@ you prefer the model-side API.
 The trace engine lives in `netbox_fms.trace`. From a starting `FrontPort`
 it walks the chain `FrontPort -> PortMapping -> RearPort ->
 CableTermination -> Cable -> remote RearPort -> PortMapping -> FrontPort`,
-crossing splices (`SplicePlanEntry`) when one is present. Loops are
+crossing splices (`SplicePlanEntry`) when one is present. A trunk cable
+landing on a `circuits.CircuitTermination` hops the core circuit to its
+other termination and continues (see "Provider spans" below). Loops are
 detected and stop the trace.
 
 `FiberCircuitPath.from_origin(front_port)` returns an unsaved path with
@@ -264,6 +266,51 @@ The trace endpoint returns `{circuit_id, circuit_name, path_position,
 is_complete, hops, total_calculated_loss_db, total_actual_loss_db,
 wavelength_nm}` along with hop records suitable for rendering in the UI's
 trace view.
+
+---
+
+## Provider spans
+
+Leased dark fiber often rides a provider's circuit between two meet-me
+rooms. Model that span as a core `circuits.Circuit` with two
+terminations, and cable your trunk rear ports to the terminations like
+any other cable end:
+
+```
+RearPort -> Cable -> CircuitTermination (A)
+                        [Circuit DF-001, Provider X]
+RearPort <- Cable <- CircuitTermination (Z)
+```
+
+The trace engine crosses the circuit as a single opaque hop, records a
+`provider_circuit` entry in the path, and keeps walking on the far side.
+Back-to-back circuits chain naturally. The intent is deliberately
+narrow: **document that a fiber circuit crosses a provider circuit, not
+the provider's infrastructure.** A core `Circuit` with two cabled
+terminations is all the modeling required -- no provider-side panels,
+fibers, or splices, and no `ProviderNetwork` topology.
+
+From the traced paths, each `FiberCircuit` maintains an automatically
+synced `provider_circuits` relation (shown on the detail page and in the
+API; never edited by hand). That relation powers the impact queries:
+
+```bash
+# All fiber circuits riding any circuit of provider 7
+GET /api/plugins/fms/fiber-circuits/?provider_id=7
+
+# All fiber circuits riding core circuit 42
+GET /api/plugins/fms/fiber-circuits/?provider_circuit_id=42
+
+# Same question through the protecting endpoint (mixable with other
+# reference types, GET or bulk POST)
+GET /api/plugins/fms/fiber-circuits/protecting/?provider_circuit=42
+```
+
+Provider circuits carrying an active fiber circuit are protected: like
+cables and ports, the core `Circuit` cannot be deleted while a
+non-decommissioned `FiberCircuit` rides it. The provider span contributes
+no calculated loss; record measured end-to-end loss in
+`actual_loss_db` as usual.
 
 ---
 
