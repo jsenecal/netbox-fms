@@ -149,3 +149,54 @@ class TestSampleDataPlannerStatistics:
         # one refresh after each phase that bulk-inserts rows the later
         # phases query: backbone, spur, edge devices
         assert len(analyzes) >= 3
+
+    def test_full_mode_refreshes_after_each_bulk_phase(self, monkeypatch):
+        """Full mode is not built in tests; exercise its orchestration with the
+        heavy builders stubbed so the phase-boundary refreshes are asserted."""
+        from netbox_fms.management.commands.create_sample_data import Command
+
+        calls = []
+        heavy = (
+            "_build_backbone",
+            "_build_metro_rings",
+            "_build_spurs",
+            "_build_edge_devices",
+            "_create_slack_loops",
+            "_create_closure_cable_entries",
+            "_create_tube_assignments",
+            "_create_splice_plans",
+            "_create_fiber_circuits",
+        )
+        for name in heavy:
+            monkeypatch.setattr(Command, name, lambda self, _n=name: calls.append(_n))
+        monkeypatch.setattr(Command, "_refresh_planner_stats", lambda self: calls.append("ANALYZE"))
+
+        call_command("create_sample_data")
+
+        assert calls == [
+            "_build_backbone",
+            "_build_metro_rings",
+            "ANALYZE",
+            "_build_spurs",
+            "ANALYZE",
+            "_build_edge_devices",
+            "ANALYZE",
+            "_create_slack_loops",
+            "_create_closure_cable_entries",
+            "_create_tube_assignments",
+            "_create_splice_plans",
+            "ANALYZE",
+            "_create_fiber_circuits",
+        ]
+
+    def test_backbone_refreshes_after_each_route_pair(self, monkeypatch):
+        from netbox_fms.management.commands.create_sample_data import BACKBONE_PAIRS, Command
+
+        calls = []
+        monkeypatch.setattr(Command, "_get_or_create_device", lambda self, *a, **k: None)
+        monkeypatch.setattr(Command, "_build_backbone_path", lambda self, *a, **k: calls.append("path"))
+        monkeypatch.setattr(Command, "_refresh_planner_stats", lambda self: calls.append("ANALYZE"))
+
+        Command()._build_backbone()
+
+        assert calls == ["path", "path", "ANALYZE"] * len(BACKBONE_PAIRS)
