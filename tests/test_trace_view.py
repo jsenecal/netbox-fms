@@ -49,3 +49,44 @@ class TestTraceAction(TestCase):
         url = "/api/plugins/fms/fiber-circuit-paths/99999/trace/"
         resp = self.client.get(url)
         assert resp.status_code == 404
+
+
+class TestTraceDetailProviderCircuit(TestCase):
+    """Trace-detail dispatch renders the provider-circuit panel (issue #135)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Site
+
+        from tests.conftest import make_provider_circuit
+
+        site = Site.objects.create(name="TDPC Site", slug="tdpc-site")
+        mfr = Manufacturer.objects.create(name="TDPC Mfr", slug="tdpc-mfr")
+        dt = DeviceType.objects.create(manufacturer=mfr, model="TDPC", slug="tdpc-dev")
+        role = DeviceRole.objects.create(name="TDPC Role", slug="tdpc-role")
+        dev = Device.objects.create(name="TDPC-1", site=site, device_type=dt, role=role)
+        fp = FrontPort.objects.create(device=dev, name="TDPC-FP", type="lc")
+
+        cls.span = make_provider_circuit("TDPC")
+        circuit = FiberCircuit.objects.create(name="TDPC Circuit", strand_count=1)
+        cls.path = FiberCircuitPath.objects.create(
+            circuit=circuit,
+            position=1,
+            origin=fp,
+            path=[{"type": "provider_circuit", "id": cls.span.circuit.pk}],
+            is_complete=False,
+        )
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        user = get_user_model().objects.create_superuser("tdpcadmin", "t@t.com", "password")
+        self.client.force_login(user)
+
+    def test_provider_circuit_detail_panel(self):
+        url = f"/plugins/fms/fiber-circuit-paths/{self.path.pk}/trace-detail/provider_circuit/{self.span.circuit.pk}/"
+        resp = self.client.get(url)
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert self.span.circuit.cid in body
+        assert self.span.provider.name in body

@@ -199,6 +199,19 @@ class TestTraceProviderCircuit(TestCase):
         assert result.destination is None
         assert result.path[-1] == {"type": "provider_circuit", "id": self.span.circuit.pk}
 
+    def test_incomplete_when_egress_cable_dangles(self):
+        from circuits.models import CircuitTermination
+
+        self.cable_z.delete()
+        dangling = Cable.objects.create()
+        ct_ct = ContentType.objects.get_for_model(CircuitTermination)
+        CableTermination.objects.create(
+            cable=dangling, cable_end="A", termination_type=ct_ct, termination_id=self.span.term_z.pk
+        )
+        result = FiberCircuitPath.from_origin(self.fp_a)
+        assert result.is_complete is False
+        assert result.path[-1] == {"type": "cable", "id": dangling.pk}
+
     def test_incomplete_when_no_far_termination(self):
         self.cable_z.delete()
         self.span.term_z.delete()
