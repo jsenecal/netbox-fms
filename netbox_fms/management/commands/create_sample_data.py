@@ -31,7 +31,7 @@ from dcim.models import (
 )
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models.signals import post_save
 from django.utils.text import slugify
 
@@ -158,14 +158,18 @@ class Command(BaseCommand):
 
         self._build_backbone()
         self._build_metro_rings()
+        self._refresh_planner_stats()
         self._build_spurs()
+        self._refresh_planner_stats()
 
         self._build_edge_devices()
+        self._refresh_planner_stats()
 
         self._create_slack_loops()
         self._create_closure_cable_entries()
         self._create_tube_assignments()
         self._create_splice_plans()
+        self._refresh_planner_stats()
         self._create_fiber_circuits()
 
         self.stdout.write(
@@ -331,6 +335,7 @@ class Command(BaseCommand):
             self._create_ports_and_link_strands(info)
         self._create_provider_span(cl03, hub, "DF-EAST-01")
         self.stdout.write("  3 backbone segments + 1 leased provider span")
+        self._refresh_planner_stats()
 
         # --- Spur cables (48F): CL-02 → CL-04 → CL-05 → CL-06 ---
         # CL-02 is the junction (3 cables: backbone-in, backbone-out, spur-out)
@@ -348,6 +353,7 @@ class Command(BaseCommand):
         info = self._create_cable_segment(drop_label, cl06, bldg, "12f", 50)
         self._create_ports_and_link_strands(info)
         self.stdout.write("  3 spur segments + 1 drop")
+        self._refresh_planner_stats()
 
         # --- Edge devices ---
         self.stdout.write("Creating edge devices...")
@@ -363,6 +369,7 @@ class Command(BaseCommand):
         intfs = self._create_interfaces(cpe, 2, "eth")
         self._patch_interfaces_to_odf(bldg, intfs[:1])
         self.stdout.write("  3 edge devices")
+        self._refresh_planner_stats()
 
         # --- Slack loops (on every other fiber cable) ---
         self.stdout.write("Creating slack loops...")
@@ -455,6 +462,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  {plans_created} splice plans with splice cables")
 
         self._retrace_incomplete_cable_paths()
+        self._refresh_planner_stats()
 
         # --- Fiber circuit ---
         self.stdout.write("Creating fiber circuit...")
@@ -816,6 +824,18 @@ class Command(BaseCommand):
     # Helper methods for device/cable creation
     # ------------------------------------------------------------------
 
+    def _refresh_planner_stats(self):
+        """Give the query planner statistics for the rows this transaction created.
+
+        The whole build runs in one transaction. Autovacuum and the stats
+        collector never see uncommitted rows, so without an in-transaction
+        ANALYZE the planner keeps treating every table as empty and picks
+        seq-scan nested loops for the later phases' queries once the tables
+        hold 100k+ rows -- turning a minutes-long build into hours.
+        """
+        with connection.cursor() as cursor:
+            cursor.execute("ANALYZE")
+
     def _get_or_create_device(self, name, site_slug, role_key, dtype_key):
         """Get or create a device, caching in self.devices."""
         if name in self.devices:
@@ -1074,6 +1094,7 @@ class Command(BaseCommand):
                 a_short=a_short,
                 b_short=b_short,
             )
+            self._refresh_planner_stats()
 
     def _build_backbone_path(
         self, co_a_name, co_b_name, co_a_slug, co_b_slug, path_label, cable_type_key, num_closures, a_short, b_short

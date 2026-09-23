@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A segment in the full set) so a sample fiber circuit crosses a provider
   circuit and demonstrates the derived `provider_circuits` relation. (#135)
 
+### Fixed
+
+- `create_sample_data` now refreshes planner statistics between build
+  phases. The whole build runs in one transaction, so the planner never
+  saw the rows it was creating and, once the tables held 100k+ rows,
+  chose seq-scan nested loops for every later query; the full dataset
+  took hours instead of minutes.
+
 ## [0.4.1] - 2026-09-22
 
 ### Changed
