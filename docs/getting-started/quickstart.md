@@ -42,6 +42,9 @@ model (this is done once, then reused for every closure):
    type, set the **tray role** to **Splice Tray**, and set **max fibers** to
    the tray's splice capacity. Use the **Express Basket** role for
    pass-through storage baskets -- tubes can only be assigned to splice trays.
+   The module type's detail page also shows its tray profile (or an **Add
+   Tray Profile** shortcut when it has none), so you can review or start
+   the profile from **Devices > Module Types** as well.
 
 You do not need to define front ports anywhere -- the plugin creates the
 per-strand ports when you add the cable (step 5).

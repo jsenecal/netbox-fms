@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Module Type detail pages (Devices > Module Types) now show the FMS
+  tray profile details -- role, max fibers, description, and a link to
+  the profile -- when the module type has one, or an "Add Tray Profile"
+  action when it does not.
 - The trace engine crosses provider circuits: a trunk cable landing on a
   `CircuitTermination` hops the core Circuit to its other termination and
   keeps walking, recording the span as an opaque `provider_circuit` path
