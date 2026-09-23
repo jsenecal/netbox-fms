@@ -1,0 +1,10 @@
+{% load i18n %}
+<div class="card mb-3">
+    <h5 class="card-header">{% trans "Tray Profile" %}</h5>
+    <div class="card-body text-center py-4">
+        <p class="text-muted mb-3">{% trans "No tray profile defined for this module type." %}</p>
+        <a href="{% url 'plugins:netbox_fms:trayprofile_add' %}?module_type={{ module_type.pk }}" class="btn btn-sm btn-primary">
+            <i class="mdi mdi-plus-thick"></i> {% trans "Add Tray Profile" %}
+        </a>
+    </div>
+</div>
