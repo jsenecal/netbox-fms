@@ -1,4 +1,5 @@
 import django_filters
+from circuits.models import Circuit, Provider
 from dcim.models import Cable, Device, Location, Manufacturer, Module, Site
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -449,6 +450,18 @@ class FiberCircuitFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         queryset=Tenant.objects.all(),
         field_name="tenant",
         label=_("Tenant (ID)"),
+    )
+    provider_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Provider.objects.all(),
+        field_name="provider_circuits__provider",
+        distinct=True,
+        label=_("Provider (ID)"),
+    )
+    provider_circuit_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Circuit.objects.all(),
+        field_name="provider_circuits",
+        distinct=True,
+        label=_("Provider circuit (ID)"),
     )
 
     search_fields = ("name__icontains", "cid__icontains", "description__icontains")

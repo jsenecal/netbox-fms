@@ -644,7 +644,17 @@ class FiberCircuitNodeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FiberCircuitNode
-        fields = ("id", "path", "position", "cable", "front_port", "rear_port", "fiber_strand", "splice_entry")
+        fields = (
+            "id",
+            "path",
+            "position",
+            "cable",
+            "front_port",
+            "rear_port",
+            "fiber_strand",
+            "splice_entry",
+            "provider_circuit",
+        )
         read_only_fields = fields
 
 

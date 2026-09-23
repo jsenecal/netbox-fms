@@ -1,3 +1,4 @@
+from circuits.models import Circuit, Provider
 from dcim.choices import (
     CableLengthUnitChoices,
     CableTypeChoices,
@@ -1029,8 +1030,18 @@ class FiberCircuitFilterForm(NetBoxModelFilterSetForm):
         required=False,
         label=_("Tenant"),
     )
+    provider_id = DynamicModelMultipleChoiceField(
+        queryset=Provider.objects.all(),
+        required=False,
+        label=_("Provider"),
+    )
+    provider_circuit_id = DynamicModelMultipleChoiceField(
+        queryset=Circuit.objects.all(),
+        required=False,
+        label=_("Provider circuit"),
+    )
 
-    fieldsets = (FieldSet("q", "status", "tenant_id"),)
+    fieldsets = (FieldSet("q", "status", "tenant_id", "provider_id", "provider_circuit_id"),)
 
 
 # ---------------------------------------------------------------------------

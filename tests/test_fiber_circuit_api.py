@@ -168,3 +168,41 @@ class TestProtectionBulkQueryAPI(TestCase):
     def test_post_non_object_body_returns_400(self):
         response = self.client_api.post(self.URL, [self.cable1.pk], format="json")
         assert response.status_code == 400
+
+
+class TestProviderCircuitQueries(TestCase):
+    """Provider-maintenance impact queries (issue #135)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from tests.conftest import make_provider_circuit
+
+        site, mfr, dt, role = make_infra("PCQ")
+        device = Device.objects.create(name="PCQ-Dev", site=site, device_type=dt, role=role)
+        origin = make_front_port(device, "PCQ-FP")
+        cls.span = make_provider_circuit("Query")
+        cls.riding = make_protected_circuit("Riding", origin, [{"provider_circuit": cls.span.circuit}])
+        cls.riding.sync_provider_circuits()
+        cls.other = FiberCircuit.objects.create(name="NotRiding", strand_count=1)
+
+    def setUp(self):
+        self.client_api = make_authed_client(username="pcq-api")
+
+    def test_filter_by_provider(self):
+        from netbox_fms.filters import FiberCircuitFilterSet
+
+        fs = FiberCircuitFilterSet({"provider_id": [self.span.provider.pk]}, queryset=FiberCircuit.objects.all())
+        assert list(fs.qs) == [self.riding]
+
+    def test_filter_by_provider_circuit(self):
+        from netbox_fms.filters import FiberCircuitFilterSet
+
+        fs = FiberCircuitFilterSet({"provider_circuit_id": [self.span.circuit.pk]}, queryset=FiberCircuit.objects.all())
+        assert list(fs.qs) == [self.riding]
+
+    def test_protecting_endpoint_accepts_provider_circuit(self):
+        response = self.client_api.get(
+            f"/api/plugins/fms/fiber-circuits/protecting/?provider_circuit={self.span.circuit.pk}"
+        )
+        assert response.status_code == 200
+        assert [c["id"] for c in response.json()] == [self.riding.pk]
