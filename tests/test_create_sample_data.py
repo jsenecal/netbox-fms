@@ -125,3 +125,27 @@ class TestSplicePlanRowLeak:
         cmd._create_splice_plans()
 
         assert not SplicePlan.objects.filter(closure=rig.closure).exists()
+
+
+@pytest.mark.django_db
+class TestSampleDataPlannerStatistics:
+    def test_simple_mode_refreshes_planner_statistics_between_phases(self):
+        """The build runs in one transaction, so statistics gathered outside
+        it never see the new rows: without in-transaction ANALYZE calls the
+        planner keeps treating the tables as empty and picks seq-scan nested
+        loops once they hold 100k+ rows."""
+        from django.db import connection
+
+        analyzes = []
+
+        def record(execute, sql, params, many, context):
+            if sql.lstrip().upper().startswith("ANALYZE"):
+                analyzes.append(sql)
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(record):
+            call_command("create_sample_data", "--simple")
+
+        # one refresh after each phase that bulk-inserts rows the later
+        # phases query: backbone, spur, edge devices
+        assert len(analyzes) >= 3
