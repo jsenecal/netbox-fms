@@ -405,6 +405,19 @@ def _tube_assignment_post_delete(sender, instance, **kwargs):
     _relabel_for_tube_assignment(instance)
 
 
+def _fiber_circuit_path_post_delete(sender, instance, **kwargs):
+    """Resync the owning circuit's provider-circuit projection.
+
+    Deleting a path CASCADEs its node rows away, which would otherwise
+    leave the stored projection stale.
+    """
+    from .models import FiberCircuit
+
+    circuit = FiberCircuit.objects.filter(pk=instance.circuit_id).first()
+    if circuit is not None:
+        circuit.sync_provider_circuits()
+
+
 def connect_signals():
     """Connect cable and device signals. Called from AppConfig.ready()."""
     from dcim.models import Cable
@@ -435,4 +448,12 @@ def connect_signals():
     post_save.connect(_tube_assignment_post_save, sender=TubeAssignment, dispatch_uid="fms_tube_assignment_post_save")
     post_delete.connect(
         _tube_assignment_post_delete, sender=TubeAssignment, dispatch_uid="fms_tube_assignment_post_delete"
+    )
+
+    from .models import FiberCircuitPath
+
+    post_delete.connect(
+        _fiber_circuit_path_post_delete,
+        sender=FiberCircuitPath,
+        dispatch_uid="fms_fiber_circuit_path_post_delete",
     )

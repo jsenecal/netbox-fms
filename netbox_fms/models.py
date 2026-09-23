@@ -1890,6 +1890,13 @@ class FiberCircuit(NetBoxModel):
             elif old_status == FiberCircuitStatusChoices.DECOMMISSIONED:
                 for path in self.paths.all():
                     path.rebuild_nodes()
+            self.sync_provider_circuits()
+
+    def sync_provider_circuits(self):
+        """Recompute the provider-circuit projection from the node index."""
+        from circuits.models import Circuit
+
+        self.provider_circuits.set(Circuit.objects.filter(fiber_circuit_nodes__path__circuit=self).distinct())
 
     @classmethod
     def find_paths(cls, origin_device, destination_device, strand_count=1, priorities=None, max_results=20):
@@ -2079,6 +2086,7 @@ class FiberCircuitPath(NetBoxModel):
             FiberCircuitNode.objects.create(**kwargs)
             position += 1
         self._create_strand_nodes(position)
+        self.circuit.sync_provider_circuits()
 
     def _create_strand_nodes(self, start_position):
         """Create FiberCircuitNode entries for FiberStrands derived from path FrontPorts."""
