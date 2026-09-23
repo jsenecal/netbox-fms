@@ -19,6 +19,20 @@ from django.db.models import Q
 from .models import SplicePlanEntry
 
 
+def _other_end(cable_end):
+    """Return the opposite cable end label."""
+    return "B" if cable_end == "A" else "A"
+
+
+def _far_circuit_termination(cable, cable_end, ct_ct):
+    """The CableTermination on the far end of ``cable`` landing on a CircuitTermination, or None."""
+    return CableTermination.objects.filter(
+        cable=cable,
+        cable_end=_other_end(cable_end),
+        termination_type=ct_ct,
+    ).first()
+
+
 def _resolve_far_rear_port(cable, cable_end, near_connector, rp_ct):
     """Pick the far-end rear-port termination of a cable crossing, or None.
 
@@ -29,10 +43,9 @@ def _resolve_far_rear_port(cable, cable_end, near_connector, rp_ct):
     disambiguate. Without a connector, only an unambiguous single far
     rear port is followed.
     """
-    far_end = "B" if cable_end == "A" else "A"
     far_terminations = CableTermination.objects.filter(
         cable=cable,
-        cable_end=far_end,
+        cable_end=_other_end(cable_end),
         termination_type=rp_ct,
     )
 
@@ -55,7 +68,7 @@ def _resolve_far_rear_port(cable, cable_end, near_connector, rp_ct):
     return far_candidates[0] if len(far_candidates) == 1 else None
 
 
-def _hop_provider_circuits(far_ct_term, path, visited_circuits):
+def _hop_provider_circuits(far_ct_term, path, visited_circuits, rp_ct, ct_ct):
     """Cross a chain of provider circuits cabled inline in the path.
 
     ``far_ct_term`` is a CableTermination landing on a CircuitTermination.
@@ -65,9 +78,6 @@ def _hop_provider_circuits(far_ct_term, path, visited_circuits):
     dangles or revisits a circuit. The provider span is opaque: only the
     core Circuit is recorded, never provider-side detail.
     """
-    rp_ct = ContentType.objects.get_for_model(RearPort)
-    ct_ct = ContentType.objects.get_for_model(CircuitTermination)
-
     term = far_ct_term
     while term is not None:
         near_ct = CircuitTermination.objects.get(pk=term.termination_id)
@@ -99,12 +109,7 @@ def _hop_provider_circuits(far_ct_term, path, visited_circuits):
         if rp_term is not None:
             return rp_term
 
-        far_end = "B" if egress_term.cable_end == "A" else "A"
-        term = CableTermination.objects.filter(
-            cable=cable,
-            cable_end=far_end,
-            termination_type=ct_ct,
-        ).first()
+        term = _far_circuit_termination(cable, egress_term.cable_end, ct_ct)
 
     return None
 
@@ -173,14 +178,9 @@ def trace_fiber_path(origin_front_port):
         if far_term is None:
             # No far rear port: the cable may land on a provider circuit's
             # termination instead of a panel.
-            far_end = "B" if cable_end == "A" else "A"
-            ct_term = CableTermination.objects.filter(
-                cable=cable,
-                cable_end=far_end,
-                termination_type=ct_ct,
-            ).first()
+            ct_term = _far_circuit_termination(cable, cable_end, ct_ct)
             if ct_term is not None:
-                far_term = _hop_provider_circuits(ct_term, path, visited_circuits)
+                far_term = _hop_provider_circuits(ct_term, path, visited_circuits, rp_ct, ct_ct)
 
         if far_term is None:
             return {"origin": origin_front_port, "destination": None, "path": path, "is_complete": False}
@@ -219,7 +219,7 @@ def trace_fiber_path(origin_front_port):
 
         splice_cable = splice_term.cable
         splice_end = splice_term.cable_end
-        far_splice_end = "B" if splice_end == "A" else "A"
+        far_splice_end = _other_end(splice_end)
 
         far_splice_term = CableTermination.objects.filter(
             cable=splice_cable,

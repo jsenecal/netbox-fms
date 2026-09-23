@@ -257,8 +257,11 @@ class TestTraceChainedProviderCircuits(TestCase):
     def test_revisit_guard_stops_the_walk(self):
         # A circuit cannot legitimately appear twice in one walk (one cable
         # per termination), so exercise the guard directly on the helper.
+        from circuits.models import CircuitTermination
+
         from netbox_fms.trace import _hop_provider_circuits
 
+        rp_ct = ContentType.objects.get_for_model(RearPort)
+        ct_ct = ContentType.objects.get_for_model(CircuitTermination)
         entry_term = CableTermination.objects.get(cable=self.cable1, cable_end="B")
-        path = []
-        assert _hop_provider_circuits(entry_term, path, {self.span1.circuit.pk}) is None
+        assert _hop_provider_circuits(entry_term, [], {self.span1.circuit.pk}, rp_ct, ct_ct) is None
