@@ -178,27 +178,15 @@ class TestProviderCircuitProjection(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from dcim.models import PortMapping, RearPort
+        from tests.conftest import connect_rp_to_ct, make_mapped_endpoint, make_provider_circuit
 
-        from tests.conftest import connect_rp_to_ct, make_closure_with_tray, make_provider_circuit
-
-        ns_a = make_closure_with_tray("ProjA", port_count=0)
-        ns_b = make_closure_with_tray("ProjB", port_count=0)
-
-        rp_a = RearPort.objects.create(device=ns_a.closure, module=ns_a.tray, name="RP-A", type="lc", positions=1)
-        cls.fp_a = FrontPort.objects.create(device=ns_a.closure, module=ns_a.tray, name="FP-A", type="lc")
-        PortMapping.objects.create(
-            device=ns_a.closure, front_port=cls.fp_a, rear_port=rp_a, front_port_position=1, rear_port_position=1
-        )
-        rp_b = RearPort.objects.create(device=ns_b.closure, module=ns_b.tray, name="RP-B", type="lc", positions=1)
-        fp_b = FrontPort.objects.create(device=ns_b.closure, module=ns_b.tray, name="FP-B", type="lc")
-        PortMapping.objects.create(
-            device=ns_b.closure, front_port=fp_b, rear_port=rp_b, front_port_position=1, rear_port_position=1
-        )
+        end_a = make_mapped_endpoint("ProjA")
+        end_b = make_mapped_endpoint("ProjB")
+        cls.fp_a = end_a.fp
 
         cls.span = make_provider_circuit("Proj")
-        connect_rp_to_ct(rp_a, cls.span.term_a)
-        connect_rp_to_ct(rp_b, cls.span.term_z)
+        connect_rp_to_ct(end_a.rp, cls.span.term_a)
+        connect_rp_to_ct(end_b.rp, cls.span.term_z)
 
         cls.fc = FiberCircuit.objects.create(name="Proj-FC", status=FiberCircuitStatusChoices.ACTIVE, strand_count=1)
         cls.path = FiberCircuitPath.from_origin(cls.fp_a)

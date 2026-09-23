@@ -187,3 +187,16 @@ def connect_ct_to_ct(termination_a, termination_b):
     CableTermination.objects.create(cable=cable, cable_end="A", termination_type=ct_ct, termination_id=termination_a.pk)
     CableTermination.objects.create(cable=cable, cable_end="B", termination_type=ct_ct, termination_id=termination_b.pk)
     return cable
+
+
+def make_mapped_endpoint(prefix):
+    """Closure with one RearPort mapped 1:1 to one FrontPort, ready to cable."""
+    from dcim.models import PortMapping, RearPort
+
+    ns = make_closure_with_tray(prefix, port_count=0)
+    rp = RearPort.objects.create(device=ns.closure, module=ns.tray, name=f"{prefix}-RP", type="lc", positions=1)
+    fp = make_front_port(ns.closure, f"{prefix}-FP", module=ns.tray)
+    PortMapping.objects.create(
+        device=ns.closure, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=1
+    )
+    return SimpleNamespace(closure=ns.closure, tray=ns.tray, rp=rp, fp=fp)

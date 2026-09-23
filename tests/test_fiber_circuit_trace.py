@@ -164,25 +164,16 @@ class TestTraceProviderCircuit(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from tests.conftest import connect_rp_to_ct, make_provider_circuit
+        from tests.conftest import connect_rp_to_ct, make_mapped_endpoint, make_provider_circuit
 
-        cls.dev_a, cls.tray_a = _make_closure("PC-ClosA")
-        cls.dev_b, cls.tray_b = _make_closure("PC-ClosB")
-
-        cls.rp_a = RearPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="RP-A", type="lc", positions=1)
-        cls.fp_a = FrontPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="FP-A", type="lc")
-        PortMapping.objects.create(
-            device=cls.dev_a, front_port=cls.fp_a, rear_port=cls.rp_a, front_port_position=1, rear_port_position=1
-        )
-        cls.rp_b = RearPort.objects.create(device=cls.dev_b, module=cls.tray_b, name="RP-B", type="lc", positions=1)
-        cls.fp_b = FrontPort.objects.create(device=cls.dev_b, module=cls.tray_b, name="FP-B", type="lc")
-        PortMapping.objects.create(
-            device=cls.dev_b, front_port=cls.fp_b, rear_port=cls.rp_b, front_port_position=1, rear_port_position=1
-        )
+        end_a = make_mapped_endpoint("PC-ClosA")
+        end_b = make_mapped_endpoint("PC-ClosB")
+        cls.fp_a = end_a.fp
+        cls.fp_b = end_b.fp
 
         cls.span = make_provider_circuit("PC1")
-        cls.cable_a = connect_rp_to_ct(cls.rp_a, cls.span.term_a)
-        cls.cable_z = connect_rp_to_ct(cls.rp_b, cls.span.term_z)
+        connect_rp_to_ct(end_a.rp, cls.span.term_a)
+        cls.cable_z = connect_rp_to_ct(end_b.rp, cls.span.term_z)
 
     def test_trace_across_provider_circuit(self):
         result = FiberCircuitPath.from_origin(self.fp_a)
@@ -225,27 +216,18 @@ class TestTraceChainedProviderCircuits(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from tests.conftest import connect_ct_to_ct, connect_rp_to_ct, make_provider_circuit
+        from tests.conftest import connect_ct_to_ct, connect_rp_to_ct, make_mapped_endpoint, make_provider_circuit
 
-        cls.dev_a, cls.tray_a = _make_closure("CH-ClosA")
-        cls.dev_b, cls.tray_b = _make_closure("CH-ClosB")
-
-        cls.rp_a = RearPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="RP-A", type="lc", positions=1)
-        cls.fp_a = FrontPort.objects.create(device=cls.dev_a, module=cls.tray_a, name="FP-A", type="lc")
-        PortMapping.objects.create(
-            device=cls.dev_a, front_port=cls.fp_a, rear_port=cls.rp_a, front_port_position=1, rear_port_position=1
-        )
-        cls.rp_b = RearPort.objects.create(device=cls.dev_b, module=cls.tray_b, name="RP-B", type="lc", positions=1)
-        cls.fp_b = FrontPort.objects.create(device=cls.dev_b, module=cls.tray_b, name="FP-B", type="lc")
-        PortMapping.objects.create(
-            device=cls.dev_b, front_port=cls.fp_b, rear_port=cls.rp_b, front_port_position=1, rear_port_position=1
-        )
+        end_a = make_mapped_endpoint("CH-ClosA")
+        end_b = make_mapped_endpoint("CH-ClosB")
+        cls.fp_a = end_a.fp
+        cls.fp_b = end_b.fp
 
         cls.span1 = make_provider_circuit("CH1")
         cls.span2 = make_provider_circuit("CH2")
-        cls.cable1 = connect_rp_to_ct(cls.rp_a, cls.span1.term_a)
+        cls.cable1 = connect_rp_to_ct(end_a.rp, cls.span1.term_a)
         connect_ct_to_ct(cls.span1.term_z, cls.span2.term_a)
-        connect_rp_to_ct(cls.rp_b, cls.span2.term_z)
+        connect_rp_to_ct(end_b.rp, cls.span2.term_z)
 
     def test_trace_across_chained_circuits(self):
         result = FiberCircuitPath.from_origin(self.fp_a)
