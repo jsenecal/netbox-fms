@@ -6,6 +6,13 @@ from dcim.models import Cable, FrontPort, RearPort
 from .models import FiberStrand, SplicePlanEntry
 
 
+def _pk_map(queryset, ids):
+    """Map pk to object for ``ids`` drawn from ``queryset``; empty when there are none."""
+    if not ids:
+        return {}
+    return {obj.pk: obj for obj in queryset.filter(pk__in=ids)}
+
+
 def build_hops(path_entries):
     """Transform flat path entries into grouped hops."""
     if not path_entries:
@@ -16,33 +23,13 @@ def build_hops(path_entries):
     rp_ids = [e["id"] for e in path_entries if e["type"] == "rear_port"]
     cable_ids = [e["id"] for e in path_entries if e["type"] == "cable"]
     splice_ids = [e["id"] for e in path_entries if e["type"] == "splice_entry"]
-
-    fp_map = {}
-    if fp_ids:
-        fp_map = {
-            fp.pk: fp for fp in FrontPort.objects.filter(pk__in=fp_ids).select_related("device__role", "device__site")
-        }
-
-    rp_map = {}
-    if rp_ids:
-        rp_map = {
-            rp.pk: rp for rp in RearPort.objects.filter(pk__in=rp_ids).select_related("device__role", "device__site")
-        }
-
-    cable_map = {}
-    if cable_ids:
-        cable_map = {c.pk: c for c in Cable.objects.filter(pk__in=cable_ids)}
-
-    splice_map = {}
-    if splice_ids:
-        splice_map = {
-            se.pk: se for se in SplicePlanEntry.objects.filter(pk__in=splice_ids).select_related("plan", "tray")
-        }
-
     pc_ids = [e["id"] for e in path_entries if e["type"] == "provider_circuit"]
-    pc_map = {}
-    if pc_ids:
-        pc_map = {c.pk: c for c in Circuit.objects.filter(pk__in=pc_ids).select_related("provider")}
+
+    fp_map = _pk_map(FrontPort.objects.select_related("device__role", "device__site"), fp_ids)
+    rp_map = _pk_map(RearPort.objects.select_related("device__role", "device__site"), rp_ids)
+    cable_map = _pk_map(Cable.objects.all(), cable_ids)
+    splice_map = _pk_map(SplicePlanEntry.objects.select_related("plan", "tray"), splice_ids)
+    pc_map = _pk_map(Circuit.objects.select_related("provider"), pc_ids)
 
     # Prefetch strands for all FrontPorts in path
     strand_by_fp = {}
