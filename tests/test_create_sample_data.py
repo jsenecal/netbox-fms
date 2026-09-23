@@ -12,7 +12,7 @@ import re
 import pytest
 from django.core.management import call_command
 
-from netbox_fms.models import FiberStrand, SlackLoop, SplicePlanEntry
+from netbox_fms.models import FiberCircuit, FiberStrand, SlackLoop, SplicePlanEntry
 
 
 @pytest.mark.django_db
@@ -125,3 +125,24 @@ class TestSplicePlanRowLeak:
         cmd._create_splice_plans()
 
         assert not SplicePlan.objects.filter(closure=rig.closure).exists()
+
+
+@pytest.mark.django_db
+class TestSampleDataProviderSpan:
+    def test_simple_mode_circuit_rides_the_leased_span(self):
+        """Issue #135: the simple dataset leases CL-03 -> Hub-East from a
+        provider, so the sample circuit crosses a provider circuit and its
+        derived provider_circuits projection is populated."""
+        from circuits.models import Circuit
+
+        call_command("create_sample_data", "--simple")
+
+        span = Circuit.objects.get(cid="DF-EAST-01")
+        assert span.provider.name == "Metro Carrier"
+        circuit = FiberCircuit.objects.get(cid="SIMPLE-001")
+        assert list(circuit.provider_circuits.all()) == [span]
+        paths = list(circuit.paths.all())
+        assert paths
+        for path in paths:
+            assert path.is_complete
+            assert {"type": "provider_circuit", "id": span.pk} in path.path
