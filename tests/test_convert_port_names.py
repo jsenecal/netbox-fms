@@ -14,8 +14,14 @@ from django.test import TestCase
 
 from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType
 from netbox_fms.services import create_closure_cable, plan_port_names
-from netbox_fms.signals import fms_portmapping_bypass
-from tests.conftest import make_central_core_type, make_closure_pair, make_ribbon_in_tube_type
+from tests.conftest import (
+    land_strands,
+    make_central_core_type,
+    make_closure_pair,
+    make_ribbon_in_tube_type,
+    make_tray_module,
+    make_tray_type,
+)
 
 
 def _call(*args):
@@ -47,17 +53,29 @@ class ConvertFixtureMixin:
             fiber_cable_type=fct,
             cable_attrs={"type": "smf-os2", "label": label},
         )
-        fp_ids = []
         for strand in fc.fiber_strands.all():
-            for fp_id in (strand.front_port_a_id, strand.front_port_b_id):
-                FrontPort.objects.filter(pk=fp_id).update(name=f"{label}:T1:F{strand.position}")
-                fp_ids.append(fp_id)
-        rp_ids = PortMapping.objects.filter(front_port_id__in=fp_ids).values("rear_port_id")
+            FrontPort.objects.filter(pk__in=(strand.front_port_a_id, strand.front_port_b_id)).update(
+                name=f"{label}:T1:F{strand.position}"
+            )
+        rp_ids = PortMapping.objects.filter(front_port_id__in=self._front_port_ids(fc)).values("rear_port_id")
         RearPort.objects.filter(pk__in=rp_ids).update(name=f"{label}:T1")
         return fc
 
+    @staticmethod
+    def _front_port_ids(fc):
+        return [
+            fp_id
+            for strand in fc.fiber_strands.all()
+            for fp_id in (strand.front_port_a_id, strand.front_port_b_id)
+            if fp_id is not None
+        ]
+
     def _names(self, device, model):
         return sorted(model.objects.filter(device=device).values_list("name", flat=True))
+
+    def _park_fronts(self, fc, device, module):
+        """Move a cable's front ports on one device onto a module, as tube assignment would."""
+        FrontPort.objects.filter(pk__in=self._front_port_ids(fc), device=device).update(module=module)
 
 
 class TestConvertPortNames(ConvertFixtureMixin, TestCase):
@@ -163,15 +181,9 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
 
         # Legacy structure: ONE rear port for the whole tube, ribbons flattened.
-        with fms_portmapping_bypass():
-            rp = RearPort.objects.create(device=self.dev_a, name="RIB:T1", type="splice", positions=4)
-            for i, strand in enumerate(fc.fiber_strands.order_by("position"), start=1):
-                fp = FrontPort.objects.create(device=self.dev_a, name=f"RIB:T1:F{i}", type="splice")
-                PortMapping.objects.create(
-                    device=self.dev_a, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
-                )
-                strand.front_port_a = fp
-                strand.save(update_fields=["front_port_a"])
+        rp = RearPort.objects.create(device=self.dev_a, name="RIB:T1", type="splice", positions=4)
+        fps = [FrontPort.objects.create(device=self.dev_a, name=f"RIB:T1:F{i}", type="splice") for i in range(1, 5)]
+        land_strands(fc, fps, rear_port=rp)
 
         _out, err = _call()
 
@@ -180,3 +192,59 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         assert rp.name == f"{cable.pk}:T1", "the tube-grouped rear port keeps a T name, not R"
         assert RearPort.objects.filter(device=self.dev_a).count() == 1, "no rear-port re-homing"
         assert self._names(self.dev_a, FrontPort) == sorted(f"{cable.pk}:F{n}" for n in range(1, 5))
+
+
+class TestConvertPortNamesOwnership(ConvertFixtureMixin, TestCase):
+    """Only ports FMS created are converted (issue #180); adopted ports keep their names."""
+
+    def test_ports_parked_on_a_splice_tray_convert(self):
+        fc = self._build_legacy("TRY")
+        tray = make_tray_module(self.dev_a, make_tray_type(self.mfr, "CVT-Tray"), "Tray 1")
+        self._park_fronts(fc, self.dev_a, tray)
+        pk = fc.cable_id
+
+        _out, err = _call()
+
+        assert err == ""
+        assert self._names(self.dev_a, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
+        assert self._names(self.dev_a, RearPort) == [f"{pk}:T1"]
+
+    def test_ports_on_a_non_tray_module_are_left_alone(self):
+        """A cassette's ports were designed with the module type; FMS never places ports there.
+
+        The device-level rear port stays too: its mapped fronts are not ours.
+        """
+        fc = self._build_legacy("CAS")
+        cassette = make_tray_module(self.dev_a, make_tray_type(self.mfr, "CVT-Cassette", role=None), "Slot 1")
+        self._park_fronts(fc, self.dev_a, cassette)
+        pk = fc.cable_id
+
+        _out, err = _call()
+
+        assert err == ""
+        assert self._names(self.dev_a, FrontPort) == ["CAS:T1:F1", "CAS:T1:F2"]
+        assert self._names(self.dev_a, RearPort) == ["CAS:T1"]
+        # The other end sits at device level with no templates, so it still converts.
+        assert self._names(self.dev_b, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
+
+    def test_template_born_device_level_ports_are_left_alone(self):
+        """Device-level ports instantiated from the DeviceType's templates keep the operator's names."""
+        from dcim.models import Cable, Device, DeviceType, FrontPortTemplate, RearPortTemplate
+
+        dt = DeviceType.objects.create(manufacturer=self.mfr, model="CVT-Panel", slug="cvt-panel")
+        RearPortTemplate.objects.create(device_type=dt, name="MPO", type="mpo", positions=2)
+        for n in (1, 2):
+            FrontPortTemplate.objects.create(device_type=dt, name=f"LC{n}", type="lc")
+        panel = Device.objects.create(name="CVT-Panel", site=self.dev_a.site, device_type=dt, role=self.dev_a.role)
+        rp = RearPort.objects.get(device=panel)
+        fct = FiberCableType.objects.create(
+            manufacturer=self.mfr, model="CVT-TPL", construction="tight_buffer", strand_count=2
+        )
+        fc = FiberCable.objects.create(cable=Cable.objects.create(label="TPL"), fiber_cable_type=fct)
+        land_strands(fc, [FrontPort.objects.get(device=panel, name=f"LC{i}") for i in (1, 2)], rear_port=rp)
+
+        out, err = _call()
+
+        assert out == "" and err == ""
+        assert self._names(panel, FrontPort) == ["LC1", "LC2"]
+        assert self._names(panel, RearPort) == ["MPO"]

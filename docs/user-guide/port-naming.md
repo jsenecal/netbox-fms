@@ -71,3 +71,23 @@ python manage.py convert_port_names [--cable-type <pk-or-model>] [--dry-run] [--
 
 After converting names, run `rerender_port_labels` if the affected ports
 predate the label engine, so their labels carry the readable identity.
+
+## Which ports FMS renames
+
+FMS records that it touched a port (the strand's FrontPort reference) but
+not whether it created it, so an adopted patch-panel port and a provisioned
+splice port look alike. The conversion command tells them apart by where
+the port sits:
+
+| Front port location | Treatment |
+|---------------------|-----------|
+| On a module whose tray profile role is splice tray | FMS-owned: converted. Tube assignment parks ports on splice trays only. |
+| At device level (no module) | FMS-owned unless its name matches one of the DeviceType's front port templates. FMS creates ports at device level and leaves them there until a tray assignment moves them. |
+| On any other module (cassette, panel module, express basket) | Left alone. FMS never places ports there, so the port came from the ModuleType's templates or was moved by hand. |
+
+A rear port follows its mapped front ports: it is converted only when every
+one of them is FMS-owned, so a cassette's MPO rear port stays untouched even
+though the trunk cable terminates on it.
+
+Adoption through Link Topology never renames: the adopted ports keep the
+names they were created with.

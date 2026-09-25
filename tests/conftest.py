@@ -70,6 +70,29 @@ def make_closure_with_tray(prefix, port_count=2, port_type="splice"):
     return rig
 
 
+def land_strands(fc, front_ports, rear_port=None, fk="front_port_a"):
+    """Point a cable's strands, in position order, at the given FrontPorts.
+
+    With ``rear_port``, also create the PortMappings (rear positions 1..N)
+    the FMS port walk follows. Runs under the PortMapping bypass because
+    the pair becomes FMS-managed the moment the strand FK lands.
+    """
+    from dcim.models import PortMapping
+
+    from netbox_fms.signals import fms_portmapping_bypass
+
+    strands = list(fc.fiber_strands.order_by("position"))
+    with fms_portmapping_bypass():
+        for i, (strand, fp) in enumerate(zip(strands, front_ports, strict=True), start=1):
+            if rear_port is not None:
+                PortMapping.objects.get_or_create(
+                    device=fp.device, front_port=fp, rear_port=rear_port, front_port_position=1, rear_port_position=i
+                )
+            setattr(strand, fk, fp)
+            strand.save(update_fields=[fk])
+    return strands
+
+
 def connect_front_ports(port_a, port_b):
     """Create a zero-length jumper cable between two FrontPorts."""
     from dcim.models import Cable, CableTermination

@@ -207,9 +207,10 @@ The service handles two paths:
   service proposes a mapping between existing FrontPorts and strand positions.
   If the mapping has not been confirmed, it raises a `NeedsMappingConfirmation`
   exception with the proposed mapping so the caller can review and approve it.
-  Once confirmed, the adopted ports are renamed once into the write-once
-  naming scheme (skipped with a warning if the names would collide); their
-  existing rear-port structure is kept as-is.
+  Once confirmed, the adopted ports keep their names and their existing
+  rear-port structure: they were designed with the panel or module, and
+  nothing in FMS depends on a port's name (see
+  [Port Naming](port-naming.md#which-ports-fms-renames)).
 
 ---
 

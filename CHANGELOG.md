@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   splice capacity, so a 24-position tray takes two pairs of 12-fiber tubes
   instead of one. The field is exposed on the REST API, GraphQL (as
   `spliceCapacity`), import, bulk edit, and list views. (#89)
+- Link Topology no longer renames adopted ports: ports that already exist
+  on a panel or module keep the names they were designed with, since
+  nothing in FMS depends on a port's name. (#180)
+- `convert_port_names` only renames ports FMS created, judged by placement:
+  front ports on a splice tray, or at device level with a name the
+  DeviceType's templates do not account for. Ports on any other module
+  are left alone, and a rear port is left alone as soon as one of its
+  mapped front ports is. (#180)
 
 ### Fixed
 
