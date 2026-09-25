@@ -73,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Toolbar pills (the splice editor view and filter pills) now take their
+  hover tint from the shared `--fms-hover` theme token instead of a
+  hardcoded white overlay, so they show a visible hover state in the
+  light theme too, where the white overlay was invisible. (#179)
 - Link Topology now shows the warnings the linking service returns (a
   missing cable profile, a port name template fallback) as messages after
   the redirect; they were computed and dropped.

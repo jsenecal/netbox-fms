@@ -466,7 +466,7 @@
 
 .fms-pill:hover {
   color: var(--fms-text);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--fms-hover);
 }
 
 .fms-pill:focus-visible {
