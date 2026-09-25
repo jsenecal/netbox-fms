@@ -1,0 +1,8 @@
+{% load i18n %}
+{% comment %}Compact tray usage readout. Expects `util`, a TrayUtilization.{% endcomment %}
+<span class="fms-tray-utilization{% if util.over_capacity %} text-danger{% endif %}" title="{% trans "tubes / strands / splices against the tray profile" %}">
+    {% if util.tube_capacity is not None %}<span{% if util.over_tubes %} class="fw-bold"{% endif %}>{{ util.tubes }}/{{ util.tube_capacity }} {% trans "tubes" %}</span>{% else %}<span>{{ util.tubes }} {% trans "tubes" %}</span>{% endif %},
+    <span{% if util.over_strands %} class="fw-bold"{% endif %}>{{ util.strands }}/{{ util.strand_capacity }} {% trans "fibers" %}</span>,
+    <span{% if util.over_splices %} class="fw-bold"{% endif %}>{{ util.splices }}/{{ util.splice_capacity }} {% trans "splices" %}</span>
+    {% if util.over_capacity %}<span class="badge text-bg-danger ms-1">{% trans "Over capacity" %}</span>{% endif %}
+</span>

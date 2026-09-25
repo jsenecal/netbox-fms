@@ -1,16 +1,26 @@
 """Diff computation engine for splice plans and link topology services."""
 
 import logging
+from collections import defaultdict
+from dataclasses import dataclass
 
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 
 from . import naming
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
-from .models import ClosureCableEntry, FiberCable, FiberCircuit, FiberCircuitNode, SplicePlanEntry
+from .models import (
+    BufferTube,
+    ClosureCableEntry,
+    FiberCable,
+    FiberCircuit,
+    FiberCircuitNode,
+    SplicePlanEntry,
+    TubeAssignment,
+)
 from .signals import fms_portmapping_bypass
 
 logger = logging.getLogger(__name__)
@@ -593,6 +603,149 @@ def front_port_splice_pairs(front_port_ids):
         if a_id in front_port_ids and b_id in front_port_ids:
             pairs.append((a_id, b_id))
     return pairs
+
+
+@dataclass
+class TrayUtilization:
+    """What one tray module holds, measured against its TrayProfile.
+
+    Capacity is a count of splice positions, never a map of which position
+    a splice sits in. A position joins one A-side and one B-side strand, so
+    the tray can physically hold twice that many strands. Tube capacity is
+    optional: None means the profile sets no limit.
+    """
+
+    tray: Module
+    profile: object
+    tubes: int = 0
+    strands: int = 0
+    splices: int = 0
+
+    @property
+    def splice_capacity(self):
+        return self.profile.splice_capacity
+
+    @property
+    def tube_capacity(self):
+        return self.profile.tube_capacity
+
+    @property
+    def strand_capacity(self):
+        return 2 * self.profile.splice_capacity
+
+    @property
+    def remaining_strands(self):
+        return self.strand_capacity - self.strands
+
+    @property
+    def remaining_tubes(self):
+        if self.tube_capacity is None:
+            return None
+        return self.tube_capacity - self.tubes
+
+    @property
+    def over_tubes(self):
+        return self.tube_capacity is not None and self.tubes > self.tube_capacity
+
+    @property
+    def over_strands(self):
+        return self.strands > self.strand_capacity
+
+    @property
+    def over_splices(self):
+        return self.splices > self.splice_capacity
+
+    @property
+    def over_capacity(self):
+        return self.over_tubes or self.over_strands or self.over_splices
+
+    def fits(self, tube_count, strand_count):
+        """True if adding tube_count tubes carrying strand_count strands stays within capacity."""
+        if self.remaining_tubes is not None and tube_count > self.remaining_tubes:
+            return False
+        return strand_count <= self.remaining_strands
+
+
+def tray_utilization(closure):
+    """Return {module_id: TrayUtilization} for every profiled module on the closure.
+
+    Tubes and strands come from TubeAssignment rows; splices are the live
+    splice pairs get_live_state attributes to the tray, so a splice whose
+    other end sits on a device-level port still counts on the tray that
+    holds it.
+    """
+    modules = Module.objects.filter(device=closure, module_type__tray_profile__isnull=False).select_related(
+        "module_type__tray_profile"
+    )
+    result = {m.pk: TrayUtilization(tray=m, profile=m.module_type.tray_profile) for m in modules}
+    if not result:
+        return result
+
+    per_tray = (
+        TubeAssignment.objects.filter(closure=closure, tray_id__in=result)
+        .values("tray_id")
+        .annotate(tubes=Count("pk", distinct=True), strands=Count("buffer_tube__fiber_strands"))
+    )
+    for row in per_tray:
+        result[row["tray_id"]].tubes = row["tubes"]
+        result[row["tray_id"]].strands = row["strands"]
+
+    for tray_id, pairs in get_live_state(closure).items():
+        if tray_id in result:
+            result[tray_id].splices = len(pairs)
+    return result
+
+
+def auto_assign_tubes(closure):
+    """Assign every unassigned tube on the closure to a splice tray with room.
+
+    Tubes at the same position across cables (T1 from Cable A and T1 from
+    Cable B) are placed together on the first tray that can take the whole
+    group, since they are the tubes most likely to be spliced to each
+    other; trays fill in order rather than round-robin so a closure uses as
+    few trays as its capacity allows. A group that fits nowhere is split
+    tube by tube. Trays are never filled past their profile capacity; tubes
+    that fit nowhere stay unassigned.
+    """
+    trays = sorted(
+        (u for u in tray_utilization(closure).values() if u.profile.tray_role == TrayRoleChoices.SPLICE_TRAY),
+        key=lambda u: u.tray.pk,
+    )
+    if not trays:
+        return
+
+    assigned_tube_ids = TubeAssignment.objects.filter(closure=closure).values_list("buffer_tube_id", flat=True)
+    cable_ids = ClosureCableEntry.objects.filter(closure=closure).values_list("fiber_cable_id", flat=True)
+    unassigned = (
+        BufferTube.objects.filter(fiber_cable_id__in=cable_ids)
+        .exclude(pk__in=assigned_tube_ids)
+        .annotate(strand_total=Count("fiber_strands"))
+        .order_by("position", "fiber_cable__pk")
+    )
+
+    by_position = defaultdict(list)
+    for tube in unassigned:
+        by_position[tube.position].append(tube)
+
+    def place(tray, tubes):
+        for tube in tubes:
+            TubeAssignment.objects.create(closure=closure, tray=tray.tray, buffer_tube=tube)
+        tray.tubes += len(tubes)
+        tray.strands += sum(t.strand_total for t in tubes)
+
+    def first_fit(tubes):
+        total = sum(t.strand_total for t in tubes)
+        for tray in trays:
+            if tray.fits(len(tubes), total):
+                place(tray, tubes)
+                return True
+        return False
+
+    for position in sorted(by_position):
+        tubes = by_position[position]
+        if not first_fit(tubes):
+            for tube in tubes:
+                first_fit([tube])
 
 
 def get_live_state(closure):

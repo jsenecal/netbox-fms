@@ -12,7 +12,7 @@
                 {{ tray.module|linkify }}
                 <span class="fms-badge fms-badge--active">{% trans "Splice Tray" %}</span>
             </span>
-            <span class="text-muted">{{ tray.fiber_count }}/{{ tray.capacity }} {% trans "fibers" %}</span>
+            <span class="text-muted">{% include "netbox_fms/inc/tray_utilization.html" with util=tray.util %}</span>
         </div>
         {% if tray.assigned_tubes %}
         <ul class="list-group list-group-flush">
@@ -51,7 +51,7 @@
                 {{ basket.module|linkify }}
                 <span class="fms-badge fms-badge--draft">{% trans "Express Basket" %}</span>
             </span>
-            <span class="text-muted">{{ basket.capacity }} {% trans "positions" %}</span>
+            <span class="text-muted">{% if basket.util.tube_capacity is not None %}{{ basket.util.tube_capacity }} {% trans "tubes" %}{% else %}{% trans "No tube limit" %}{% endif %}</span>
         </div>
         <div class="card-body text-muted py-2">
             {% trans "Pass-through tubes — no splicing" %}
