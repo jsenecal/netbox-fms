@@ -13,7 +13,8 @@ from django.test import TestCase
 
 from netbox_fms.models import FiberCable, FiberCableType
 from netbox_fms.services import is_intra_closure_jumper
-from tests.conftest import make_closure_with_tray, make_front_port
+from netbox_fms.template_content import CableFiberCablePanel
+from tests.conftest import make_closure_with_tray, make_front_port, render_left_page
 
 
 class TestIsIntraClosureJumper(TestCase):
@@ -74,19 +75,10 @@ class TestCablePanelSkipsJumper(TestCase):
         )
         cls.far_fp = make_front_port(cls.far_device, "JGP-Far-FP")
 
-    def _render_panel(self, cable):
-        from django.test import RequestFactory
-
-        from netbox_fms.template_content import CableFiberCablePanel
-
-        request = RequestFactory().get(f"/dcim/cables/{cable.pk}/")
-        panel = CableFiberCablePanel(context={"object": cable, "request": request, "config": {}})
-        return panel.left_page()
-
     def test_no_link_action_for_jumper(self):
         jumper = Cable.objects.create(a_terminations=[self.fp1], b_terminations=[self.fp2], length=0, length_unit="m")
-        assert "Link Fiber Cable" not in self._render_panel(jumper)
+        assert "Link Fiber Cable" not in render_left_page(CableFiberCablePanel, jumper)
 
     def test_link_action_kept_for_topology_cable(self):
         cable = Cable.objects.create(a_terminations=[self.fp1], b_terminations=[self.far_fp])
-        assert "Link Fiber Cable" in self._render_panel(cable)
+        assert "Link Fiber Cable" in render_left_page(CableFiberCablePanel, cable)

@@ -2,10 +2,18 @@ from types import SimpleNamespace
 
 from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.contrib.auth import get_user_model
+from django.test import RequestFactory
 from rest_framework.test import APIClient
 
 # Counter to ensure unique FrontPort names across tests (no longer needed but kept for safety)
 _fp_counter = 0
+
+
+def render_left_page(extension_cls, obj, path="/"):
+    """Render a PluginTemplateExtension's left_page() for obj outside a full view."""
+    request = RequestFactory().get(path)
+    extension = extension_cls(context={"object": obj, "request": request, "config": {}})
+    return extension.left_page()
 
 
 def make_infra(prefix):
