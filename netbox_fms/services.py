@@ -343,9 +343,15 @@ def _device_template_port_names(device):
     """Names the DeviceType's templates gave the device's own front ports.
 
     Device-level templates carry no ``{module}`` token, so resolving them
-    is a plain string read (virtual-chassis positions aside).
+    is a plain string read (virtual-chassis positions aside). NetBox 4.7
+    added the device-aware ``{vc_position}`` placeholder and with it the
+    ``device`` argument; older releases resolve ``{module}`` only.
     """
-    return {t.resolve_name(device=device) for t in device.device_type.frontporttemplates.all()}
+    templates = device.device_type.frontporttemplates.all()
+    try:
+        return {t.resolve_name(device=device) for t in templates}
+    except TypeError:
+        return {t.resolve_name() for t in templates}
 
 
 def fms_owned_front_port_ids(pms):
