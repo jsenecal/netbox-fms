@@ -4,6 +4,7 @@ on:
   pull_request:
     paths-ignore:
       - '**.md'
+      - '**.css'
       - 'docs/**'
       - 'LICENSE'
       - 'renovate.json'
@@ -16,6 +17,7 @@ on:
     branches: [main]
     paths-ignore:
       - '**.md'
+      - '**.css'
       - 'docs/**'
       - 'LICENSE'
       - 'renovate.json'
