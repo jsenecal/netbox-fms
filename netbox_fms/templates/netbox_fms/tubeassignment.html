@@ -22,6 +22,10 @@
                     <td>{{ object.buffer_tube|linkify }}</td>
                 </tr>
                 <tr>
+                    <th scope="row">{% trans "Tray Utilization" %}</th>
+                    <td>{% if tray_util %}{% include "netbox_fms/inc/tray_utilization.html" with util=tray_util %}{% else %}{{ ''|placeholder }}{% endif %}</td>
+                </tr>
+                <tr>
                     <th scope="row">{% trans "Position" %}</th>
                     <td>{{ object.position|placeholder }}</td>
                 </tr>

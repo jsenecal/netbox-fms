@@ -9,8 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Splice tray utilization. Every tray now reports tubes assigned, strands
+  landed, and live splices against its TrayProfile capacity on the closure
+  Fiber Overview tray card, in the assign-tube modal (with free strands per
+  tray), on Tube Assignment lists and detail pages, and as the tray
+  `capacity` the visual splice editor receives. Trays past any limit are
+  flagged "Over capacity" but assignments are never refused; only
+  auto-assign declines to overfill a tray on its own. (#89)
+- `TrayProfile.tube_capacity`, an optional limit on the number of buffer
+  tubes a tray holds. Blank means no limit. (#89)
+
 - Module Type detail pages (Devices > Module Types) now show the FMS
-  tray profile details -- role, max fibers, description, and a link to
+  tray profile details -- role, capacities, description, and a link to
   the profile -- when the module type has one, or an "Add Tray Profile"
   action when it does not.
 - The trace engine crosses provider circuits: a trunk cable landing on a
@@ -30,6 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`DF-EAST-01` between CL-03 and Hub-East in `--simple`, one NO->SO Path
   A segment in the full set) so a sample fiber circuit crosses a provider
   circuit and demonstrates the derived `provider_circuits` relation. (#135)
+
+### Changed
+
+- `TrayProfile.max_fibers` is renamed `splice_capacity` and defined as the
+  number of splice positions, each joining one A-side and one B-side
+  strand. Stored values are unchanged, matching what the documentation
+  already asked for. Auto-assign now reserves strands against twice the
+  splice capacity, so a 24-position tray takes two pairs of 12-fiber tubes
+  instead of one. The field is exposed on the REST API, GraphQL (as
+  `spliceCapacity`), import, bulk edit, and list views. (#89)
 
 ### Fixed
 

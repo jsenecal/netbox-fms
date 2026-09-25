@@ -47,11 +47,11 @@ This workflow bridges the gap between NetBox's native cable plant and the FMS fi
 
 ## Tray Assignments
 
-For closures with splice trays (modules whose type carries a [TrayProfile](splice-planning.md#trayprofile)), the Fiber Overview tab shows a tray assignments card listing each tray, its capacity, and the buffer tubes assigned to it. From this card an operator can:
+For closures with splice trays (modules whose type carries a [TrayProfile](splice-planning.md#trayprofile)), the Fiber Overview tab shows a tray assignments card listing each tray, its utilization (tubes, strands, and live splices against the profile's capacity, flagged **Over capacity** when any is exceeded), and the buffer tubes assigned to it. From this card an operator can:
 
-- **Assign** -- place an unassigned buffer tube onto a specific splice tray. Only trays with the Splice Tray role are offered.
+- **Assign** -- place an unassigned buffer tube onto a specific splice tray. Only trays with the Splice Tray role are offered, each with its free strand count; a tray the tube would overfill is marked but still selectable.
 - **Unassign** -- remove a tube's tray assignment.
-- **Auto-assign** -- distribute all unassigned tubes across the closure's splice trays. Tubes at the same position across cables (e.g., T1 from Cable A and T1 from Cable B) are paired onto the same tray when its remaining `max_fibers` capacity allows.
+- **Auto-assign** -- distribute all unassigned tubes across the closure's splice trays. Tubes at the same position across cables (e.g., T1 from Cable A and T1 from Cable B) are paired onto the same tray when its remaining capacity (twice `splice_capacity` in strands, and `tube_capacity` when set) allows.
 
 Tubes can only be assigned once their fiber cable has a ClosureCableEntry on the closure. See [Splice Planning: Preparing a Closure](splice-planning.md#preparing-a-closure) for the full setup sequence.
 

@@ -1,4 +1,6 @@
 import django_tables2 as tables
+from django.template.loader import render_to_string
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from netbox.tables import NetBoxTable, columns
 
@@ -501,8 +503,8 @@ class TrayProfileTable(NetBoxTable):
 
     class Meta(NetBoxTable.Meta):
         model = TrayProfile
-        fields = ("pk", "id", "module_type", "tray_role", "description", "actions")
-        default_columns = ("module_type", "tray_role", "description")
+        fields = ("pk", "id", "module_type", "tray_role", "splice_capacity", "tube_capacity", "description", "actions")
+        default_columns = ("module_type", "tray_role", "splice_capacity", "tube_capacity", "description")
 
 
 class TubeAssignmentTable(NetBoxTable):
@@ -512,11 +514,25 @@ class TubeAssignmentTable(NetBoxTable):
     tray = tables.Column(linkify=True)
     buffer_tube = tables.Column(linkify=True)
     position = tables.Column()
+    tray_utilization = tables.Column(accessor="pk", orderable=False, verbose_name=_("Tray Utilization"))
 
     class Meta(NetBoxTable.Meta):
         model = TubeAssignment
-        fields = ("pk", "id", "closure", "tray", "buffer_tube", "position", "actions")
-        default_columns = ("closure", "tray", "buffer_tube", "position")
+        fields = ("pk", "id", "closure", "tray", "buffer_tube", "position", "tray_utilization", "actions")
+        default_columns = ("closure", "tray", "buffer_tube", "position", "tray_utilization")
+
+    def render_tray_utilization(self, record):
+        from .services import tray_utilization
+
+        # One utilization pass per closure, not per row: a closure's rows
+        # share the same tray counts.
+        cache = self.__dict__.setdefault("_tray_utilization_by_closure", {})
+        if record.closure_id not in cache:
+            cache[record.closure_id] = tray_utilization(record.closure)
+        util = cache[record.closure_id].get(record.tray_id)
+        if util is None:
+            return "-"
+        return mark_safe(render_to_string("netbox_fms/inc/tray_utilization.html", {"util": util}))  # noqa: S308
 
 
 # ---------------------------------------------------------------------------

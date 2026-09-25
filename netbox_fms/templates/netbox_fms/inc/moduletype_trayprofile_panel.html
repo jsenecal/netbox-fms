@@ -12,8 +12,12 @@
             <td>{{ tray_profile.get_tray_role_display }}</td>
         </tr>
         <tr>
-            <th scope="row">{% trans "Max Fibers" %}</th>
-            <td>{{ tray_profile.max_fibers }}</td>
+            <th scope="row">{% trans "Splice Capacity" %}</th>
+            <td>{{ tray_profile.splice_capacity }}</td>
+        </tr>
+        <tr>
+            <th scope="row">{% trans "Tube Capacity" %}</th>
+            <td>{{ tray_profile.tube_capacity|placeholder }}</td>
         </tr>
         <tr>
             <th scope="row">{% trans "Description" %}</th>

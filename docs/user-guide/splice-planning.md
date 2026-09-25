@@ -52,12 +52,15 @@ A ClosureCableEntry manages cable gland and entrance assignments on closure devi
 
 ### TrayProfile
 
-A TrayProfile is an overlay on a `dcim.ModuleType` declaring it as splice hardware. It carries two attributes:
+A TrayProfile is an overlay on a `dcim.ModuleType` declaring it as splice hardware. It carries three attributes:
 
 - **tray_role** -- either **Splice Tray** (holds splices; accepts tube assignments) or **Express Basket** (pass-through slack storage; does not accept tube assignments).
-- **max_fibers** -- the number of splice positions in the tray, used by tube auto-assignment to respect capacity.
+- **splice_capacity** -- the number of splice positions in the tray. Each position joins one A-side strand to one B-side strand, so a tray can physically hold twice this many strands. FMS counts positions; it never records which position a given splice occupies.
+- **tube_capacity** -- the number of buffer tubes the tray can hold. Leave it blank when the tray sets no limit.
 
 Modules installed in a closure are only treated as trays when their module type has a TrayProfile.
+
+Capacity is advisory. Every tray reports its utilization as three counts against the profile -- tubes assigned, strands landed against twice the splice capacity, and live splices against the splice capacity -- on the closure's Fiber Overview tab, on Tube Assignment lists and detail pages, and in the visual splice editor. A tray past any of its limits is flagged **Over capacity** but nothing refuses the assignment, because over-filled trays happen in the field and the record should say so. Only auto-assignment declines to overfill a tray on its own.
 
 ### TubeAssignment
 

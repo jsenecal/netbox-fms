@@ -42,31 +42,32 @@ def make_front_port(device, name, module=None, port_type="lc"):
     return FrontPort.objects.create(**kwargs)
 
 
-def make_closure_with_tray(prefix, port_count=2, port_type="splice"):
-    """Create a closure Device holding one tray Module with FrontPorts on it.
+def make_closure(prefix):
+    """A bare closure Device named "<prefix>-Closure" on fresh make_infra rigging.
 
-    Returns a SimpleNamespace exposing the make_infra quartet (site, mfr,
-    device_type, role) plus closure, tray, and ports (a list of port_count
-    FrontPorts named "<prefix>-F<n>" attached to the tray), so callers can
-    build plans, cables, or sibling devices from the same rigging.
+    Returns a SimpleNamespace with the make_infra quartet (site, mfr,
+    device_type, role) plus closure.
     """
     site, mfr, dt, role = make_infra(prefix)
     closure = Device.objects.create(name=f"{prefix}-Closure", site=site, device_type=dt, role=role)
-    mt = ModuleType.objects.create(manufacturer=mfr, model=f"{prefix} Tray")
-    bay = ModuleBay.objects.create(device=closure, name="Bay 1")
-    tray = Module.objects.create(device=closure, module_bay=bay, module_type=mt)
-    ports = [
-        make_front_port(closure, f"{prefix}-F{n}", module=tray, port_type=port_type) for n in range(1, port_count + 1)
+    return SimpleNamespace(site=site, mfr=mfr, device_type=dt, role=role, closure=closure)
+
+
+def make_closure_with_tray(prefix, port_count=2, port_type="splice"):
+    """Create a closure Device holding one tray Module with FrontPorts on it.
+
+    Extends make_closure's namespace with tray and ports (a list of
+    port_count FrontPorts named "<prefix>-F<n>" attached to the tray), so
+    callers can build plans, cables, or sibling devices from the same rigging.
+    """
+    rig = make_closure(prefix)
+    mt = ModuleType.objects.create(manufacturer=rig.mfr, model=f"{prefix} Tray")
+    rig.tray = make_tray_module(rig.closure, mt, "Bay 1")
+    rig.ports = [
+        make_front_port(rig.closure, f"{prefix}-F{n}", module=rig.tray, port_type=port_type)
+        for n in range(1, port_count + 1)
     ]
-    return SimpleNamespace(
-        site=site,
-        mfr=mfr,
-        device_type=dt,
-        role=role,
-        closure=closure,
-        tray=tray,
-        ports=ports,
-    )
+    return rig
 
 
 def connect_front_ports(port_a, port_b):
@@ -81,13 +82,17 @@ def connect_front_ports(port_a, port_b):
     return cable
 
 
-def make_tray_type(mfr, model, role="splice_tray"):
-    """ModuleType with a TrayProfile of the given role; role=None leaves it unprofiled."""
+def make_tray_type(mfr, model, role="splice_tray", **profile_fields):
+    """ModuleType with a TrayProfile of the given role; role=None leaves it unprofiled.
+
+    Extra keyword arguments (splice_capacity, tube_capacity, ...) go onto
+    the profile.
+    """
     from netbox_fms.models import TrayProfile
 
     module_type = ModuleType.objects.create(manufacturer=mfr, model=model)
     if role is not None:
-        TrayProfile.objects.create(module_type=module_type, tray_role=role)
+        TrayProfile.objects.create(module_type=module_type, tray_role=role, **profile_fields)
     return module_type
 
 
