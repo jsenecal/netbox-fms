@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-25
+
 ### Added
 
 - Port name templates. Two optional `PLUGINS_CONFIG` settings,
@@ -30,7 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auto-assign declines to overfill a tray on its own. (#89)
 - `TrayProfile.tube_capacity`, an optional limit on the number of buffer
   tubes a tray holds. Blank means no limit. (#89)
-
 - Module Type detail pages (Devices > Module Types) now show the FMS
   tray profile details -- role, capacities, description, and a link to
   the profile -- when the module type has one, or an "Add Tray Profile"
