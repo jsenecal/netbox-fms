@@ -1,9 +1,36 @@
+from io import StringIO
 from types import SimpleNamespace
 
 from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import RequestFactory
 from rest_framework.test import APIClient
+
+# Port name templates the name-template tests configure; the rear guard keeps
+# tubeless constructions renderable.
+NAME_TEMPLATES = {
+    "front_port_name_template": "{{ cable }}-{{ end }}-F{{ strand }}",
+    "rear_port_name_template": "{{ cable }}-{{ end }}{% if tube_name %}-{{ tube_name }}{% endif %}",
+}
+
+
+def port_names(device, model):
+    """Sorted names of a device's ports of one model (FrontPort or RearPort)."""
+    return sorted(model.objects.filter(device=device).values_list("name", flat=True))
+
+
+def port_labels(device, model):
+    """Sorted labels of a device's ports of one model (FrontPort or RearPort)."""
+    return sorted(model.objects.filter(device=device).values_list("label", flat=True))
+
+
+def call_command_capture(name, *args):
+    """Run a management command and return its (stdout, stderr) text."""
+    out, err = StringIO(), StringIO()
+    call_command(name, *args, stdout=out, stderr=err)
+    return out.getvalue(), err.getvalue()
+
 
 # Counter to ensure unique FrontPort names across tests (no longer needed but kept for safety)
 _fp_counter = 0
@@ -136,6 +163,23 @@ def make_closure_pair(prefix):
     dev_a = Device.objects.create(name=f"{prefix}-A", site=site, device_type=dt, role=role)
     dev_b = Device.objects.create(name=f"{prefix}-B", site=site, device_type=dt, role=role)
     return SimpleNamespace(site=site, mfr=mfr, device_type=dt, role=role, dev_a=dev_a, dev_b=dev_b)
+
+
+class ClosurePairMixin:
+    """TestCase mixin exposing a make_closure_pair rig as ``mfr`` / ``dev_a`` / ``dev_b``.
+
+    Subclasses set ``prefix`` so their objects do not collide with another
+    module's rig in the shared test database.
+    """
+
+    prefix = "PAIR"
+
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair(cls.prefix)
+        cls.mfr = pair.mfr
+        cls.dev_a = pair.dev_a
+        cls.dev_b = pair.dev_b
 
 
 def make_ribbon_in_tube_type(mfr, model, tubes, ribbons_per_tube, fibers=12):

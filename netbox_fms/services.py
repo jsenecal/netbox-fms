@@ -1,7 +1,7 @@
 """Diff computation engine for splice plans and link topology services."""
 
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict, namedtuple
 from dataclasses import dataclass
 
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, ModuleBay, PortMapping, RearPort
@@ -174,6 +174,118 @@ def _compile_label_templates():
         return None
 
 
+def _port_context_builder(fc, device, end):
+    """Closure building the template context for one cable end on one device."""
+    fct = fc.fiber_cable_type
+
+    def _ctx(tube=None, strand=None, ribbon=None):
+        return naming.port_context(
+            cable=fc.cable,
+            cable_type=fct,
+            device=device,
+            end=end,
+            color_scheme=fct.color_scheme,
+            tube=tube,
+            strand=strand,
+            ribbon=ribbon,
+        )
+
+    return _ctx
+
+
+def rear_group_context(ctx, strands, **extra):
+    """Template context for the rear port covering a strand group.
+
+    Only a container shared by EVERY strand renders: a legacy tube-grouped
+    ribbon cable or an adopted whole-cable panel port spans several, and
+    naming or labeling it after the first strand's would be a lie. The one
+    place this rule lives; ``ctx`` is a :func:`_port_context_builder`-style
+    callable and ``extra`` passes through to it.
+    """
+    return ctx(tube=shared_tube(strands), ribbon=shared_ribbon(strands), **extra)
+
+
+# fronts: one name per strand of ``front_strands``; rears: one per group of
+# ``rear_groups``; fallback: None when the names came from the configured
+# templates or the grammar as configured, else the reason the whole device
+# end was named by the pk grammar instead of its template.
+GeneratedNames = namedtuple("GeneratedNames", "fronts rears fallback")
+
+
+def generate_port_names(fc, device, end, front_strands, rear_groups, ordinals, *, exclude_fp_ids=(), exclude_rp_ids=()):
+    """Names for the ports FMS creates (or converts) for one cable on one device.
+
+    ``front_strands`` get a FrontPort each and ``rear_groups`` (strand
+    lists) a RearPort each. Unset name templates mean the pk grammar. A
+    configured template is rendered for every port first, then the set is
+    pre-checked: each name must fit its dcim column, be unique among its
+    kind, and be free on the device -- ``exclude_*`` are the cable's own
+    ports, whose current names are not collisions when converting. Any
+    failure, a broken template included, drops EVERY port of this device
+    end to the grammar, so one cable end is never named by two schemes,
+    and ``fallback`` carries the reason for the operator.
+    """
+    cable_id = fc.cable_id
+    grammar = GeneratedNames(
+        [naming.front_port_name(cable_id, strand.position) for strand in front_strands],
+        [rear_name_for_group(cable_id, group, ordinals) for group in rear_groups],
+        None,
+    )
+    try:
+        compiled = naming.compile_names()
+        if not any(compiled.values()):
+            return grammar
+        ctx = _port_context_builder(fc, device, end)
+        fronts = [
+            naming.render(naming.FRONT_PORT_NAME, compiled, ctx(strand=strand), truncate=False)
+            for strand in front_strands
+        ]
+        rears = [
+            naming.render(naming.REAR_PORT_NAME, compiled, rear_group_context(ctx, group), truncate=False)
+            for group in rear_groups
+        ]
+        if compiled[naming.FRONT_PORT_NAME] is not None:
+            _check_port_names(naming.FRONT_PORT_NAME, FrontPort, device, fronts, exclude_fp_ids)
+        if compiled[naming.REAR_PORT_NAME] is not None:
+            _check_port_names(naming.REAR_PORT_NAME, RearPort, device, rears, exclude_rp_ids)
+    except naming.NamingError as exc:
+        reason = f"Port name template fell back to pk-based names for cable {fc.cable} on {device}: {exc}"
+        logger.warning(reason)
+        return grammar._replace(fallback=reason)
+    # An unset target renders None: that kind keeps the grammar.
+    return GeneratedNames(
+        [name if name is not None else grammar_name for name, grammar_name in zip(fronts, grammar.fronts, strict=True)],
+        [name if name is not None else grammar_name for name, grammar_name in zip(rears, grammar.rears, strict=True)],
+        None,
+    )
+
+
+def _name_collisions(model, device, names, exclude_ids):
+    """Why a set of proposed port names could not be stored on a device as it stands.
+
+    Returns ``(duplicates, holder)``: the names proposed more than once, and
+    one existing port of ``model`` on ``device`` -- outside ``exclude_ids``,
+    the ports being named -- that already carries a proposed name, or None.
+    """
+    duplicates = sorted(name for name, count in Counter(names).items() if count > 1)
+    holder = model.objects.filter(device=device, name__in=names).exclude(pk__in=exclude_ids).first()
+    return duplicates, holder
+
+
+def _check_port_names(target, model, device, names, exclude_ids):
+    """Refuse a rendered name set that the device could not store as it stands."""
+    setting = naming.TARGETS[target].setting
+    limit = naming.max_length(target)
+    for name in names:
+        if len(name) > limit:
+            raise naming.NamingError(f"{setting}: rendered {name!r} is {len(name)} characters; the maximum is {limit}")
+    duplicates, holder = _name_collisions(model, device, names, exclude_ids)
+    if duplicates:
+        raise naming.NamingError(f"{setting}: rendered duplicate name {duplicates[0]!r}")
+    if holder is not None:
+        raise naming.NamingError(f"{setting}: {holder.name!r} is already the name of another port on {device}")
+
+
 def strand_port_groups(strands):
     """Group strands by their innermost physical container, in fiber order.
 
@@ -199,7 +311,7 @@ def strand_port_groups(strands):
     return ordered
 
 
-def _provision_device_ports(fc, device, port_type, fk_field):
+def _provision_device_ports(fc, device, port_type, fk_field, warnings):
     """Create greenfield ports on a device for every strand of a FiberCable.
 
     One RearPort per physical container -- buffer tube for loose-tube
@@ -210,51 +322,48 @@ def _provision_device_ports(fc, device, port_type, fk_field):
     is pointed at its new FrontPort. Does NOT create CableTerminations --
     callers terminate the cable on the returned RearPorts themselves.
 
-    Names follow the write-once pk grammar (``netbox_fms.naming``); every
-    port is also created with a rendered label, degrading to blank labels
-    on a broken template rather than failing the provisioning.
+    Names are write-once, from :func:`generate_port_names` (configured
+    templates, else the pk grammar); a template fallback is appended to
+    ``warnings`` for the operator. Every port is also created with a
+    rendered label, degrading to blank labels on a broken template rather
+    than failing the provisioning.
 
     Returns: list of (container_or_None, rear_port, fiber_count) tuples,
     in fiber order.
     """
     provisioned = []
     strands = list(fc.fiber_strands.select_related("buffer_tube", "ribbon").order_by("position"))
-    cable_id = fc.cable_id
-    fct = fc.fiber_cable_type
     compiled = _compile_label_templates()
     end = "A" if fk_field == "front_port_a" else "B"
-    ordinals = ribbon_ordinals(strands)
-
-    def _ctx(tube=None, strand=None, ribbon=None):
-        return naming.port_context(
-            cable=fc.cable,
-            cable_type=fct,
-            device=device,
-            end=end,
-            color_scheme=fct.color_scheme,
-            tube=tube,
-            strand=strand,
-            ribbon=ribbon,
-        )
+    groups = strand_port_groups(strands)
+    ordered_strands = [strand for _container, group_strands in groups for strand in group_strands]
+    names = generate_port_names(
+        fc,
+        device,
+        end,
+        ordered_strands,
+        [group_strands for _container, group_strands in groups],
+        ribbon_ordinals(strands),
+    )
+    if names.fallback:
+        warnings.append(names.fallback)
+    front_names = iter(names.fronts)
+    _ctx = _port_context_builder(fc, device, end)
 
     with fms_portmapping_bypass():
-        for container, group_strands in strand_port_groups(strands):
-            first = group_strands[0]
-            rear_ctx = _ctx(tube=first.buffer_tube, ribbon=first.ribbon if first.ribbon_id is not None else None)
+        for (container, group_strands), rear_name in zip(groups, names.rears, strict=True):
             rp = RearPort.objects.create(
                 device=device,
-                name=rear_name_for_group(cable_id, group_strands, ordinals),
-                label=_render_port_label(compiled, naming.REAR_PORT_LABEL, rear_ctx),
+                name=rear_name,
+                label=_render_port_label(compiled, naming.REAR_PORT_LABEL, rear_group_context(_ctx, group_strands)),
                 type=port_type,
                 positions=len(group_strands),
             )
             for i, strand in enumerate(group_strands, start=1):
                 fp = FrontPort.objects.create(
                     device=device,
-                    name=naming.front_port_name(cable_id, strand.position),
-                    label=_render_port_label(
-                        compiled, naming.FRONT_PORT_LABEL, _ctx(tube=strand.buffer_tube, strand=strand)
-                    ),
+                    name=next(front_names),
+                    label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(strand=strand)),
                     type=port_type,
                 )
                 PortMapping.objects.create(
@@ -386,68 +495,89 @@ def plan_port_names(fc):
 
     Only ports FMS owns (:func:`fms_owned_front_port_ids`) are renamed; a
     rear port follows its mapped front ports and is left alone as soon as
-    one of them is foreign. Names are rebuilt within the EXISTING rear-port
-    structure: each rear port is named for the one container (ribbon, else
-    tube) shared by every strand mapped to it, falling back to the bare
-    cable pk when its strands span containers (e.g. a legacy tube-grouped
-    ribbon cable). Front ports always get the absolute-number name.
+    one of them is foreign. Names come from :func:`generate_port_names`
+    per device (configured templates, else the pk grammar) and are rebuilt
+    within the EXISTING rear-port structure: each rear port is named for
+    the one container (ribbon, else tube) shared by every strand mapped to
+    it, falling back to the bare cable pk when its strands span containers
+    (e.g. a legacy tube-grouped ribbon cable).
 
-    Returns ``(renames, problems)``: ``renames`` is ``[(port, new_name)]``
-    limited to ports whose name actually changes, and ``problems`` lists
-    human-readable collision descriptions. Callers must not apply a plan
-    that carries problems -- names are unique per device, so a partial
-    rename would strand the cable between schemes.
+    Returns ``(renames, problems, warnings)``: ``renames`` is
+    ``[(port, new_name)]`` limited to ports whose name actually changes,
+    ``problems`` lists human-readable collision descriptions, and
+    ``warnings`` the template fallbacks. Callers must not apply a plan that
+    carries problems -- names are unique per device, so a partial rename
+    would strand the cable between schemes.
     """
-    from dcim.models import FrontPort, RearPort
-
     from .signals import _cable_strand_ports, _rear_port_strand_groups
 
     strand_by_fp_id, pms = _cable_strand_ports(fc)
-    cable_id = fc.cable_id
     ordinals = ribbon_ordinals(strand_by_fp_id.values())
     owned_fp_ids = fms_owned_front_port_ids(pms)
     foreign_rp_ids = {pm.rear_port_id for pm in pms if pm.front_port_id not in owned_fp_ids}
 
-    proposed = {}  # port -> new name
+    # Names are unique per device, so the template pre-check runs per device:
+    # device_id -> (device, [(front_port, strand)], [(rear_port, strands)])
+    by_device = {}
+
+    def _bucket(device):
+        return by_device.setdefault(device.pk, (device, [], []))
+
     seen_fp_ids = set()
     for pm in pms:
         if pm.front_port_id in seen_fp_ids or pm.front_port_id not in owned_fp_ids:
             continue
         seen_fp_ids.add(pm.front_port_id)
-        strand = strand_by_fp_id[pm.front_port_id]
-        proposed[pm.front_port] = naming.front_port_name(cable_id, strand.position)
-
+        _bucket(pm.front_port.device)[1].append((pm.front_port, strand_by_fp_id[pm.front_port_id]))
     for rp, rp_strands in _rear_port_strand_groups(strand_by_fp_id, pms):
         if rp.pk not in foreign_rp_ids:
-            proposed[rp] = rear_name_for_group(cable_id, rp_strands, ordinals)
+            _bucket(rp.device)[2].append((rp, rp_strands))
+
+    proposed = {}  # port -> new name
+    warnings = []
+    for device, fronts, rears in by_device.values():
+        names = generate_port_names(
+            fc,
+            device,
+            _determine_cable_end(fc.cable, device),
+            [strand for _fp, strand in fronts],
+            [rp_strands for _rp, rp_strands in rears],
+            ordinals,
+            exclude_fp_ids=[fp.pk for fp, _strand in fronts],
+            exclude_rp_ids=[rp.pk for rp, _strands in rears],
+        )
+        if names.fallback:
+            warnings.append(names.fallback)
+        proposed.update(zip([fp for fp, _strand in fronts], names.fronts, strict=True))
+        proposed.update(zip([rp for rp, _strands in rears], names.rears, strict=True))
 
     renames = [(port, name) for port, name in proposed.items() if port.name != name]
 
     problems = []
     for model in (FrontPort, RearPort):
         planned = [(port, name) for port, name in renames if isinstance(port, model)]
-        by_device = {}
-        for port, name in planned:
-            key = (port.device_id, name)
-            if key in by_device:
-                problems.append(f"{model.__name__} name {name!r} proposed for two ports on device {port.device}")
-            by_device[key] = port
-        # A proposed name matching the current name of a DIFFERENT port in the
-        # plan is also refused: the end state would be consistent, but the
-        # non-deferrable unique constraint can reject the swap mid-update.
-        current = {(port.device_id, port.name): port.pk for port, _ in planned}
         renamed_ids = {port.pk for port, _ in planned}
-        for (device_id, name), port in by_device.items():
-            if current.get((device_id, name), port.pk) != port.pk:
-                problems.append(f"{model.__name__} {name!r} is still held by another port being renamed")
-                continue
-            holder = model.objects.filter(device_id=device_id, name=name).exclude(pk__in=renamed_ids).first()
+        current = {(port.device_id, port.name): port.pk for port, _ in planned}
+        planned_by_device = {}  # device_id -> (device, [(port, name)])
+        for port, name in planned:
+            planned_by_device.setdefault(port.device_id, (port.device, []))[1].append((port, name))
+        for device, device_planned in planned_by_device.values():
+            names = [name for _port, name in device_planned]
+            duplicates, holder = _name_collisions(model, device, names, renamed_ids)
+            for name in duplicates:
+                problems.append(f"{model.__name__} name {name!r} proposed for two ports on device {device}")
+            # A proposed name matching the current name of a DIFFERENT port in
+            # the plan is also refused: the end state would be consistent, but
+            # the non-deferrable unique constraint can reject the swap mid-update.
+            for port, name in device_planned:
+                if current.get((device.pk, name), port.pk) != port.pk:
+                    problems.append(f"{model.__name__} {name!r} is still held by another port being renamed")
             if holder is not None:
                 problems.append(
-                    f"{model.__name__} {name!r} would collide with existing port {holder.pk} on {holder.device}"
+                    f"{model.__name__} {holder.name!r} would collide with existing port {holder.pk} on {holder.device}"
                 )
 
-    return renames, problems
+    return renames, problems, warnings
 
 
 def apply_port_names(renames):
@@ -564,7 +694,7 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
             # numbered over the provisioned groups (tubes or ribbons) in fiber
             # order, matching the profile derived by get_cable_profile().
             for connector, (_container, rp, fiber_count) in enumerate(
-                _provision_device_ports(fc, device, port_type, fk_field), start=1
+                _provision_device_ports(fc, device, port_type, fk_field, warnings), start=1
             ):
                 CableTermination.objects.create(
                     cable=cable,
@@ -600,8 +730,8 @@ def create_closure_cable(*, device_a, device_b, fiber_cable_type, port_type="spl
     cable.save()
     fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fiber_cable_type)
 
-    provisioned_a = _provision_device_ports(fc, device_a, port_type, "front_port_a")
-    provisioned_b = _provision_device_ports(fc, device_b, port_type, "front_port_b")
+    provisioned_a = _provision_device_ports(fc, device_a, port_type, "front_port_a", warnings)
+    provisioned_b = _provision_device_ports(fc, device_b, port_type, "front_port_b", warnings)
 
     profile_key = fiber_cable_type.get_cable_profile()
     if profile_key:

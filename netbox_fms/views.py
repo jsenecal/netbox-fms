@@ -2330,6 +2330,12 @@ def _get_closure_cable_or_404(device, cable_id):
     return cable
 
 
+def _flash_warnings(request, warnings):
+    """Queue provisioning warnings as messages, so they survive the redirect that follows."""
+    for warning in warnings:
+        messages.warning(request, warning)
+
+
 def _hx_redirect_to_fiber_overview(pk):
     """200 response redirecting the HTMX client to the device's Fiber Overview tab."""
     response = HttpResponse(status=200)
@@ -2396,7 +2402,8 @@ class LinkTopologyView(LoginRequiredMixin, View):
             for key, value in request.POST.items():
                 if key.startswith("mapping_"):
                     port_mapping[int(key.split("_")[1])] = int(value)
-            fc, warnings = link_cable_topology(cable, fct, device, port_mapping=port_mapping)
+            _fc, warnings = link_cable_topology(cable, fct, device, port_mapping=port_mapping)
+            _flash_warnings(request, warnings)
             return _hx_redirect_to_fiber_overview(pk)
 
         form = LinkTopologyForm(request.POST)
@@ -2415,7 +2422,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
         strand_count = (fiber_cable.fiber_cable_type if fiber_cable else fct).strand_count
 
         try:
-            fc, warnings = link_cable_topology(cable, fct, device, port_type=port_type)
+            _fc, warnings = link_cable_topology(cable, fct, device, port_type=port_type)
         except NeedsMappingConfirmation as exc:
             mapping_entries = []
             for pos in range(1, strand_count + 1):
@@ -2443,6 +2450,7 @@ class LinkTopologyView(LoginRequiredMixin, View):
                 },
             )
 
+        _flash_warnings(request, warnings)
         return _hx_redirect_to_fiber_overview(pk)
 
 
@@ -2794,8 +2802,7 @@ class ClosureCableWizardView(LoginRequiredMixin, View):
         except (ValidationError, ValueError) as e:
             error_text = "; ".join(e.messages) if isinstance(e, ValidationError) else str(e)
             return self._render_step(request, device, 3, state, error=error_text)
-        for warning in warnings:
-            messages.warning(request, warning)
+        _flash_warnings(request, warnings)
         messages.success(
             request,
             _('Created fiber cable "{cable}" between {a} and {b}.').format(

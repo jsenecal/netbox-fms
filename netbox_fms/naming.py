@@ -1,23 +1,26 @@
-"""Port name grammar and Jinja2 rendering of generated port labels.
+"""Port name grammar and Jinja2 rendering of generated port names and labels.
 
 Pure by design: nothing here imports ``netbox_fms.models``, and model
 instances are read by attribute only. That keeps the module unit-testable
 without database fixtures and free of circular imports.
 
-Generated port NAMES are machine-facing, write-once identifiers built from
-the dcim.Cable primary key and the strand's absolute cable-wide fiber
+Generated port NAMES are write-once: a port is named when it is created and
+nothing renames it afterwards. The built-in grammar is machine-facing, built
+from the dcim.Cable primary key and the strand's absolute cable-wide fiber
 number (ArcFM FiberNumber / OSP convention: identity is cable + absolute
-number). The pk is immutable, so a name never has to change after
-provisioning. The grammar lives only here -- :func:`front_port_name` and
-:func:`rear_port_name` -- and every producer of generated names must call
-these helpers.
+number); the pk is immutable, so it can never drift. The grammar lives only
+here -- :func:`front_port_name` and :func:`rear_port_name` -- and every
+producer of generated names must call these helpers. Operators who want
+readable names can set a name template instead; because names are unique
+per device and column-limited, a rendered set that breaks either rule drops
+back to the grammar (the caller, ``services.generate_port_names``, decides).
 
-Port LABELS are the display layer: names carry no readable identity, so the
-label does (cable display label, tube, ribbon, strand color, absolute fiber
-number). The built-in defaults are therefore deliberately non-blank.
+Port LABELS are the display layer: pk names carry no readable identity, so
+the label does (cable display label, tube, ribbon, strand color, absolute
+fiber number). The built-in defaults are therefore deliberately non-blank.
 Operators customize them plugin-wide through ``PLUGINS_CONFIG['netbox_fms']``;
-setting a template to the empty string opts that target out of label
-management entirely.
+setting a label template to the empty string opts that target out of label
+management entirely, while a blank name template simply means the grammar.
 """
 
 from collections import namedtuple
@@ -32,14 +35,20 @@ __all__ = (
     "DEFAULT_FRONT_PORT_LABEL",
     "DEFAULT_REAR_PORT_LABEL",
     "FRONT_PORT_LABEL",
+    "FRONT_PORT_NAME",
+    "LABEL_TARGETS",
+    "NAME_TARGETS",
     "REAR_PORT_LABEL",
+    "REAR_PORT_NAME",
     "TARGETS",
     "NamingError",
     "labels_use_tray",
     "color_name",
     "compile_labels",
+    "compile_names",
     "dummy_contexts",
     "front_port_name",
+    "max_length",
     "port_context",
     "rear_port_name",
     "render",
@@ -50,7 +59,7 @@ __all__ = (
 
 
 class NamingError(ValueError):
-    """A label template failed to compile or render."""
+    """A port template failed to compile or render, or its output cannot be stored."""
 
 
 def front_port_name(cable_id, position):
@@ -81,6 +90,8 @@ def rear_port_name(cable_id, tube=None, ribbon=None):
 
 FRONT_PORT_LABEL = "front_port_label"
 REAR_PORT_LABEL = "rear_port_label"
+FRONT_PORT_NAME = "front_port_name"
+REAR_PORT_NAME = "rear_port_name"
 
 _CABLE = ("cable", "cable_id", "cable_type")
 _TUBE = ("tube", "tube_name", "tube_color", "tube_color_hex")
@@ -94,6 +105,9 @@ _TRAY_TOKENS = frozenset(_TRAY)
 
 _FRONT_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND + _PORT + _TRAY)
 _REAR_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _PORT)
+# Names are written once, at creation, before any tray assignment exists, so
+# a tray token in a name template could only ever render None.
+_FRONT_NAME_TOKENS = frozenset(_CABLE + _TUBE + _RIBBON + _STRAND + _PORT)
 
 # Non-blank on purpose: with pk-based port names on the roadmap, the label is
 # the only human-readable identity a port carries. Every optional token is
@@ -112,13 +126,26 @@ DEFAULT_REAR_PORT_LABEL = (
     "{% if ribbon_name %} / {{ ribbon_name }}{% endif %}"
 )
 
-TargetSpec = namedtuple("TargetSpec", "setting max_length tokens default")
+# ``column`` is the (dcim model, field) a target renders into; its length
+# limit is read from that field at render time (see :func:`max_length`), so
+# the plugin follows NetBox if it ever widens the port name or label columns.
+TargetSpec = namedtuple("TargetSpec", "setting column tokens default")
 
-# max_length matches dcim's FrontPort.label / RearPort.label columns (64).
-TARGETS = {
-    FRONT_PORT_LABEL: TargetSpec("front_port_label_template", 64, _FRONT_TOKENS, DEFAULT_FRONT_PORT_LABEL),
-    REAR_PORT_LABEL: TargetSpec("rear_port_label_template", 64, _REAR_TOKENS, DEFAULT_REAR_PORT_LABEL),
+LABEL_TARGETS = {
+    FRONT_PORT_LABEL: TargetSpec(
+        "front_port_label_template", ("FrontPort", "label"), _FRONT_TOKENS, DEFAULT_FRONT_PORT_LABEL
+    ),
+    REAR_PORT_LABEL: TargetSpec(
+        "rear_port_label_template", ("RearPort", "label"), _REAR_TOKENS, DEFAULT_REAR_PORT_LABEL
+    ),
 }
+# A blank name template is not an opt-out (a port cannot go unnamed): it
+# means the pk grammar, which is why the defaults are empty.
+NAME_TARGETS = {
+    FRONT_PORT_NAME: TargetSpec("front_port_name_template", ("FrontPort", "name"), _FRONT_NAME_TOKENS, ""),
+    REAR_PORT_NAME: TargetSpec("rear_port_name_template", ("RearPort", "name"), _REAR_TOKENS, ""),
+}
+TARGETS = {**LABEL_TARGETS, **NAME_TARGETS}
 
 # autoescape stays off deliberately: these render device component labels,
 # not HTML. Escaping would corrupt legitimate characters such as "&".
@@ -181,7 +208,7 @@ def labels_use_tray():
     """
     from jinja2 import meta
 
-    for target in TARGETS:
+    for target in LABEL_TARGETS:
         source = resolve_source(target)
         if not source.strip():
             continue
@@ -203,6 +230,14 @@ def resolve_source(target):
     return spec.default
 
 
+def max_length(target):
+    """Length limit of the dcim column a target renders into, read live."""
+    from django.apps import apps
+
+    model_name, field_name = TARGETS[target].column
+    return apps.get_model("dcim", model_name)._meta.get_field(field_name).max_length
+
+
 def _syntax_guard(target, func, source):
     """Run a Jinja parse/compile, re-raising a syntax error as :class:`NamingError`.
 
@@ -211,30 +246,40 @@ def _syntax_guard(target, func, source):
     ``TemplateSyntaxError`` is not a ``NamingError``, so the callers' guards
     would miss it and every FMS cable save and provisioning call would raise.
     Normalising it here is what lets those guards degrade to "leave the
-    labels alone" instead.
+    labels alone" or "use the pk grammar" instead.
     """
     try:
         return func(source)
     except TemplateSyntaxError as exc:
-        raise NamingError(f"{target}: template syntax error: {exc.message}") from exc
+        raise NamingError(f"{TARGETS[target].setting}: template syntax error: {exc.message}") from exc
 
 
-def compile_labels():
-    """Compile every label target's template once. A blank source compiles to None.
+def _compile(targets):
+    """Compile each target's template once. A blank source compiles to None.
 
     Raises :class:`NamingError` -- never a raw ``TemplateSyntaxError`` -- so a
     malformed ``PLUGINS_CONFIG`` template is caught by the callers' existing
     ``except NamingError`` guards. See :func:`_syntax_guard`.
     """
     compiled = {}
-    for target in TARGETS:
+    for target in targets:
         source = resolve_source(target)
         compiled[target] = _syntax_guard(target, _ENV.from_string, source) if source.strip() else None
     return compiled
 
 
+def compile_labels():
+    """Compile the label targets; an opted-out target compiles to None."""
+    return _compile(LABEL_TARGETS)
+
+
+def compile_names():
+    """Compile the name targets; an unset target compiles to None (use the grammar)."""
+    return _compile(NAME_TARGETS)
+
+
 def validate_plugin_config():
-    """Validate every label template set in ``PLUGINS_CONFIG``.
+    """Validate every port template set in ``PLUGINS_CONFIG``.
 
     Returns a list of ``(setting_key, message)`` pairs, empty when the config
     is clean. Never raises: a bad plugin setting must be reported, not turned
@@ -252,8 +297,8 @@ def validate_plugin_config():
     return problems
 
 
-def render(target, compiled, context):
-    """Render one target, scoped to its tokens and truncated to its max length.
+def render(target, compiled, context, truncate=True):
+    """Render one target, scoped to its tokens and truncated to its column length.
 
     Returns ``None`` -- not ``""`` -- when the target has no configured
     template (an operator opted out with an empty setting). "No template
@@ -262,6 +307,9 @@ def render(target, compiled, context):
     alone, the second is a deliberate blanking. Callers writing to an
     existing object must skip the assignment on ``None``; callers creating a
     new object must coerce it to ``""``.
+
+    Labels are truncated to fit; names must not be, since a name that does
+    not fit is a reason to fall back to the grammar, not to store a stub.
     """
     template = compiled.get(target)
     if template is None:
@@ -269,9 +317,10 @@ def render(target, compiled, context):
     spec = TARGETS[target]
     scoped = {key: value for key, value in context.items() if key in spec.tokens}
     try:
-        return template.render(**scoped)[: spec.max_length]
+        rendered = template.render(**scoped)
     except TemplateError as exc:
-        raise NamingError(f"{target}: {exc}") from exc
+        raise NamingError(f"{spec.setting}: {exc}") from exc
+    return rendered[: max_length(target)] if truncate else rendered
 
 
 def dummy_contexts(target):
@@ -286,14 +335,14 @@ def validate(target, source):
     if not source:
         return None
     template = _syntax_guard(target, _ENV.from_string, source)
-    spec = TARGETS[target]
+    limit = max_length(target)
     for ctx in dummy_contexts(target):
         try:
             rendered = template.render(**ctx)
         except TemplateError as exc:
             raise NamingError(f"Template failed to render: {exc}") from exc
-        if len(rendered) > spec.max_length:
-            raise NamingError(f"Rendered value is {len(rendered)} characters; the maximum is {spec.max_length}.")
+        if len(rendered) > limit:
+            raise NamingError(f"Rendered value is {len(rendered)} characters; the maximum is {limit}.")
     return None
 
 
@@ -324,10 +373,12 @@ def port_context(
     and has no single strand); its position and colour are read from it.
     ``tube`` and ``ribbon`` are the strand's containers, passed separately
     because the rear-port callers have a container but no strand; a front
-    port's ribbon falls back to the strand's own. ``tray_assignment`` is the
-    TubeAssignment placing the strand's tube on this closure, when one
+    port's containers fall back to the strand's own. ``tray_assignment`` is
+    the TubeAssignment placing the strand's tube on this closure, when one
     exists -- it feeds the front-only tray tokens.
     """
+    if tube is None:
+        tube = getattr(strand, "buffer_tube", None)
     if ribbon is None:
         ribbon = getattr(strand, "ribbon", None)
     ctx = {

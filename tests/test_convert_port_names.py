@@ -6,37 +6,30 @@ rename within the EXISTING rear-port structure and skip a cable entirely on
 any name collision rather than half-renaming it.
 """
 
-from io import StringIO
+from functools import partial
 
 from dcim.models import FrontPort, PortMapping, RearPort
-from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType
 from netbox_fms.services import create_closure_cable, plan_port_names
 from tests.conftest import (
+    NAME_TEMPLATES,
+    ClosurePairMixin,
+    call_command_capture,
     land_strands,
     make_central_core_type,
-    make_closure_pair,
     make_ribbon_in_tube_type,
     make_tray_module,
     make_tray_type,
+    port_names,
 )
 
-
-def _call(*args):
-    out, err = StringIO(), StringIO()
-    call_command("convert_port_names", *args, stdout=out, stderr=err)
-    return out.getvalue(), err.getvalue()
+_call = partial(call_command_capture, "convert_port_names")
 
 
-class ConvertFixtureMixin:
-    @classmethod
-    def setUpTestData(cls):
-        pair = make_closure_pair("CVT")
-        cls.mfr = pair.mfr
-        cls.dev_a = pair.dev_a
-        cls.dev_b = pair.dev_b
+class ConvertFixtureMixin(ClosurePairMixin):
+    prefix = "CVT"
 
     def _build_legacy(self, label, *, model=None, strand_count=2):
         """Provision a loose-tube cable, then plant legacy label-derived names."""
@@ -70,9 +63,6 @@ class ConvertFixtureMixin:
             if fp_id is not None
         ]
 
-    def _names(self, device, model):
-        return sorted(model.objects.filter(device=device).values_list("name", flat=True))
-
     def _park_fronts(self, fc, device, module):
         """Move a cable's front ports on one device onto a module, as tube assignment would."""
         FrontPort.objects.filter(pk__in=self._front_port_ids(fc), device=device).update(module=module)
@@ -88,8 +78,8 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         assert err == ""
         assert "->" in out
         for device in (self.dev_a, self.dev_b):
-            assert self._names(device, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
-            assert self._names(device, RearPort) == [f"{pk}:T1"]
+            assert port_names(device, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
+            assert port_names(device, RearPort) == [f"{pk}:T1"]
 
     def test_second_run_is_a_no_op(self):
         self._build_legacy("IDEM")
@@ -105,8 +95,8 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         out, _err = _call("--dry-run")
 
         assert "->" in out, "the dry run must still report the renames it would make"
-        assert self._names(self.dev_a, FrontPort) == sorted([f"DRY:T1:F{n}" for n in (1, 2)])
-        assert self._names(self.dev_a, RearPort) == ["DRY:T1"]
+        assert port_names(self.dev_a, FrontPort) == sorted([f"DRY:T1:F{n}" for n in (1, 2)])
+        assert port_names(self.dev_a, RearPort) == ["DRY:T1"]
         assert fc.pk  # fixture used
 
     def test_cable_type_restricts_the_walk(self):
@@ -115,7 +105,7 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
 
         _call("--cable-type", "CVT-ONE")
 
-        names = self._names(self.dev_a, FrontPort)
+        names = port_names(self.dev_a, FrontPort)
         assert f"{fc_one.cable_id}:F1" in names
         assert "TWO:T1:F1" in names, "the other cable type's ports must stay untouched"
 
@@ -128,9 +118,9 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
 
         assert "skipped" in err and str(fc) in err
         # Nothing was half-renamed, on either device.
-        assert "COL:T1:F1" in self._names(self.dev_a, FrontPort)
-        assert self._names(self.dev_b, FrontPort) == sorted([f"COL:T1:F{n}" for n in (1, 2)])
-        assert self._names(self.dev_a, RearPort) == ["COL:T1"]
+        assert "COL:T1:F1" in port_names(self.dev_a, FrontPort)
+        assert port_names(self.dev_b, FrontPort) == sorted([f"COL:T1:F{n}" for n in (1, 2)])
+        assert port_names(self.dev_a, RearPort) == ["COL:T1"]
         assert out == ""
 
     def test_per_ribbon_rear_ports_recover_their_r_names(self):
@@ -152,8 +142,8 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
 
         assert err == ""
         for device in (self.dev_a, self.dev_b):
-            assert self._names(device, RearPort) == [f"{pk}:R1", f"{pk}:R2"]
-            assert self._names(device, FrontPort) == sorted(f"{pk}:F{n}" for n in range(1, 5))
+            assert port_names(device, RearPort) == [f"{pk}:R1", f"{pk}:R2"]
+            assert port_names(device, FrontPort) == sorted(f"{pk}:F{n}" for n in range(1, 5))
 
     def test_swap_shaped_rename_is_refused(self):
         """A target name still held by another port in the same plan is a problem.
@@ -166,7 +156,7 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         first, second = fc.fiber_strands.order_by("position")
         FrontPort.objects.filter(pk=first.front_port_a_id).update(name=f"{pk}:F2")
 
-        _renames, problems = plan_port_names(fc)
+        _renames, problems, _warnings = plan_port_names(fc)
 
         assert any("still held" in p for p in problems)
 
@@ -191,7 +181,7 @@ class TestConvertPortNames(ConvertFixtureMixin, TestCase):
         rp.refresh_from_db()
         assert rp.name == f"{cable.pk}:T1", "the tube-grouped rear port keeps a T name, not R"
         assert RearPort.objects.filter(device=self.dev_a).count() == 1, "no rear-port re-homing"
-        assert self._names(self.dev_a, FrontPort) == sorted(f"{cable.pk}:F{n}" for n in range(1, 5))
+        assert port_names(self.dev_a, FrontPort) == sorted(f"{cable.pk}:F{n}" for n in range(1, 5))
 
 
 class TestConvertPortNamesOwnership(ConvertFixtureMixin, TestCase):
@@ -206,8 +196,8 @@ class TestConvertPortNamesOwnership(ConvertFixtureMixin, TestCase):
         _out, err = _call()
 
         assert err == ""
-        assert self._names(self.dev_a, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
-        assert self._names(self.dev_a, RearPort) == [f"{pk}:T1"]
+        assert port_names(self.dev_a, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
+        assert port_names(self.dev_a, RearPort) == [f"{pk}:T1"]
 
     def test_ports_on_a_non_tray_module_are_left_alone(self):
         """A cassette's ports were designed with the module type; FMS never places ports there.
@@ -222,10 +212,10 @@ class TestConvertPortNamesOwnership(ConvertFixtureMixin, TestCase):
         _out, err = _call()
 
         assert err == ""
-        assert self._names(self.dev_a, FrontPort) == ["CAS:T1:F1", "CAS:T1:F2"]
-        assert self._names(self.dev_a, RearPort) == ["CAS:T1"]
+        assert port_names(self.dev_a, FrontPort) == ["CAS:T1:F1", "CAS:T1:F2"]
+        assert port_names(self.dev_a, RearPort) == ["CAS:T1"]
         # The other end sits at device level with no templates, so it still converts.
-        assert self._names(self.dev_b, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
+        assert port_names(self.dev_b, FrontPort) == sorted([f"{pk}:F1", f"{pk}:F2"])
 
     def test_template_born_device_level_ports_are_left_alone(self):
         """Device-level ports instantiated from the DeviceType's templates keep the operator's names."""
@@ -246,5 +236,40 @@ class TestConvertPortNamesOwnership(ConvertFixtureMixin, TestCase):
         out, err = _call()
 
         assert out == "" and err == ""
-        assert self._names(panel, FrontPort) == ["LC1", "LC2"]
-        assert self._names(panel, RearPort) == ["MPO"]
+        assert port_names(panel, FrontPort) == ["LC1", "LC2"]
+        assert port_names(panel, RearPort) == ["MPO"]
+
+
+class TestConvertPortNamesTemplates(ConvertFixtureMixin, TestCase):
+    """A configured name template is the scheme the command converges on."""
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": NAME_TEMPLATES})
+    def test_configured_template_converges_existing_names(self):
+        self._build_legacy("TPL")
+
+        _call()
+
+        assert port_names(self.dev_a, FrontPort) == ["TPL-A-F1", "TPL-A-F2"]
+        assert port_names(self.dev_b, FrontPort) == ["TPL-B-F1", "TPL-B-F2"]
+        assert port_names(self.dev_b, RearPort) == ["TPL-B-T1"]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": NAME_TEMPLATES})
+    def test_second_run_on_template_names_is_a_no_op(self):
+        """A port's own current name must not count as a collision against itself."""
+        self._build_legacy("AGAIN")
+        _call()
+
+        out, err = _call()
+
+        assert out == ""
+        assert err == ""
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": "{{ cable }}"}})
+    def test_template_fallback_is_reported_and_pk_names_applied(self):
+        fc = self._build_legacy("FB")
+
+        _out, err = _call()
+
+        assert "fell back" in err
+        assert "FB" in err
+        assert port_names(self.dev_a, FrontPort) == [f"{fc.cable_id}:F1", f"{fc.cable_id}:F2"]
