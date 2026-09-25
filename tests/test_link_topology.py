@@ -367,6 +367,11 @@ def _make_closure_with_existing_ports():
     return device, cable, fct, fps
 
 
+def _full_mapping(fps):
+    """Adopt mapping that lands strand N on the Nth existing port."""
+    return {i: fp.pk for i, fp in enumerate(fps, start=1)}
+
+
 def _rig_with_existing_fibercable():
     """The adopt rig plus a FiberCable already on the cable (the issue #87 state)."""
     device, cable, fct, fps = _make_closure_with_existing_ports()
@@ -384,56 +389,34 @@ class TestLinkCableTopologyAdopt:
 
     def test_adopts_existing_ports_with_mapping(self):
         device, cable, fct, fps = _make_closure_with_existing_ports()
-        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        mapping = _full_mapping(fps)
         fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
         assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
 
         assert RearPort.objects.filter(device=device).count() == 1  # no new RearPorts
 
-    def test_adopted_ports_converge_to_generated_names(self):
-        """Adoption applies the write-once naming once, at link time (issue #153).
-
-        There is no ongoing rename-on-cable-save sync any more, so this
-        one-shot pass is what brings foreign port names into the scheme.
-        """
+    def test_adopted_ports_keep_their_names(self):
+        """Adoption never renames: the ports pre-exist, so their names belong to whoever made them."""
         from dcim.models import FrontPort
 
         device, cable, fct, fps = _make_closure_with_existing_ports()
-        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        mapping = _full_mapping(fps)
         fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
 
         fp_names = set(FrontPort.objects.filter(device=device).values_list("name", flat=True))
-        assert fp_names == {f"{cable.pk}:F{i}" for i in range(1, 13)}
-        rp = RearPort.objects.get(device=device)
-        assert rp.name == str(cable.pk)  # tight buffer: bare pk
+        assert fp_names == {f"EF{i}" for i in range(1, 13)}
+        assert RearPort.objects.get(device=device).name == "Existing-RP"
         assert warnings == []
 
-    def test_adopted_rename_skipped_on_collision(self):
-        """A port already holding a target name blocks the pass; adoption still succeeds."""
-        from dcim.models import FrontPort
-
-        device, cable, fct, fps = _make_closure_with_existing_ports()
-        FrontPort.objects.create(device=device, name=f"{cable.pk}:F3", type="splice")
-        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
-
-        fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
-
-        assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 12
-        assert any("collide" in w.lower() or "collision" in w.lower() for w in warnings), warnings
-        fps[0].refresh_from_db()
-        assert fps[0].name == "EF1"  # nothing was half-renamed
-
-    def test_adopted_tubed_ports_get_tube_rear_names(self):
-        from dcim.models import FrontPort
-
+    def test_adopts_across_multiple_rearports(self):
+        """Regression for issue #64: per-rear-port positions offset to global strand positions."""
         device, cable, fct, fps = self._make_closure_with_multiple_rearports()
-        mapping = {pos: fps[pos - 1].pk for pos in range(1, 49)}
+        mapping = _full_mapping(fps)
         fc, warnings = link_cable_topology(cable, fct, device, port_mapping=mapping)
 
-        rp_names = set(RearPort.objects.filter(device=device).values_list("name", flat=True))
-        assert rp_names == {f"{cable.pk}:T{t}" for t in range(1, 5)}
-        fp_names = set(FrontPort.objects.filter(device=device).values_list("name", flat=True))
-        assert fp_names == {f"{cable.pk}:F{i}" for i in range(1, 49)}
+        linked = {s.position: s.front_port_a_id for s in fc.fiber_strands.all()}
+        assert linked == {pos: fps[pos - 1].pk for pos in range(1, 49)}
+        assert warnings == []
 
     def test_count_mismatch_has_warning(self):
         device, cable, fct, fps = _make_closure_with_existing_ports()
@@ -687,7 +670,7 @@ class TestLinkStrandsExistingFiberCable:
 
     def test_links_strands_into_existing_fibercable(self):
         device, cable, fct, fps, fc = _rig_with_existing_fibercable()
-        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        mapping = _full_mapping(fps)
         linked_fc, _warnings = link_cable_topology(cable, None, device, port_mapping=mapping)
         assert linked_fc.pk == fc.pk
         assert FiberCable.objects.filter(cable=cable).count() == 1
@@ -697,7 +680,7 @@ class TestLinkStrandsExistingFiberCable:
         """The form path never sets the cable profile; linking strands does."""
         device, cable, fct, fps, fc = _rig_with_existing_fibercable()
         assert not cable.profile
-        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        mapping = _full_mapping(fps)
         link_cable_topology(cable, None, device, port_mapping=mapping)
         cable.refresh_from_db()
         assert cable.profile == "single-1c12p"
@@ -707,7 +690,7 @@ class TestLinkStrandsExistingFiberCable:
         other = FiberCableType.objects.create(
             manufacturer=fct.manufacturer, model="AD-Other", strand_count=12, construction="tight_buffer"
         )
-        mapping = {i: fps[i - 1].pk for i in range(1, 13)}
+        mapping = _full_mapping(fps)
         with pytest.raises(ValueError):
             link_cable_topology(cable, other, device, port_mapping=mapping)
 

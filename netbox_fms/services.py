@@ -333,15 +333,64 @@ def bulk_update_port_field(ports, field):
         model.objects.bulk_update(group, [field], batch_size=500)
 
 
-def plan_port_names(fc):
-    """Propose write-once names for a FiberCable's provisioned ports.
+def is_splice_tray(module):
+    """True when the module's type carries a splice-tray profile."""
+    profile = getattr(module.module_type, "tray_profile", None)
+    return profile is not None and profile.tray_role == TrayRoleChoices.SPLICE_TRAY
 
-    Names are rebuilt within the EXISTING rear-port structure: each rear
-    port is named for the one container (ribbon, else tube) shared by every
-    strand mapped to it, falling back to the bare cable pk when its strands
-    span containers (e.g. a legacy tube-grouped ribbon cable, or an adopted
-    panel port covering the whole cable). Front ports always get the
-    absolute-number name.
+
+def _device_template_port_names(device):
+    """Names the DeviceType's templates gave the device's own front ports.
+
+    Device-level templates carry no ``{module}`` token, so resolving them
+    is a plain string read (virtual-chassis positions aside). NetBox 4.7
+    added the device-aware ``{vc_position}`` placeholder and with it the
+    ``device`` argument; older releases take only ``module``, required.
+    """
+    templates = device.device_type.frontporttemplates.all()
+    try:
+        return {t.resolve_name(device=device) for t in templates}
+    except TypeError:
+        return {t.resolve_name(module=None) for t in templates}
+
+
+def fms_owned_front_port_ids(pms):
+    """Ids of the mapped FrontPorts that FMS created, judged by placement.
+
+    FMS records that it touched a port (the strand FK) but not whether it
+    created it, so adopted and provisioned ports look alike. Where the port
+    sits tells them apart: tube assignment parks ports on splice trays
+    only, so a port on one is ours; FMS creates ports at device level and
+    leaves them there until a tray assignment moves them, so a device-level
+    port is ours unless the DeviceType's templates account for its name;
+    FMS never places a port on any other module, so such a port was
+    instantiated from the ModuleType or moved there by hand.
+    """
+    owned = set()
+    template_names_by_device_id = {}
+    for pm in pms:
+        fp = pm.front_port
+        if fp.module_id is not None:
+            if is_splice_tray(fp.module):
+                owned.add(fp.pk)
+            continue
+        if fp.device_id not in template_names_by_device_id:
+            template_names_by_device_id[fp.device_id] = _device_template_port_names(fp.device)
+        if fp.name not in template_names_by_device_id[fp.device_id]:
+            owned.add(fp.pk)
+    return owned
+
+
+def plan_port_names(fc):
+    """Propose write-once names for the ports FMS created on a FiberCable.
+
+    Only ports FMS owns (:func:`fms_owned_front_port_ids`) are renamed; a
+    rear port follows its mapped front ports and is left alone as soon as
+    one of them is foreign. Names are rebuilt within the EXISTING rear-port
+    structure: each rear port is named for the one container (ribbon, else
+    tube) shared by every strand mapped to it, falling back to the bare
+    cable pk when its strands span containers (e.g. a legacy tube-grouped
+    ribbon cable). Front ports always get the absolute-number name.
 
     Returns ``(renames, problems)``: ``renames`` is ``[(port, new_name)]``
     limited to ports whose name actually changes, and ``problems`` lists
@@ -356,18 +405,21 @@ def plan_port_names(fc):
     strand_by_fp_id, pms = _cable_strand_ports(fc)
     cable_id = fc.cable_id
     ordinals = ribbon_ordinals(strand_by_fp_id.values())
+    owned_fp_ids = fms_owned_front_port_ids(pms)
+    foreign_rp_ids = {pm.rear_port_id for pm in pms if pm.front_port_id not in owned_fp_ids}
 
     proposed = {}  # port -> new name
     seen_fp_ids = set()
     for pm in pms:
-        if pm.front_port_id in seen_fp_ids:
+        if pm.front_port_id in seen_fp_ids or pm.front_port_id not in owned_fp_ids:
             continue
         seen_fp_ids.add(pm.front_port_id)
         strand = strand_by_fp_id[pm.front_port_id]
         proposed[pm.front_port] = naming.front_port_name(cable_id, strand.position)
 
     for rp, rp_strands in _rear_port_strand_groups(strand_by_fp_id, pms):
-        proposed[rp] = rear_name_for_group(cable_id, rp_strands, ordinals)
+        if rp.pk not in foreign_rp_ids:
+            proposed[rp] = rear_name_for_group(cable_id, rp_strands, ordinals)
 
     renames = [(port, name) for port, name in proposed.items() if port.name != name]
 
@@ -506,15 +558,6 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                 if fp_id:
                     setattr(strand, fk_field, FrontPort.objects.get(pk=fp_id))
                     strand.save(update_fields=[fk_field])
-            # One-shot naming: converge the adopted ports on the write-once
-            # scheme now, because no ongoing sync will ever rename them later.
-            renames, problems = plan_port_names(fc)
-            if problems:
-                warnings.append(
-                    "Adopted port names left unchanged; generated names would collide: " + "; ".join(problems)
-                )
-            else:
-                apply_port_names(renames)
         else:
             # Greenfield path: create ports, then terminate the cable on them.
             # connector/positions enable profile-based tracing: connectors are
@@ -708,7 +751,7 @@ def auto_assign_tubes(closure):
     that fit nowhere stay unassigned.
     """
     trays = sorted(
-        (u for u in tray_utilization(closure).values() if u.profile.tray_role == TrayRoleChoices.SPLICE_TRAY),
+        (u for u in tray_utilization(closure).values() if is_splice_tray(u.tray)),
         key=lambda u: u.tray.pk,
     )
     if not trays:
@@ -1168,8 +1211,7 @@ def sync_tube_assignment_ports(assignment):
     validation must not park strand ports on a module that is not a splice
     tray, so such a sync is skipped with a warning instead.
     """
-    profile = getattr(assignment.tray.module_type, "tray_profile", None)
-    if profile is None or profile.tray_role != TrayRoleChoices.SPLICE_TRAY:
+    if not is_splice_tray(assignment.tray):
         logger.warning(
             "Skipping port sync for tube assignment %s: module %s is not a splice tray.",
             assignment.pk,

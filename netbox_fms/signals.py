@@ -151,8 +151,8 @@ def _cable_strand_ports(fc):
     Walks FiberCable -> FiberStrand -> FrontPort -> PortMapping (the rear
     ports hang off the mappings), avoiding dependency on CableTerminations
     which may be rebuilt during Cable.save(). Shared by the label-rerender
-    path and the name planners (adoption one-shot, convert_port_names) so
-    they cannot drift apart on which ports count as FMS-provisioned.
+    path and the name planner (convert_port_names) so they cannot drift
+    apart on which ports count as FMS-provisioned.
 
     Returns ``(strand_by_fp_id, pms)``: the strand backing each FrontPort id
     (with buffer_tube and ribbon preloaded), and the PortMapping list (with
@@ -171,7 +171,9 @@ def _cable_strand_ports(fc):
 
     pms = list(
         PortMapping.objects.filter(front_port_id__in=strand_by_fp_id).select_related(
-            "front_port__device", "rear_port__device"
+            "front_port__device__device_type",
+            "front_port__module__module_type__tray_profile",
+            "rear_port__device",
         )
     )
     return strand_by_fp_id, pms
