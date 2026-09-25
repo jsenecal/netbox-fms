@@ -1713,9 +1713,11 @@ class TubeAssignment(NetBoxModel):
             raise ValidationError({"tray": _("Tray must belong to the closure device.")})
 
         if self.tray_id:
+            from .services import is_splice_tray
+
             if not hasattr(self.tray.module_type, "tray_profile"):
                 raise ValidationError({"tray": _("The selected module's type does not have a Tray Profile.")})
-            if self.tray.module_type.tray_profile.tray_role != TrayRoleChoices.SPLICE_TRAY:
+            if not is_splice_tray(self.tray):
                 raise ValidationError({"tray": _("Tubes can only be assigned to splice trays, not express baskets.")})
 
         if self.buffer_tube_id and self.closure_id:

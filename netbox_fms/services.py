@@ -745,7 +745,7 @@ def auto_assign_tubes(closure):
     that fit nowhere stay unassigned.
     """
     trays = sorted(
-        (u for u in tray_utilization(closure).values() if u.profile.tray_role == TrayRoleChoices.SPLICE_TRAY),
+        (u for u in tray_utilization(closure).values() if is_splice_tray(u.tray)),
         key=lambda u: u.tray.pk,
     )
     if not trays:

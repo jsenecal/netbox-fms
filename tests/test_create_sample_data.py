@@ -104,7 +104,7 @@ class TestSplicePlanRowLeak:
 
         from netbox_fms.management.commands.create_sample_data import Command
         from netbox_fms.models import FiberCable, FiberCableType, SplicePlan
-        from tests.conftest import make_closure_with_tray, make_front_port
+        from tests.conftest import land_strands, make_closure_with_tray, make_front_port
 
         rig = make_closure_with_tray("LONE", port_count=2)
         far = Device.objects.create(name="LONE-Far", site=rig.site, device_type=rig.device_type, role=rig.role)
@@ -114,9 +114,7 @@ class TestSplicePlanRowLeak:
         rp = RearPort.objects.create(device=rig.closure, name="LONE-RP", type="splice", positions=2)
         cable = Cable.objects.create(a_terminations=[rp], b_terminations=[make_front_port(far, "LONE-Far-FP")])
         fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        for strand, fp in zip(fc.fiber_strands.order_by("position"), rig.ports, strict=True):
-            strand.front_port_a = fp
-            strand.save()
+        land_strands(fc, rig.ports)
 
         cmd = Command()
         cmd.stdout = OutputWrapper(StringIO())

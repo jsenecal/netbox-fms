@@ -9,7 +9,7 @@ from django.test import TestCase
 
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import FiberCable, FiberCableType, SplicePlan, SplicePlanEntry
-from tests.conftest import make_authed_client, make_closure_with_tray, make_front_port
+from tests.conftest import land_strands, make_authed_client, make_closure_with_tray, make_front_port
 
 
 class TestBulkUpdateExpressFlag(TestCase):
@@ -77,10 +77,7 @@ class TestClosureStrandsExpressExposure(TestCase):
         )
         fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
 
-        cls.strands = list(fc.fiber_strands.order_by("position"))
-        for strand, fp in zip(cls.strands, rig.ports, strict=True):
-            strand.front_port_a = fp
-            strand.save()
+        cls.strands = land_strands(fc, rig.ports)
 
         cls.plan = SplicePlan.objects.create(
             closure=cls.closure,
