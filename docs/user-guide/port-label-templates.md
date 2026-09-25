@@ -72,6 +72,12 @@ container and has no single strand, so strand tokens are not available to
 rear-port templates. Referencing a token that is not available to a target
 fails validation and rendering.
 
+The same tokens feed the optional
+[port name templates](port-naming.md#name-templates), with one exception:
+the tray tokens (marked "label only" below) are not available to
+`front_port_name_template`, because a port is named before any tray
+assignment exists.
+
 | Token | Front | Rear | Meaning |
 |-------|:-----:|:----:|---------|
 | `cable` | yes | yes | The linked `dcim.Cable`'s display string. |
@@ -86,8 +92,8 @@ fails validation and rendering.
 | `ribbon_color` / `ribbon_color_hex` | yes | yes | Same pattern as the tube colors, for the Ribbon. |
 | `strand` | yes | -- | The FiberStrand's **absolute, cable-wide** `position` -- the industry fiber number. |
 | `strand_color` / `strand_color_hex` | yes | -- | Resolved color name / raw hex of the strand. |
-| `tray` | yes | -- | The splice tray Module the strand's buffer tube is assigned to on this closure (its display name), or `None` when the tube is unassigned. |
-| `tray_position` | yes | -- | The TubeAssignment's `position` on that tray, or `None`. |
+| `tray` | yes (label only) | -- | The splice tray Module the strand's buffer tube is assigned to on this closure (its display name), or `None` when the tube is unassigned. |
+| `tray_position` | yes (label only) | -- | The TubeAssignment's `position` on that tray, or `None`. |
 | `device` | yes | yes | The port's device name. |
 | `end` | yes | yes | `"A"` or `"B"`, or `"AB"` for a cable that loops back onto one device. |
 
@@ -101,8 +107,9 @@ built-in defaults do.
 - Templates run in a **sandboxed** Jinja2 environment with strict
   undefined-variable handling; attribute escapes and unknown tokens fail
   instead of rendering garbage.
-- Rendered labels are **truncated to 64 characters**, the length of the
-  dcim port label columns.
+- Rendered labels are **truncated to the length of the dcim port label
+  columns** (64 characters in current NetBox releases; the plugin reads
+  the limit from the column, so it follows NetBox if that ever changes).
 - A malformed template set in `PLUGINS_CONFIG` is reported in the NetBox
   log at startup and every affected write degrades to leaving labels
   unchanged -- it never breaks a cable save or provisioning.
@@ -132,6 +139,10 @@ python manage.py rerender_port_labels [--cable-type <pk-or-model>] [--dry-run] [
 
 - There are no per-FiberCableType template fields; templates are
   plugin-wide only.
+- Labels are re-rendered; names are not. Port names can also be templated
+  (see [Port Naming](port-naming.md#name-templates)), but they are
+  written once at provisioning and only `convert_port_names` rewrites
+  them.
 - Tray tokens are front-port-only: tube assignments move front ports
   onto trays, while rear ports stay at device level, so rear templates
   have no tray to reference.

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Port name templates. Two optional `PLUGINS_CONFIG` settings,
+  `front_port_name_template` and `rear_port_name_template`, render the
+  write-once names of FMS-provisioned ports from the label token set
+  (minus the tray tokens). Every name of a cable end is rendered and
+  pre-checked before anything is written -- column length, uniqueness
+  among the new ports, and freedom from existing port names on the
+  device -- and any failure, a broken template included, names that
+  whole cable end by the pk-based grammar instead and reports why: as a
+  warning message in Link Topology and the closure cable wizard, on
+  stderr in `convert_port_names`, and in the NetBox log at startup for
+  templates that cannot compile. `convert_port_names` now converges
+  existing cables on the configured templates. (#180)
 - Splice tray utilization. Every tray now reports tubes assigned, strands
   landed, and live splices against its TrayProfile capacity on the closure
   Fiber Overview tray card, in the assign-tube modal (with free strands per
@@ -61,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Link Topology now shows the warnings the linking service returns (a
+  missing cable profile, a port name template fallback) as messages after
+  the redirect; they were computed and dropped.
 - `create_sample_data` now refreshes planner statistics between build
   phases. The whole build runs in one transaction, so the planner never
   saw the rows it was creating and, once the tables held 100k+ rows,

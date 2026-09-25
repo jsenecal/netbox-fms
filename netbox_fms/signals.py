@@ -243,7 +243,7 @@ def _render_cable_port_labels(fc):
     # (closure_id, buffer_tube_id) -> TubeAssignment, feeding the front-only
     # tray tokens; one query for the whole cable
     from .models import TubeAssignment
-    from .services import shared_ribbon
+    from .services import rear_group_context
 
     tube_ids = {s.buffer_tube_id for s in strand_by_fp_id.values() if s.buffer_tube_id}
     device_ids = {pm.front_port.device_id for pm in pms}
@@ -263,7 +263,6 @@ def _render_cable_port_labels(fc):
             compiled,
             _ctx(
                 fp.device,
-                tube=strand.buffer_tube,
                 strand=strand,
                 tray_assignment=assignment_by_key.get((fp.device_id, strand.buffer_tube_id)),
             ),
@@ -272,14 +271,7 @@ def _render_cable_port_labels(fc):
             proposed[fp] = label
 
     for rp, rp_strands in _rear_port_strand_groups(strand_by_fp_id, pms):
-        # Every strand mapped to one rear port shares its buffer tube by
-        # construction, so the first strand supplies the tube; the ribbon
-        # only renders when the whole group shares it (services.shared_ribbon).
-        label = naming.render(
-            naming.REAR_PORT_LABEL,
-            compiled,
-            _ctx(rp.device, tube=rp_strands[0].buffer_tube, ribbon=shared_ribbon(rp_strands)),
-        )
+        label = naming.render(naming.REAR_PORT_LABEL, compiled, rear_group_context(_ctx, rp_strands, device=rp.device))
         if label is not None:
             proposed[rp] = label
     return proposed

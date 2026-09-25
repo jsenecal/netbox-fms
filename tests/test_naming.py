@@ -5,10 +5,13 @@ issue #69): the pure Jinja2 engine, plugin-config resolution, context
 builders, and the built-in non-blank defaults.
 """
 
+from unittest import mock
+
 import pytest
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from netbox_fms import naming
+from tests.conftest import NAME_TEMPLATES, ClosurePairMixin, call_command_capture, port_labels, port_names
 
 
 class Stub:
@@ -179,7 +182,7 @@ class TestPluginConfigSyntaxGuard(SimpleTestCase):
         from netbox_fms import NetBoxFMSConfig
 
         with self.assertLogs("netbox_fms", level="ERROR") as captured:
-            NetBoxFMSConfig._check_label_templates()
+            NetBoxFMSConfig._check_port_templates()
         joined = "\n".join(captured.output)
         assert "rear_port_label_template" in joined
         assert "syntax" in joined
@@ -320,19 +323,16 @@ class TestPortContext(SimpleTestCase):
         assert ctx["strand"] is None
 
 
-class LabelFixtureMixin:
+class LabelFixtureMixin(ClosurePairMixin):
     """Closure pair plus a builder for provisioned FiberCables."""
 
-    @classmethod
-    def setUpTestData(cls):
-        from tests.conftest import make_closure_pair
+    prefix = "LBL"
 
-        pair = make_closure_pair("LBL")
-        cls.mfr = pair.mfr
-        cls.dev_a = pair.dev_a
-        cls.dev_b = pair.dev_b
+    def _build(self, label, **kwargs):
+        return self._provision(label, **kwargs)[:2]
 
-    def _build(self, label, *, construction="loose_tube", tube=True, ribbon=False, strand_count=2):
+    def _provision(self, label, *, construction="loose_tube", tube=True, ribbon=False, strand_count=2):
+        """Provision a two-strand cable; returns (type, fiber cable, provisioning warnings)."""
         from netbox_fms.models import BufferTubeTemplate, FiberCableType, RibbonTemplate
         from netbox_fms.services import create_closure_cable
 
@@ -348,16 +348,13 @@ class LabelFixtureMixin:
             )
         if ribbon:
             RibbonTemplate.objects.create(fiber_cable_type=fct, name="R1", position=1, fiber_count=strand_count)
-        fc, _ = create_closure_cable(
+        fc, warnings = create_closure_cable(
             device_a=self.dev_a,
             device_b=self.dev_b,
             fiber_cable_type=fct,
             cable_attrs={"type": "smf-os2", "label": label},
         )
-        return fct, fc
-
-    def _labels(self, device, model):
-        return sorted(model.objects.filter(device=device).values_list("label", flat=True))
+        return fct, fc, warnings
 
 
 class TestProvisionedLabels(LabelFixtureMixin, TestCase):
@@ -368,31 +365,31 @@ class TestProvisionedLabels(LabelFixtureMixin, TestCase):
 
         self._build("LT")
         expected_front = ["LT / T1 (Blue) / Blue / F1", "LT / T1 (Blue) / Orange / F2"]
-        assert self._labels(self.dev_a, FrontPort) == expected_front
-        assert self._labels(self.dev_b, FrontPort) == expected_front
-        assert self._labels(self.dev_a, RearPort) == ["LT / T1 (Blue)"]
-        assert self._labels(self.dev_b, RearPort) == ["LT / T1 (Blue)"]
+        assert port_labels(self.dev_a, FrontPort) == expected_front
+        assert port_labels(self.dev_b, FrontPort) == expected_front
+        assert port_labels(self.dev_a, RearPort) == ["LT / T1 (Blue)"]
+        assert port_labels(self.dev_b, RearPort) == ["LT / T1 (Blue)"]
 
     def test_tight_buffer_labels(self):
         from dcim.models import FrontPort, RearPort
 
         self._build("TB", construction="tight_buffer", tube=False)
-        assert self._labels(self.dev_a, FrontPort) == ["TB / Blue / F1", "TB / Orange / F2"]
-        assert self._labels(self.dev_a, RearPort) == ["TB"]
+        assert port_labels(self.dev_a, FrontPort) == ["TB / Blue / F1", "TB / Orange / F2"]
+        assert port_labels(self.dev_a, RearPort) == ["TB"]
 
     def test_central_ribbon_labels(self):
         from dcim.models import FrontPort
 
         self._build("CRB", construction="ribbon", tube=False, ribbon=True)
-        assert self._labels(self.dev_a, FrontPort) == ["CRB / R1 / Blue / F1", "CRB / R1 / Orange / F2"]
+        assert port_labels(self.dev_a, FrontPort) == ["CRB / R1 / Blue / F1", "CRB / R1 / Orange / F2"]
 
     @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "", "rear_port_label_template": ""}})
     def test_opted_out_provisioning_leaves_labels_blank(self):
         from dcim.models import FrontPort, RearPort
 
         self._build("OPT")
-        assert self._labels(self.dev_a, FrontPort) == ["", ""]
-        assert self._labels(self.dev_a, RearPort) == [""]
+        assert port_labels(self.dev_a, FrontPort) == ["", ""]
+        assert port_labels(self.dev_a, RearPort) == [""]
 
     @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": MALFORMED}})
     def test_malformed_config_degrades_to_blank_labels(self):
@@ -400,7 +397,7 @@ class TestProvisionedLabels(LabelFixtureMixin, TestCase):
         from dcim.models import FrontPort
 
         self._build("BAD")
-        assert self._labels(self.dev_a, FrontPort) == ["", ""]
+        assert port_labels(self.dev_a, FrontPort) == ["", ""]
 
 
 class TestRelabelSignal(LabelFixtureMixin, TestCase):
@@ -414,11 +411,11 @@ class TestRelabelSignal(LabelFixtureMixin, TestCase):
         fc.cable.label = "NEW"
         fc.cable.save()
 
-        assert self._labels(self.dev_a, FrontPort) == [
+        assert port_labels(self.dev_a, FrontPort) == [
             "NEW / T1 (Blue) / Blue / F1",
             "NEW / T1 (Blue) / Orange / F2",
         ]
-        assert self._labels(self.dev_a, RearPort) == ["NEW / T1 (Blue)"]
+        assert port_labels(self.dev_a, RearPort) == ["NEW / T1 (Blue)"]
 
     def test_device_and_end_tokens_differ_per_side(self):
         """The relabel path must resolve device and cable end per port."""
@@ -430,8 +427,8 @@ class TestRelabelSignal(LabelFixtureMixin, TestCase):
         ):
             fc.cable.save()
 
-        assert self._labels(self.dev_a, FrontPort) == ["LBL-A:A:F1", "LBL-A:A:F2"]
-        assert self._labels(self.dev_b, FrontPort) == ["LBL-B:B:F1", "LBL-B:B:F2"]
+        assert port_labels(self.dev_a, FrontPort) == ["LBL-A:A:F1", "LBL-A:A:F2"]
+        assert port_labels(self.dev_b, FrontPort) == ["LBL-B:B:F1", "LBL-B:B:F2"]
 
     @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": "", "rear_port_label_template": ""}})
     def test_operator_labels_survive_when_opted_out(self):
@@ -457,13 +454,13 @@ class TestRelabelSignal(LabelFixtureMixin, TestCase):
         from dcim.models import FrontPort
 
         _fct, fc = self._build("SAFE")
-        before = self._labels(self.dev_a, FrontPort)
+        before = port_labels(self.dev_a, FrontPort)
 
         with override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_label_template": MALFORMED}}):
             fc.cable.description = "touched"
             fc.cable.save()  # must not raise
 
-        assert self._labels(self.dev_a, FrontPort) == before
+        assert port_labels(self.dev_a, FrontPort) == before
 
 
 class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
@@ -475,30 +472,21 @@ class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
         FrontPort.objects.update(label="")
         RearPort.objects.update(label="")
 
-    def _call(self, *args):
-        from io import StringIO
-
-        from django.core.management import call_command
-
-        out, err = StringIO(), StringIO()
-        call_command("rerender_port_labels", *args, stdout=out, stderr=err)
-        return out.getvalue(), err.getvalue()
-
     def test_backfills_default_labels(self):
         from dcim.models import FrontPort, RearPort
 
         self._build("BF")
         self._blank_labels()
 
-        out, err = self._call()
+        out, err = call_command_capture("rerender_port_labels")
 
         assert err == ""
         assert "->" in out
-        assert self._labels(self.dev_a, FrontPort) == [
+        assert port_labels(self.dev_a, FrontPort) == [
             "BF / T1 (Blue) / Blue / F1",
             "BF / T1 (Blue) / Orange / F2",
         ]
-        assert self._labels(self.dev_a, RearPort) == ["BF / T1 (Blue)"]
+        assert port_labels(self.dev_a, RearPort) == ["BF / T1 (Blue)"]
 
     def test_dry_run_writes_nothing(self):
         from dcim.models import FrontPort
@@ -506,10 +494,10 @@ class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
         self._build("DRY")
         self._blank_labels()
 
-        out, _err = self._call("--dry-run")
+        out, _err = call_command_capture("rerender_port_labels", "--dry-run")
 
         assert "->" in out, "the dry run must still report the changes it would make"
-        assert self._labels(self.dev_a, FrontPort) == ["", ""]
+        assert port_labels(self.dev_a, FrontPort) == ["", ""]
 
     def test_cable_type_restricts_the_walk(self):
         from dcim.models import FrontPort
@@ -518,9 +506,9 @@ class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
         self._build("TWO")
         self._blank_labels()
 
-        self._call("--cable-type", "FCT-ONE")
+        call_command_capture("rerender_port_labels", "--cable-type", "FCT-ONE")
 
-        labels = self._labels(self.dev_a, FrontPort)
+        labels = port_labels(self.dev_a, FrontPort)
         assert "ONE / T1 (Blue) / Blue / F1" in labels
         assert labels.count("") == 2, "the other cable type's ports must stay untouched"
 
@@ -531,7 +519,7 @@ class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
         self._build("LIM2")
         self._blank_labels()
 
-        self._call("--limit", "1")
+        call_command_capture("rerender_port_labels", "--limit", "1")
 
         relabeled = FrontPort.objects.exclude(label="")
         assert relabeled.count() == 4, "exactly one cable (two devices x two strands) must be processed"
@@ -545,7 +533,7 @@ class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
         self._build("OPTC")
         FrontPort.objects.update(label="Rack-7")
 
-        out, err = self._call()
+        out, err = call_command_capture("rerender_port_labels")
 
         assert out == "" and err == ""
         assert set(FrontPort.objects.values_list("label", flat=True)) == {"Rack-7"}
@@ -557,10 +545,10 @@ class TestRerenderPortLabelsCommand(LabelFixtureMixin, TestCase):
         self._build("BRK")
         self._blank_labels()
 
-        _out, err = self._call()
+        _out, err = call_command_capture("rerender_port_labels")
 
         assert "syntax" in err
-        assert self._labels(self.dev_a, FrontPort) == ["", ""]
+        assert port_labels(self.dev_a, FrontPort) == ["", ""]
 
 
 class TestProvisioningRenderFailure(LabelFixtureMixin, TestCase):
@@ -571,9 +559,9 @@ class TestProvisioningRenderFailure(LabelFixtureMixin, TestCase):
         from dcim.models import FrontPort, RearPort
 
         self._build("RF")
-        assert self._labels(self.dev_a, FrontPort) == ["", ""]
+        assert port_labels(self.dev_a, FrontPort) == ["", ""]
         # The rear template is untouched and still renders.
-        assert self._labels(self.dev_a, RearPort) == ["RF / T1 (Blue)"]
+        assert port_labels(self.dev_a, RearPort) == ["RF / T1 (Blue)"]
 
 
 _TRAY_TEMPLATE = "{% if tray %}{{ tray }}:{{ tray_position }}/{% endif %}F{{ strand }}"
@@ -603,9 +591,9 @@ class TestTrayLabelToken(LabelFixtureMixin, TestCase):
 
         _fct, fc = self._build("TRK")
         tray, _assignment = self._assigned_tray(fc)
-        assert self._labels(self.dev_a, FrontPort) == [f"{tray}:1/F1", f"{tray}:1/F2"]
+        assert port_labels(self.dev_a, FrontPort) == [f"{tray}:1/F1", f"{tray}:1/F2"]
         # The far device has no assignment; its labels stay tray-less.
-        assert self._labels(self.dev_b, FrontPort) == ["F1", "F2"]
+        assert port_labels(self.dev_b, FrontPort) == ["F1", "F2"]
 
     @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_label_template": _TRAY_TEMPLATE}})
     def test_assignment_delete_clears_tray_from_labels(self):
@@ -614,7 +602,7 @@ class TestTrayLabelToken(LabelFixtureMixin, TestCase):
         _fct, fc = self._build("TRD")
         _tray, assignment = self._assigned_tray(fc)
         assignment.delete()
-        assert self._labels(self.dev_a, FrontPort) == ["F1", "F2"]
+        assert port_labels(self.dev_a, FrontPort) == ["F1", "F2"]
 
     def test_labels_use_tray_false_for_defaults(self):
         from netbox_fms import naming
@@ -668,3 +656,130 @@ class TestTrayLabelToken(LabelFixtureMixin, TestCase):
 
         with pytest.raises(naming.NamingError):
             naming.validate(naming.REAR_PORT_LABEL, "{{ tray }}")
+
+
+class TestNameTargets(SimpleTestCase):
+    """Port NAME templates: unset means the pk grammar, never a blank name."""
+
+    def test_settings_keys(self):
+        assert naming.TARGETS[naming.FRONT_PORT_NAME].setting == "front_port_name_template"
+        assert naming.TARGETS[naming.REAR_PORT_NAME].setting == "rear_port_name_template"
+
+    def test_unset_name_templates_compile_to_none(self):
+        assert naming.compile_names() == {naming.FRONT_PORT_NAME: None, naming.REAR_PORT_NAME: None}
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": "{{ cable }}-F{{ strand }}"}})
+    def test_name_render_is_not_truncated(self):
+        """Names are pre-checked for length, so an overflow must stay visible, not be silently cut."""
+        compiled = naming.compile_names()
+        rendered = naming.render(naming.FRONT_PORT_NAME, compiled, {"cable": "N" * 100, "strand": 3}, truncate=False)
+        assert rendered == "N" * 100 + "-F3"
+
+    def test_tray_tokens_are_not_name_tokens(self):
+        """Ports are named before any tray assignment exists; a tray token could only render None."""
+        with pytest.raises(naming.NamingError, match="render"):
+            naming.validate(naming.FRONT_PORT_NAME, "{{ tray }}")
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_name_template": MALFORMED}})
+    def test_startup_validation_covers_name_templates(self):
+        assert [key for key, _msg in naming.validate_plugin_config()] == ["rear_port_name_template"]
+
+
+class TestMaxLength(SimpleTestCase):
+    """Length limits are read from the dcim columns, so they follow NetBox if it widens them."""
+
+    def test_validation_limit_tracks_the_dcim_name_column(self):
+        from dcim.models import FrontPort
+
+        with mock.patch.object(FrontPort._meta.get_field("name"), "max_length", 10):
+            with pytest.raises(naming.NamingError, match="maximum is 10"):
+                naming.validate(naming.FRONT_PORT_NAME, "X" * 11)
+        assert naming.validate(naming.FRONT_PORT_NAME, "X" * 11) is None
+
+    def test_label_truncation_tracks_the_dcim_label_column(self):
+        from dcim.models import RearPort
+
+        with override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_label_template": "{{ cable }}"}}):
+            compiled = naming.compile_labels()
+            with mock.patch.object(RearPort._meta.get_field("label"), "max_length", 5):
+                rendered = naming.render(naming.REAR_PORT_LABEL, compiled, {"cable": "L" * 100})
+        assert rendered == "LLLLL"
+
+
+class TestProvisionedNames(LabelFixtureMixin, TestCase):
+    """Configured name templates name new ports.
+
+    Anything that would break the per-device uniqueness or length rules
+    drops every port of that device end to the pk grammar (never a mix) and
+    reports why through the provisioning warnings.
+    """
+
+    @staticmethod
+    def _fallbacks(warnings):
+        return [w for w in warnings if "fell back" in w]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": NAME_TEMPLATES})
+    def test_templates_name_new_ports(self):
+        from dcim.models import FrontPort, RearPort
+
+        _fct, _fc, warnings = self._provision("NM")
+        assert self._fallbacks(warnings) == []
+        assert port_names(self.dev_a, FrontPort) == ["NM-A-F1", "NM-A-F2"]
+        assert port_names(self.dev_b, FrontPort) == ["NM-B-F1", "NM-B-F2"]
+        assert port_names(self.dev_a, RearPort) == ["NM-A-T1"]
+
+    @override_settings(
+        PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": NAME_TEMPLATES["front_port_name_template"]}}
+    )
+    def test_unset_rear_template_keeps_the_pk_grammar(self):
+        from dcim.models import FrontPort, RearPort
+
+        _fct, fc, _warnings = self._provision("HALF")
+        assert port_names(self.dev_a, FrontPort) == ["HALF-A-F1", "HALF-A-F2"]
+        assert port_names(self.dev_a, RearPort) == [f"{fc.cable_id}:T1"]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": "{{ cable }}"}})
+    def test_duplicate_names_fall_back_to_pk_on_both_ends(self):
+        from dcim.models import FrontPort
+
+        _fct, fc, warnings = self._provision("DUP")
+        pk = fc.cable_id
+        fallbacks = self._fallbacks(warnings)
+        assert port_names(self.dev_a, FrontPort) == [f"{pk}:F1", f"{pk}:F2"]
+        assert port_names(self.dev_b, FrontPort) == [f"{pk}:F1", f"{pk}:F2"]
+        assert len(fallbacks) == 2
+        assert "duplicate" in fallbacks[0]
+        assert "front_port_name_template" in fallbacks[0]
+        assert "DUP" in fallbacks[0]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"rear_port_name_template": "{{ 'x' * 70 }}"}})
+    def test_overlong_name_falls_back_to_pk(self):
+        from dcim.models import RearPort
+
+        _fct, fc, warnings = self._provision("LONG")
+        fallbacks = self._fallbacks(warnings)
+        assert port_names(self.dev_a, RearPort) == [f"{fc.cable_id}:T1"]
+        assert "70 characters" in fallbacks[0]
+        assert "rear_port_name_template" in fallbacks[0]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": NAME_TEMPLATES})
+    def test_collision_with_an_existing_port_falls_back_on_that_device_only(self):
+        from dcim.models import FrontPort, RearPort
+
+        FrontPort.objects.create(device=self.dev_a, name="COL-A-F1", type="splice")
+        _fct, fc, warnings = self._provision("COL")
+        pk = fc.cable_id
+        fallbacks = self._fallbacks(warnings)
+        assert port_names(self.dev_a, FrontPort) == [f"{pk}:F1", f"{pk}:F2", "COL-A-F1"]
+        assert port_names(self.dev_a, RearPort) == [f"{pk}:T1"]
+        assert port_names(self.dev_b, FrontPort) == ["COL-B-F1", "COL-B-F2"]
+        assert len(fallbacks) == 1
+        assert "COL-A-F1" in fallbacks[0]
+
+    @override_settings(PLUGINS_CONFIG={"netbox_fms": {"front_port_name_template": MALFORMED}})
+    def test_malformed_name_template_falls_back_to_pk(self):
+        from dcim.models import FrontPort
+
+        _fct, fc, warnings = self._provision("BAD")
+        assert port_names(self.dev_a, FrontPort) == [f"{fc.cable_id}:F1", f"{fc.cable_id}:F2"]
+        assert "syntax" in self._fallbacks(warnings)[0]

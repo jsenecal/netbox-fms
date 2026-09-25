@@ -1,8 +1,28 @@
 import pytest
-from dcim.models import Cable, CableTermination, Device, DeviceRole, DeviceType, Manufacturer, RearPort, Site
+from dcim.models import Cable, CableTermination, Manufacturer, RearPort
+from django.contrib.auth import get_user_model
 
 from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
-from tests.conftest import make_central_core_type, make_ribbon_in_tube_type
+from tests.conftest import make_central_core_type, make_closure, make_ribbon_in_tube_type
+
+
+def _closure_with_cable(prefix):
+    """A bare closure and an unterminated cable: the greenfield link rig. Returns (device, cable, mfr)."""
+    rig = make_closure(prefix)
+    return rig.closure, Cable.objects.create(), rig.mfr
+
+
+def _terminated_cable(prefix):
+    """A closure whose one splice RearPort terminates the cable's A end. Returns (device, cable, mfr)."""
+    device, cable, mfr = _closure_with_cable(prefix)
+    rear_port = RearPort.objects.create(device=device, name=f"{prefix}-RP", type="splice", positions=12)
+    CableTermination.objects.create(cable=cable, cable_end="A", termination=rear_port)
+    return device, cable, mfr
+
+
+def _login_superuser(client, prefix):
+    user = get_user_model().objects.create_superuser(f"{prefix.lower()}-admin", f"{prefix.lower()}@test.com", "pw")
+    client.force_login(user)
 
 
 @pytest.mark.django_db
@@ -230,13 +250,7 @@ class TestNeedsMappingConfirmation:
 @pytest.mark.django_db
 class TestLinkCableTopologyGreenfield:
     def _make_fixtures(self):
-        site = Site.objects.create(name="LT-Site", slug="lt-site")
-        mfr = Manufacturer.objects.create(name="LT-Mfr2", slug="lt-mfr2")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="Closure", slug="closure")
-        role = DeviceRole.objects.create(name="LT-Role", slug="lt-role")
-        device = Device.objects.create(name="LT-Closure", site=site, device_type=dt, role=role)
-        cable = Cable.objects.create()
-        return device, cable, mfr
+        return _closure_with_cable("LT")
 
     def test_creates_fiber_cable_and_strands(self):
         device, cable, mfr = self._make_fixtures()
@@ -337,19 +351,11 @@ class TestLinkCableTopologyGreenfield:
 
 
 def _make_closure_with_existing_ports():
-    site = Site.objects.create(name="AD-Site", slug="ad-site")
-    mfr = Manufacturer.objects.create(name="AD-Mfr", slug="ad-mfr")
-    dt = DeviceType.objects.create(manufacturer=mfr, model="AD-Closure", slug="ad-closure")
-    role = DeviceRole.objects.create(name="AD-Role", slug="ad-role")
-    device = Device.objects.create(name="AD-Closure", site=site, device_type=dt, role=role)
-    cable = Cable.objects.create()
+    from dcim.models import FrontPort, PortMapping
 
-    from dcim.models import CableTermination, FrontPort, PortMapping, RearPort
-    from django.contrib.contenttypes.models import ContentType
-
+    device, cable, mfr = _closure_with_cable("AD")
     rp = RearPort.objects.create(device=device, name="Existing-RP", type="splice", positions=12)
-    rp_ct = ContentType.objects.get_for_model(RearPort)
-    CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp.pk)
+    CableTermination.objects.create(cable=cable, cable_end="A", termination=rp)
     fps = []
     for i in range(1, 13):
         fp = FrontPort.objects.create(device=device, name=f"EF{i}", type="splice")
@@ -430,21 +436,13 @@ class TestLinkCableTopologyAdopt:
     def _make_closure_with_multiple_rearports(self):
         """Regression fixture for issue #64: one cable terminated on 4 RearPorts,
         each with 12 positions and 12 mapped FrontPorts (48 ports total)."""
-        site = Site.objects.create(name="MR-Site", slug="mr-site")
-        mfr = Manufacturer.objects.create(name="MR-Mfr", slug="mr-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="MR-Closure", slug="mr-closure")
-        role = DeviceRole.objects.create(name="MR-Role", slug="mr-role")
-        device = Device.objects.create(name="MR-Closure", site=site, device_type=dt, role=role)
-        cable = Cable.objects.create()
+        from dcim.models import FrontPort, PortMapping
 
-        from dcim.models import CableTermination, FrontPort, PortMapping, RearPort
-        from django.contrib.contenttypes.models import ContentType
-
-        rp_ct = ContentType.objects.get_for_model(RearPort)
+        device, cable, mfr = _closure_with_cable("MR")
         fps = []
         for t in range(1, 5):
             rp = RearPort.objects.create(device=device, name=f"MR-RP{t}", type="splice", positions=12)
-            CableTermination.objects.create(cable=cable, cable_end="A", termination_type=rp_ct, termination_id=rp.pk)
+            CableTermination.objects.create(cable=cable, cable_end="A", termination=rp)
             for i in range(1, 13):
                 fp = FrontPort.objects.create(device=device, name=f"MR-RP{t}-F{i}", type="splice")
                 PortMapping.objects.create(
@@ -484,23 +482,33 @@ class TestLinkCableTopologyAdopt:
 @pytest.mark.django_db
 class TestLinkTopologyView:
     def test_get_returns_modal(self, client):
-        from django.contrib.auth import get_user_model
-
-        site = Site.objects.create(name="LTV-Site", slug="ltv-site")
-        mfr = Manufacturer.objects.create(name="LTV-Mfr", slug="ltv-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="LTV-Closure", slug="ltv-closure")
-        role = DeviceRole.objects.create(name="LTV-Role", slug="ltv-role")
-        device = Device.objects.create(name="LTV-Device", site=site, device_type=dt, role=role)
-        rear_port = RearPort.objects.create(device=device, name="LTV-RP", type="splice", positions=12)
-        cable = Cable.objects.create()
-        CableTermination.objects.create(cable=cable, cable_end="A", termination=rear_port)
-        User = get_user_model()
-        user = User.objects.create_superuser("ltv-admin", "ltv@test.com", "password")
-        client.force_login(user)
+        device, cable, _mfr = _terminated_cable("LTV")
+        _login_superuser(client, "LTV")
         url = f"/plugins/fms/fiber-overview/{device.pk}/link-topology/?cable_id={cable.pk}"
         response = client.get(url)
         assert response.status_code == 200
         assert b"Link Cable Topology" in response.content
+
+    def test_post_flashes_provisioning_warnings(self, client):
+        """Warnings the service returns must reach the operator instead of dying on the HX redirect."""
+        from unittest import mock
+
+        from django.contrib.messages import get_messages
+
+        device, cable, mfr = _terminated_cable("LTW")
+        fct = FiberCableType.objects.create(manufacturer=mfr, model="LTW-12F", strand_count=12)
+        _login_superuser(client, "LTW")
+
+        with mock.patch(
+            "netbox_fms.views.link_cable_topology", return_value=(None, ["name template fell back to pk names"])
+        ):
+            response = client.post(
+                f"/plugins/fms/fiber-overview/{device.pk}/link-topology/",
+                {"cable_id": cable.pk, "fiber_cable_type": fct.pk, "port_type": "splice"},
+            )
+
+        assert response.status_code == 200
+        assert [str(m) for m in get_messages(response.wsgi_request)] == ["name template fell back to pk names"]
 
 
 class TestMonkeyPatchCableProfiles:
@@ -567,13 +575,7 @@ class TestCableTerminationConnectorPositions:
     """Test that link_cable_topology sets connector/positions on CableTerminations."""
 
     def _make_fixtures(self):
-        site = Site.objects.create(name="CT-Site", slug="ct-site")
-        mfr = Manufacturer.objects.create(name="CT-Mfr", slug="ct-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="CT-Closure", slug="ct-closure")
-        role = DeviceRole.objects.create(name="CT-Role", slug="ct-role")
-        device = Device.objects.create(name="CT-Closure", site=site, device_type=dt, role=role)
-        cable = Cable.objects.create()
-        return device, cable, mfr
+        return _closure_with_cable("CT")
 
     def test_tube_based_sets_connector_per_tube(self):
         device, cable, mfr = self._make_fixtures()
@@ -703,12 +705,7 @@ class TestLinkStrandsExistingFiberCable:
         """A device with no ports still gets them provisioned for an existing FiberCable."""
         from dcim.models import RearPort
 
-        site = Site.objects.create(name="GX-Site", slug="gx-site")
-        mfr = Manufacturer.objects.create(name="GX-Mfr", slug="gx-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="GX-Closure", slug="gx-closure")
-        role = DeviceRole.objects.create(name="GX-Role", slug="gx-role")
-        device = Device.objects.create(name="GX-Closure", site=site, device_type=dt, role=role)
-        cable = Cable.objects.create()
+        device, cable, mfr = _closure_with_cable("GX")
         fct = FiberCableType.objects.create(
             manufacturer=mfr, model="GX-2F", strand_count=2, construction="tight_buffer"
         )

@@ -33,27 +33,28 @@ class NetBoxFMSConfig(PluginConfig):
 
         connect_counters(FiberCableType)
 
-        self._check_label_templates()
+        self._check_port_templates()
         self._register_map_layers()
         logger.info("%s plugin loaded", self.name)
 
     @staticmethod
-    def _check_label_templates():
-        """Report malformed label templates set in PLUGINS_CONFIG, at startup.
+    def _check_port_templates():
+        """Report malformed port name and label templates set in PLUGINS_CONFIG, at startup.
 
-        Plugin-wide label templates never see a form or serializer, so without
-        this they would first surface as a render failure on some unrelated
-        cable save. Logs and returns -- it must never raise. A bad plugin
-        setting has to be reported, not turned into a failure to boot NetBox;
-        the per-render ``NamingError`` guards leave the affected labels
-        unchanged meanwhile.
+        Plugin-wide templates never see a form or serializer, so without this
+        they would first surface as a render failure on some unrelated cable
+        save. Logs and returns -- it must never raise. A bad plugin setting
+        has to be reported, not turned into a failure to boot NetBox; the
+        per-render ``NamingError`` guards leave the affected labels unchanged
+        and name the affected ports by the pk grammar meanwhile.
         """
         from . import naming
 
         for setting_key, message in naming.validate_plugin_config():
             logger.error(
-                "Invalid netbox_fms label template in PLUGINS_CONFIG setting '%s': %s "
-                "Generated labels for this target will be left unchanged until it is fixed.",
+                "Invalid netbox_fms port template in PLUGINS_CONFIG setting '%s': %s "
+                "Labels for this target are left unchanged and names fall back to the pk grammar "
+                "until it is fixed.",
                 setting_key,
                 message,
             )
