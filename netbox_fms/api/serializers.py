@@ -503,13 +503,15 @@ class TrayProfileSerializer(NetBoxModelSerializer):
             "display",
             "module_type",
             "tray_role",
+            "splice_capacity",
+            "tube_capacity",
             "description",
             "tags",
             "custom_fields",
             "created",
             "last_updated",
         )
-        brief_fields = ("id", "url", "display", "module_type", "tray_role")
+        brief_fields = ("id", "url", "display", "module_type", "tray_role", "splice_capacity", "tube_capacity")
 
 
 class TubeAssignmentSerializer(NetBoxModelSerializer):

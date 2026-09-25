@@ -18,7 +18,7 @@ class TestModuleTypeTrayProfilePanel(TestCase):
         html = render_left_page(ModuleTypeTrayProfilePanel, self.profiled)
         profile = self.profiled.tray_profile
         assert "Splice Tray" in html
-        assert str(profile.max_fibers) in html
+        assert str(profile.splice_capacity) in html
         assert profile.get_absolute_url() in html
 
     def test_unprofiled_type_offers_add_action(self):

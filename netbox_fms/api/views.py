@@ -882,7 +882,7 @@ class ClosureStrandsAPIView(APIView):
                         "id": m.pk,
                         "name": str(m),
                         "role": profile.tray_role,
-                        "capacity": FrontPort.objects.filter(module=m).count(),
+                        "capacity": profile.splice_capacity,
                     }
                 )
 

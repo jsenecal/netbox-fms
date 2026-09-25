@@ -39,8 +39,9 @@ model (this is done once, then reused for every closure):
 2. Navigate to **Devices > Module Types** and create a module type for each
    tray product (e.g., "24F Splice Tray").
 3. Navigate to **FMS > Tray Profiles** and click **Add**. Select the module
-   type, set the **tray role** to **Splice Tray**, and set **max fibers** to
-   the tray's splice capacity. Use the **Express Basket** role for
+   type, set the **tray role** to **Splice Tray**, and set **splice
+   capacity** to the tray's number of splice positions (optionally **tube
+   capacity** to its tube limit). Use the **Express Basket** role for
    pass-through storage baskets -- tubes can only be assigned to splice trays.
    The module type's detail page also shows its tray profile (or an **Add
    Tray Profile** shortcut when it has none), so you can review or start

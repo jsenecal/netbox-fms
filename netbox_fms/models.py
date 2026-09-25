@@ -1580,14 +1580,20 @@ class TrayProfile(NetBoxModel):
         choices=TrayRoleChoices,
         verbose_name=_("tray role"),
     )
-    max_fibers = models.PositiveIntegerField(
+    splice_capacity = models.PositiveIntegerField(
         default=24,
-        verbose_name=_("max fibers"),
-        help_text=_("Maximum number of fiber splice positions in this tray."),
+        verbose_name=_("splice capacity"),
+        help_text=_("Number of splice positions in this tray. Each position joins one A-side and one B-side strand."),
+    )
+    tube_capacity = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name=_("tube capacity"),
+        help_text=_("Number of buffer tubes this tray can hold. Leave blank for no limit."),
     )
     description = models.TextField(blank=True, verbose_name=_("description"))
 
-    clone_fields = ("tray_role", "max_fibers")
+    clone_fields = ("tray_role", "splice_capacity", "tube_capacity")
 
     class Meta:
         ordering = ("module_type",)

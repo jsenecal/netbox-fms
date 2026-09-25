@@ -125,6 +125,7 @@ from .services import (
     UNASSIGNED_TRAY_ID,
     NeedsMappingConfirmation,
     apply_diff,
+    auto_assign_tubes,
     create_closure_cable,
     create_splice_closure,
     device_cable_ids,
@@ -135,6 +136,7 @@ from .services import (
     import_live_state,
     link_cable_topology,
     protecting_nodes,
+    tray_utilization,
 )
 from .tables import (
     BufferTubeTable,
@@ -1313,6 +1315,9 @@ class TubeAssignmentView(generic.ObjectView):
 
     queryset = TubeAssignment.objects.select_related("closure", "tray", "buffer_tube")
 
+    def get_extra_context(self, request, instance):
+        return {"tray_util": tray_utilization(instance.closure).get(instance.tray_id)}
+
 
 class TubeAssignmentEditView(generic.ObjectEditView):
     """Handle tube assignment creation and editing."""
@@ -2013,7 +2018,6 @@ def _device_has_splice_plan_or_fiber_cables(device):
 
 def _build_tray_assignment_data(device):
     """Build tray assignment context for the Fiber Overview tab."""
-    modules = Module.objects.filter(device=device).select_related("module_type__tray_profile")
     tube_assignments = TubeAssignment.objects.filter(closure=device).select_related(
         "tray", "buffer_tube__fiber_cable__fiber_cable_type"
     )
@@ -2025,23 +2029,14 @@ def _build_tray_assignment_data(device):
     splice_trays = []
     express_baskets = []
 
-    for module in modules:
-        profile = getattr(module.module_type, "tray_profile", None)
-        if not profile:
-            continue
-
-        assigned_tubes = assignment_map.get(module.pk, [])
-        fiber_count = sum(t.buffer_tube.fiber_strands.count() for t in assigned_tubes)
-
+    for util in tray_utilization(device).values():
         entry = {
-            "module": module,
-            "profile": profile,
-            "assigned_tubes": assigned_tubes,
-            "fiber_count": fiber_count,
-            "capacity": profile.max_fibers,
+            "module": util.tray,
+            "profile": util.profile,
+            "assigned_tubes": assignment_map.get(util.tray.pk, []),
+            "util": util,
         }
-
-        if profile.tray_role == TrayRoleChoices.SPLICE_TRAY:
+        if util.profile.tray_role == TrayRoleChoices.SPLICE_TRAY:
             splice_trays.append(entry)
         else:
             express_baskets.append(entry)
@@ -2479,10 +2474,12 @@ class AssignTubeView(LoginRequiredMixin, View):
         tube_id = request.GET.get("tube_id")
         tube = get_object_or_404(BufferTube, pk=tube_id)
 
-        available_trays = Module.objects.filter(
-            device=device,
-            module_type__tray_profile__tray_role=TrayRoleChoices.SPLICE_TRAY,
-        ).select_related("module_type")
+        strand_count = tube.fiber_strands.count()
+        available_trays = [
+            {"module": util.tray, "util": util, "fits": util.fits(1, strand_count)}
+            for util in tray_utilization(device).values()
+            if util.profile.tray_role == TrayRoleChoices.SPLICE_TRAY
+        ]
 
         return render(
             request,
@@ -2553,69 +2550,7 @@ class AutoAssignTubesView(LoginRequiredMixin, View):
             return HttpResponse("Permission denied", status=403)
         device = get_object_or_404(Device, pk=pk)
 
-        trays = list(
-            Module.objects.filter(
-                device=device,
-                module_type__tray_profile__tray_role=TrayRoleChoices.SPLICE_TRAY,
-            ).select_related("module_type__tray_profile")
-        )
-
-        # Build tray capacity: max_fibers minus already-assigned fiber count
-        tray_remaining = {}
-        for tray in trays:
-            profile = tray.module_type.tray_profile
-            used = sum(
-                ta.buffer_tube.fiber_strands.count()
-                for ta in TubeAssignment.objects.filter(tray=tray).select_related("buffer_tube")
-            )
-            tray_remaining[tray.pk] = {"tray": tray, "remaining": profile.max_fibers - used}
-
-        assigned_tube_ids = set(TubeAssignment.objects.filter(closure=device).values_list("buffer_tube_id", flat=True))
-        cable_fc_ids = ClosureCableEntry.objects.filter(closure=device).values_list("fiber_cable_id", flat=True)
-        unassigned_tubes = (
-            BufferTube.objects.filter(fiber_cable_id__in=cable_fc_ids)
-            .exclude(pk__in=assigned_tube_ids)
-            .select_related("fiber_cable")
-            .order_by("position", "fiber_cable__pk")
-        )
-
-        # Group unassigned tubes by position so same-position tubes get the same tray
-        from collections import defaultdict
-
-        by_position = defaultdict(list)
-        for tube in unassigned_tubes:
-            by_position[tube.position].append(tube)
-
-        # Assign each position group to a tray, ordered by position
-        tray_list = sorted(tray_remaining.values(), key=lambda t: t["tray"].pk)
-        tray_idx = 0
-
-        for position in sorted(by_position.keys()):
-            tubes = by_position[position]
-            total_fibers = sum(t.fiber_strands.count() for t in tubes)
-
-            # Find a tray with enough capacity, starting from where we left off
-            assigned = False
-            for offset in range(len(tray_list)):
-                idx = (tray_idx + offset) % len(tray_list)
-                info = tray_list[idx]
-                if info["remaining"] >= total_fibers:
-                    for tube in tubes:
-                        TubeAssignment.objects.create(closure=device, tray=info["tray"], buffer_tube=tube)
-                    info["remaining"] -= total_fibers
-                    tray_idx = idx + 1
-                    assigned = True
-                    break
-
-            if not assigned:
-                # Fall back: assign tubes individually to any tray with space
-                for tube in tubes:
-                    fiber_count = tube.fiber_strands.count()
-                    for info in tray_list:
-                        if info["remaining"] >= fiber_count:
-                            TubeAssignment.objects.create(closure=device, tray=info["tray"], buffer_tube=tube)
-                            info["remaining"] -= fiber_count
-                            break
+        auto_assign_tubes(device)
 
         if request.headers.get("HX-Request"):
             tray_data = _build_tray_assignment_data(device)

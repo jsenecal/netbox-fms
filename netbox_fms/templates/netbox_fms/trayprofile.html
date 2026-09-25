@@ -18,6 +18,14 @@
                     <td>{{ object.get_tray_role_display }}</td>
                 </tr>
                 <tr>
+                    <th scope="row">{% trans "Splice Capacity" %}</th>
+                    <td>{{ object.splice_capacity }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Tube Capacity" %}</th>
+                    <td>{{ object.tube_capacity|placeholder }}</td>
+                </tr>
+                <tr>
                     <th scope="row">{% trans "Description" %}</th>
                     <td>{{ object.description|placeholder }}</td>
                 </tr>

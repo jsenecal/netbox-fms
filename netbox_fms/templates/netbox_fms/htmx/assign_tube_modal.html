@@ -13,7 +13,7 @@
             <select class="form-select" name="tray_id" id="tray_id" required>
                 <option value="">---------</option>
                 {% for tray in available_trays %}
-                <option value="{{ tray.pk }}">{{ tray }} ({{ tray.module_type }})</option>
+                <option value="{{ tray.module.pk }}">{{ tray.module }} ({{ tray.module.module_type }}) &mdash; {{ tray.util.remaining_strands }} {% trans "fibers free" %}{% if not tray.fits %}, {% trans "would exceed capacity" %}{% endif %}</option>
                 {% endfor %}
             </select>
         </div>

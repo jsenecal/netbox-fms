@@ -1250,11 +1250,21 @@ class TrayProfileForm(NetBoxModelForm):
 
     module_type = DynamicModelChoiceField(queryset=ModuleType.objects.all(), label=_("Module Type"))
 
-    fieldsets = (FieldSet("module_type", "tray_role", "max_fibers", "description", "tags", name=_("Tray Profile")),)
+    fieldsets = (
+        FieldSet(
+            "module_type",
+            "tray_role",
+            "splice_capacity",
+            "tube_capacity",
+            "description",
+            "tags",
+            name=_("Tray Profile"),
+        ),
+    )
 
     class Meta:
         model = TrayProfile
-        fields = ("module_type", "tray_role", "max_fibers", "description", "tags")
+        fields = ("module_type", "tray_role", "splice_capacity", "tube_capacity", "description", "tags")
 
 
 class TrayProfileImportForm(NetBoxModelImportForm):
@@ -1262,7 +1272,7 @@ class TrayProfileImportForm(NetBoxModelImportForm):
 
     class Meta:
         model = TrayProfile
-        fields = ("module_type", "tray_role", "description", "tags")
+        fields = ("module_type", "tray_role", "splice_capacity", "tube_capacity", "description", "tags")
 
 
 class TrayProfileBulkEditForm(NetBoxModelBulkEditForm):
@@ -1270,7 +1280,10 @@ class TrayProfileBulkEditForm(NetBoxModelBulkEditForm):
 
     model = TrayProfile
     tray_role = forms.ChoiceField(choices=add_blank_choice(TrayRoleChoices), required=False, label=_("Tray Role"))
+    splice_capacity = forms.IntegerField(required=False, min_value=0, label=_("Splice Capacity"))
+    tube_capacity = forms.IntegerField(required=False, min_value=0, label=_("Tube Capacity"))
     description = forms.CharField(required=False, label=_("Description"))
+    nullable_fields = ("tube_capacity", "description")
 
 
 class TrayProfileFilterForm(NetBoxModelFilterSetForm):
