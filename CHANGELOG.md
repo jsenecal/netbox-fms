@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The splice editor and fiber trace view render in dark mode again on
+  NetBox 4.6 and later. NetBox 4.6 stopped mirroring the color mode onto
+  `<body>`, so the editor's dark column backgrounds, glows, and boosted label
+  colors never applied. Theme detection now reads `<html>` and still honors
+  NetBox 4.5's `<body>` toggle.
+
 ## [0.5.0] - 2026-09-25
 
 ### Added

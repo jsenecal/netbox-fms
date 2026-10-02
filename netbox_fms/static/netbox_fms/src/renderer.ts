@@ -14,6 +14,7 @@ import {
   TUBE_DOT_R,
   MIN_HEIGHT,
 } from './state';
+import { isDarkTheme } from './theme';
 import { isNodeSpliced } from './types';
 import type { LayoutNode, SpliceEntry } from './types';
 
@@ -153,7 +154,7 @@ export class SpliceRenderer {
     this.svg.attr('height', svgHeight);
 
     // Update backgrounds — read theme on every render
-    const isDark = document.body.getAttribute('data-bs-theme') === 'dark';
+    const isDark = isDarkTheme();
     const colBg = isDark ? '#001423' : '#ffffff';
     const colBorder = isDark ? '#1a2d3d' : '#dee2e6';
     const gapBg = isDark ? '#000d17' : '#f0f0f0';
@@ -482,7 +483,7 @@ export class SpliceRenderer {
     }
 
     // Subtle glow behind the dot for visibility
-    const dotDark = document.body.getAttribute('data-bs-theme') === 'dark';
+    const dotDark = isDarkTheme();
     const dotGlowColor = dotDark ? '#4dc9c0' : '#333333';
     sg.append('circle')
       .attr('class', 'strand-dot-glow')
@@ -738,7 +739,7 @@ export class SpliceRenderer {
         const isSelected = this.state.isSpliceSelected(entry.sourceId, entry.targetId);
 
         // Subtle glow behind line — light halo in dark mode, dark halo in light mode
-        const dark = document.body.getAttribute('data-bs-theme') === 'dark';
+        const dark = isDarkTheme();
         const glowColor = dark ? '#4dc9c0' : '#333333';
         this.linksGroup
           .append('path')

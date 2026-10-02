@@ -7,6 +7,7 @@ import { showQuickAddModal } from './modal';
 import { bulkUpdateUrlFor, needsPlanQuickCreate } from './save-flow';
 import { SpliceRenderer } from './renderer';
 import { EditorState } from './state';
+import { observeThemeChange } from './theme';
 import type { ActionMode, DetailCard, EditorConfig, LayoutNode, SpliceEntry } from './types';
 
 declare const d3: typeof import('d3');
@@ -355,16 +356,10 @@ async function init(config: EditorConfig): Promise<void> {
   });
 
   // Theme change handler — re-render when dark/light mode toggles
-  const observer = new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      if (m.attributeName === 'data-bs-theme') {
-        renderer.render();
-        updateAfterRender();
-        break;
-      }
-    }
+  observeThemeChange(() => {
+    renderer.render();
+    updateAfterRender();
   });
-  observer.observe(document.body, { attributes: true, attributeFilter: ['data-bs-theme'] });
 
   // -----------------------------------------------------------------------
   // Helpers
