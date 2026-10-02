@@ -26,7 +26,9 @@
   font-family: inherit;
 }
 
-[data-bs-theme="light"] .fms-component {
+/* Nearest themed ancestor wins: NetBox 4.5 toggles <body> and leaves <html>
+   stale, 4.6+ themes <html> only (mirrors isDarkTheme() in src/theme.ts). */
+:is(body[data-bs-theme="light"], [data-bs-theme="light"] > body:not([data-bs-theme])) .fms-component {
   --fms-bg: #f8f9fa;
   --fms-bg-card: #fff;
   --fms-border: #dee2e6;
