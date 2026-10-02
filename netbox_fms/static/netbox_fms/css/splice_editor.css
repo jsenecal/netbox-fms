@@ -149,26 +149,22 @@
 /* Dark mode: boost text readability. NetBox 4.6+ themes <html> only; 4.5
    toggles <body> and leaves <html> stale, so a themed <body> wins (mirrors
    isDarkTheme() in src/theme.ts). */
-:is(body[data-bs-theme="dark"], [data-bs-theme="dark"] > body:not([data-bs-theme])) :is(
-    .cable-subtitle,
-    .tube-label,
-    .column-header,
-    .scroll-hint,
-    .cable-far-device
-) {
-    fill: #adb5bd;
-}
+:is(body[data-bs-theme="dark"], [data-bs-theme="dark"] > body:not([data-bs-theme])) {
+    :is(.cable-subtitle, .tube-label, .column-header, .scroll-hint, .cable-far-device) {
+        fill: #adb5bd;
+    }
 
-:is(body[data-bs-theme="dark"], [data-bs-theme="dark"] > body:not([data-bs-theme])) .cable-label {
-    fill: #e9ecef;
-}
+    .cable-label {
+        fill: #e9ecef;
+    }
 
-:is(body[data-bs-theme="dark"], [data-bs-theme="dark"] > body:not([data-bs-theme])) .strand-name {
-    fill: #ced4da;
-}
+    .strand-name {
+        fill: #ced4da;
+    }
 
-:is(body[data-bs-theme="dark"], [data-bs-theme="dark"] > body:not([data-bs-theme])) .strand-node.spliced .strand-name {
-    fill: #8a939c;
+    .strand-node.spliced .strand-name {
+        fill: #8a939c;
+    }
 }
 
 /* Splice link curves — gradient stroke set inline */

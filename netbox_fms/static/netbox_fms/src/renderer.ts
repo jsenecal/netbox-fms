@@ -59,6 +59,8 @@ export class SpliceRenderer {
   private linkGen: any;
   private wheelAttached = false;
   private currentSvgHeight = 0;
+  /** Theme captured at the top of render(); link redraws during drag reuse it. */
+  private isDark = false;
 
   constructor(
     state: EditorState,
@@ -154,10 +156,10 @@ export class SpliceRenderer {
     this.svg.attr('height', svgHeight);
 
     // Update backgrounds — read theme on every render
-    const isDark = isDarkTheme();
-    const colBg = isDark ? '#001423' : '#ffffff';
-    const colBorder = isDark ? '#1a2d3d' : '#dee2e6';
-    const gapBg = isDark ? '#000d17' : '#f0f0f0';
+    this.isDark = isDarkTheme();
+    const colBg = this.isDark ? '#001423' : '#ffffff';
+    const colBorder = this.isDark ? '#1a2d3d' : '#dee2e6';
+    const gapBg = this.isDark ? '#000d17' : '#f0f0f0';
     this.containerEl.style.background = gapBg;
 
     this.leftBg.attr('height', svgHeight).attr('fill', colBg).attr('stroke', colBorder);
@@ -354,6 +356,11 @@ export class SpliceRenderer {
   }
 
   /** Theme primary color with a Bootstrap-default fallback. */
+  /** Halo behind dots and links: light in dark mode, dark in light mode. */
+  private glowColor(): string {
+    return this.isDark ? '#4dc9c0' : '#333333';
+  }
+
   private bsPrimary(): string {
     return getComputedStyle(document.body).getPropertyValue('--bs-primary').trim() || '#0d6efd';
   }
@@ -483,14 +490,12 @@ export class SpliceRenderer {
     }
 
     // Subtle glow behind the dot for visibility
-    const dotDark = isDarkTheme();
-    const dotGlowColor = dotDark ? '#4dc9c0' : '#333333';
     sg.append('circle')
       .attr('class', 'strand-dot-glow')
       .attr('cx', dotX)
       .attr('cy', node.y)
       .attr('r', STRAND_DOT_R + 3)
-      .attr('fill', dotGlowColor)
+      .attr('fill', this.glowColor())
       .attr('opacity', 0.12);
 
     // Strand fiber dot (EIA-598 color)
@@ -500,7 +505,7 @@ export class SpliceRenderer {
       .attr('cy', node.y)
       .attr('r', STRAND_DOT_R)
       .attr('fill', '#' + (node.color || 'ccc'))
-      .attr('stroke', dotDark ? '#adb5bd' : '#212529')
+      .attr('stroke', this.isDark ? '#adb5bd' : '#212529')
       .attr('stroke-width', 1.5)
       .attr('stroke-opacity', 0.5);
 
@@ -739,13 +744,11 @@ export class SpliceRenderer {
         const isSelected = this.state.isSpliceSelected(entry.sourceId, entry.targetId);
 
         // Subtle glow behind line — light halo in dark mode, dark halo in light mode
-        const dark = isDarkTheme();
-        const glowColor = dark ? '#4dc9c0' : '#333333';
         this.linksGroup
           .append('path')
           .attr('class', 'splice-link-glow')
           .attr('d', pathD)
-          .attr('stroke', glowColor)
+          .attr('stroke', this.glowColor())
           .attr('stroke-width', 6)
           .attr('stroke-opacity', 0.12)
           .attr('fill', 'none')
