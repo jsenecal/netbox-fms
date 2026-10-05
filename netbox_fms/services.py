@@ -9,8 +9,21 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
+from netbox.search.backends import search_backend
+from utilities.counters import update_counter
 
 from . import naming
+from .bulk import (
+    BATCH_SIZE,
+    SpliceSpec,
+    TubeSpec,
+    announce,
+    assign_tubes,
+    cached_lookups,
+    cf_defaults,
+    closure_side_ports,
+    create_splices,
+)
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .models import (
     BufferTube,
@@ -18,6 +31,7 @@ from .models import (
     FiberCable,
     FiberCircuit,
     FiberCircuitNode,
+    FiberStrand,
     SplicePlanEntry,
     TubeAssignment,
 )
@@ -347,7 +361,8 @@ def strand_port_groups(strands):
     return ordered
 
 
-def _provision_device_ports(fc, device, port_type, fk_field, warnings):
+@cached_lookups()
+def _provision_device_ports(fc, device, port_type, fk_field, warnings, notify=True):
     """Create greenfield ports on a device for every strand of a FiberCable.
 
     One RearPort per physical container -- buffer tube for loose-tube
@@ -363,6 +378,11 @@ def _provision_device_ports(fc, device, port_type, fk_field, warnings):
     ``warnings`` for the operator. Every port is also created with a
     rendered label, degrading to blank labels on a broken template rather
     than failing the provisioning.
+
+    The ports, mappings and strand links of the cable end are written with
+    four bulk statements. ``notify`` (see :mod:`netbox_fms.bulk`) then
+    sends post_save for each of them, or, when False, only brings the
+    device's port counters and the search cache up to date.
 
     Returns: list of (container_or_None, rear_port, fiber_count) tuples,
     in fiber order.
@@ -386,32 +406,59 @@ def _provision_device_ports(fc, device, port_type, fk_field, warnings):
     front_names = iter(names.fronts)
     _ctx = _port_context_builder(fc, device, end)
 
-    with fms_portmapping_bypass():
-        for (container, group_strands), rear_name in zip(groups, names.rears, strict=True):
-            rp = RearPort.objects.create(
+    # ComponentModel.save() copies these from the device; a bulk insert has to.
+    placement = {"_site_id": device.site_id, "_location_id": device.location_id, "_rack_id": device.rack_id}
+    rear_defaults, front_defaults = cf_defaults(RearPort), cf_defaults(FrontPort)
+    rears, fronts = [], []
+    for (_container, group_strands), rear_name in zip(groups, names.rears, strict=True):
+        rears.append(
+            RearPort(
                 device=device,
                 name=rear_name,
                 label=_render_port_label(compiled, naming.REAR_PORT_LABEL, rear_group_context(_ctx, group_strands)),
                 type=port_type,
                 positions=len(group_strands),
+                custom_field_data=dict(rear_defaults),
+                **placement,
             )
-            for i, strand in enumerate(group_strands, start=1):
-                fp = FrontPort.objects.create(
-                    device=device,
-                    name=next(front_names),
-                    label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(strand=strand)),
-                    type=port_type,
-                )
-                PortMapping.objects.create(
-                    device=device,
-                    front_port=fp,
-                    rear_port=rp,
-                    front_port_position=1,
-                    rear_port_position=i,
-                )
-                setattr(strand, fk_field, fp)
-                strand.save(update_fields=[fk_field])
-            provisioned.append((container, rp, len(group_strands)))
+        )
+        fronts.extend(
+            FrontPort(
+                device=device,
+                name=next(front_names),
+                label=_render_port_label(compiled, naming.FRONT_PORT_LABEL, _ctx(strand=strand)),
+                type=port_type,
+                custom_field_data=dict(front_defaults),
+                **placement,
+            )
+            for strand in group_strands
+        )
+    RearPort.objects.bulk_create(rears, batch_size=BATCH_SIZE)
+    FrontPort.objects.bulk_create(fronts, batch_size=BATCH_SIZE)
+
+    mappings = []
+    front_ports = iter(fronts)
+    for (container, group_strands), rp in zip(groups, rears, strict=True):
+        for i, strand in enumerate(group_strands, start=1):
+            fp = next(front_ports)
+            mappings.append(
+                PortMapping(device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i)
+            )
+            setattr(strand, fk_field, fp)
+        provisioned.append((container, rp, len(group_strands)))
+    PortMapping.objects.bulk_create(mappings, batch_size=BATCH_SIZE)
+    FiberStrand.objects.bulk_update(ordered_strands, [fk_field], batch_size=BATCH_SIZE)
+
+    if notify:
+        announce(RearPort, rears)
+        announce(FrontPort, fronts)
+        announce(PortMapping, mappings)
+        announce(FiberStrand, ordered_strands, created=False)
+    else:
+        update_counter(Device, device.pk, "rear_port_count", len(rears))
+        update_counter(Device, device.pk, "front_port_count", len(fronts))
+        search_backend.cache(rears, remove_existing=False)
+        search_backend.cache(fronts, remove_existing=False)
 
     return provisioned
 
@@ -470,12 +517,13 @@ def rear_name_for_group(cable_id, strands, ordinals):
 
 
 def bulk_update_port_field(ports, field):
-    """bulk_update one changed field on a mixed FrontPort/RearPort set."""
+    """bulk_update one changed field on a mixed FrontPort/RearPort set; returns the ports by model."""
     by_model = {}
     for port in ports:
         by_model.setdefault(type(port), []).append(port)
     for model, group in by_model.items():
-        model.objects.bulk_update(group, [field], batch_size=500)
+        model.objects.bulk_update(group, [field], batch_size=BATCH_SIZE)
+    return by_model
 
 
 def is_splice_tray(module):
@@ -622,7 +670,7 @@ def apply_port_names(renames):
 
 
 @transaction.atomic
-def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", port_mapping=None):
+def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", port_mapping=None, notify=True):
     """Link a cable's FiberCable strands to ports, adopting or creating them.
 
     Creates the FiberCable when the cable has none; a cable that already
@@ -729,7 +777,7 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
             # numbered over the provisioned groups (tubes or ribbons) in fiber
             # order, matching the profile derived by get_cable_profile().
             for connector, (_container, rp, fiber_count) in enumerate(
-                _provision_device_ports(fc, device, port_type, fk_field, warnings), start=1
+                _provision_device_ports(fc, device, port_type, fk_field, warnings, notify), start=1
             ):
                 CableTermination.objects.create(
                     cable=cable,
@@ -744,7 +792,7 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
 
 
 @transaction.atomic
-def create_closure_cable(*, device_a, device_b, fiber_cable_type, port_type="splice", cable_attrs=None):
+def create_closure_cable(*, device_a, device_b, fiber_cable_type, port_type="splice", cable_attrs=None, notify=True):
     """Create a dcim.Cable + FiberCable between two closures, greenfield.
 
     Follows the create-then-terminate choreography: the Cable is created
@@ -756,6 +804,10 @@ def create_closure_cable(*, device_a, device_b, fiber_cable_type, port_type="spl
     connector/positions for profile-based tracing. Registers the cable at
     both closures with blank ClosureCableEntries.
 
+    ``notify=False`` provisions the ports of both ends without per-object
+    post_save (see :mod:`netbox_fms.bulk`); the Cable, FiberCable and gland
+    entries are saved normally either way.
+
     Returns: (FiberCable, warnings_list)
     """
     if device_a == device_b:
@@ -765,8 +817,8 @@ def create_closure_cable(*, device_a, device_b, fiber_cable_type, port_type="spl
     cable.save()
     fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fiber_cable_type)
 
-    provisioned_a = _provision_device_ports(fc, device_a, port_type, "front_port_a", warnings)
-    provisioned_b = _provision_device_ports(fc, device_b, port_type, "front_port_b", warnings)
+    provisioned_a = _provision_device_ports(fc, device_a, port_type, "front_port_a", warnings, notify)
+    provisioned_b = _provision_device_ports(fc, device_b, port_type, "front_port_b", warnings, notify)
 
     profile_key = fiber_cable_type.get_cable_profile()
     if profile_key:
@@ -904,6 +956,7 @@ def tray_utilization(closure):
     return result
 
 
+@transaction.atomic
 def auto_assign_tubes(closure):
     """Assign every unassigned tube on the closure to a splice tray with room.
 
@@ -935,9 +988,10 @@ def auto_assign_tubes(closure):
     for tube in unassigned:
         by_position[tube.position].append(tube)
 
+    placed = []
+
     def place(tray, tubes):
-        for tube in tubes:
-            TubeAssignment.objects.create(closure=closure, tray=tray.tray, buffer_tube=tube)
+        placed.extend(TubeSpec(tube.pk, tray.tray.pk) for tube in tubes)
         tray.tubes += len(tubes)
         tray.strands += sum(t.strand_total for t in tubes)
 
@@ -954,6 +1008,7 @@ def auto_assign_tubes(closure):
         if not first_fit(tubes):
             for tube in tubes:
                 first_fit([tube])
+    assign_tubes(closure, placed)
 
 
 def get_live_state(closure):
@@ -1232,7 +1287,6 @@ def apply_diff(plan):
     diff = compute_diff(plan)
 
     fp_ct = ContentType.objects.get_for_model(FrontPort)
-    added = 0
     removed = 0
 
     # Deduplicate inter-platter pairs (same pair appears on both trays)
@@ -1272,24 +1326,7 @@ def apply_diff(plan):
         if conflicting_cable_ids:
             Cable.objects.filter(pk__in=conflicting_cable_ids).delete()
 
-        for port_a_id, port_b_id in all_adds:
-            cable = Cable(
-                status="connected",
-            )
-            cable.save()
-            CableTermination.objects.create(
-                cable=cable,
-                cable_end="A",
-                termination_type=fp_ct,
-                termination_id=port_a_id,
-            )
-            CableTermination.objects.create(
-                cable=cable,
-                cable_end="B",
-                termination_type=fp_ct,
-                termination_id=port_b_id,
-            )
-            added += 1
+        added = len(create_splices(plan.closure, [SpliceSpec(a, b) for a, b in sorted(all_adds)]))
 
         # Archive the applied plan so it becomes a read-only historical record
         plan.status = SplicePlanStatusChoices.ARCHIVED
@@ -1353,16 +1390,9 @@ def _tube_assignment_target_ports(closure_id, buffer_tube_id):
     whichever terminates on the closure); strands without a port there are
     skipped.
     """
-    from .models import FiberStrand
-
-    ports = []
-    strands = FiberStrand.objects.filter(buffer_tube_id=buffer_tube_id).select_related("front_port_a", "front_port_b")
-    for strand in strands:
-        for port in (strand.front_port_a, strand.front_port_b):
-            if port is not None and port.device_id == closure_id:
-                ports.append(port)
-                break
-    return ports
+    port_ids = closure_side_ports(closure_id, [buffer_tube_id])[buffer_tube_id]
+    ports = FrontPort.objects.in_bulk(port_ids)
+    return [ports[pk] for pk in port_ids if pk in ports]
 
 
 def sync_tube_assignment_ports(assignment):

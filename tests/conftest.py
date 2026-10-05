@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
 
@@ -50,6 +51,85 @@ def make_infra(prefix):
     dt = DeviceType.objects.create(manufacturer=mfr, model=f"{prefix} FOSC", slug=f"{prefix.lower()}-fosc")
     role = DeviceRole.objects.create(name=f"{prefix} Closure", slug=f"{prefix.lower()}-closure")
     return site, mfr, dt, role
+
+
+def stored_columns(obj, drop=()):
+    """Every stored column of a row except its pk, its timestamps and the named ones."""
+    skip = {"id", "created", "last_updated", *drop}
+    return {f.attname: getattr(obj, f.attname) for f in obj._meta.concrete_fields if f.attname not in skip}
+
+
+def place_in_rack(device, prefix):
+    """Give a device a Location and a Rack, so the columns NetBox caches from them are not all NULL."""
+    from dcim.models import Location, Rack
+
+    location = Location.objects.create(name=f"{prefix} Room", slug=f"{prefix.lower()}-room", site=device.site)
+    rack = Rack.objects.create(name=f"{prefix} Rack", site=device.site, location=location)
+    device.location, device.rack = location, rack
+    device.save()
+    return device
+
+
+@contextmanager
+def saves_seen(*models):
+    """Collect (model, pk, created) for every post_save of the given models."""
+    from django.db.models.signals import post_save
+
+    seen = []
+
+    def receiver(sender, instance, created, **kwargs):
+        seen.append((sender, instance.pk, created))
+
+    for model in models:
+        post_save.connect(receiver, sender=model)
+    try:
+        yield seen
+    finally:
+        for model in models:
+            post_save.disconnect(receiver, sender=model)
+
+
+def rolled_back(fn, dump):
+    """Run fn, take dump(), then undo everything fn wrote; returns (fn's result, the dump)."""
+    from django.db import transaction
+
+    with transaction.atomic():
+        result = fn()
+        snapshot = dump()
+        transaction.set_rollback(True)
+    return result, snapshot
+
+
+def is_indexed(obj, value):
+    """True when NetBox's search cache holds this value for the object."""
+    from core.models import ObjectType
+    from extras.models import CachedValue
+
+    return CachedValue.objects.filter(
+        object_type=ObjectType.objects.get_for_model(type(obj)), object_id=obj.pk, value=value
+    ).exists()
+
+
+def changes_logged(fn):
+    """(model, action) counts of the ObjectChanges fn writes inside a request; fn's writes are undone."""
+    import uuid
+    from collections import Counter
+
+    from core.models import ObjectChange
+    from django.db import transaction
+    from netbox.context_managers import event_tracking
+
+    request = RequestFactory().get("/")
+    request.id = uuid.uuid4()
+    request.user = get_user_model().objects.get_or_create(username="changes-logged")[0]
+    with transaction.atomic():
+        with event_tracking(request):
+            fn()
+        found = Counter(
+            ObjectChange.objects.filter(request_id=request.id).values_list("changed_object_type__model", "action")
+        )
+        transaction.set_rollback(True)
+    return found
 
 
 def make_front_port(device, name, module=None, port_type="lc"):
