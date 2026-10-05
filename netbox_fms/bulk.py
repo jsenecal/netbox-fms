@@ -30,7 +30,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from dcim.choices import LinkStatusChoices
-from dcim.models import Cable, CableTermination, FrontPort
+from dcim.models import Cable, CableTermination, FrontPort, Module
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db.models import prefetch_related_objects
@@ -51,6 +51,15 @@ class SpliceSpec:
     port_a_id: int
     port_b_id: int
     attrs: dict | None = None
+
+
+@dataclass(frozen=True)
+class TubeSpec:
+    """One tube to route to a splice tray of the closure, with optional custom-field values."""
+
+    buffer_tube_id: int
+    tray_id: int
+    custom_field_data: dict | None = None
 
 
 def cf_defaults(model) -> dict:
@@ -159,3 +168,107 @@ def create_splices(closure, splices, *, notify=True) -> list[Cable]:
         search_backend.cache(cables, remove_existing=False)
         SplicePlan.objects.filter(closure=closure, diff_stale=False).update(diff_stale=True)
     return cables
+
+
+def _check_tubes(closure, specs) -> dict:
+    """The tubes named by the specs, by pk; raises when any spec breaks a rule of TubeAssignment.clean()."""
+    from .models import BufferTube, ClosureCableEntry, TubeAssignment
+    from .services import is_splice_tray
+
+    tube_ids = [spec.buffer_tube_id for spec in specs]
+    trays = {
+        tray.pk: tray
+        for tray in Module.objects.filter(pk__in={spec.tray_id for spec in specs}).select_related(
+            "module_type__tray_profile"
+        )
+    }
+    tubes = {tube.pk: tube for tube in BufferTube.objects.filter(pk__in=set(tube_ids))}
+    entering = set(ClosureCableEntry.objects.filter(closure=closure).values_list("fiber_cable_id", flat=True))
+    assigned = set(
+        TubeAssignment.objects.filter(closure=closure, buffer_tube_id__in=set(tube_ids)).values_list(
+            "buffer_tube_id", flat=True
+        )
+    )
+    errors = []
+    for pk, uses in sorted(Counter(tube_ids).items()):
+        tube = tubes.get(pk)
+        if tube is None or tube.fiber_cable_id not in entering:
+            errors.append(f"Tube {pk}: its fiber cable does not enter {closure}.")
+        if pk in assigned:
+            errors.append(f"Tube {pk} is already assigned on {closure}.")
+        if uses > 1:
+            errors.append(f"Tube {pk} is named twice in this batch.")
+    for pk in sorted({spec.tray_id for spec in specs}):
+        tray = trays.get(pk)
+        if tray is None or tray.device_id != closure.pk:
+            errors.append(f"Module {pk} is not a tray of the closure {closure}.")
+        elif not is_splice_tray(tray):
+            errors.append(f"Module {pk} ({tray}) is not a splice tray.")
+    if errors:
+        raise ValidationError(errors)
+    return tubes
+
+
+def _closure_side_ports(closure, tube_ids) -> dict[int, list[int]]:
+    """Tube pk -> the FrontPorts of its strands that sit on the closure (one per strand at most)."""
+    from .models import FiberStrand
+
+    ports: dict[int, list[int]] = {pk: [] for pk in tube_ids}
+    rows = FiberStrand.objects.filter(buffer_tube_id__in=tube_ids).values_list(
+        "buffer_tube_id", "front_port_a_id", "front_port_a__device_id", "front_port_b_id", "front_port_b__device_id"
+    )
+    for tube_id, port_a, device_a, port_b, device_b in rows:
+        if port_a is not None and device_a == closure.pk:
+            ports[tube_id].append(port_a)
+        elif port_b is not None and device_b == closure.pk:
+            ports[tube_id].append(port_b)
+    return ports
+
+
+def assign_tubes(closure, assignments, *, notify=True) -> list:
+    """Route buffer tubes to splice trays of the closure and move their strand ports onto the trays.
+
+    ``assignments`` is an iterable of :class:`TubeSpec`; the caller chooses
+    the trays. A tray must be a splice-tray module of ``closure``, a tube
+    must belong to a cable that enters it and may not be assigned there
+    yet. Capacity is not enforced here, as nowhere else: an over-full tray
+    is reported, never refused. Returns the assignments in input order.
+    """
+    from . import naming
+    from .models import TubeAssignment
+    from .signals import _relabel_ports_for_cable
+
+    specs = list(assignments)
+    if not specs:
+        return []
+    tubes = _check_tubes(closure, specs)
+
+    defaults = cf_defaults(TubeAssignment)
+    rows = [
+        TubeAssignment(
+            closure=closure,
+            tray_id=spec.tray_id,
+            buffer_tube_id=spec.buffer_tube_id,
+            custom_field_data={**defaults, **(spec.custom_field_data or {})},
+        )
+        for spec in specs
+    ]
+    if notify:
+        # The per-object path: its receivers move the ports one save at a time, so each move is logged.
+        for row in rows:
+            row.save()
+        return rows
+
+    TubeAssignment.objects.bulk_create(rows, batch_size=BATCH_SIZE)
+    ports = _closure_side_ports(closure, list(tubes))
+    by_tray: dict[int, list[int]] = {}
+    for spec in specs:
+        by_tray.setdefault(spec.tray_id, []).extend(ports[spec.buffer_tube_id])
+    now = timezone.now()
+    for tray_id, port_ids in by_tray.items():
+        FrontPort.objects.filter(pk__in=port_ids).exclude(module_id=tray_id).update(module_id=tray_id, last_updated=now)
+    if naming.labels_use_tray():
+        cables = {tube.fiber_cable.cable for tube in tubes.values() if tube.fiber_cable.cable_id}
+        for cable in cables:
+            _relabel_ports_for_cable(cable)
+    return rows
