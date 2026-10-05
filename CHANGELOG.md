@@ -38,9 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Port labels re-rendered in bulk (after a cable rename or a tube
   assignment, with a template that uses the affected token) are indexed
   for search again; the search cache kept the previous labels.
-
-### Fixed
-
 - Fiber circuit paths now trace across a cable linked onto pre-existing
   rear ports when either end lands on more than one rear port (for
   example two ODFs joined by a two-tube cable). Linking set the cable
