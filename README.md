@@ -33,7 +33,7 @@ Define fiber cable construction as reusable blueprints, auto-instantiate compone
 
 | Plugin version | NetBox version | Python    |
 |----------------|----------------|-----------|
-| 0.3.x          | 4.5-4.7        | 3.12-3.14 |
+| 0.3.x-0.5.x    | 4.5-4.7        | 3.12-3.14 |
 
 ## Installation
 
