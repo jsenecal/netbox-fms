@@ -196,6 +196,10 @@ class TestImportLiveState(TestCase):
         assert result["skipped_unassigned"] == 0
 
 
+# Applying six additions took 325 queries when each splice was saved on its own.
+APPLY_QUERY_CEILING = 160
+
+
 class TestApplyDiff(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -240,6 +244,22 @@ class TestApplyDiff(TestCase):
         result = apply_diff(plan)
         assert result["removed"] == 1
         assert not Cable.objects.filter(pk=cable.pk).exists()
+
+    def test_apply_writes_its_additions_in_bulk(self):
+        """Six new splices cost a fixed handful of statements, not a round of saves each."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        plan = SplicePlan.objects.create(
+            closure=self.closure, name="Bulk Plan", status=SplicePlanStatusChoices.APPROVED
+        )
+        ports = [make_front_port(device=self.closure, module=self.tray, name=f"B{i}") for i in range(12)]
+        for port_a, port_b in zip(ports[0::2], ports[1::2], strict=True):
+            SplicePlanEntry.objects.create(plan=plan, tray=self.tray, fiber_a=port_a, fiber_b=port_b)
+        with CaptureQueriesContext(connection) as queries:
+            result = apply_diff(plan)
+        assert result["added"] == 6
+        assert len(queries) < APPLY_QUERY_CEILING, len(queries)
 
     def test_apply_archives_plan(self):
         """apply_diff() archives the plan after a successful apply (issue #111)."""

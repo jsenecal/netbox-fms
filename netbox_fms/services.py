@@ -13,7 +13,16 @@ from netbox.search.backends import search_backend
 from utilities.counters import update_counter
 
 from . import naming
-from .bulk import BATCH_SIZE, announce, cached_lookups, cf_defaults
+from .bulk import (
+    BATCH_SIZE,
+    SpliceSpec,
+    TubeSpec,
+    announce,
+    assign_tubes,
+    cached_lookups,
+    cf_defaults,
+    create_splices,
+)
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .models import (
     BufferTube,
@@ -976,9 +985,10 @@ def auto_assign_tubes(closure):
     for tube in unassigned:
         by_position[tube.position].append(tube)
 
+    placed = []
+
     def place(tray, tubes):
-        for tube in tubes:
-            TubeAssignment.objects.create(closure=closure, tray=tray.tray, buffer_tube=tube)
+        placed.extend(TubeSpec(tube.pk, tray.tray.pk) for tube in tubes)
         tray.tubes += len(tubes)
         tray.strands += sum(t.strand_total for t in tubes)
 
@@ -995,6 +1005,7 @@ def auto_assign_tubes(closure):
         if not first_fit(tubes):
             for tube in tubes:
                 first_fit([tube])
+    assign_tubes(closure, placed)
 
 
 def get_live_state(closure):
@@ -1313,24 +1324,7 @@ def apply_diff(plan):
         if conflicting_cable_ids:
             Cable.objects.filter(pk__in=conflicting_cable_ids).delete()
 
-        for port_a_id, port_b_id in all_adds:
-            cable = Cable(
-                status="connected",
-            )
-            cable.save()
-            CableTermination.objects.create(
-                cable=cable,
-                cable_end="A",
-                termination_type=fp_ct,
-                termination_id=port_a_id,
-            )
-            CableTermination.objects.create(
-                cable=cable,
-                cable_end="B",
-                termination_type=fp_ct,
-                termination_id=port_b_id,
-            )
-            added += 1
+        added = len(create_splices(plan.closure, [SpliceSpec(a, b) for a, b in sorted(all_adds)]))
 
         # Archive the applied plan so it becomes a read-only historical record
         plan.status = SplicePlanStatusChoices.ARCHIVED

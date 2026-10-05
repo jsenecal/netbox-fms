@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `netbox_fms.bulk`: `create_splices(closure, splices, notify=True)` and
+  `assign_tubes(closure, assignments, notify=True)` write many splices or
+  tube assignments with a few bulk statements and store exactly what the
+  per-object saves store. `notify=True` (the default) sends `post_save`
+  for each object afterwards, so change logging and every receiver keep
+  working; `notify=False` is for imports: no per-object signal, and the
+  writer keeps the search cache, the device port counters and the
+  closure's splice-plan staleness up to date itself.
+- `create_closure_cable` and `link_cable_topology` accept `notify`.
+
+### Changed
+
+- A cable's ports, port mappings and strand links are provisioned with
+  four bulk statements per cable end instead of a save per object.
+- Applying a splice plan and auto-assigning tubes write through the bulk
+  writers. A new splice no longer logs the empty cable "update" that
+  followed its "create".
+
 ### Fixed
 
 - Fiber circuit paths now trace across a cable linked onto pre-existing
