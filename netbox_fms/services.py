@@ -21,7 +21,7 @@ from .models import (
     SplicePlanEntry,
     TubeAssignment,
 )
-from .signals import fms_portmapping_bypass
+from .signals import _cable_strand_ports, _rear_port_strand_groups, fms_portmapping_bypass
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,42 @@ def _determine_cable_end(cable, device):
     if "B" in ends:
         return "B"
     return "A"
+
+
+def _number_connectors_by_strand_order(fc, rear_port_ids):
+    """Renumber a cable's rear port terminations in the order of the strands they carry.
+
+    The trace pairs connector N on one cable end with connector N on the
+    other, so both ends must number their rear ports the same way. Strand
+    order is the one ordering both ends share: the rear port holding the
+    lowest strand position gets connector 1, whatever the ports are named.
+    Rear ports carrying no linked strand go last. Each end is numbered on
+    its own, and the rows go through CableTermination.save() so the rear
+    port's cached cable_connector/cable_positions follow.
+    """
+    rp_ct = ContentType.objects.get_for_model(RearPort)
+    first_strand = {
+        rp.pk: min(strand.position for strand in strands)
+        for rp, strands in _rear_port_strand_groups(*_cable_strand_ports(fc))
+    }
+
+    terms = CableTermination.objects.filter(
+        cable_id=fc.cable_id, termination_type=rp_ct, termination_id__in=rear_port_ids
+    )
+    # Not taken from the strand groups: a rear port with no linked strand is absent there but still numbered.
+    positions_by_rp = dict(RearPort.objects.filter(pk__in=rear_port_ids).values_list("pk", "positions"))
+    by_end = defaultdict(list)
+    for term in terms:
+        by_end[term.cable_end].append(term)
+
+    # Clear first: renumbering in place would trip the unique (cable, end, connector) constraint.
+    terms.update(connector=None)
+    for end_terms in by_end.values():
+        end_terms.sort(key=lambda t: (t.termination_id not in first_strand, first_strand.get(t.termination_id, 0)))
+        for connector, term in enumerate(end_terms, start=1):
+            term.connector = connector
+            term.positions = list(range(1, positions_by_rp[term.termination_id] + 1))
+            term.save()
 
 
 def is_intra_closure_jumper(cable):
@@ -509,8 +545,6 @@ def plan_port_names(fc):
     carries problems -- names are unique per device, so a partial rename
     would strand the cable between schemes.
     """
-    from .signals import _cable_strand_ports, _rear_port_strand_groups
-
     strand_by_fp_id, pms = _cable_strand_ports(fc)
     ordinals = ribbon_ordinals(strand_by_fp_id.values())
     owned_fp_ids = fms_owned_front_port_ids(pms)
@@ -688,6 +722,7 @@ def link_cable_topology(cable, fiber_cable_type, device, port_type="splice", por
                 if fp_id:
                     setattr(strand, fk_field, FrontPort.objects.get(pk=fp_id))
                     strand.save(update_fields=[fk_field])
+            _number_connectors_by_strand_order(fc, existing_term_rp_ids)
         else:
             # Greenfield path: create ports, then terminate the cable on them.
             # connector/positions enable profile-based tracing: connectors are

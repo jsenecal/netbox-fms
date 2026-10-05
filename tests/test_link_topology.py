@@ -1,9 +1,20 @@
+import importlib
+from types import SimpleNamespace
+
 import pytest
 from dcim.models import Cable, CableTermination, Manufacturer, RearPort
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
+from django.db import connection
 
-from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
-from tests.conftest import make_central_core_type, make_closure, make_ribbon_in_tube_type
+from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, FiberCircuitPath, RibbonTemplate
+from tests.conftest import (
+    make_central_core_type,
+    make_closure,
+    make_closure_pair,
+    make_mapped_rear_ports,
+    make_ribbon_in_tube_type,
+)
 
 
 def _closure_with_cable(prefix):
@@ -351,18 +362,9 @@ class TestLinkCableTopologyGreenfield:
 
 
 def _make_closure_with_existing_ports():
-    from dcim.models import FrontPort, PortMapping
-
     device, cable, mfr = _closure_with_cable("AD")
-    rp = RearPort.objects.create(device=device, name="Existing-RP", type="splice", positions=12)
+    (rp,), fps = make_mapped_rear_ports(device, ["Existing-RP"], "EF{i}")
     CableTermination.objects.create(cable=cable, cable_end="A", termination=rp)
-    fps = []
-    for i in range(1, 13):
-        fp = FrontPort.objects.create(device=device, name=f"EF{i}", type="splice")
-        PortMapping.objects.create(
-            device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
-        )
-        fps.append(fp)
 
     fct = FiberCableType.objects.create(
         manufacturer=mfr,
@@ -436,19 +438,10 @@ class TestLinkCableTopologyAdopt:
     def _make_closure_with_multiple_rearports(self):
         """Regression fixture for issue #64: one cable terminated on 4 RearPorts,
         each with 12 positions and 12 mapped FrontPorts (48 ports total)."""
-        from dcim.models import FrontPort, PortMapping
-
         device, cable, mfr = _closure_with_cable("MR")
-        fps = []
-        for t in range(1, 5):
-            rp = RearPort.objects.create(device=device, name=f"MR-RP{t}", type="splice", positions=12)
+        rear_ports, fps = make_mapped_rear_ports(device, [f"MR-RP{t}" for t in range(1, 5)], "{rp}-F{i}")
+        for rp in rear_ports:
             CableTermination.objects.create(cable=cable, cable_end="A", termination=rp)
-            for i in range(1, 13):
-                fp = FrontPort.objects.create(device=device, name=f"MR-RP{t}-F{i}", type="splice")
-                PortMapping.objects.create(
-                    device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
-                )
-                fps.append(fp)
 
         fct = FiberCableType.objects.create(
             manufacturer=mfr,
@@ -477,6 +470,74 @@ class TestLinkCableTopologyAdopt:
         assert fc.fiber_strands.filter(front_port_a__isnull=False).count() == 48
 
         assert RearPort.objects.filter(device=device).count() == 4  # no new RearPorts
+
+
+def _odf_pair_linked_by_adoption():
+    """Two ODFs joined by a profile-less 2x12 loose-tube cable, both ends linked by adoption.
+
+    The B end's mapping is crossed -- strands 1-12 land on RP2 -- so connector
+    numbering that follows rear port names rather than strands pairs the wrong tubes.
+    Returns (cable, a_front_ports, b_front_ports).
+    """
+    rig = make_closure_pair("ODF")
+    rps_a, fps_a = make_mapped_rear_ports(rig.dev_a, ["RP1", "RP2"], "FP{n}")
+    rps_b, fps_b = make_mapped_rear_ports(rig.dev_b, ["RP1", "RP2"], "FP{n}")
+    fct = FiberCableType.objects.create(
+        manufacturer=rig.mfr, model="ODF-2x12", strand_count=24, construction="loose_tube"
+    )
+    for t in (1, 2):
+        BufferTubeTemplate.objects.create(fiber_cable_type=fct, name=f"T{t}", position=t, fiber_count=12)
+
+    cable = Cable(a_terminations=rps_a, b_terminations=rps_b)
+    cable.save()
+
+    link_cable_topology(cable, fct, rig.dev_a, port_mapping=_full_mapping(fps_a))
+    link_cable_topology(cable, None, rig.dev_b, port_mapping=_full_mapping(fps_b[12:] + fps_b[:12]))
+    return cable, fps_a, fps_b
+
+
+def _run_connector_backfill():
+    """Run migration 0038's backfill against the current models."""
+    backfill = importlib.import_module("netbox_fms.migrations.0038_backfill_adopted_cable_connectors")
+    backfill.backfill_connectors(django_apps, SimpleNamespace(connection=connection))
+
+
+@pytest.mark.django_db
+class TestLinkCableTopologyAdoptConnectors:
+    def test_trace_crosses_adopted_multi_rear_port_cable(self):
+        """Issue #191: adopting existing rear ports left every CableTermination
+        connector NULL, so the trace could not pick the far tube and stopped at
+        the cable. Connectors must follow strand order on both ends."""
+        _cable, fps_a, fps_b = _odf_pair_linked_by_adoption()
+
+        result = FiberCircuitPath.from_origin(fps_a[0])
+
+        assert result.is_complete is True
+        assert result.destination == fps_b[12]
+
+    def test_backfill_migration_repairs_connectorless_cable(self):
+        """Issue #191: cables adopted before the fix carry NULL connectors; the
+        data migration renumbers them in strand order."""
+        cable, fps_a, fps_b = _odf_pair_linked_by_adoption()
+        CableTermination.objects.filter(cable=cable).update(connector=None, positions=None)
+
+        _run_connector_backfill()
+
+        assert FiberCircuitPath.from_origin(fps_a[0]).destination == fps_b[12]
+
+    def test_backfill_migration_leaves_numbered_end_alone(self):
+        """An end that already carries connectors keeps them, even out of strand order."""
+        cable, _fps_a, _fps_b = _odf_pair_linked_by_adoption()
+        a_terms = CableTermination.objects.filter(cable=cable, cable_end="A").order_by("termination_id")
+        rp1_term, rp2_term = list(a_terms)
+        a_terms.update(connector=None)
+        CableTermination.objects.filter(pk=rp1_term.pk).update(connector=2)
+        CableTermination.objects.filter(pk=rp2_term.pk).update(connector=1)
+        CableTermination.objects.filter(cable=cable, cable_end="B").update(connector=None, positions=None)
+
+        _run_connector_backfill()
+
+        assert list(a_terms.values_list("connector", flat=True)) == [2, 1]
 
 
 @pytest.mark.django_db
