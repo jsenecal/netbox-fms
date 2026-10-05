@@ -1,5 +1,6 @@
 declare const d3: any;
 
+import { isDarkTheme } from './theme';
 import type { TraceConfig, TraceResponse, Hop, DeviceHop, CableHop, ProviderCircuitHop } from './trace-types';
 
 // Layout constants
@@ -228,7 +229,7 @@ export class TraceRenderer {
       existing.remove();
     }
 
-    const isDark = document.body.getAttribute('data-bs-theme') === 'dark';
+    const isDark = isDarkTheme();
     const colors = getThemeColors(isDark);
     const containerWidth = this.container.clientWidth || 600;
 
