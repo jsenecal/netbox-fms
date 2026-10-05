@@ -15,9 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-object saves store. `notify=True` (the default) sends `post_save`
   for each object afterwards, so change logging and every receiver keep
   working; `notify=False` is for imports: no per-object signal, and the
-  writer keeps the search cache, the device port counters and the
-  closure's splice-plan staleness up to date itself.
-- `create_closure_cable` and `link_cable_topology` accept `notify`.
+  writer keeps the search cache and the closure's splice-plan staleness
+  up to date itself.
+- `create_closure_cable` and `link_cable_topology` accept `notify`; with
+  `notify=False` the ports of a cable end are provisioned without
+  per-object signals and the device's port counters and the search cache
+  are brought up to date in bulk.
 
 ### Changed
 
@@ -25,7 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   four bulk statements per cable end instead of a save per object.
 - Applying a splice plan and auto-assigning tubes write through the bulk
   writers. A new splice no longer logs the empty cable "update" that
-  followed its "create".
+  followed its "create". Applying a plan now marks the closure's other
+  plans stale, and a plan whose additions name a port twice is refused
+  with a validation error that rolls the whole apply back instead of
+  failing on a database constraint. Auto-assign is all-or-nothing.
+
+### Fixed
+
+- Port labels re-rendered in bulk (after a cable rename or a tube
+  assignment, with a template that uses the affected token) are indexed
+  for search again; the search cache kept the previous labels.
 
 ### Fixed
 

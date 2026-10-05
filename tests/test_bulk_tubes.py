@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from netbox_fms.bulk import TubeSpec, assign_tubes
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, TubeAssignment
 from netbox_fms.services import create_closure_cable
-from tests.conftest import make_infra, make_tray_module, make_tray_type
+from tests.conftest import make_infra, make_tray_module, make_tray_type, place_in_rack
 from tests.test_bulk_splices import saves_seen
 
 TRAY_LABELS = {"netbox_fms": {"front_port_label_template": "{% if tray %}{{ tray }}/{% endif %}F{{ strand }}"}}
@@ -40,7 +40,9 @@ class BulkTubeCase(TestCase):
     def setUpTestData(cls):
         site, mfr, dt, role = make_infra("BTU")
         cls.far = Device.objects.create(name="BTU-FAR", site=site, device_type=dt, role=role)
-        cls.closure = Device.objects.create(name="BTU-CLOSURE", site=site, device_type=dt, role=role)
+        cls.closure = place_in_rack(
+            Device.objects.create(name="BTU-CLOSURE", site=site, device_type=dt, role=role), "BTU"
+        )
         cls.other = Device.objects.create(name="BTU-OTHER", site=site, device_type=dt, role=role)
         tray_type = make_tray_type(mfr, "BTU-TRAY", splice_capacity=24)
         cls.tray1 = make_tray_module(cls.closure, tray_type, "Tray 1")
@@ -111,6 +113,18 @@ class TestEquivalence(BulkTubeCase):
         labels = {label for _tray, label in found["closure_ports"].values()}
         assert any(label.startswith("Tray 1") and label.endswith("/F1") for label in labels)
 
+    @override_settings(PLUGINS_CONFIG=TRAY_LABELS)
+    def test_quiet_mode_indexes_the_rerendered_labels(self):
+        from core.models import ObjectType
+        from extras.models import CachedValue
+
+        assign_tubes(self.closure, self.specs(), notify=False)
+        port = FrontPort.objects.filter(device=self.closure, module=self.tray1).first()
+        assert port.label.startswith("Tray 1")
+        assert CachedValue.objects.filter(
+            object_type=ObjectType.objects.get_for_model(FrontPort), object_id=port.pk, value=port.label
+        ).exists()
+
 
 class TestValidation(BulkTubeCase):
     def assert_rejected(self, specs, fragment):
@@ -133,7 +147,9 @@ class TestValidation(BulkTubeCase):
         self.assert_rejected([TubeSpec(outsider.pk, self.tray1.pk)], "enter")
 
     def test_a_tube_named_twice_is_rejected(self):
-        self.assert_rejected([TubeSpec(self.tube1.pk, self.tray1.pk), TubeSpec(self.tube1.pk, self.tray2.pk)], "twice")
+        self.assert_rejected(
+            [TubeSpec(self.tube1.pk, self.tray1.pk), TubeSpec(self.tube1.pk, self.tray2.pk)], "2 times"
+        )
 
     def test_a_tube_already_assigned_is_rejected(self):
         TubeAssignment.objects.create(closure=self.closure, tray=self.tray1, buffer_tube=self.tube1)

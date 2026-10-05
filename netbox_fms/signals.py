@@ -288,10 +288,22 @@ def _stage_label_changes(proposed):
 
 
 def _write_label_changes(staged):
-    """Persist staged label changes."""
+    """Persist staged label changes, and index the new labels.
+
+    A bulk update fires no post_save, so the search cache would keep the
+    labels the ports had before; it is refreshed here, one model at a time.
+    """
+    from netbox.search.backends import search_backend
+
     from .services import bulk_update_port_field
 
-    bulk_update_port_field([port for port, _old_label in staged], "label")
+    ports = [port for port, _old_label in staged]
+    bulk_update_port_field(ports, "label")
+    by_model = {}
+    for port in ports:
+        by_model.setdefault(type(port), []).append(port)
+    for group in by_model.values():
+        search_backend.cache(group)
 
 
 def _relabel_ports_for_cable(cable):

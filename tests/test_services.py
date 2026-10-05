@@ -196,8 +196,9 @@ class TestImportLiveState(TestCase):
         assert result["skipped_unassigned"] == 0
 
 
-# Applying six additions took 325 queries when each splice was saved on its own.
-APPLY_QUERY_CEILING = 160
+# Applying six additions took 325 queries when each splice was saved on its own, and takes about 150
+# through the bulk writer in interactive mode (the count moves with the receivers installed).
+APPLY_QUERY_CEILING = 230
 
 
 class TestApplyDiff(TestCase):

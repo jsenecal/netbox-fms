@@ -13,23 +13,7 @@ from netbox_fms.bulk import SpliceSpec, create_splices
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, SplicePlan
 from netbox_fms.services import create_closure_cable, front_port_splice_pairs
 from netbox_fms.trace import trace_fiber_path
-from tests.conftest import make_infra
-
-CABLE_COLUMNS = (
-    "status",
-    "type",
-    "label",
-    "description",
-    "comments",
-    "length",
-    "length_unit",
-    "_abs_length",
-    "profile",
-    "tenant_id",
-    "custom_field_data",
-)
-TERMINATION_COLUMNS = ("connector", "positions", "_device_id", "_rack_id", "_location_id", "_site_id")
-PORT_COLUMNS = ("cable_end", "cable_connector", "cable_positions", "module_id", "mark_connected")
+from tests.conftest import changes_logged, make_infra, place_in_rack, stored_columns
 
 
 @contextmanager
@@ -69,20 +53,12 @@ def dump_splices(closure):
     out = {}
     for cable in Cable.objects.filter(pk__in=by_cable):
         terms = by_cable[cable.pk]
-        key = tuple(ports[t.termination_id].name for t in terms)
-        out[key] = {
-            "cable": {c: getattr(cable, c) for c in CABLE_COLUMNS},
-            "terminations": [
-                {
-                    "cable_end": t.cable_end,
-                    "type": t.termination_type_id,
-                    **{c: getattr(t, c) for c in TERMINATION_COLUMNS},
-                }
-                for t in terms
-            ],
+        out[tuple(ports[t.termination_id].name for t in terms)] = {
+            "cable": stored_columns(cable),
+            "terminations": [stored_columns(t, drop=("cable_id", "termination_id")) for t in terms],
             "ports": [
                 {"on_this_cable": ports[t.termination_id].cable_id == cable.pk}
-                | {c: getattr(ports[t.termination_id], c) for c in PORT_COLUMNS}
+                | stored_columns(ports[t.termination_id], drop=("cable_id",))
                 for t in terms
             ],
         }
@@ -103,7 +79,9 @@ class BulkSpliceCase(TestCase):
     def setUpTestData(cls):
         site, mfr, dt, role = make_infra("BSP")
         cls.far1 = Device.objects.create(name="BSP-FAR1", site=site, device_type=dt, role=role)
-        cls.closure = Device.objects.create(name="BSP-CLOSURE", site=site, device_type=dt, role=role)
+        cls.closure = place_in_rack(
+            Device.objects.create(name="BSP-CLOSURE", site=site, device_type=dt, role=role), "BSP"
+        )
         cls.far2 = Device.objects.create(name="BSP-FAR2", site=site, device_type=dt, role=role)
         fct = FiberCableType.objects.create(
             manufacturer=mfr, model="BSP-LT12", strand_count=12, construction="loose_tube"
@@ -237,35 +215,13 @@ class TestQuietReplacements(BulkSpliceCase):
 
 
 class TestChangeLog(BulkSpliceCase):
-    def changes(self, fn):
-        """(model, action) counts of the ObjectChanges fn writes inside a request; fn's writes are undone."""
-        import uuid
-        from collections import Counter
-
-        from core.models import ObjectChange
-        from django.contrib.auth import get_user_model
-        from django.test import RequestFactory
-        from netbox.context_managers import event_tracking
-
-        request = RequestFactory().get("/")
-        request.id = uuid.uuid4()
-        request.user = get_user_model().objects.get_or_create(username="bsp-changelog")[0]
-        with transaction.atomic():
-            with event_tracking(request):
-                fn()
-            found = Counter(
-                ObjectChange.objects.filter(request_id=request.id).values_list("changed_object_type__model", "action")
-            )
-            transaction.set_rollback(True)
-        return found
-
     def test_interactive_mode_logs_the_changes_the_per_object_path_logs(self):
-        expected = self.changes(lambda: reference_splices(self.pairs[:3]))
+        expected = changes_logged(lambda: reference_splices(self.pairs[:3]))
         assert expected[("cable", "create")] == 3
         # Cable.save() writes a new cable twice (insert, then update), which logs an empty update
         # next to the create; one bulk insert has no such second write.
         assert expected.pop(("cable", "update")) == 3
-        assert self.changes(lambda: create_splices(self.closure, self.specs(self.pairs[:3]))) == expected
+        assert changes_logged(lambda: create_splices(self.closure, self.specs(self.pairs[:3]))) == expected
 
     def test_quiet_mode_logs_nothing(self):
-        assert not self.changes(lambda: create_splices(self.closure, self.specs(self.pairs[:3]), notify=False))
+        assert not changes_logged(lambda: create_splices(self.closure, self.specs(self.pairs[:3]), notify=False))

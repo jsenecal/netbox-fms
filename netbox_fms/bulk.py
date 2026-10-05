@@ -15,13 +15,17 @@ does when it instantiates a device's components. Change logging, search and
 every other receiver keep working.
 
 ``notify=False`` (for imports) sends nothing. The writer then does itself
-the two things the receivers would have done that still matter: the search
-cache for the new objects and the staleness of the closure's splice plans.
-A receiver that is connected later will not hear quiet-mode writes.
+what the receivers would have done that still matters: the search cache for
+the new objects, the staleness of the closure's splice plans, the move of a
+tube's ports onto its tray with the labels that follow, and (for port
+provisioning, in services) the device's port counters. What quiet mode does
+not do: notify users subscribed to a changed port, tell netbox-wdm about
+ports created on a WDM node, or attach netbox-oss service components. A
+receiver that is connected later will not hear quiet-mode writes either.
 
-A writer runs inside the caller's transaction. It validates its whole batch
-before the first write and raises ValidationError naming every offender, so
-a rejected batch writes nothing.
+A writer validates its whole batch before the first write and raises
+ValidationError naming every offender, so a rejected batch writes nothing.
+Its writes are several statements: call it inside a transaction.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from dcim.choices import LinkStatusChoices
 from dcim.models import Cable, CableTermination, FrontPort, Module
@@ -42,6 +47,9 @@ from netbox.context import query_cache
 from netbox.search.backends import search_backend
 from utilities.conversion import to_meters
 from utilities.prefetch import get_prefetchable_fields
+
+if TYPE_CHECKING:
+    from .models import TubeAssignment
 
 BATCH_SIZE = 1000
 
@@ -93,7 +101,9 @@ def announce(model, instances, *, created=True) -> None:
         return
     prefetch_related_objects(instances, *get_prefetchable_fields(model))
     for instance in instances:
-        post_save.send(sender=model, instance=instance, created=created, raw=False, using=instance._state.db)
+        post_save.send(
+            sender=model, instance=instance, created=created, raw=False, using=instance._state.db, update_fields=None
+        )
 
 
 def _check_splices(closure, specs) -> dict:
@@ -203,7 +213,9 @@ def _check_tubes(closure, specs) -> dict:
             "module_type__tray_profile"
         )
     }
-    tubes = {tube.pk: tube for tube in BufferTube.objects.filter(pk__in=set(tube_ids))}
+    tubes = {
+        tube.pk: tube for tube in BufferTube.objects.filter(pk__in=set(tube_ids)).select_related("fiber_cable__cable")
+    }
     entering = set(ClosureCableEntry.objects.filter(closure=closure).values_list("fiber_cable_id", flat=True))
     assigned = set(
         TubeAssignment.objects.filter(closure=closure, buffer_tube_id__in=set(tube_ids)).values_list(
@@ -218,7 +230,7 @@ def _check_tubes(closure, specs) -> dict:
         if pk in assigned:
             errors.append(f"Tube {pk} is already assigned on {closure}.")
         if uses > 1:
-            errors.append(f"Tube {pk} is named twice in this batch.")
+            errors.append(f"Tube {pk} is named {uses} times in this batch.")
     for pk in sorted({spec.tray_id for spec in specs}):
         tray = trays.get(pk)
         if tray is None or tray.device_id != closure.pk:
@@ -247,8 +259,13 @@ def _closure_side_ports(closure, tube_ids) -> dict[int, list[int]]:
 
 
 @cached_lookups()
-def assign_tubes(closure, assignments, *, notify=True) -> list:
+def assign_tubes(closure, assignments, *, notify=True) -> list[TubeAssignment]:
     """Route buffer tubes to splice trays of the closure and move their strand ports onto the trays.
+
+    With ``notify=True`` each assignment is saved on its own, as before:
+    the receivers move its ports one save at a time, so every move is
+    logged. With ``notify=False`` the assignments are inserted together and
+    each tray's ports are moved with one update.
 
     ``assignments`` is an iterable of :class:`TubeSpec`; the caller chooses
     the trays. A tray must be a splice-tray module of ``closure``, a tube

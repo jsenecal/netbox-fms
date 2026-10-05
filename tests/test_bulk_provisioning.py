@@ -20,10 +20,15 @@ from netbox_fms.services import (
 )
 from netbox_fms.signals import fms_portmapping_bypass
 from netbox_fms.trace import trace_fiber_path
-from tests.conftest import make_closure_pair, make_ribbon_in_tube_type
+from tests.conftest import (
+    changes_logged,
+    make_central_core_type,
+    make_closure_pair,
+    make_ribbon_in_tube_type,
+    place_in_rack,
+    stored_columns,
+)
 from tests.test_bulk_splices import saves_seen
-
-VOLATILE = {"id", "created", "last_updated"}
 
 
 def provision_reference(fc, device, port_type, fk_field, warnings):
@@ -66,23 +71,19 @@ def provision_reference(fc, device, port_type, fk_field, warnings):
     return provisioned
 
 
-def columns(obj):
-    return {f.attname: getattr(obj, f.attname) for f in obj._meta.concrete_fields if f.attname not in VOLATILE}
-
-
 def dump_ports(fc, device, fk_field):
     """Every stored column of the device's ports and mappings, and the strand links, keyed by names."""
     fronts = {p.pk: p for p in FrontPort.objects.filter(device=device)}
     rears = {p.pk: p for p in RearPort.objects.filter(device=device)}
     mappings = {}
     for pm in PortMapping.objects.filter(device=device):
-        row = columns(pm)
+        row = stored_columns(pm)
         del row["front_port_id"], row["rear_port_id"]
         mappings[(fronts[pm.front_port_id].name, rears[pm.rear_port_id].name)] = row
     device.refresh_from_db()
     return {
-        "fronts": {p.name: columns(p) for p in fronts.values()},
-        "rears": {p.name: columns(p) for p in rears.values()},
+        "fronts": {p.name: stored_columns(p) for p in fronts.values()},
+        "rears": {p.name: stored_columns(p) for p in rears.values()},
         "mappings": mappings,
         "strands": {
             s.position: fronts[getattr(s, f"{fk_field}_id")].name
@@ -105,7 +106,7 @@ class BulkProvisioningCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         rig = make_closure_pair("BPV")
-        cls.dev_a, cls.dev_b = rig.dev_a, rig.dev_b
+        cls.dev_a, cls.dev_b = place_in_rack(rig.dev_a, "BPV"), rig.dev_b
         tubed = FiberCableType.objects.create(
             manufacturer=rig.mfr, model="BPV-LT48", strand_count=48, construction="loose_tube"
         )
@@ -117,7 +118,8 @@ class BulkProvisioningCase(TestCase):
             manufacturer=rig.mfr, model="BPV-TB6", strand_count=6, construction="tight_buffer"
         )
         ribbon = make_ribbon_in_tube_type(rig.mfr, "BPV-RIT", tubes=2, ribbons_per_tube=2)
-        cls.types = {"loose tube": tubed, "tight buffer": tight, "ribbon in tube": ribbon}
+        central = make_central_core_type(rig.mfr, "BPV-CCR", ribbons=2)
+        cls.types = {"loose tube": tubed, "tight buffer": tight, "ribbon in tube": ribbon, "central core": central}
         cls.tubed = tubed
 
     def fiber_cable(self, fct):
@@ -166,6 +168,27 @@ class TestModes(BulkProvisioningCase):
         with CaptureQueriesContext(connection) as queries:
             _provision_device_ports(fc, self.dev_a, "splice", "front_port_a", [], notify=False)
         assert len(queries) < 40, len(queries)
+
+
+class TestReceiversReplaced(BulkProvisioningCase):
+    def test_interactive_mode_logs_the_changes_the_per_object_path_logs(self):
+        fc = self.fiber_cable(self.tubed)
+        args = (fc, self.dev_a, "splice", "front_port_a")
+        expected = changes_logged(lambda: provision_reference(*args, []))
+        assert expected[("frontport", "create")] == 48
+        assert changes_logged(lambda: _provision_device_ports(*args, [])) == expected
+
+    def test_quiet_mode_indexes_the_new_ports(self):
+        from core.models import ObjectType
+        from extras.models import CachedValue
+
+        fc = self.fiber_cable(self.tubed)
+        _provision_device_ports(fc, self.dev_a, "splice", "front_port_a", [], notify=False)
+        for model in (FrontPort, RearPort):
+            port = model.objects.filter(device=self.dev_a).first()
+            assert CachedValue.objects.filter(
+                object_type=ObjectType.objects.get_for_model(model), object_id=port.pk, value=port.name
+            ).exists()
 
 
 class TestQuietCable(BulkProvisioningCase):

@@ -954,6 +954,7 @@ def tray_utilization(closure):
     return result
 
 
+@transaction.atomic
 def auto_assign_tubes(closure):
     """Assign every unassigned tube on the closure to a splice tray with room.
 
@@ -1284,7 +1285,6 @@ def apply_diff(plan):
     diff = compute_diff(plan)
 
     fp_ct = ContentType.objects.get_for_model(FrontPort)
-    added = 0
     removed = 0
 
     # Deduplicate inter-platter pairs (same pair appears on both trays)
