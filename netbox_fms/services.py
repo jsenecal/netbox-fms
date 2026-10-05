@@ -21,6 +21,7 @@ from .bulk import (
     assign_tubes,
     cached_lookups,
     cf_defaults,
+    closure_side_ports,
     create_splices,
 )
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
@@ -516,12 +517,13 @@ def rear_name_for_group(cable_id, strands, ordinals):
 
 
 def bulk_update_port_field(ports, field):
-    """bulk_update one changed field on a mixed FrontPort/RearPort set."""
+    """bulk_update one changed field on a mixed FrontPort/RearPort set; returns the ports by model."""
     by_model = {}
     for port in ports:
         by_model.setdefault(type(port), []).append(port)
     for model, group in by_model.items():
-        model.objects.bulk_update(group, [field], batch_size=500)
+        model.objects.bulk_update(group, [field], batch_size=BATCH_SIZE)
+    return by_model
 
 
 def is_splice_tray(module):
@@ -1388,16 +1390,9 @@ def _tube_assignment_target_ports(closure_id, buffer_tube_id):
     whichever terminates on the closure); strands without a port there are
     skipped.
     """
-    from .models import FiberStrand
-
-    ports = []
-    strands = FiberStrand.objects.filter(buffer_tube_id=buffer_tube_id).select_related("front_port_a", "front_port_b")
-    for strand in strands:
-        for port in (strand.front_port_a, strand.front_port_b):
-            if port is not None and port.device_id == closure_id:
-                ports.append(port)
-                break
-    return ports
+    port_ids = closure_side_ports(closure_id, [buffer_tube_id])[buffer_tube_id]
+    ports = FrontPort.objects.in_bulk(port_ids)
+    return [ports[pk] for pk in port_ids if pk in ports]
 
 
 def sync_tube_assignment_ports(assignment):

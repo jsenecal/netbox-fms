@@ -1,36 +1,23 @@
 """Bulk splice creation: same stored rows as the per-object path, in two modes."""
 
-from contextlib import contextmanager
-
 from dcim.models import Cable, CableTermination, Device, FrontPort
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.db.models.signals import post_save
 from django.test import TestCase
 
 from netbox_fms.bulk import SpliceSpec, create_splices
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, SplicePlan
 from netbox_fms.services import create_closure_cable, front_port_splice_pairs
 from netbox_fms.trace import trace_fiber_path
-from tests.conftest import changes_logged, make_infra, place_in_rack, stored_columns
-
-
-@contextmanager
-def saves_seen(*models):
-    """Collect (model, pk, created) for every post_save of the given models."""
-    seen = []
-
-    def receiver(sender, instance, created, **kwargs):
-        seen.append((sender, instance.pk, created))
-
-    for model in models:
-        post_save.connect(receiver, sender=model)
-    try:
-        yield seen
-    finally:
-        for model in models:
-            post_save.disconnect(receiver, sender=model)
+from tests.conftest import (
+    changes_logged,
+    is_indexed,
+    make_infra,
+    place_in_rack,
+    rolled_back,
+    saves_seen,
+    stored_columns,
+)
 
 
 def reference_splices(pairs):
@@ -65,15 +52,6 @@ def dump_splices(closure):
     return out
 
 
-def rolled_back(fn, closure):
-    """Run fn, dump the closure's splices, and undo everything fn wrote."""
-    with transaction.atomic():
-        fn()
-        snapshot = dump_splices(closure)
-        transaction.set_rollback(True)
-    return snapshot
-
-
 class BulkSpliceCase(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -101,13 +79,13 @@ class BulkSpliceCase(TestCase):
 
 class TestEquivalence(BulkSpliceCase):
     def test_quiet_mode_stores_what_the_per_object_path_stores(self):
-        expected = rolled_back(lambda: reference_splices(self.pairs), self.closure)
+        _, expected = rolled_back(lambda: reference_splices(self.pairs), lambda: dump_splices(self.closure))
         create_splices(self.closure, self.specs(), notify=False)
         assert len(expected) == 12
         assert dump_splices(self.closure) == expected
 
     def test_interactive_mode_stores_the_same_and_announces_each_object(self):
-        expected = rolled_back(lambda: reference_splices(self.pairs), self.closure)
+        _, expected = rolled_back(lambda: reference_splices(self.pairs), lambda: dump_splices(self.closure))
         with saves_seen(Cable, CableTermination) as seen:
             cables = create_splices(self.closure, self.specs())
         assert dump_splices(self.closure) == expected
@@ -202,16 +180,11 @@ class TestValidation(BulkSpliceCase):
 
 class TestQuietReplacements(BulkSpliceCase):
     def test_marks_the_closure_plans_stale_and_indexes_the_cables(self):
-        from core.models import ObjectType
-        from extras.models import CachedValue
-
         plan = SplicePlan.objects.create(closure=self.closure, name="BSP plan", diff_stale=False)
         (cable,) = create_splices(self.closure, self.specs(self.pairs[:1], label="BSP-JUMPER"), notify=False)
         plan.refresh_from_db()
         assert plan.diff_stale is True
-        assert CachedValue.objects.filter(
-            object_type=ObjectType.objects.get_for_model(Cable), object_id=cable.pk, value="BSP-JUMPER"
-        ).exists()
+        assert is_indexed(cable, "BSP-JUMPER")
 
 
 class TestChangeLog(BulkSpliceCase):

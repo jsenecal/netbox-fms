@@ -124,8 +124,6 @@ def _invalidate_plans_for_cable(cable):
     from dcim.models import CableTermination, FrontPort
     from django.contrib.contenttypes.models import ContentType
 
-    from .models import SplicePlan
-
     fp_ct = ContentType.objects.get_for_model(FrontPort)
 
     device_ids = set(
@@ -138,11 +136,15 @@ def _invalidate_plans_for_cable(cable):
         ).values_list("device_id", flat=True)
     )
 
-    if device_ids:
-        SplicePlan.objects.filter(
-            closure_id__in=device_ids,
-            diff_stale=False,
-        ).update(diff_stale=True)
+    mark_plans_stale(device_ids)
+
+
+def mark_plans_stale(closure_ids):
+    """Flag the splice plans of these closures for a fresh diff."""
+    from .models import SplicePlan
+
+    if closure_ids:
+        SplicePlan.objects.filter(closure_id__in=closure_ids, diff_stale=False).update(diff_stale=True)
 
 
 def _cable_strand_ports(fc):
@@ -297,12 +299,7 @@ def _write_label_changes(staged):
 
     from .services import bulk_update_port_field
 
-    ports = [port for port, _old_label in staged]
-    bulk_update_port_field(ports, "label")
-    by_model = {}
-    for port in ports:
-        by_model.setdefault(type(port), []).append(port)
-    for group in by_model.values():
+    for group in bulk_update_port_field([port for port, _old_label in staged], "label").values():
         search_backend.cache(group)
 
 
@@ -382,8 +379,6 @@ def _relabel_for_tube_assignment(assignment):
     change cannot alter such labels, and cable saves already cover every
     other trigger.
     """
-    if not naming.labels_use_tray():
-        return
     from django.core.exceptions import ObjectDoesNotExist
 
     try:
@@ -391,8 +386,15 @@ def _relabel_for_tube_assignment(assignment):
     except ObjectDoesNotExist:
         # Cascading delete: the tube is going away with its cable.
         return
-    if fc.cable_id:
-        _relabel_ports_for_cable(fc.cable)
+    relabel_tray_labels([fc])
+
+
+def relabel_tray_labels(fiber_cables):
+    """Re-render the port labels of these fiber cables, once each, when a template uses a tray token."""
+    if not naming.labels_use_tray():
+        return
+    for cable in {fc.cable for fc in fiber_cables if fc.cable_id}:
+        _relabel_ports_for_cable(cable)
 
 
 def _tube_assignment_post_save(sender, instance, **kwargs):

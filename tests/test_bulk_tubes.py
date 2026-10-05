@@ -2,14 +2,20 @@
 
 from dcim.models import Device, FrontPort
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.test import TestCase, override_settings
 
 from netbox_fms.bulk import TubeSpec, assign_tubes
 from netbox_fms.models import BufferTubeTemplate, FiberCableType, TubeAssignment
 from netbox_fms.services import create_closure_cable
-from tests.conftest import make_infra, make_tray_module, make_tray_type, place_in_rack
-from tests.test_bulk_splices import saves_seen
+from tests.conftest import (
+    is_indexed,
+    make_infra,
+    make_tray_module,
+    make_tray_type,
+    place_in_rack,
+    rolled_back,
+    saves_seen,
+)
 
 TRAY_LABELS = {"netbox_fms": {"front_port_label_template": "{% if tray %}{{ tray }}/{% endif %}F{{ strand }}"}}
 
@@ -25,14 +31,6 @@ def dump_assignments(closure, far):
         "closure_ports": {p.name: (trays.get(p.module_id), p.label) for p in FrontPort.objects.filter(device=closure)},
         "far_ports": {p.name: p.module_id for p in FrontPort.objects.filter(device=far)},
     }
-
-
-def rolled_back(fn, closure, far):
-    with transaction.atomic():
-        fn()
-        snapshot = dump_assignments(closure, far)
-        transaction.set_rollback(True)
-    return snapshot
 
 
 class BulkTubeCase(TestCase):
@@ -73,7 +71,7 @@ class BulkTubeCase(TestCase):
 
 class TestEquivalence(BulkTubeCase):
     def test_quiet_mode_stores_what_the_per_object_path_stores(self):
-        expected = rolled_back(self.reference, self.closure, self.far)
+        _, expected = rolled_back(self.reference, lambda: dump_assignments(self.closure, self.far))
         assign_tubes(self.closure, self.specs(), notify=False)
         found = dump_assignments(self.closure, self.far)
         assert found == expected
@@ -81,7 +79,7 @@ class TestEquivalence(BulkTubeCase):
         assert set(found["far_ports"].values()) == {None}
 
     def test_interactive_mode_saves_each_assignment(self):
-        expected = rolled_back(self.reference, self.closure, self.far)
+        _, expected = rolled_back(self.reference, lambda: dump_assignments(self.closure, self.far))
         with saves_seen(TubeAssignment) as seen:
             rows = assign_tubes(self.closure, self.specs())
         assert dump_assignments(self.closure, self.far) == expected
@@ -106,7 +104,7 @@ class TestEquivalence(BulkTubeCase):
 
     @override_settings(PLUGINS_CONFIG=TRAY_LABELS)
     def test_quiet_mode_rerenders_labels_that_name_the_tray(self):
-        expected = rolled_back(self.reference, self.closure, self.far)
+        _, expected = rolled_back(self.reference, lambda: dump_assignments(self.closure, self.far))
         assign_tubes(self.closure, self.specs(), notify=False)
         found = dump_assignments(self.closure, self.far)
         assert found == expected
@@ -115,15 +113,10 @@ class TestEquivalence(BulkTubeCase):
 
     @override_settings(PLUGINS_CONFIG=TRAY_LABELS)
     def test_quiet_mode_indexes_the_rerendered_labels(self):
-        from core.models import ObjectType
-        from extras.models import CachedValue
-
         assign_tubes(self.closure, self.specs(), notify=False)
         port = FrontPort.objects.filter(device=self.closure, module=self.tray1).first()
         assert port.label.startswith("Tray 1")
-        assert CachedValue.objects.filter(
-            object_type=ObjectType.objects.get_for_model(FrontPort), object_id=port.pk, value=port.label
-        ).exists()
+        assert is_indexed(port, port.label)
 
 
 class TestValidation(BulkTubeCase):

@@ -1,7 +1,7 @@
 """Bulk port provisioning: same ports, mappings and strand links as the per-object path."""
 
 from dcim.models import Cable, FrontPort, PortMapping, RearPort
-from django.db import connection, transaction
+from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
@@ -22,13 +22,15 @@ from netbox_fms.signals import fms_portmapping_bypass
 from netbox_fms.trace import trace_fiber_path
 from tests.conftest import (
     changes_logged,
+    is_indexed,
     make_central_core_type,
     make_closure_pair,
     make_ribbon_in_tube_type,
     place_in_rack,
+    rolled_back,
+    saves_seen,
     stored_columns,
 )
-from tests.test_bulk_splices import saves_seen
 
 
 def provision_reference(fc, device, port_type, fk_field, warnings):
@@ -94,14 +96,6 @@ def dump_ports(fc, device, fk_field):
     }
 
 
-def rolled_back(fn, fc, device, fk_field):
-    with transaction.atomic():
-        result = fn()
-        snapshot = dump_ports(fc, device, fk_field)
-        transaction.set_rollback(True)
-    return result, snapshot
-
-
 class BulkProvisioningCase(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -133,16 +127,12 @@ class TestEquivalence(BulkProvisioningCase):
         for name, fct in self.types.items():
             fc = self.fiber_cable(fct)
             args = (fc, self.dev_a, "splice", "front_port_a")
-            reference, expected = rolled_back(
-                lambda a=args: provision_reference(*a, []), fc, self.dev_a, "front_port_a"
-            )
+            dump = lambda fc=fc: dump_ports(fc, self.dev_a, "front_port_a")  # noqa: E731
+            reference, expected = rolled_back(lambda a=args: provision_reference(*a, []), dump)
             for notify in (False, True):
                 with self.subTest(construction=name, notify=notify):
                     provisioned, found = rolled_back(
-                        lambda a=args, n=notify: _provision_device_ports(*a, [], notify=n),
-                        fc,
-                        self.dev_a,
-                        "front_port_a",
+                        lambda a=args, n=notify: _provision_device_ports(*a, [], notify=n), dump
                     )
                     assert found == expected
                     assert expected["strands"] and expected["counters"][0] == len(expected["fronts"])
@@ -179,16 +169,11 @@ class TestReceiversReplaced(BulkProvisioningCase):
         assert changes_logged(lambda: _provision_device_ports(*args, [])) == expected
 
     def test_quiet_mode_indexes_the_new_ports(self):
-        from core.models import ObjectType
-        from extras.models import CachedValue
-
         fc = self.fiber_cable(self.tubed)
         _provision_device_ports(fc, self.dev_a, "splice", "front_port_a", [], notify=False)
         for model in (FrontPort, RearPort):
             port = model.objects.filter(device=self.dev_a).first()
-            assert CachedValue.objects.filter(
-                object_type=ObjectType.objects.get_for_model(model), object_id=port.pk, value=port.name
-            ).exists()
+            assert is_indexed(port, port.name)
 
 
 class TestQuietCable(BulkProvisioningCase):

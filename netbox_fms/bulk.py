@@ -147,7 +147,7 @@ def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     FrontPort of ``closure`` that carries no cable, and may appear once in
     the batch. Returns the new cables in input order.
     """
-    from .models import SplicePlan
+    from .signals import mark_plans_stale
 
     specs = list(splices)
     if not specs:
@@ -197,7 +197,7 @@ def create_splices(closure, splices, *, notify=True) -> list[Cable]:
         announce(FrontPort, touched, created=False)
     else:
         search_backend.cache(cables, remove_existing=False)
-        SplicePlan.objects.filter(closure=closure, diff_stale=False).update(diff_stale=True)
+        mark_plans_stale([closure.pk])
     return cables
 
 
@@ -242,8 +242,13 @@ def _check_tubes(closure, specs) -> dict:
     return tubes
 
 
-def _closure_side_ports(closure, tube_ids) -> dict[int, list[int]]:
-    """Tube pk -> the FrontPorts of its strands that sit on the closure (one per strand at most)."""
+def closure_side_ports(closure_id, tube_ids) -> dict[int, list[int]]:
+    """Tube pk -> the FrontPorts of its strands that sit on the closure, by pk.
+
+    A strand contributes at most one port: front_port_a when it is on the
+    closure, else front_port_b when that one is. This is the one definition
+    of which ports a tube assignment moves.
+    """
     from .models import FiberStrand
 
     ports: dict[int, list[int]] = {pk: [] for pk in tube_ids}
@@ -251,9 +256,9 @@ def _closure_side_ports(closure, tube_ids) -> dict[int, list[int]]:
         "buffer_tube_id", "front_port_a_id", "front_port_a__device_id", "front_port_b_id", "front_port_b__device_id"
     )
     for tube_id, port_a, device_a, port_b, device_b in rows:
-        if port_a is not None and device_a == closure.pk:
+        if port_a is not None and device_a == closure_id:
             ports[tube_id].append(port_a)
-        elif port_b is not None and device_b == closure.pk:
+        elif port_b is not None and device_b == closure_id:
             ports[tube_id].append(port_b)
     return ports
 
@@ -273,9 +278,8 @@ def assign_tubes(closure, assignments, *, notify=True) -> list[TubeAssignment]:
     yet. Capacity is not enforced here, as nowhere else: an over-full tray
     is reported, never refused. Returns the assignments in input order.
     """
-    from . import naming
     from .models import TubeAssignment
-    from .signals import _relabel_ports_for_cable
+    from .signals import relabel_tray_labels
 
     specs = list(assignments)
     if not specs:
@@ -299,15 +303,12 @@ def assign_tubes(closure, assignments, *, notify=True) -> list[TubeAssignment]:
         return rows
 
     TubeAssignment.objects.bulk_create(rows, batch_size=BATCH_SIZE)
-    ports = _closure_side_ports(closure, list(tubes))
+    ports = closure_side_ports(closure.pk, list(tubes))
     by_tray: dict[int, list[int]] = {}
     for spec in specs:
         by_tray.setdefault(spec.tray_id, []).extend(ports[spec.buffer_tube_id])
     now = timezone.now()
     for tray_id, port_ids in by_tray.items():
         FrontPort.objects.filter(pk__in=port_ids).exclude(module_id=tray_id).update(module_id=tray_id, last_updated=now)
-    if naming.labels_use_tray():
-        cables = {tube.fiber_cable.cable for tube in tubes.values() if tube.fiber_cable.cable_id}
-        for cable in cables:
-            _relabel_ports_for_cable(cable)
+    relabel_tray_labels({tube.fiber_cable for tube in tubes.values()})
     return rows

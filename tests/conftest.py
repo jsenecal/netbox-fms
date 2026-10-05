@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
 
@@ -67,6 +68,46 @@ def place_in_rack(device, prefix):
     device.location, device.rack = location, rack
     device.save()
     return device
+
+
+@contextmanager
+def saves_seen(*models):
+    """Collect (model, pk, created) for every post_save of the given models."""
+    from django.db.models.signals import post_save
+
+    seen = []
+
+    def receiver(sender, instance, created, **kwargs):
+        seen.append((sender, instance.pk, created))
+
+    for model in models:
+        post_save.connect(receiver, sender=model)
+    try:
+        yield seen
+    finally:
+        for model in models:
+            post_save.disconnect(receiver, sender=model)
+
+
+def rolled_back(fn, dump):
+    """Run fn, take dump(), then undo everything fn wrote; returns (fn's result, the dump)."""
+    from django.db import transaction
+
+    with transaction.atomic():
+        result = fn()
+        snapshot = dump()
+        transaction.set_rollback(True)
+    return result, snapshot
+
+
+def is_indexed(obj, value):
+    """True when NetBox's search cache holds this value for the object."""
+    from core.models import ObjectType
+    from extras.models import CachedValue
+
+    return CachedValue.objects.filter(
+        object_type=ObjectType.objects.get_for_model(type(obj)), object_id=obj.pk, value=value
+    ).exists()
 
 
 def changes_logged(fn):
