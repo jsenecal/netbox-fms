@@ -280,3 +280,28 @@ def make_mapped_endpoint(prefix):
         device=ns.closure, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=1
     )
     return SimpleNamespace(closure=ns.closure, tray=ns.tray, rp=rp, fp=fp)
+
+
+def make_mapped_rear_ports(device, rear_names, front_name, positions=12):
+    """Splice RearPorts named ``rear_names``, each mapped position by position to its own FrontPorts.
+
+    ``front_name`` is a format string over ``rp`` (the rear port name),
+    ``i`` (the position on that rear port) and ``n`` (the running count
+    across all rear ports). Returns ``(rear_ports, front_ports)`` with the
+    front ports in rear port order, then position -- global strand order
+    for a cable adopting them in sequence.
+    """
+    from dcim.models import PortMapping, RearPort
+
+    rear_ports, front_ports = [], []
+    for rear_name in rear_names:
+        rp = RearPort.objects.create(device=device, name=rear_name, type="splice", positions=positions)
+        rear_ports.append(rp)
+        for i in range(1, positions + 1):
+            name = front_name.format(rp=rear_name, i=i, n=len(front_ports) + 1)
+            fp = FrontPort.objects.create(device=device, name=name, type="splice")
+            PortMapping.objects.create(
+                device=device, front_port=fp, rear_port=rp, front_port_position=1, rear_port_position=i
+            )
+            front_ports.append(fp)
+    return rear_ports, front_ports

@@ -194,6 +194,13 @@ already terminate on existing rear ports at the closure.
    determined by the FiberCableType's strand count and registered in the custom
    cable profile system.
 
+5. **Numbers the connectors** of the adopted rear ports in strand order: the
+   rear port holding the lowest strand position becomes connector 1, whatever
+   the ports are named. The trace engine pairs connector N with connector N
+   across the cable, so a cable end landing on several rear ports (an ODF with
+   one rear port per tube, say) traces to the right tube at the far end once
+   both ends are linked.
+
 ### Adopt vs. Greenfield
 
 The service handles two paths:

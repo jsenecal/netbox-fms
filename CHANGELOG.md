@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fiber circuit paths now trace across a cable linked onto pre-existing
+  rear ports when either end lands on more than one rear port (for
+  example two ODFs joined by a two-tube cable). Linking set the cable
+  profile but left every termination's connector empty, so the trace
+  could not tell which far rear port continued the fiber and stopped at
+  the cable, reporting the path incomplete. Linking now numbers each
+  end's connectors in strand order, and a data migration repairs cables
+  already linked this way. (#191)
+
 ## [0.5.1] - 2026-10-05
 
 ### Fixed
