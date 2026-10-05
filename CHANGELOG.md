@@ -38,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Port labels re-rendered in bulk (after a cable rename or a tube
   assignment, with a template that uses the affected token) are indexed
   for search again; the search cache kept the previous labels.
+- The circuit wizard no longer proposes strands that enter a multi-tube
+  cable on one buffer tube and leave on another. Rear ports are now paired
+  across a cable by connector number, the same way the fiber trace crosses
+  it, so a fiber that does not exist can no longer be offered. Strand
+  adjacency also stops at a tube or ribbon boundary (the last fiber of
+  tube 1 and the first fiber of tube 2 are not contiguous), and the
+  default ranking now puts adjacency ahead of hop count so the strands of
+  one circuit stay on the same tube and route. Callers passing an explicit
+  priority list are unaffected. (#197)
 - Fiber circuit paths now trace across a cable linked onto pre-existing
   rear ports when either end lands on more than one rear port (for
   example two ODFs joined by a two-tube cable). Linking set the cable

@@ -33,39 +33,36 @@ def _far_circuit_termination(cable, cable_end, ct_ct):
     ).first()
 
 
-def _resolve_far_rear_port(cable, cable_end, near_connector, rp_ct):
-    """Pick the far-end rear-port termination of a cable crossing, or None.
+def pair_far_rear_port_termination(near_connector, near_terms, far_terms):
+    """Pick which far-end rear-port termination continues a tube, or None.
 
-    With a connector recorded on the near end, the far tube is the one
-    sharing the same connector number (symmetric trunk profile); a
-    mixed-connector cable is bridged only when both ends are single-RP,
-    since there is exactly one way to align positions and nothing to
-    disambiguate. Without a connector, only an unambiguous single far
-    rear port is followed.
+    ``near_terms`` and ``far_terms`` are the rear-port CableTerminations on
+    the two ends of one cable, in pk order. With a connector recorded on the
+    near end, the far tube is the one sharing the same connector number
+    (symmetric trunk profile); a mixed-connector cable is bridged only when
+    both ends are single-RP, since there is exactly one way to align
+    positions and nothing to disambiguate. Without a connector, only an
+    unambiguous single far rear port is followed. The trace engine and the
+    circuit wizard both pair tubes through this rule so a fiber never
+    changes tube mid-cable.
     """
-    far_terminations = CableTermination.objects.filter(
-        cable=cable,
-        cable_end=_other_end(cable_end),
-        termination_type=rp_ct,
-    )
-
     if near_connector is not None:
-        far_term = far_terminations.filter(connector=near_connector).first()
-        if far_term is None:
-            near_candidates = list(
-                CableTermination.objects.filter(
-                    cable=cable,
-                    cable_end=cable_end,
-                    termination_type=rp_ct,
-                )[:2]
-            )
-            far_candidates = list(far_terminations[:2])
-            if len(near_candidates) == 1 and len(far_candidates) == 1:
-                far_term = far_candidates[0]
-        return far_term
+        for far_term in far_terms:
+            if far_term.connector == near_connector:
+                return far_term
+        if len(near_terms) == 1 and len(far_terms) == 1:
+            return far_terms[0]
+        return None
 
-    far_candidates = list(far_terminations[:2])
-    return far_candidates[0] if len(far_candidates) == 1 else None
+    return far_terms[0] if len(far_terms) == 1 else None
+
+
+def _resolve_far_rear_port(cable, cable_end, near_connector, rp_ct):
+    """Pick the far-end rear-port termination of a cable crossing, or None."""
+    end_terms = CableTermination.objects.filter(cable=cable, termination_type=rp_ct).order_by("pk")
+    near_terms = list(end_terms.filter(cable_end=cable_end))
+    far_terms = list(end_terms.filter(cable_end=_other_end(cable_end)))
+    return pair_far_rear_port_termination(near_connector, near_terms, far_terms)
 
 
 def _hop_provider_circuits(far_ct_term, path, visited_circuits, rp_ct, ct_ct):

@@ -115,8 +115,8 @@ proposals = find_fiber_paths(
     origin_device,
     destination_device,
     strand_count=1,
-    priorities=None,            # default: ["hop_count", "new_splices",
-                                #           "strand_adjacency", "lowest_strand"]
+    priorities=None,            # default: ["strand_adjacency", "hop_count",
+                                #           "new_splices", "lowest_strand"]
     max_results=20,
 )
 ```
@@ -124,8 +124,12 @@ proposals = find_fiber_paths(
 ### Algorithm
 
 1. **Build a device graph.** All cables that terminate on `RearPort`
-   instances are collected. Each cable becomes a bidirectional edge between
-   the two devices its rear ports belong to.
+   instances are collected. Each tube of a cable becomes a bidirectional
+   edge between the two devices its rear ports belong to. Rear ports are
+   paired across the cable the same way the fiber trace crosses it: by
+   matching `CableTermination.connector` numbers, or, when connectors are
+   not recorded, only when each end has a single rear port. A fiber never
+   enters on one tube and leaves on another.
 2. **Enumerate simple routes.** Depth-first search finds every simple path
    (no repeated devices) between origin and destination, up to a default
    max depth of 10.
@@ -145,10 +149,17 @@ proposals = find_fiber_paths(
 
 | Priority           | Meaning                                                          |
 | ------------------ | ---------------------------------------------------------------- |
+| `strand_adjacency` | Prefer strands on consecutive positions of one tube or ribbon    |
 | `hop_count`        | Fewer cable spans win                                            |
 | `new_splices`      | Reuse existing splices over creating new ones                    |
-| `strand_adjacency` | Prefer strands that are contiguous within a cable                |
 | `lowest_strand`    | Prefer lower-numbered strand positions (deterministic ordering)  |
+
+The default order is the one in the table. Strand adjacency comes first
+because the strands of one circuit (a Tx/Rx pair, for instance) must share
+a route and fiber specs, so a contiguous pair two hops away beats a
+scattered pair on a direct cable. Adjacency never crosses a buffer tube or
+ribbon boundary: the last fiber of tube 1 and the first fiber of tube 2 are
+not contiguous even though their position numbers are consecutive.
 
 Pass a different ordering or subset to change the ranking. For example, if
 you care more about reusing splices than minimizing hops:
