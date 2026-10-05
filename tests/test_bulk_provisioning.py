@@ -157,7 +157,9 @@ class TestModes(BulkProvisioningCase):
         fc = self.fiber_cable(self.tubed)
         with CaptureQueriesContext(connection) as queries:
             _provision_device_ports(fc, self.dev_a, "splice", "front_port_a", [], notify=False)
-        assert len(queries) < 40, len(queries)
+        # The per-object path took 698 queries here. The bulk path takes under 40 on NetBox 4.7 and 67
+        # on 4.5, whose search indexing looks more up per object; the ceiling leaves room for both.
+        assert len(queries) < 150, len(queries)
 
 
 class TestReceiversReplaced(BulkProvisioningCase):
