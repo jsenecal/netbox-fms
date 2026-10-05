@@ -26,7 +26,8 @@ a rejected batch writes nothing.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from dcim.choices import LinkStatusChoices
@@ -37,6 +38,7 @@ from django.db.models import prefetch_related_objects
 from django.db.models.signals import post_save
 from django.utils import timezone
 from extras.models import CustomField
+from netbox.context import query_cache
 from netbox.search.backends import search_backend
 from utilities.conversion import to_meters
 from utilities.prefetch import get_prefetchable_fields
@@ -60,6 +62,24 @@ class TubeSpec:
     buffer_tube_id: int
     tray_id: int
     custom_field_data: dict | None = None
+
+
+@contextmanager
+def cached_lookups():
+    """Memoize NetBox's object-type and custom-field lookups for the duration, as a request does.
+
+    Outside a request nothing caches them, so indexing or announcing a
+    thousand objects asks the database the same two questions a thousand
+    times. Inside a request the request's own cache is left in charge.
+    """
+    if query_cache.get() is not None:
+        yield
+        return
+    token = query_cache.set(defaultdict(dict))
+    try:
+        yield
+    finally:
+        query_cache.reset(token)
 
 
 def cf_defaults(model) -> dict:
@@ -109,6 +129,7 @@ def _jumper(spec, defaults) -> Cable:
     return cable
 
 
+@cached_lookups()
 def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     """Splice pairs of the closure's FrontPorts: one connected Cable per pair, terminated on both.
 
@@ -225,6 +246,7 @@ def _closure_side_ports(closure, tube_ids) -> dict[int, list[int]]:
     return ports
 
 
+@cached_lookups()
 def assign_tubes(closure, assignments, *, notify=True) -> list:
     """Route buffer tubes to splice trays of the closure and move their strand ports onto the trays.
 
