@@ -9,7 +9,10 @@ ride along with that run.
 
 from __future__ import annotations
 
+import logging
+import weakref
 from datetime import timedelta
+from functools import partial
 
 from core.choices import JobStatusChoices
 from dcim.models import CableTermination
@@ -20,39 +23,60 @@ from netbox.plugins import get_plugin_config
 from .bulk import BATCH_SIZE
 from .models import PathAnalysisQueue
 
-# One buffer per database connection, keyed by alias; emptied by its on_commit flush.
-_buffers: dict[str, _Buffer] = {}
+logger = logging.getLogger(__name__)
+
+# Per database connection (connections are thread-local, so this is too).
+_states: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
-class _Buffer:
-    """The (device_id, reason) rows of one transaction, flushed once on commit."""
+class _State:
+    """The rows of committed enqueue calls waiting for the final flush of their transaction.
 
-    def __init__(self, alias):
-        self.alias = alias
-        self.rows = []
+    Every enqueue call registers its own on_commit callback that moves its
+    rows here, so Django drops the rows of a rolled-back savepoint together
+    with its callback. The newest ``flush_if_last`` callback runs after every
+    row group that survived and writes them all with one bulk insert and
+    one scheduling call.
+    """
+
+    def __init__(self):
+        self.committed = []
+        self.last_token = 0
+
+    def commit(self, rows):
+        self.committed.extend(rows)
+
+    def flush_if_last(self, token):
+        if token == self.last_token:
+            self.flush()
 
     def flush(self):
-        _buffers.pop(self.alias, None)
-        relevant = relevant_device_ids({device_id for device_id, _reason in self.rows})
+        pending, self.committed = self.committed, []
+        relevant = relevant_device_ids({device_id for device_id, _reason in pending})
         rows = [
             PathAnalysisQueue(device_id=device_id, reason=reason)
-            for device_id, reason in self.rows
+            for device_id, reason in pending
             if device_id in relevant
         ]
         if not rows:
             return
         PathAnalysisQueue.objects.bulk_create(rows, batch_size=BATCH_SIZE)
-        schedule_analysis()
+        try:
+            schedule_analysis()
+        except Exception:
+            # The rows are written; the periodic reconcile recovers a missed schedule.
+            logger.exception("Could not schedule the fiber path analysis job")
 
 
-def _is_registered(connection, callback):
-    """Whether the buffer's flush still awaits this connection's commit.
+def _flush_last(connection, state):
+    """Register a flush that runs after every callback registered up to now.
 
-    Django drops on_commit callbacks of a rolled-back transaction, which
-    leaves the buffer object behind; a buffer whose flush is no longer
-    registered is stale and must not collect the next transaction's rows.
+    It carries no savepoint ids, so a rolled-back savepoint cannot drop it.
+    Each call supersedes the previous one: only the newest token flushes,
+    which is the last callback of the transaction.
     """
-    return any(entry[1] == callback for entry in connection.run_on_commit)
+    state.last_token += 1
+    connection.run_on_commit.append(((), partial(state.flush_if_last, state.last_token), False))
 
 
 def relevant_device_ids(device_ids):
@@ -67,24 +91,21 @@ def relevant_device_ids(device_ids):
             "_device_id", flat=True
         )
     )
-    return with_fiber | device_ids_on_paths(ids)
+    return with_fiber | device_ids_on_paths(ids - with_fiber)
 
 
 def enqueue_devices(device_ids, reason):
     """Record a plant change on these devices for the next analysis run."""
-    rows = sorted({device_id for device_id in device_ids if device_id is not None})
+    rows = [(device_id, reason) for device_id in sorted({d for d in device_ids if d is not None})]
     if not rows:
         return
     connection = transaction.get_connection()
-    buffer = _buffers.get(connection.alias)
-    if buffer is not None and not _is_registered(connection, buffer.flush):
-        buffer = None
-    fresh = buffer is None
-    if fresh:
-        buffer = _buffers[connection.alias] = _Buffer(connection.alias)
-    buffer.rows.extend((device_id, reason) for device_id in rows)
-    if fresh:
-        transaction.on_commit(buffer.flush, using=connection.alias)
+    state = _states.setdefault(connection, _State())
+    transaction.on_commit(partial(state.commit, rows), using=connection.alias)
+    if connection.in_atomic_block:
+        _flush_last(connection, state)
+    else:
+        state.flush()
 
 
 def schedule_analysis():

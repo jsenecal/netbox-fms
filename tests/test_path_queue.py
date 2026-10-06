@@ -7,8 +7,9 @@ from unittest.mock import patch
 from core.choices import JobStatusChoices
 from core.models import Job
 from dcim.models import Device
-from django.db import transaction
-from django.test import TestCase
+from django.db import connection, transaction
+from django.test import TestCase, TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from netbox_fms.choices import PathAnalysisReasonChoices
@@ -69,10 +70,12 @@ class TestBatching(QueueCase):
 
         with (
             patch.object(PathAnalysisJob, "enqueue") as enqueue,
-            self.captureOnCommitCallbacks(execute=True) as callbacks,
+            CaptureQueriesContext(connection) as queries,
+            self.captureOnCommitCallbacks(execute=True),
         ):
             changes()
-        assert len(callbacks) == 1
+        inserts = [q for q in queries if q["sql"].startswith('INSERT INTO "netbox_fms_pathanalysisqueue"')]
+        assert len(inserts) == 1
         enqueue.assert_called_once()
         rows = sorted(PathAnalysisQueue.objects.values_list("device_id", "reason"))
         assert rows == sorted(
@@ -94,6 +97,63 @@ class TestBatching(QueueCase):
         assert not PathAnalysisQueue.objects.exists()
         self.flushed(lambda: enqueue_devices([self.dev_b.pk], CABLE))
         assert list(PathAnalysisQueue.objects.values_list("device_id", flat=True)) == [self.dev_b.pk]
+
+    def test_a_rolled_back_savepoint_drops_only_its_own_rows(self):
+        def nested():
+            enqueue_devices([self.dev_a.pk], CABLE)
+            with transaction.atomic():
+                enqueue_devices([self.dev_b.pk], CABLE)
+                transaction.set_rollback(True)
+
+        enqueue = self.flushed(nested)
+        assert list(PathAnalysisQueue.objects.values_list("device_id", flat=True)) == [self.dev_a.pk]
+        enqueue.assert_called_once()
+
+    def test_a_fully_rolled_back_savepoint_schedules_nothing(self):
+        def nested():
+            with transaction.atomic():
+                enqueue_devices([self.dev_a.pk], CABLE)
+                transaction.set_rollback(True)
+
+        enqueue = self.flushed(nested)
+        assert not PathAnalysisQueue.objects.exists()
+        enqueue.assert_not_called()
+
+    def test_a_failing_schedule_does_not_escape_the_commit(self):
+        with patch.object(PathAnalysisJob, "enqueue", side_effect=ConnectionError("redis down")):
+            with self.captureOnCommitCallbacks(execute=True):
+                enqueue_devices([self.dev_a.pk], CABLE)
+        assert PathAnalysisQueue.objects.filter(device=self.dev_a).exists()
+
+
+class TestFilterShortcut(QueueCase):
+    def test_path_lookup_skips_devices_that_already_have_fiber(self):
+        with patch("netbox_fms.path_analysis.device_ids_on_paths", return_value=set()) as lookup:
+            relevant_device_ids([self.dev_a.pk, self.on_path.pk])
+        lookup.assert_called_once_with({self.on_path.pk})
+
+
+class TestAutocommit(TransactionTestCase):
+    def setUp(self):
+        self.pair = pair = make_closure_pair("PQT")
+        fct = FiberCableType.objects.create(
+            manufacturer=pair.mfr, model="PQT-1", strand_count=1, construction="tight_buffer"
+        )
+        create_closure_cable(device_a=pair.dev_a, device_b=pair.dev_b, fiber_cable_type=fct)
+
+    def test_a_real_commit_keeps_surviving_rows_and_drops_a_rolled_back_savepoint(self):
+        pair = self.pair
+        with transaction.atomic():
+            enqueue_devices([pair.dev_a.pk], CABLE)
+            with transaction.atomic():
+                enqueue_devices([pair.dev_b.pk], CABLE)
+                transaction.set_rollback(True)
+        assert list(PathAnalysisQueue.objects.values_list("device_id", flat=True)) == [pair.dev_a.pk]
+
+    def test_outside_an_atomic_block_rows_are_written_at_once(self):
+        pair = self.pair
+        enqueue_devices([pair.dev_a.pk], CABLE)
+        assert list(PathAnalysisQueue.objects.values_list("device_id", flat=True)) == [pair.dev_a.pk]
 
 
 class TestScheduling(QueueCase):
