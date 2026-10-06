@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from netbox_fms.choices import PathCompletenessChoices, PathEndKindChoices, PathEndReasonChoices
 from netbox_fms.path_graph import Chain, ChainEnd, fp_node, route_key_for, rp_node
-from netbox_fms.trace import paired_rear_port_terminations
+from netbox_fms.trace import pair_far_rear_port_termination, paired_rear_port_terminations
 
 TERMINATED = ChainEnd(1, PathEndKindChoices.TERMINATED, "")
 OPEN = ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END)
@@ -48,3 +48,9 @@ def test_pairing_keeps_only_pairs_that_hold_from_both_ends():
     assert paired_rear_port_terminations([_term(1, None)], [_term(11, None), _term(12, None)]) == []
     # Single-RP mixed connector cable: one way to align, so it pairs.
     assert paired_rear_port_terminations([_term(1, 1)], [_term(11, None)]) == [(1, 11)]
+
+
+def test_unmatched_connector_on_a_multi_rear_port_cable_does_not_cross():
+    """Near connector has no far match and an end carries two rear ports: refuse to guess."""
+    near_terms = [_term(1, 1), _term(2, 2)]
+    assert pair_far_rear_port_termination(1, near_terms, [_term(11, 3)]) is None

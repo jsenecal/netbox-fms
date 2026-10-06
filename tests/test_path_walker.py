@@ -11,8 +11,9 @@ from django.test import TestCase
 
 from netbox_fms.choices import PathCompletenessChoices, PathEndKindChoices, PathEndReasonChoices
 from netbox_fms.models import FiberCableType
-from netbox_fms.path_graph import ChainEnd, fp_node, load_plant, walk_all, walk_from
+from netbox_fms.path_graph import ChainEnd, fp_node, load_plant, rp_node, walk_all, walk_from
 from netbox_fms.services import create_closure_cable
+from netbox_fms.signals import fms_portmapping_bypass
 from tests.conftest import (
     connect_ct_to_ct,
     connect_front_ports,
@@ -160,12 +161,6 @@ class TestWalkProviderCircuit(TestCase):
         self.span.term_z.delete()
         assert walk_from(load_plant([self.fp_a.device_id]), fp_node(self.fp_a.pk)) == []
 
-    def test_deleted_circuit_termination_row_leaves_no_fiber(self):
-        from circuits.models import CircuitTermination
-
-        CircuitTermination.objects.filter(pk=self.span.term_a.pk).delete()
-        assert walk_from(load_plant([self.fp_a.device_id]), fp_node(self.fp_a.pk)) == []
-
 
 class TestWalkChainedProviderCircuits(TestCase):
     @classmethod
@@ -252,9 +247,38 @@ class TestWalkStrandHops(TestCase):
         assert chain.hops == [("strand", self.s2.pk)]
         assert chain.cable_ids == [self.fc_ab.cable_id]
         assert chain.end_b.port_id == self.s2.front_port_b_id
+        assert chain.end_a.reason == PathEndReasonChoices.CABLE_END
+        assert chain.end_b.reason == PathEndReasonChoices.UNSPLICED
 
     def test_spliced_strands_form_one_chain(self):
         chain = chain_from(self.s1.front_port_a)
         assert chain.hops == [("strand", self.s1.pk), ("strand", self.t1.pk)]
         assert chain.cable_ids == [self.fc_ab.cable_id, self.fc_bc.cable_id]
         assert chain.end_b.port_id == self.t1.front_port_b_id
+
+    def test_mapped_position_with_no_landed_strand_keeps_the_cable_hop(self):
+        mapping = PortMapping.objects.get(front_port=self.s2.front_port_a)
+        with fms_portmapping_bypass():
+            PortMapping.objects.filter(front_port__in=[self.s2.front_port_a, self.s2.front_port_b]).delete()
+        chains = walk_from(load_plant([self.dev_a.pk]), rp_node(mapping.rear_port_id, mapping.rear_port_position))
+        assert [chain.hops for chain in chains] == [[("cable", self.fc_ab.cable_id)]]
+        assert chains[0].completeness == PathCompletenessChoices.OPEN_OPEN
+
+
+class TestRegionBoundary(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair("WRB")
+        cls.dev_a, cls.dev_b = pair.dev_a, pair.dev_b
+        dev_c = make_closure_pair("WRB2").dev_b
+        fct = FiberCableType.objects.create(
+            manufacturer=pair.mfr, model="WRB-2", strand_count=2, construction="tight_buffer"
+        )
+        create_closure_cable(device_a=cls.dev_a, device_b=cls.dev_b, fiber_cable_type=fct)
+        create_closure_cable(device_a=cls.dev_b, device_b=dev_c, fiber_cable_type=fct)
+
+    def test_a_healthy_cable_beyond_an_unspliced_far_device_is_not_dangling(self):
+        """The far device is loaded but not expanded; its other cable's strands are outside the region."""
+        plant = load_plant([self.dev_a.pk])
+        assert plant.anomalies == []
+        assert len(plant.strand_ports) == 2

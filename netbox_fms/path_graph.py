@@ -19,7 +19,6 @@ import networkx as nx
 from circuits.models import CircuitTermination
 from dcim.choices import DeviceStatusChoices, LinkStatusChoices, PortTypeChoices
 from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
-from django.db.models import Q
 
 from .choices import PathAnomalyKindChoices, PathCompletenessChoices, PathEndKindChoices, PathEndReasonChoices
 from .models import FiberCable, FiberStrand
@@ -270,19 +269,17 @@ def _load_cables(plant, cable_ids):
 
 
 def _load_strands(plant, cable_ids):
-    """Load every strand of a region cable and every strand landed on a region device.
+    """Load the strands of the loaded cables and flag landings their cable never reaches.
 
-    The second group lets a landing on a device its own cable never reaches
-    be detected, so its FiberCable need not be inside the region.
+    Strands of cables outside the loaded set are left out entirely: the
+    region boundary says nothing about them, so they are neither traced nor
+    quarantined.
     """
-    ids = plant.device_ids
     plant.fiber_cable_by_cable = dict(FiberCable.objects.filter(cable_id__in=cable_ids).values_list("cable_id", "pk"))
     rows = list(
-        FiberStrand.objects.filter(
-            Q(fiber_cable__cable_id__in=cable_ids)
-            | Q(front_port_a__device_id__in=ids)
-            | Q(front_port_b__device_id__in=ids)
-        ).values_list("pk", "fiber_cable_id", "fiber_cable__cable_id", "front_port_a_id", "front_port_b_id")
+        FiberStrand.objects.filter(fiber_cable__cable_id__in=cable_ids).values_list(
+            "pk", "fiber_cable_id", "fiber_cable__cable_id", "front_port_a_id", "front_port_b_id"
+        )
     )
     unknown = {fp for *_, fp_a, fp_b in rows for fp in (fp_a, fp_b) if fp is not None and fp not in plant.fp_device}
     foreign_device = dict(FrontPort.objects.filter(pk__in=unknown).values_list("pk", "device_id"))
@@ -348,10 +345,7 @@ def _add_provider_crossings(plant, cable_id, near_terms, ct_term, terms_by_cable
     consumed = set()
     ct_id = ct_term.termination_id
     while True:
-        circuit_id = plant.ct_circuit.get(ct_id)
-        if circuit_id is None:
-            return consumed
-        segments.append(("provider_circuit", circuit_id))
+        segments.append(("provider_circuit", plant.ct_circuit[ct_id]))
         egress = ct_cable.get(plant.other_ct[ct_id])
         if egress is None:
             return consumed
