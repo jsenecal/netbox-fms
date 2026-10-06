@@ -4,6 +4,7 @@ import contextvars
 import logging
 
 from django.core.exceptions import ValidationError
+from django.db.models import ProtectedError
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 
 from . import naming
@@ -22,6 +23,20 @@ class fms_portmapping_bypass:  # noqa: N801
 
     def __exit__(self, *args):
         _fms_bypass.reset(self._token)
+
+
+_protection_bypass = contextvars.ContextVar("fms_protection_bypass", default=False)
+
+
+class fms_protection_bypass:  # noqa: N801
+    """Let plugin code delete plant an active assignment runs over, after authorizing the route change."""
+
+    def __enter__(self):
+        self._token = _protection_bypass.set(True)
+        return self
+
+    def __exit__(self, *args):
+        _protection_bypass.reset(self._token)
 
 
 def _front_port_is_fms_managed(front_port_id):
@@ -116,6 +131,9 @@ def _portmapping_pre_delete(sender, instance, origin=None, **kwargs):
     """
     if _deletion_originates_from_device(origin):
         return
+    # The mapping cascades from its front port, and this receiver fires before the port's own: refuse
+    # on the assignment first so the caller learns which circuits hold the port.
+    _refuse_if_assigned("front_port", instance.front_port_id, f"front port {instance.front_port_id}")
     _block_external_portmapping_change(instance)
 
 
@@ -426,6 +444,41 @@ def _fiber_circuit_path_post_delete(sender, instance, **kwargs):
         circuit.sync_provider_circuits()
 
 
+def _refuse_if_assigned(reference, pk, subject):
+    """Raise ProtectedError when an active assignment runs over the referenced object.
+
+    One indexed query; every active assignment counts regardless of user.
+    """
+    if _protection_bypass.get():
+        return
+    from .services import protecting_assignments
+
+    protecting = protecting_assignments(reference, [pk])
+    if protecting.exists():
+        raise ProtectedError(
+            f"Cannot delete {subject}: it carries active fiber circuit assignment(s).",
+            set(protecting.select_related("circuit")),
+        )
+
+
+def _protect_assigned(reference):
+    """Build a pre_delete receiver refusing to delete plant that an active assignment runs over.
+
+    ``reference`` names the lookups in services.ASSIGNMENT_REFERENCE_LOOKUPS.
+    """
+
+    def receiver(sender, instance, **kwargs):
+        _refuse_if_assigned(reference, instance.pk, instance)
+
+    return receiver
+
+
+_protect_strand = _protect_assigned("fiber_strand")
+_protect_cable = _protect_assigned("cable")
+_protect_provider_circuit = _protect_assigned("provider_circuit")
+_protect_front_port = _protect_assigned("front_port")
+
+
 def connect_signals():
     """Connect cable and device signals. Called from AppConfig.ready()."""
     from dcim.models import Cable
@@ -457,6 +510,16 @@ def connect_signals():
     post_delete.connect(
         _tube_assignment_post_delete, sender=TubeAssignment, dispatch_uid="fms_tube_assignment_post_delete"
     )
+
+    from circuits.models import Circuit
+    from dcim.models import FrontPort
+
+    from .models import FiberStrand
+
+    pre_delete.connect(_protect_strand, sender=FiberStrand, dispatch_uid="fms_protect_strand")
+    pre_delete.connect(_protect_cable, sender=Cable, dispatch_uid="fms_protect_cable")
+    pre_delete.connect(_protect_provider_circuit, sender=Circuit, dispatch_uid="fms_protect_provider_circuit")
+    pre_delete.connect(_protect_front_port, sender=FrontPort, dispatch_uid="fms_protect_front_port")
 
     from .models import FiberCircuitPath
 

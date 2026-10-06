@@ -19,6 +19,7 @@ from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
+from .assignment import authorize_route_change
 from .choices import SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
@@ -133,9 +134,11 @@ from .services import (
     get_or_recompute_diff,
     import_live_state,
     link_cable_topology,
+    protecting_assignments,
     protecting_circuits_by_front_port,
     tray_utilization,
 )
+from .signals import fms_protection_bypass
 from .tables import (
     BufferTubeTable,
     BufferTubeTemplateTable,
@@ -1436,8 +1439,17 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
         # Snapshot for change logging
         old_cable.snapshot()
 
-        # Delete old cable (cascades FiberCable, strands, etc.)
-        old_cable.delete()
+        # Circuits riding this cable are re-routed over the two halves and the new splices.
+        riding = {
+            assignment.circuit
+            for assignment in protecting_assignments(
+                "fiber_strand", old_fiber_cable.fiber_strands.values_list("pk", flat=True)
+            ).select_related("circuit")
+        }
+
+        # Delete old cable (cascades FiberCable, strands, etc.); the authorization below covers the circuits
+        with fms_protection_bypass():
+            old_cable.delete()
 
         # Create Cable A (original A-side -> closure)
         cable_a = Cable(a_terminations=old_a_terms, b_terminations=a_side_rear_ports, **old_cable_attrs)
@@ -1456,6 +1468,11 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
             closure=closure,
             defaults={"name": f"Plan for {closure.name}"},
         )
+
+        # The authorization lets the next analysis of each riding circuit accept the new hops. The source is
+        # the splice plan that joins the two halves; it outlives the slack loop deleted below.
+        for circuit in riding:
+            authorize_route_change(circuit, plan)
 
         # Find FrontPorts mapped to our RearPorts via PortMapping
         a_front_ports = list(

@@ -198,3 +198,27 @@ class TestInsertSlackLoopIntoClosure:
         self._do_insert(sl)
 
         assert not SlackLoop.objects.filter(pk=sl_pk).exists()
+
+    def test_insertion_authorizes_riding_circuits_instead_of_being_blocked(self):
+        """Circuits assigned over the cut cable are authorized, not refused.
+
+        The authorization is effective only when the assigned path also
+        crosses other cables; a path made of the cut cable alone becomes
+        path_lost and needs acknowledging.
+        """
+        from django.contrib.contenttypes.models import ContentType
+
+        from netbox_fms.choices import FiberCircuitStatusChoices
+        from netbox_fms.models import FiberCircuit, RouteChangeAuthorization, SplicePlan
+        from tests.conftest import assign_strand_path, make_strand_path
+
+        cable, fc, sl = self._make_cable_and_loop()
+        circuit = FiberCircuit.objects.create(name="INS-C", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE)
+        assign_strand_path(circuit, make_strand_path(fc.fiber_strands.get()))
+
+        _cable_a, _cable_b, _fc_a, _fc_b, plan = self._do_insert(sl)
+
+        assert not Cable.objects.filter(pk=cable.pk).exists()
+        authorization = RouteChangeAuthorization.objects.get(circuit=circuit)
+        assert authorization.source_type == ContentType.objects.get_for_model(SplicePlan)
+        assert authorization.source_id == plan.pk
