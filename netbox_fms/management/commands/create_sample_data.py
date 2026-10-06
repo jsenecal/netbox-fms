@@ -1655,5 +1655,5 @@ class Command(BaseCommand):
                 .filter(Q(end_a_port__device=origin_device) | Q(end_b_port__device=origin_device))
                 .order_by(origin_port_name, "pk")[: circuit.strand_count]
             )
-            assigned = assign_paths(circuit, candidates) if candidates else []
+            assigned = assign_paths(circuit, candidates)
             self.stdout.write(f"  {circuit.name}: assigned {len(assigned)} fiber path(s)")

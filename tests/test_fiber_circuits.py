@@ -103,14 +103,6 @@ class TestFiberCircuitPath(TestCase):
         with self.assertRaises(ValidationError):
             assignment.full_clean()
 
-    def test_strand_count_counts_active_assignments_only(self):
-        small = FiberCircuit.objects.create(name="Small", strand_count=1)
-        assign_strand_path(small, self.p1, active=False)
-        FiberCircuitPath(circuit=small, strand_path=self.p2, position=2).clean()  # inactive one does not count
-        assign_strand_path(small, self.p3)
-        with self.assertRaises(ValidationError):
-            FiberCircuitPath(circuit=small, strand_path=self.p2, position=3).clean()
-
     def test_get_absolute_url(self):
         assignment = assign_strand_path(self.circuit, self.p1)
         assert assignment.get_absolute_url() == f"/plugins/fms/fiber-circuit-paths/{assignment.pk}/"

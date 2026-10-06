@@ -63,6 +63,14 @@ class TestAssignPaths(AssignCase):
         (assignment,) = assign_paths(self.circuit, [self.incomplete], allow_incomplete=True)
         assert assignment.delivered_incomplete is True
 
+    def test_a_path_whose_other_assignment_is_inactive_can_be_assigned(self):
+        gone = FiberCircuit.objects.create(
+            name="ASG-G", strand_count=1, status=FiberCircuitStatusChoices.DECOMMISSIONED
+        )
+        assign_strand_path(gone, self.complete[0], active=False)
+        (assignment,) = assign_paths(self.circuit, [self.complete[0]])
+        assert assignment.active is True
+
     def test_duplicate_path_in_one_call_is_refused(self):
         with self.assertRaises(ValidationError) as ctx:
             assign_paths(self.circuit, [self.complete[0], self.complete[0]])

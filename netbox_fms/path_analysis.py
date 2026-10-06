@@ -289,11 +289,11 @@ def evaluate_assignments(paths, stats):
             consumed.add(assignment.circuit_id)
             stats.assignments_authorized += 1
         else:
+            reason = AssignmentBrokenReasonChoices.HOPS_CHANGED if current else AssignmentBrokenReasonChoices.PATH_LOST
+            if assignment.is_broken and assignment.broken_reason == reason:
+                continue  # already reported; a lost path is re-evaluated on every run
             assignment.snapshot()
-            assignment.is_broken = True
-            assignment.broken_reason = (
-                AssignmentBrokenReasonChoices.HOPS_CHANGED if current else AssignmentBrokenReasonChoices.PATH_LOST
-            )
+            assignment.is_broken, assignment.broken_reason = True, reason
             stats.assignments_broken += 1
         assignment.save()
     RouteChangeAuthorization.objects.filter(circuit_id__in=consumed).delete()

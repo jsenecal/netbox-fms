@@ -527,18 +527,6 @@ class TestFiberCircuitPathClean:
         )
         path.clean()  # should not raise
 
-    def test_path_count_exceeds_strand_count_raises(self, circuit_fixtures):
-        circuit = circuit_fixtures["circuit"]
-
-        # Assign paths up to strand_count (2)
-        FiberCircuitPath.objects.create(circuit=circuit, strand_path=make_strand_path(), position=1)
-        FiberCircuitPath.objects.create(circuit=circuit, strand_path=make_strand_path(), position=2)
-
-        # A third assignment must fail
-        path = FiberCircuitPath(circuit=circuit, strand_path=make_strand_path(), position=3)
-        with pytest.raises(ValidationError, match="strand count"):
-            path.clean()
-
     def test_str(self, circuit_fixtures):
         path = FiberCircuitPath(circuit=circuit_fixtures["circuit"], strand_path=make_strand_path(), position=1)
         assert str(path) == "Clean-Circuit path 1"

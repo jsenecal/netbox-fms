@@ -2071,17 +2071,10 @@ class FiberCircuitPath(NetBoxModel):
         return dict(self.calculated_loss_db).get(int(wl))
 
     def clean(self):
-        """Wavelength is required with an actual loss; active assignments may not exceed the strand count."""
+        """Wavelength is required when an actual loss is recorded."""
         super().clean()
         if self.actual_loss_db is not None and self.wavelength_nm is None:
             raise ValidationError({"wavelength_nm": _("Wavelength is required when an actual loss is recorded.")})
-        if self.circuit_id:
-            existing = self.circuit.paths.filter(active=True).exclude(pk=self.pk).count()
-            if existing >= self.circuit.strand_count:
-                raise ValidationError(
-                    _("Cannot assign more paths than the circuit's strand count (%(count)s)."),
-                    params={"count": self.circuit.strand_count},
-                )
 
 
 def _exactly_one_of(*fields):

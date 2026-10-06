@@ -47,9 +47,7 @@ def assign_paths(circuit, strand_paths, *, allow_incomplete=False):
     Refused as a whole, with a ValidationError naming every problem, when
     the circuit is decommissioned, a path is listed twice, the strand count
     would be exceeded, a path already has an active assignment, or a path
-    is incomplete without ``allow_incomplete``. The strand-count rule lives
-    here because it must judge the whole call at once; the model's own
-    ``clean()`` guards single-row edits.
+    is incomplete without ``allow_incomplete``.
     """
     paths = list(strand_paths)
     with transaction.atomic():

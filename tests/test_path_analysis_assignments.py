@@ -73,6 +73,14 @@ class TestBroken(EvaluationCase):
         assert FiberStrandPath.objects.filter(pk=path.pk).exists()
         assert assignment.is_broken is False
 
+    def test_a_long_lost_assignment_is_not_reported_broken_again(self):
+        self.assigned(self.s1)
+        self.analyze()
+        seen = []
+        logged = changes_logged(lambda: seen.append(self.analyze()))
+        assert seen[0].assignments_broken == 0
+        assert ("fibercircuitpath", "update") not in logged
+
     def test_reverted_hops_heal_a_broken_assignment(self):
         assignment, _path = self.assigned(self.s1, self.s2)
         self.analyze(chain(self.s1, self.s2, self.s3))
@@ -99,6 +107,24 @@ class TestAuthorization(EvaluationCase):
         self.analyze(chain(self.s1, self.s3))
         assignment.refresh_from_db()
         assert assignment.is_broken is True
+        assert RouteChangeAuthorization.objects.filter(circuit=self.circuit).exists()
+
+    def test_another_circuits_authorization_does_not_cover_this_circuit(self):
+        assignment, _path = self.assigned(self.s1, self.s3)
+        other = FiberCircuit.objects.create(name="EVA-O", strand_count=1)
+        authorize_route_change(other, other)
+        self.analyze(chain(self.s1, self.s2, self.s3))
+        assignment.refresh_from_db()
+        assert assignment.is_broken is True
+        assert RouteChangeAuthorization.objects.filter(circuit=other).exists()
+
+    def test_an_unused_authorization_survives_a_run_that_changed_nothing_for_the_circuit(self):
+        path = make_strand_path(self.s1, self.s2, end_a_kind=PathEndKindChoices.TERMINATED)
+        assignment = assign_strand_path(self.circuit, path)
+        authorize_route_change(self.circuit, self.circuit)
+        stats = self.analyze(chain(self.s1, self.s2))  # the path is rewritten (its end differs), its hops are not
+        assignment.refresh_from_db()
+        assert (assignment.is_broken, stats.assignments_authorized) == (False, 0)
         assert RouteChangeAuthorization.objects.filter(circuit=self.circuit).exists()
 
     def test_one_authorization_covers_every_assignment_of_the_circuit(self):
