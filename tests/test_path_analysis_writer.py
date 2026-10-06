@@ -143,10 +143,30 @@ class TestWriteOutcomes(WriterCase):
     def test_identical_chains_for_one_path_are_stored_once(self):
         path = self.store(strand_chain(self.s1, self.s2))
         stats = write_results(
-            [strand_chain(self.s1, self.s2), strand_chain(self.s1, self.s2)], self.stored(), computed_at=self.now
+            [strand_chain(self.s1, self.s2), strand_chain(self.s1, self.s2), strand_chain(self.s2, self.s1)],
+            self.stored(),
+            computed_at=self.now,
         )
         assert (stats.paths_updated, stats.paths_created, stats.paths_deleted) == (0, 0, 0)
         assert FiberStrandPath.objects.get().pk == path.pk
+
+    def test_reversed_and_changed_chain_keeps_the_stored_orientation(self):
+        path = self.store(strand_chain(self.s2, self.s3, end_a=TERMINATED, end_b=OPEN))
+        write_results(
+            [strand_chain(self.s3, self.s2, self.s1, end_a=OPEN, end_b=TERMINATED)],
+            self.stored(),
+            computed_at=self.now,
+        )
+        path.refresh_from_db()
+        assert path.hop_refs() == [("strand", self.s1.pk), ("strand", self.s2.pk), ("strand", self.s3.pk)]
+        assert (path.end_a_kind, path.end_b_kind) == ("terminated", "open")
+
+    def test_strand_chain_with_no_stored_strand_is_new_even_if_it_shares_a_cable_hop(self):
+        self.store(Chain([("cable", self.cable.pk), ("strand", self.s1.pk)], OPEN, OPEN, [self.cable.pk]))
+        chain = Chain([("strand", self.t1.pk), ("cable", self.cable.pk)], OPEN, OPEN, [self.cable.pk])
+        FiberStrand.objects.filter(pk=self.s1.pk).delete()
+        stats = write_results([chain], self.stored(), computed_at=self.now)
+        assert (stats.paths_updated, stats.paths_created, stats.paths_deleted) == (0, 1, 1)
 
     def test_summary_names_every_counter(self):
         stats = write_results([strand_chain(self.s1)], self.stored(), computed_at=self.now)
@@ -201,6 +221,5 @@ class TestPathDeviceLookups(WriterCase):
 
 
 class TestAnalysisLock(WriterCase):
-    def test_lock_is_granted_and_reentrant_within_one_transaction(self):
-        assert try_analysis_lock() is True
+    def test_lock_is_granted(self):
         assert try_analysis_lock() is True

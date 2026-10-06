@@ -123,6 +123,8 @@ def _match(chain, by_strand, by_end_hop):
         path = by_strand.get(strand_id)
         if path is not None:
             return path
+    if chain.strand_ids:
+        return None
     return by_end_hop.get(chain.hops[0]) or by_end_hop.get(chain.hops[-1])
 
 
@@ -133,7 +135,13 @@ def _keeper(refs, candidates):
 
 
 def _oriented(chain, refs):
-    """Flip a chain that runs against its stored path so an unchanged path is not rewritten."""
+    """Flip a chain that runs against its stored path, so end A stays end A and an unchanged path is not rewritten."""
+    stored_strands = [ref_id for kind, ref_id in refs if kind == "strand"]
+    shared = [strand_id for strand_id in chain.strand_ids if strand_id in stored_strands]
+    if len(shared) >= 2:
+        if stored_strands.index(shared[0]) > stored_strands.index(shared[-1]):
+            return chain.reversed()
+        return chain
     anchor = _anchor(refs)
     if chain.hops[0] != anchor and chain.hops[-1] == anchor:
         return chain.reversed()
@@ -173,8 +181,11 @@ def write_results(chains, stored_paths, *, computed_at):
         path, refs = stored[pk], refs_of[pk]
         keeper = _keeper(refs, candidates)
         keep = _oriented(keeper, refs)  # may be a new, reversed Chain object; identity checks use ``keeper``
-        # The same component reached from two start ports yields identical chains; store one.
-        new_chains.extend(chain for chain in candidates if chain is not keeper and chain.hops != keeper.hops)
+        # The same component reached from two start ports yields identical or mirrored chains; store one.
+        same_component = (tuple(keeper.hops), tuple(reversed(keeper.hops)))
+        new_chains.extend(
+            chain for chain in candidates if chain is not keeper and tuple(chain.hops) not in same_component
+        )
         if keep.hops == refs:
             path.computed_at = computed_at
             unchanged.append(path)
