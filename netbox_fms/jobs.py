@@ -19,3 +19,13 @@ class PathReconcileJob(JobRunner):
                 return
             stats = run_reconcile()
         self.logger.info("Reconciled fiber paths: %s", stats.summary())
+
+
+class PathAnalysisJob(JobRunner):
+    """Re-analyze the fiber paths through the devices queued since the last run."""
+
+    class Meta:
+        name = "Fiber path analysis"
+
+    def run(self, *args, **kwargs):
+        raise NotImplementedError

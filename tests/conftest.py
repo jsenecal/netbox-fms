@@ -1,12 +1,27 @@
 from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import pytest
 from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import RequestFactory
 from rest_framework.test import APIClient
+
+
+@pytest.fixture(autouse=True)
+def no_analysis_job_enqueue():
+    """Keep every test off Redis: receivers committing in a TransactionTestCase would enqueue for real.
+
+    A test that checks scheduling inspects ``PathAnalysisJob.enqueue`` (the patched mock).
+    """
+    from netbox_fms.jobs import PathAnalysisJob
+
+    with patch.object(PathAnalysisJob, "enqueue"):
+        yield
+
 
 # Port name templates the name-template tests configure; the rear guard keeps
 # tubeless constructions renderable.
