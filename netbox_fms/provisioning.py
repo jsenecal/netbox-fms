@@ -24,7 +24,7 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
 )
-from .trace import pair_far_rear_port_termination
+from .trace import paired_rear_port_terminations
 
 # ---------------------------------------------------------------------------
 # DAG construction helpers
@@ -59,7 +59,7 @@ def _build_device_graph(origin_device, destination_device):
         a_terms = [t for t in terms if t.cable_end == "A"]
         b_terms = [t for t in terms if t.cable_end == "B"]
 
-        for rp_a_id, rp_b_id in _paired_rear_ports(a_terms, b_terms):
+        for rp_a_id, rp_b_id in paired_rear_port_terminations(a_terms, b_terms):
             a_dev_id = rp_device[rp_a_id]
             b_dev_id = rp_device[rp_b_id]
             cable_info = {
@@ -78,24 +78,6 @@ def _build_device_graph(origin_device, destination_device):
             all_device_ids.add(b_dev_id)
 
     return edges, adjacency, all_device_ids
-
-
-def _paired_rear_ports(a_terms, b_terms):
-    """The (rp_a_id, rp_b_id) tube pairs of one cable, in A-end order.
-
-    The wizard walks a cable in both directions, so a pair is kept only when
-    the pairing rule (pair_far_rear_port_termination, shared with the trace
-    engine) resolves it from either end: a trace entering at A must land on
-    the B rear port, and a trace entering at that B rear port must land back
-    on A. A pair that holds from one end only is an edge the trace could not
-    reproduce.
-    """
-    pairs = []
-    for a in a_terms:
-        b = pair_far_rear_port_termination(a.connector, a_terms, b_terms)
-        if b is not None and pair_far_rear_port_termination(b.connector, b_terms, a_terms) is a:
-            pairs.append((a.termination_id, b.termination_id))
-    return pairs
 
 
 def _find_all_simple_paths(adjacency, origin_id, dest_id, max_depth=10):
