@@ -1,4 +1,5 @@
 from dcim.choices import CableLengthUnitChoices
+from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.urls import reverse
@@ -17,6 +18,11 @@ from .choices import (
     FiberColorSchemeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
+    PathAnalysisReasonChoices,
+    PathAnomalyKindChoices,
+    PathCompletenessChoices,
+    PathEndKindChoices,
+    PathEndReasonChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -45,6 +51,11 @@ __all__ = (
     "FiberCircuit",
     "FiberCircuitPath",
     "FiberCircuitNode",
+    "FiberStrandPath",
+    "FiberStrandPathHop",
+    "PathAnomaly",
+    "RouteChangeAuthorization",
+    "PathAnalysisQueue",
 )
 
 
@@ -2199,3 +2210,219 @@ class FiberCircuitNode(models.Model):
             if obj is not None:
                 return f"{field}: {obj}"
         return f"node #{self.position}"
+
+
+# ---------------------------------------------------------------------------
+# Fiber path analysis (internal, not NetBoxModel: rewritten in bulk by the
+# analysis job, so they must not flood the change log)
+# ---------------------------------------------------------------------------
+
+# The reference FK fields of a path hop, exactly one of which is populated.
+HOP_REFERENCE_FIELDS = ("strand", "cable", "provider_circuit")
+
+
+def hops_to_json(refs):
+    """The assignment snapshot shape of a hop reference list."""
+    return [{"type": kind, "id": ref_id} for kind, ref_id in refs]
+
+
+def refs_from_json(data):
+    """Hop references back from the snapshot shape."""
+    return [(entry["type"], entry["id"]) for entry in data]
+
+
+class FiberStrandPath(models.Model):
+    """One continuous fiber chain between two ends, derived from the plant by analysis.
+
+    The analysis job is the only writer. Ports, rear ports, splices and
+    devices are joined through the hops, never stored twice.
+    """
+
+    objects = RestrictedQuerySet.as_manager()
+
+    end_a_port = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="fiber_path_ends_a",
+        verbose_name=_("end A port"),
+    )
+    end_b_port = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="fiber_path_ends_b",
+        verbose_name=_("end B port"),
+    )
+    end_a_kind = models.CharField(max_length=20, choices=PathEndKindChoices, default=PathEndKindChoices.OPEN)
+    end_b_kind = models.CharField(max_length=20, choices=PathEndKindChoices, default=PathEndKindChoices.OPEN)
+    end_a_reason = models.CharField(max_length=20, choices=PathEndReasonChoices, blank=True)
+    end_b_reason = models.CharField(max_length=20, choices=PathEndReasonChoices, blank=True)
+    completeness = models.CharField(
+        max_length=30,
+        choices=PathCompletenessChoices,
+        default=PathCompletenessChoices.OPEN_OPEN,
+        db_index=True,
+    )
+    route_key = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        help_text=_("sha256 of the ordered cable ids; paths sharing a key share fate."),
+    )
+    is_proposed = models.BooleanField(default=False, help_text=_("Touches planned cables or devices."))
+    is_defective = models.BooleanField(default=False, help_text=_("Crosses a faulted strand or cable."))
+    computed_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ("pk",)
+        verbose_name = _("fiber path")
+        verbose_name_plural = _("fiber paths")
+
+    def __str__(self):
+        return f"Fiber path #{self.pk}"
+
+    def get_absolute_url(self):
+        return reverse("plugins:netbox_fms:fiberstrandpath", args=[self.pk])
+
+    def hop_refs(self):
+        """Ordered ``(type, id)`` references of the hops; works on prefetched hops too."""
+        return [hop.ref for hop in self.hops.all()]
+
+
+class FiberStrandPathHop(models.Model):
+    """One step of a fiber path: a strand, a plain cable or a provider circuit."""
+
+    REFERENCE_FIELDS = HOP_REFERENCE_FIELDS
+
+    path = models.ForeignKey(
+        to="netbox_fms.FiberStrandPath",
+        on_delete=models.CASCADE,
+        related_name="hops",
+    )
+    position = models.PositiveIntegerField()
+    strand = models.ForeignKey(
+        to="netbox_fms.FiberStrand",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="path_hops",
+    )
+    cable = models.ForeignKey(
+        to="dcim.Cable",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="fiber_path_hops",
+        help_text=_("Only for cables that carry no FiberCable."),
+    )
+    provider_circuit = models.ForeignKey(
+        to="circuits.Circuit",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="fiber_path_hops",
+    )
+
+    class Meta:
+        ordering = ("path", "position")
+        constraints = [
+            models.UniqueConstraint(fields=["path", "position"], name="fiberstrandpathhop_unique_position"),
+            models.CheckConstraint(
+                name="fiberstrandpathhop_exactly_one_ref",
+                condition=_exactly_one_of(*HOP_REFERENCE_FIELDS),
+            ),
+        ]
+
+    def __str__(self):
+        kind, ref_id = self.ref
+        return f"{kind} {ref_id}"
+
+    @property
+    def ref(self):
+        """``(type, id)`` of the populated reference."""
+        for field_name in self.REFERENCE_FIELDS:
+            ref_id = getattr(self, f"{field_name}_id")
+            if ref_id is not None:
+                return (field_name, ref_id)
+        raise ValueError("hop has no reference")
+
+
+class PathAnomaly(models.Model):
+    """A plant shape the analysis quarantined instead of tracing."""
+
+    objects = RestrictedQuerySet.as_manager()
+
+    kind = models.CharField(max_length=30, choices=PathAnomalyKindChoices)
+    strand = models.ForeignKey(
+        to="netbox_fms.FiberStrand",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="path_anomalies",
+    )
+    front_port = models.ForeignKey(
+        to="dcim.FrontPort",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="fiber_path_anomalies",
+    )
+    detected_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-detected_at", "pk")
+        verbose_name = _("path anomaly")
+        verbose_name_plural = _("path anomalies")
+
+    def __str__(self):
+        return f"{self.get_kind_display()} ({self.strand or self.front_port})"
+
+
+class RouteChangeAuthorization(models.Model):
+    """Permission for one circuit's assigned hops to change without becoming broken.
+
+    Written when an approved change that names the circuit is applied,
+    consumed by the next analysis of that circuit, and purged by the
+    reconcile when older than one reconcile cycle.
+    """
+
+    circuit = models.ForeignKey(
+        to="netbox_fms.FiberCircuit",
+        on_delete=models.CASCADE,
+        related_name="route_change_authorizations",
+    )
+    source_type = models.ForeignKey(to="contenttypes.ContentType", on_delete=models.CASCADE)
+    source_id = models.PositiveBigIntegerField()
+    source = GenericForeignKey("source_type", "source_id")
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created", "pk")
+
+    def __str__(self):
+        return f"route change authorization for {self.circuit}"
+
+
+class PathAnalysisQueue(models.Model):
+    """One plant change on one device, waiting for the next analysis run."""
+
+    objects = RestrictedQuerySet.as_manager()
+
+    device = models.ForeignKey(
+        to="dcim.Device",
+        on_delete=models.CASCADE,
+        related_name="fiber_path_analysis_queue",
+    )
+    reason = models.CharField(max_length=30, choices=PathAnalysisReasonChoices)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created", "pk")
+        verbose_name = _("path analysis queue entry")
+        verbose_name_plural = _("path analysis queue entries")
+
+    def __str__(self):
+        return f"{self.device}: {self.get_reason_display()}"
