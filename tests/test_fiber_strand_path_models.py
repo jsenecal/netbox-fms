@@ -1,20 +1,31 @@
 """Internal path models of the #196 analysis: hop references and the one-reference rule."""
 
-from dcim.models import Cable
+import pytest
+from dcim.models import Cable, Device
+from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from netbox_fms.choices import PathCompletenessChoices, PathEndKindChoices
+from netbox_fms.choices import (
+    PathAnalysisReasonChoices,
+    PathAnomalyKindChoices,
+    PathCompletenessChoices,
+    PathEndKindChoices,
+)
 from netbox_fms.models import (
     FiberCable,
     FiberCableType,
+    FiberCircuit,
     FiberStrandPath,
     FiberStrandPathHop,
+    PathAnalysisQueue,
+    PathAnomaly,
+    RouteChangeAuthorization,
     hops_to_json,
     refs_from_json,
 )
-from tests.conftest import make_infra
+from tests.conftest import make_front_port, make_infra
 
 
 def make_strand_path(**overrides):
@@ -68,5 +79,37 @@ class TestFiberStrandPathHop(TestCase):
         with transaction.atomic(), self.assertRaises(IntegrityError):
             FiberStrandPathHop.objects.create(path=self.path, position=1)
 
+    def test_hop_str_names_the_reference(self):
+        hop = FiberStrandPathHop(path=self.path, position=1, strand=self.s1)
+        assert str(hop) == f"strand {self.s1.pk}"
+
+    def test_hop_without_reference_has_no_ref(self):
+        with pytest.raises(ValueError):
+            _ = FiberStrandPathHop(path=self.path, position=1).ref
+
     def test_str_names_the_path_by_pk(self):
         assert str(self.path) == f"Fiber path #{self.path.pk}"
+
+
+class TestPathLabels(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site, _mfr, dt, role = make_infra("PLB")
+        cls.device = Device.objects.create(name="plb-dev", site=site, device_type=dt, role=role)
+        cls.fp = make_front_port(cls.device, "PLB1")
+        cls.circuit = FiberCircuit.objects.create(name="PLB-Circuit", strand_count=1)
+
+    def test_anomaly_str_names_the_front_port(self):
+        anomaly = PathAnomaly.objects.create(kind=PathAnomalyKindChoices.TOO_MANY_CONNECTIONS, front_port=self.fp)
+        assert str(anomaly) == f"{anomaly.get_kind_display()} ({self.fp})"
+
+    def test_route_change_authorization_str_names_the_circuit(self):
+        auth = RouteChangeAuthorization.objects.create(
+            circuit=self.circuit, source_type=ContentType.objects.get_for_model(Device), source_id=self.device.pk
+        )
+        assert auth.source == self.device
+        assert str(auth) == f"route change authorization for {self.circuit}"
+
+    def test_queue_entry_str_names_device_and_reason(self):
+        entry = PathAnalysisQueue.objects.create(device=self.device, reason=PathAnalysisReasonChoices.CABLE_CHANGED)
+        assert str(entry) == f"{self.device}: {entry.get_reason_display()}"
