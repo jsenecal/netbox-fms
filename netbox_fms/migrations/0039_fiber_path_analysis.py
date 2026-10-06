@@ -4,19 +4,6 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
-def wipe_hand_entered_paths(apps, schema_editor):
-    """Paths are derived by analysis from here on: the hand-made rows and their node index go.
-
-    Circuits keep their identity and are re-assigned after the upgrade; the
-    provider-circuit projection is rebuilt by the first assignment.
-    """
-    alias = schema_editor.connection.alias
-    apps.get_model("netbox_fms", "FiberCircuitNode").objects.using(alias).all().delete()
-    apps.get_model("netbox_fms", "FiberCircuitPath").objects.using(alias).all().delete()
-    FiberCircuit = apps.get_model("netbox_fms", "FiberCircuit")
-    FiberCircuit.provider_circuits.through.objects.using(alias).all().delete()
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -106,7 +93,18 @@ class Migration(migrations.Migration):
                 'constraints': [models.UniqueConstraint(fields=('path', 'position'), name='fiberstrandpathhop_unique_position'), models.CheckConstraint(condition=models.Q(models.Q(('cable__isnull', True), ('provider_circuit__isnull', True), ('strand__isnull', False)), models.Q(('cable__isnull', False), ('provider_circuit__isnull', True), ('strand__isnull', True)), models.Q(('cable__isnull', True), ('provider_circuit__isnull', False), ('strand__isnull', True)), _connector='OR'), name='fiberstrandpathhop_exactly_one_ref')],
             },
         ),
-        migrations.RunPython(wipe_hand_entered_paths, migrations.RunPython.noop),
+        # Paths are derived by analysis from here on: the hand-made rows, their
+        # node index and the provider-circuit projection go. Circuits keep their
+        # identity and are re-assigned after the upgrade. Table names are the
+        # 0038 state's db_table values.
+        migrations.RunSQL(
+            [
+                "DELETE FROM netbox_fms_fibercircuitnode",
+                "DELETE FROM netbox_fms_fibercircuitpath",
+                "DELETE FROM netbox_fms_fibercircuit_provider_circuits",
+            ],
+            reverse_sql=migrations.RunSQL.noop,
+        ),
         migrations.AlterUniqueTogether(
             name='fibercircuitnode',
             unique_together=None,

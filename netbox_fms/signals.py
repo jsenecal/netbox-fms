@@ -416,8 +416,8 @@ def _tube_assignment_post_delete(sender, instance, **kwargs):
 def _fiber_circuit_path_post_delete(sender, instance, **kwargs):
     """Resync the owning circuit's provider-circuit projection.
 
-    Deleting a path CASCADEs its node rows away, which would otherwise
-    leave the stored projection stale.
+    The projection is derived from the hops of the circuit's active
+    assignments; unassigning a path would otherwise leave it stale.
     """
     from .models import FiberCircuit
 

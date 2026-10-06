@@ -198,6 +198,30 @@ class TestAssignmentPages(TestCase):
         listing = self.client.get("/plugins/fms/fiber-circuits/").content.decode()
         assert self.circuit.get_absolute_url() in listing
 
+    def test_fiber_path_page_hides_assignments_of_circuits_the_user_may_not_view(self):
+        from django.contrib.contenttypes.models import ContentType
+        from users.models import ObjectPermission
+
+        from netbox_fms.models import FiberStrandPath
+
+        other = FiberCircuit.objects.create(name="Pages-Other", strand_count=1)
+        assign_strand_path(other, self.healthy.strand_path, active=False)
+        user = get_user_model().objects.create_user(username="pages-scoped", password="x")  # noqa: S106
+        open_perm = ObjectPermission.objects.create(name="pages-open", enabled=True, actions=["view"])
+        open_perm.object_types.set([ContentType.objects.get_for_model(m) for m in (FiberStrandPath, FiberCircuitPath)])
+        open_perm.users.add(user)
+        scoped = ObjectPermission.objects.create(
+            name="pages-scoped", enabled=True, actions=["view"], constraints={"name": self.circuit.name}
+        )
+        scoped.object_types.set([ContentType.objects.get_for_model(FiberCircuit)])
+        scoped.users.add(user)
+        self.client.force_login(user)
+
+        html = self.client.get(self.healthy.strand_path.get_absolute_url()).content.decode()
+
+        assert self.circuit.get_absolute_url() in html
+        assert "Pages-Other" not in html and other.get_absolute_url() not in html
+
     def test_fiber_cable_strand_utilization_counts_actively_assigned_strands(self):
         self.broken.active = False
         self.broken.save()

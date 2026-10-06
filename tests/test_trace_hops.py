@@ -293,14 +293,19 @@ class TestFlatEntries(TestCase):
     def setUpTestData(cls):
         pair = make_closure_pair("FE")
         cls.dev_a, cls.dev_b = pair.dev_a, pair.dev_b
-        dev_c = make_closure_pair("FE2").dev_b
+        pair2 = make_closure_pair("FE2")
+        dev_c, dev_d = pair2.dev_b, pair2.dev_a
         fct = FiberCableType.objects.create(
             manufacturer=pair.mfr, model="FE-2", strand_count=2, construction="tight_buffer"
         )
         fc_ab, _ = create_closure_cable(device_a=cls.dev_a, device_b=cls.dev_b, fiber_cable_type=fct)
         fc_bc, _ = create_closure_cable(device_a=cls.dev_b, device_b=dev_c, fiber_cable_type=fct)
+        fc_cd, _ = create_closure_cable(device_a=dev_c, device_b=dev_d, fiber_cable_type=fct)
         cls.s1 = fc_ab.fiber_strands.order_by("position").first()
         cls.t1 = fc_bc.fiber_strands.order_by("position").first()
+        # u1 lands A-side on C and B-side on D: read from A, B, a plain cable
+        # and then D, its B landing is the entry.
+        cls.u1 = fc_cd.fiber_strands.order_by("position").first()
         connect_front_ports(cls.s1.front_port_b, cls.t1.front_port_a)
         plan = SplicePlan.objects.create(closure=cls.dev_b, name="FE plan", status=SplicePlanStatusChoices.ARCHIVED)
         tray = make_tray_module(cls.dev_b, make_tray_type(pair.mfr, "FE Tray"), "Bay 1")
@@ -345,6 +350,37 @@ class TestFlatEntries(TestCase):
         path = make_strand_path(self.s1, plain, span.circuit, end_a=self.s1.front_port_a)
         tail = [(e["type"], e["id"]) for e in flat_entries(path)][-2:]
         assert tail == [("cable", plain.pk), ("provider_circuit", span.circuit.pk)]
+
+    def _front_ports(self, path):
+        return [e["id"] for e in flat_entries(path) if e["type"] == "front_port"]
+
+    def test_a_strand_after_a_plain_cable_is_oriented_by_the_b_end(self):
+        """Strand -> plain cable -> strand landed B-first: the exit is the landing on the B end's device."""
+        path = make_strand_path(
+            self.s1, Cable.objects.create(), self.u1, end_a=self.s1.front_port_a, end_b=self.u1.front_port_a
+        )
+        assert self._front_ports(path) == [
+            self.s1.front_port_a_id,
+            self.s1.front_port_b_id,
+            self.u1.front_port_b_id,
+            self.u1.front_port_a_id,
+        ]
+
+    def test_a_strand_after_a_plain_cable_is_oriented_by_the_next_strand(self):
+        path = make_strand_path(
+            self.s1, Cable.objects.create(), self.u1, self.t1, end_a=self.s1.front_port_a, end_b=self.t1.front_port_a
+        )
+        assert self._front_ports(path) == [
+            self.s1.front_port_a_id,
+            self.s1.front_port_b_id,
+            self.u1.front_port_b_id,
+            self.u1.front_port_a_id,
+            self.t1.front_port_b_id,
+            self.t1.front_port_a_id,
+        ]
+
+    def test_a_path_without_ends_reads_each_strand_a_to_b(self):
+        assert self._front_ports(make_strand_path(self.s1)) == [self.s1.front_port_a_id, self.s1.front_port_b_id]
 
     def test_half_landed_strand_and_unmapped_port(self):
         from netbox_fms.signals import fms_portmapping_bypass

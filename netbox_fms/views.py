@@ -1,4 +1,6 @@
+import operator
 import time
+from functools import reduce
 
 from dcim.choices import LinkStatusChoices
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, RearPort
@@ -117,6 +119,7 @@ from .models import (
     TubeAssignment,
 )
 from .services import (
+    ASSIGNMENT_REFERENCE_LOOKUPS,
     UNASSIGNED_TRAY_ID,
     NeedsMappingConfirmation,
     apply_diff,
@@ -690,10 +693,9 @@ class CableElementView(generic.ObjectView):
 
 
 def _assignments_on_cable(queryset, cable):
-    """Assignments whose path crosses the cable: as a strand of its FiberCable or as a plain-cable hop."""
-    return queryset.filter(
-        Q(strand_path__hops__cable=cable) | Q(strand_path__hops__strand__fiber_cable__cable=cable)
-    ).distinct()
+    """Assignments whose path crosses the cable, by the same lookups the protecting endpoint uses."""
+    crosses = reduce(operator.or_, (Q(**{lookup: cable.pk}) for lookup in ASSIGNMENT_REFERENCE_LOOKUPS["cable"]))
+    return queryset.filter(crosses).distinct()
 
 
 @register_model_view(Cable, "fibercircuits", path="fiber-circuits")
@@ -1627,9 +1629,16 @@ class FiberStrandPathView(generic.ObjectView):
     queryset = FiberStrandPath.objects.select_related("end_a_port__device", "end_b_port__device")
 
     def get_extra_context(self, request, instance):
+        # Assignments link their circuits, so both the assignment and the
+        # circuit must be ones the requesting user may view.
+        assignments = (
+            instance.assignments.restrict(request.user, "view")
+            .filter(circuit__in=FiberCircuit.objects.restrict(request.user, "view"))
+            .select_related("circuit")
+        )
         return {
             "hops": instance.hops.select_related("strand__fiber_cable", "cable", "provider_circuit"),
-            "assignments": instance.assignments.select_related("circuit"),
+            "assignments": assignments,
         }
 
 

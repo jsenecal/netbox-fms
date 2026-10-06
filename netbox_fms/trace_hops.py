@@ -24,22 +24,30 @@ def flat_entries(strand_path):
     """
     hops = list(strand_path.hops.select_related("strand__fiber_cable"))
     strands = [hop.strand for hop in hops if hop.strand_id is not None]
-    fp_ids = {fp for strand in strands for fp in (strand.front_port_a_id, strand.front_port_b_id) if fp is not None}
+    fp_ids = {fp for strand in strands for fp in _landings(strand) if fp is not None}
+    end_ids = {fp for fp in (strand_path.end_a_port_id, strand_path.end_b_port_id) if fp is not None}
     rear_of = dict(PortMapping.objects.filter(front_port_id__in=fp_ids).values_list("front_port_id", "rear_port_id"))
-    device_of = dict(FrontPort.objects.filter(pk__in=fp_ids).values_list("pk", "device_id"))
+    device_of = dict(FrontPort.objects.filter(pk__in=fp_ids | end_ids).values_list("pk", "device_id"))
     splices = {
         frozenset((fiber_a, fiber_b)): pk
         for pk, fiber_a, fiber_b in SplicePlanEntry.objects.filter(
             Q(fiber_a_id__in=fp_ids) | Q(fiber_b_id__in=fp_ids)
         ).values_list("pk", "fiber_a_id", "fiber_b_id")
     }
+    # The devices the walk reaches after each strand: the next strand's
+    # landings, or the B end after the last one. Orients a strand that a
+    # plain-cable or provider hop separates from the previous landing.
+    ahead = [{device_of.get(strand_path.end_b_port_id)}]
+    for strand in reversed(strands[1:]):
+        ahead.append({device_of.get(fp) for fp in _landings(strand)})
+    ahead.reverse()
     entries, previous_exit = [], strand_path.end_a_port_id
     for hop in hops:
         if hop.strand_id is None:
             kind, ref_id = hop.ref
             entries.append({"type": kind, "id": ref_id})
             continue
-        entry_fp, exit_fp = _orient_strand(hop.strand, previous_exit, device_of)
+        entry_fp, exit_fp = _orient_strand(hop.strand, previous_exit, ahead.pop(0), device_of)
         splice = splices.get(frozenset((previous_exit, entry_fp)))
         if splice is not None:
             entries.append({"type": "splice_entry", "id": splice})
@@ -50,11 +58,27 @@ def flat_entries(strand_path):
     return entries
 
 
-def _orient_strand(strand, previous_exit, device_of):
-    """(entry, exit) landings of a strand hop: entry is the one on the device the walk is on."""
-    fp_a, fp_b = strand.front_port_a_id, strand.front_port_b_id
-    on_b = fp_b is not None and previous_exit is not None
-    if on_b and (fp_b == previous_exit or device_of.get(fp_b) == device_of.get(previous_exit)):
+def _landings(strand):
+    return (strand.front_port_a_id, strand.front_port_b_id)
+
+
+def _orient_strand(strand, previous_exit, ahead, device_of):
+    """(entry, exit) landings of a strand hop.
+
+    The entry is the landing on the device the walk is on (the previous
+    exit's device). When neither landing is there -- a plain cable or a
+    provider circuit lies between -- the exit is the landing on a device
+    the walk reaches next (``ahead``: the next strand's devices, or the B
+    end's). Half-landed strands fall back to A then B.
+    """
+    fp_a, fp_b = _landings(strand)
+    if previous_exit is not None:
+        here = device_of.get(previous_exit)
+        if fp_b is not None and (fp_b == previous_exit or device_of.get(fp_b) == here):
+            return fp_b, fp_a
+        if fp_a is not None and (fp_a == previous_exit or device_of.get(fp_a) == here):
+            return fp_a, fp_b
+    if fp_a is not None and device_of.get(fp_a) in ahead:
         return fp_b, fp_a
     return fp_a, fp_b
 
