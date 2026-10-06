@@ -17,12 +17,16 @@ from django.utils import timezone
 from netbox.plugins import get_plugin_config
 
 from .bulk import BATCH_SIZE
+from .choices import AssignmentBrokenReasonChoices
 from .models import (
+    FiberCircuitPath,
     FiberStrandPath,
     FiberStrandPathHop,
     PathAnalysisQueue,
     PathAnomaly,
     RouteChangeAuthorization,
+    hops_snapshot,
+    refs_from_json,
 )
 from .path_graph import load_plant, walk_all
 
@@ -208,8 +212,8 @@ def write_results(chains, stored_paths, *, computed_at):
                 setattr(path, name, value)
             rewritten.append((path, keep))
 
-    lost = [pk for pk in stored if pk not in matched]
-    stats.paths_deleted = _drop_lost(lost)
+    lost = [path for pk, path in stored.items() if pk not in matched]
+    stats.paths_deleted, kept = _drop_lost(lost)
     FiberStrandPath.objects.bulk_update(unchanged, ["computed_at"], batch_size=BATCH_SIZE)
     FiberStrandPathHop.objects.filter(path_id__in=[path.pk for path, _chain in rewritten]).delete()
     FiberStrandPath.objects.bulk_update([path for path, _chain in rewritten], PATH_FIELDS, batch_size=BATCH_SIZE)
@@ -221,13 +225,81 @@ def write_results(chains, stored_paths, *, computed_at):
     )
     stats.paths_updated = len(rewritten)
     stats.paths_created = len(created)
+    evaluate_assignments([path for path, _chain in rewritten] + kept, stats)
     return stats
 
 
-def _drop_lost(path_ids):
-    """Delete the paths that lost every strand; returns how many."""
-    FiberStrandPath.objects.filter(pk__in=path_ids).delete()
-    return len(path_ids)
+def _drop_lost(lost):
+    """Delete lost paths nothing references; keep assigned ones as hop-less rows. Returns (deleted, kept)."""
+    referenced = set(FiberCircuitPath.objects.filter(strand_path__in=lost).values_list("strand_path_id", flat=True))
+    kept = [path for path in lost if path.pk in referenced]
+    FiberStrandPath.objects.filter(pk__in=[path.pk for path in lost if path.pk not in referenced]).delete()
+    FiberStrandPathHop.objects.filter(path__in=kept).delete()
+    return len(lost) - len(kept), kept
+
+
+def sync_circuit_broken(circuit):
+    """Set FiberCircuit.is_broken from its active assignments; logs one change only when it flips."""
+    broken = circuit.paths.filter(active=True, is_broken=True).exists()
+    if circuit.is_broken == broken:
+        return False
+    circuit.snapshot()
+    circuit.is_broken = broken
+    circuit.save()
+    return True
+
+
+def _end_strands(refs):
+    """The first and last strand of a hop list: the strands that sit on the end devices."""
+    strands = [ref_id for kind, ref_id in refs if kind == "strand"]
+    return (strands[0], strands[-1]) if strands else None
+
+
+def evaluate_assignments(paths, stats):
+    """Compare every active assignment on these paths with its snapshot.
+
+    Equal hops heal a broken assignment. Changed hops are accepted when the
+    circuit holds a route-change authorization and the first and last
+    strand hops are the same (the ends sit on the same devices); otherwise
+    the assignment is broken. One authorization covers every assignment of
+    the circuit in this run and is then consumed.
+    """
+    assignments = list(
+        FiberCircuitPath.objects.filter(strand_path__in=paths, active=True)
+        .select_related("circuit", "strand_path")
+        .prefetch_related("strand_path__hops")
+    )
+    circuits = {assignment.circuit_id: assignment.circuit for assignment in assignments}
+    authorized = set(
+        RouteChangeAuthorization.objects.filter(circuit_id__in=circuits).values_list("circuit_id", flat=True)
+    )
+    consumed = set()
+    for assignment in assignments:
+        current = assignment.strand_path.hop_refs()
+        assigned = refs_from_json(assignment.assigned_hops)
+        if current == assigned:
+            if not assignment.is_broken:
+                continue
+            assignment.snapshot()
+            assignment.is_broken, assignment.broken_reason = False, ""
+        elif current and assignment.circuit_id in authorized and _end_strands(current) == _end_strands(assigned):
+            assignment.snapshot()
+            assignment.assigned_hops = hops_snapshot(assignment.strand_path)
+            assignment.is_broken, assignment.broken_reason = False, ""
+            consumed.add(assignment.circuit_id)
+            stats.assignments_authorized += 1
+        else:
+            assignment.snapshot()
+            assignment.is_broken = True
+            assignment.broken_reason = (
+                AssignmentBrokenReasonChoices.HOPS_CHANGED if current else AssignmentBrokenReasonChoices.PATH_LOST
+            )
+            stats.assignments_broken += 1
+        assignment.save()
+    RouteChangeAuthorization.objects.filter(circuit_id__in=consumed).delete()
+    for circuit in circuits.values():
+        sync_circuit_broken(circuit)
+        circuit.sync_provider_circuits()
 
 
 def replace_anomalies(anomalies, device_ids=None):

@@ -127,8 +127,8 @@ class TestSplicePlanRowLeak:
 
 @pytest.mark.django_db
 class TestSampleDataFiberCircuits:
-    def test_full_mode_creates_circuits_without_paths(self):
-        """Circuits are created bare; their fiber paths are assigned once the analysis has run."""
+    def test_circuits_without_an_origin_device_get_no_paths(self):
+        """Full mode assigns paths from each circuit's origin device; a missing device leaves the circuit bare."""
         from io import StringIO
 
         from netbox_fms.management.commands.create_sample_data import Command
@@ -139,12 +139,11 @@ class TestSampleDataFiberCircuits:
 
         assert FiberCircuit.objects.count() == 5
         assert not FiberCircuit.objects.exclude(paths=None).exists()
-        assert command.stdout.getvalue().count("fiber paths are assigned after analysis") == 5
+        assert command.stdout.getvalue().count("Created circuit") == 5
 
 
 @pytest.mark.django_db
 class TestSampleDataProviderSpan:
-    @pytest.mark.xfail(strict=True, reason="assigned in the next task")
     def test_simple_mode_circuit_rides_the_leased_span(self):
         """Issue #135: the simple dataset leases CL-03 -> Hub-East from a
         provider, so the sample circuit crosses a provider circuit and its
@@ -157,11 +156,11 @@ class TestSampleDataProviderSpan:
         assert span.provider.name == "Metro Carrier"
         circuit = FiberCircuit.objects.get(cid="SIMPLE-001")
         assert list(circuit.provider_circuits.all()) == [span]
-        paths = list(circuit.paths.all())
-        assert paths
-        for path in paths:
-            assert path.is_complete
-            assert {"type": "provider_circuit", "id": span.pk} in path.path
+        assignments = list(circuit.paths.select_related("strand_path"))
+        assert len(assignments) == circuit.strand_count
+        for assignment in assignments:
+            assert assignment.strand_path.completeness == "terminated_terminated"
+            assert ("provider_circuit", span.pk) in assignment.strand_path.hop_refs()
 
 
 @pytest.mark.django_db

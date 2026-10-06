@@ -1902,19 +1902,43 @@ class FiberCircuit(NetBoxModel):
         return reverse("plugins:netbox_fms:fibercircuit", args=[self.pk])
 
     def save(self, *args, **kwargs):
-        """Save; a transition into or out of decommissioned deactivates or reactivates the assignments."""
+        """Save; a transition into or out of decommissioned deactivates or reactivates the assignments.
+
+        Reactivation is refused while another circuit holds one of the paths,
+        and re-evaluates the assignments against the hops the paths have now.
+        """
         old_status = None
         if self.pk is not None:
             old_status = FiberCircuit.objects.filter(pk=self.pk).values_list("status", flat=True).first()
         decommissioned = FiberCircuitStatusChoices.DECOMMISSIONED
+        reactivating = old_status == decommissioned and self.status != decommissioned
+        if reactivating:
+            self._check_reactivation()
         super().save(*args, **kwargs)
         if old_status is None or old_status == self.status:
             return
         if self.status == decommissioned:
             self.paths.filter(active=True).update(active=False)
-        elif old_status == decommissioned:
+        elif reactivating:
+            from .path_analysis import AnalysisStats, evaluate_assignments
+
             self.paths.filter(active=False).update(active=True)
+            evaluate_assignments(FiberStrandPath.objects.filter(assignments__circuit=self), AnalysisStats())
+            self.refresh_from_db(fields=["is_broken"])
         self.sync_provider_circuits()
+
+    def _check_reactivation(self):
+        """Refuse reactivation while another circuit actively holds one of this circuit's paths."""
+        held = (
+            FiberCircuitPath.objects.filter(active=True, strand_path__in=self.paths.values("strand_path"))
+            .exclude(circuit=self)
+            .select_related("circuit", "strand_path")
+        )
+        if held.exists():
+            names = ", ".join(sorted(f"{a.strand_path} ({a.circuit})" for a in held))
+            raise ValidationError(
+                {"status": _("Cannot reactivate: fiber path(s) now assigned elsewhere: %(names)s") % {"names": names}}
+            )
 
     def sync_provider_circuits(self):
         """Recompute the provider-circuit projection from the hops of the active assignments."""
