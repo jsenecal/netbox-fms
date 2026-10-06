@@ -407,7 +407,58 @@ def _crossing_hops(plant, segments, near, far):
 
 
 def _quarantine(plant):
-    """Task 5 fills this in; Task 4 ships it as a no-op so the module loads."""
+    """Record anomalies and take their components out of the walk.
+
+    A strand landed on both ends that got no crossing edge disagrees with
+    the plant it claims to cross (an ambiguous or missing far end), so it
+    is a dangling reference. Then every component that is not a chain --
+    a branching node or a cycle -- is quarantined whole.
+    """
+    graph = plant.graph
+    for strand_id, (fp_a, fp_b) in plant.strand_ports.items():
+        if fp_a is not None and fp_b is not None and strand_id not in plant.crossing_strands:
+            _quarantine_strand(plant, strand_id, PathAnomalyKindChoices.DANGLING_REFERENCE)
+    for u, v, data in list(graph.edges(data=True)):
+        if data["kind"] == "crossing" and plant.quarantined_strands.intersection(_edge_strands(data)):
+            graph.remove_edge(u, v)
+    plant.crossing_strands -= plant.quarantined_strands
+    for component in nx.connected_components(graph):
+        subgraph = graph.subgraph(component)
+        branching = sorted(node for node in component if _is_branching(graph, node))
+        if not branching and subgraph.number_of_edges() < len(component):
+            continue
+        strands = sorted(
+            {
+                strand_id
+                for _u, _v, data in subgraph.edges(data=True)
+                if data["kind"] == "crossing"
+                for strand_id in _edge_strands(data)
+            }
+        )
+        if branching:
+            # Only a front port can branch: the database allows a rear-port position one mapping.
+            plant.anomalies.extend(
+                Anomaly(PathAnomalyKindChoices.TOO_MANY_CONNECTIONS, front_port_id=node[1]) for node in branching
+            )
+        elif strands:
+            plant.anomalies.extend(Anomaly(PathAnomalyKindChoices.LOOP, strand_id=s) for s in strands)
+        else:
+            lowest_fp = min(node[1] for node in component if node[0] == NODE_FP)
+            plant.anomalies.append(Anomaly(PathAnomalyKindChoices.LOOP, front_port_id=lowest_fp))
+        plant.quarantined_nodes |= component
+        plant.quarantined_strands |= set(strands)
+        plant.crossing_strands -= set(strands)
+
+
+def _is_branching(graph, node):
+    """More than two neighbours, or a front port mapped to more than one rear-port position."""
+    if graph.degree(node) > 2:
+        return True
+    return node[0] == NODE_FP and sum(1 for *_, data in graph.edges(node, data=True) if data["kind"] == "mapping") > 1
+
+
+def _edge_strands(data):
+    return [ref_id for kind, ref_id in data["hops"] if kind == "strand"]
 
 
 # ---------------------------------------------------------------------------
