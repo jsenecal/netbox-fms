@@ -204,7 +204,11 @@ def _first_strand_position(path):
 
 def _group_is_contiguous(paths, mapping_of):
     """Adjacent positions of one rear port at every strand hop of the route (the wizard's rule, per cable)."""
-    # Paths of one route cross the same cables in the same order, so every path has the same strand hops.
+    # Paths sharing a route key cross the same cables, but one may cross a cable as a plain-cable hop with no
+    # landed strand; only paths whose strand hops sit at the same hop positions can be compared per cable.
+    shapes = {tuple(bool(hop.strand_id) for hop in path.hops.all()) for path in paths}
+    if len(shapes) != 1:
+        return False
     strands_per_path = [[hop.strand for hop in path.hops.all() if hop.strand_id] for path in paths]
     if not strands_per_path[0]:
         return False

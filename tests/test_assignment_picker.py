@@ -5,7 +5,7 @@ from dcim.models import Cable, Device, Site
 from django.test import TestCase
 from tenancy.models import Tenant
 
-from netbox_fms.assignment import _device_sequence, find_assignable_path_groups
+from netbox_fms.assignment import _device_sequence, _group_is_contiguous, find_assignable_path_groups
 from netbox_fms.choices import FiberCircuitStatusChoices
 from netbox_fms.models import FiberCableType, FiberCircuit, FiberStrandPath
 from netbox_fms.path_analysis import run_reconcile
@@ -178,3 +178,29 @@ class TestPickerPlainAndProviderHops(TestCase):
         assert group.path_ids == [self.path.pk]
         assert (group.is_contiguous, group.hop_count, group.lowest_position) == (False, 2, 0)
         assert find_assignable_path_groups(1, circuit_status=ACTIVE, avoid_devices=[self.dev_c]) == []
+
+
+class TestContiguityHoldsOnEveryCable(PickerCase):
+    """Contiguity is judged on every cable of the route, not just the first."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        connect_front_ports(cls.ab[1].front_port_b, cls.bc[2].front_port_a)
+        run_reconcile()
+
+    def test_a_group_split_on_the_second_cable_ranks_below_a_contiguous_group(self):
+        groups = self.groups(strand_count=2)
+        spliced = self.path_of(self.ab[1]).route_key
+        split = next(g for g in groups if g.route_key == spliced)
+        assert split.hop_count == 2
+        assert split.is_contiguous is False  # AB 1+2 share tube 1, BC 1+3 straddle tubes
+        contiguous = next(g for g in groups if g.is_contiguous)
+        assert groups.index(contiguous) < groups.index(split)
+
+    def test_paths_that_cross_a_cable_differently_are_never_contiguous(self):
+        strand_path = self.path_of(self.ab[2])
+        plain = make_strand_path(self.fc_ab.cable, end_a=self.ab[2].front_port_a, end_b=self.ab[2].front_port_b)
+        assert plain.route_key == strand_path.route_key
+        mapping_of = {self.ab[2].front_port_a_id: (1, 1)}
+        assert _group_is_contiguous([strand_path, plain], mapping_of) is False
