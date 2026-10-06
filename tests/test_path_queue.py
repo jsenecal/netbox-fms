@@ -150,6 +150,24 @@ class TestAutocommit(TransactionTestCase):
                 transaction.set_rollback(True)
         assert list(PathAnalysisQueue.objects.values_list("device_id", flat=True)) == [pair.dev_a.pk]
 
+    def test_a_hook_that_enqueues_in_its_own_atomic_strands_no_row(self):
+        """NetBox runs atomic() blocks from on_commit hooks; a nested commit must not strand later groups."""
+        pair = self.pair
+
+        def hook():
+            with transaction.atomic():
+                enqueue_devices([pair.dev_b.pk], CABLE)
+
+        with transaction.atomic():
+            enqueue_devices([pair.dev_a.pk], CABLE)
+            transaction.on_commit(hook)
+            enqueue_devices([pair.dev_a.pk], PathAnalysisReasonChoices.SPLICE_CHANGED)
+        assert sorted(PathAnalysisQueue.objects.values_list("device_id", "reason")) == sorted(
+            [(pair.dev_a.pk, "cable_changed"), (pair.dev_b.pk, "cable_changed"), (pair.dev_a.pk, "splice_changed")]
+        )
+        enqueue_devices([pair.dev_b.pk], PathAnalysisReasonChoices.SPLICE_CHANGED)
+        assert PathAnalysisQueue.objects.count() == 4
+
     def test_outside_an_atomic_block_rows_are_written_at_once(self):
         pair = self.pair
         enqueue_devices([pair.dev_a.pk], CABLE)

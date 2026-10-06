@@ -4,13 +4,14 @@ Plugin code and signal receivers call ``enqueue_devices``; the rows reach
 the table when the surrounding transaction commits (nothing is written for
 a rolled-back one), and the first batch of a window schedules the analysis
 job ``path_analysis_window_seconds`` later. Later changes inside the window
-ride along with that run.
+ride along with that run. Nothing is kept between transactions; if an
+unrelated non-robust on_commit callback raises mid-chain, the rest of the
+chain, our flush included, is skipped and the reconcile recovers those rows.
 """
 
 from __future__ import annotations
 
 import logging
-import weakref
 from datetime import timedelta
 from functools import partial
 
@@ -25,16 +26,13 @@ from .models import PathAnalysisQueue
 
 logger = logging.getLogger(__name__)
 
-# Per database connection (connections are thread-local, so this is too).
-_states: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
-
-class _State:
-    """The rows of committed enqueue calls waiting for the final flush of their transaction.
+class _Batch:
+    """The rows of one transaction's committed enqueue calls, flushed once at its end.
 
     Every enqueue call registers its own on_commit callback that moves its
     rows here, so Django drops the rows of a rolled-back savepoint together
-    with its callback. The newest ``flush_if_last`` callback runs after every
+    with its callback. The newest ``_Flush`` of the batch runs after every
     row group that survived and writes them all with one bulk insert and
     one scheduling call.
     """
@@ -45,10 +43,6 @@ class _State:
 
     def commit(self, rows):
         self.committed.extend(rows)
-
-    def flush_if_last(self, token):
-        if token == self.last_token:
-            self.flush()
 
     def flush(self):
         pending, self.committed = self.committed, []
@@ -68,15 +62,31 @@ class _State:
             logger.exception("Could not schedule the fiber path analysis job")
 
 
-def _flush_last(connection, state):
-    """Register a flush that runs after every callback registered up to now.
+class _Flush:
+    """An on_commit entry that flushes its batch when it is the batch's newest one."""
 
-    It carries no savepoint ids, so a rolled-back savepoint cannot drop it.
-    Each call supersedes the previous one: only the newest token flushes,
-    which is the last callback of the transaction.
+    def __init__(self, batch):
+        batch.last_token += 1
+        self.batch = batch
+        self.token = batch.last_token
+
+    def __call__(self):
+        if self.token == self.batch.last_token:
+            self.batch.flush()
+
+
+def _live_batch(connection):
+    """The batch of the transaction in progress, or a new one.
+
+    Found through its flush entry in the connection's live callback list, so
+    no state outlives a transaction: a rolled-back one drops its batch with
+    its callbacks, and a transaction opened by an on_commit hook (Django has
+    emptied the list by then) gets a batch of its own.
     """
-    state.last_token += 1
-    connection.run_on_commit.append(((), partial(state.flush_if_last, state.last_token), False))
+    for _sids, callback, _robust in connection.run_on_commit:
+        if isinstance(callback, _Flush):
+            return callback.batch
+    return _Batch()
 
 
 def relevant_device_ids(device_ids):
@@ -100,12 +110,14 @@ def enqueue_devices(device_ids, reason):
     if not rows:
         return
     connection = transaction.get_connection()
-    state = _states.setdefault(connection, _State())
-    transaction.on_commit(partial(state.commit, rows), using=connection.alias)
+    batch = _live_batch(connection)
+    transaction.on_commit(partial(batch.commit, rows), using=connection.alias)
     if connection.in_atomic_block:
-        _flush_last(connection, state)
+        # No savepoint ids: a rolled-back savepoint must not drop the flush of
+        # the groups that survive it. A newer entry supersedes the older ones.
+        connection.run_on_commit.append(((), _Flush(batch), False))
     else:
-        state.flush()
+        batch.flush()
 
 
 def schedule_analysis():
