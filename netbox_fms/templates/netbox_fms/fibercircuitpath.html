@@ -36,16 +36,32 @@
                             <td>{{ object.position }}</td>
                         </tr>
                         <tr>
-                            <th scope="row">{% trans "Origin" %}</th>
-                            <td>{{ object.origin|linkify }}</td>
+                            <th scope="row">{% trans "Fiber path" %}</th>
+                            <td>{{ object.strand_path|linkify }}</td>
                         </tr>
                         <tr>
-                            <th scope="row">{% trans "Destination" %}</th>
-                            <td>{% if object.destination %}{{ object.destination|linkify }}{% else %}&mdash;{% endif %}</td>
+                            <th scope="row">{% trans "End A" %}</th>
+                            <td>{% if object.strand_path.end_a_port %}{{ object.strand_path.end_a_port|linkify }}{% else %}&mdash;{% endif %}</td>
                         </tr>
                         <tr>
-                            <th scope="row">{% trans "Complete" %}</th>
-                            <td>{% if object.is_complete %}<span class="fms-badge fms-badge--live">&#10003; {% trans "Yes" %}</span>{% else %}<span class="fms-badge fms-badge--draft">{% trans "No" %}</span>{% endif %}</td>
+                            <th scope="row">{% trans "End B" %}</th>
+                            <td>{% if object.strand_path.end_b_port %}{{ object.strand_path.end_b_port|linkify }}{% else %}&mdash;{% endif %}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Completeness" %}</th>
+                            <td>{{ object.strand_path.get_completeness_display }}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Status" %}</th>
+                            <td>{% include "netbox_fms/inc/assignment_status_badge.html" with assignment=object %}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Delivered incomplete" %}</th>
+                            <td>{% checkmark object.delivered_incomplete %}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">{% trans "Assigned hops" %}</th>
+                            <td>{{ object.assigned_hops|length }}</td>
                         </tr>
                     </table>
                 </div>

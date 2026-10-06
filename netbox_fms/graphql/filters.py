@@ -11,6 +11,7 @@ from ..models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberStrandPath,
     RibbonTemplate,
     SlackLoop,
     SplicePlan,
@@ -33,6 +34,7 @@ __all__ = (
     "ClosureCableEntryFilter",
     "FiberCircuitFilter",
     "FiberCircuitPathFilter",
+    "FiberStrandPathFilter",
     "SlackLoopFilter",
     "TrayProfileFilter",
     "TubeAssignmentFilter",
@@ -151,7 +153,19 @@ class FiberCircuitPathFilter:
 
     id: int | None
     circuit_id: int | None
-    is_complete: bool | None
+    strand_path_id: int | None
+    active: bool | None
+    is_broken: bool | None
+
+
+@strawberry_django.filters.filter(FiberStrandPath)
+class FiberStrandPathFilter:
+    """GraphQL filter for FiberStrandPath."""
+
+    id: int | None
+    completeness: str | None
+    route_key: str | None
+    is_proposed: bool | None
 
 
 @strawberry_django.filters.filter(SlackLoop)

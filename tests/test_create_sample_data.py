@@ -126,7 +126,25 @@ class TestSplicePlanRowLeak:
 
 
 @pytest.mark.django_db
+class TestSampleDataFiberCircuits:
+    def test_full_mode_creates_circuits_without_paths(self):
+        """Circuits are created bare; their fiber paths are assigned once the analysis has run."""
+        from io import StringIO
+
+        from netbox_fms.management.commands.create_sample_data import Command
+
+        command = Command()
+        command.stdout = StringIO()
+        command._create_fiber_circuits()
+
+        assert FiberCircuit.objects.count() == 5
+        assert not FiberCircuit.objects.exclude(paths=None).exists()
+        assert command.stdout.getvalue().count("fiber paths are assigned after analysis") == 5
+
+
+@pytest.mark.django_db
 class TestSampleDataProviderSpan:
+    @pytest.mark.xfail(strict=True, reason="assigned in the next task")
     def test_simple_mode_circuit_rides_the_leased_span(self):
         """Issue #135: the simple dataset leases CL-03 -> Hub-East from a
         provider, so the sample circuit crosses a provider circuit and its

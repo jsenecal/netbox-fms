@@ -107,6 +107,8 @@ class TestGraphQLTypeImports:
             "ClosureCableEntryType",
             "FiberCircuitType",
             "FiberCircuitPathType",
+            "FiberStrandPathType",
+            "FiberStrandPathHopType",
             "SlackLoopType",
             "TrayProfileType",
             "TubeAssignmentType",
@@ -194,6 +196,7 @@ class TestGraphQLFilterImports:
             "ClosureCableEntryFilter",
             "FiberCircuitFilter",
             "FiberCircuitPathFilter",
+            "FiberStrandPathFilter",
             "SlackLoopFilter",
             "TrayProfileFilter",
             "TubeAssignmentFilter",
@@ -303,9 +306,9 @@ class TestGraphQLSchema:
         assert "slack_loop_list" in fields
 
     def test_query_field_count(self):
-        """Verify the query class has the expected number of field pairs (19 models x 2)."""
+        """Verify the query class has the expected number of field pairs (20 models x 2)."""
         fields = self._get_strawberry_field_names()
-        assert len(fields) == 38  # 19 models x (single + list)
+        assert len(fields) == 40  # 20 models x (single + list)
 
 
 @pytest.mark.django_db

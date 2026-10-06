@@ -43,7 +43,6 @@ from netbox_fms.models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberCircuitPath,
     FiberStrand,
     RibbonTemplate,
     SlackLoop,
@@ -474,19 +473,7 @@ class Command(BaseCommand):
                 status="active",
                 description="Simple demo circuit from CO-Main through backbone and spur to Bldg-Elm",
             )
-            origin_fps = list(FrontPort.objects.filter(device=co).order_by("name")[:2])
-            paths_created = 0
-            for pos, fp in enumerate(origin_fps, 1):
-                try:
-                    path = FiberCircuitPath.from_origin(fp)
-                    path.circuit = circuit
-                    path.position = pos
-                    path.save()
-                    path.rebuild_nodes()
-                    paths_created += 1
-                except Exception as e:
-                    self.stdout.write(f"    Trace from {fp} failed: {e}")
-            self.stdout.write(f"  1 circuit ({paths_created} paths)")
+            self.stdout.write(f"  Created circuit: {circuit.name} (fiber paths are assigned after analysis)")
         else:
             self.stdout.write("  Skipping -- circuits already exist")
 
@@ -1645,70 +1632,20 @@ class Command(BaseCommand):
             self.stdout.write("  Skipping -- circuits already exist")
             return
 
-        # Find origin FrontPorts for each circuit by looking at CO device FrontPorts
-        # that belong to specific backbone/metro cables
         circuits_to_create = [
-            ("Backbone DT→NO Path A", "BB-DT-NO-001", "CO-Downtown", "BB-DO-NO-A-"),
-            ("Metro Downtown Ring", "MR-DT-001", "CO-Downtown", "MR-Do-"),
-            ("Spur North Business", "BS-NO-001", "CO-North", "BB-NO-"),
-            ("Cross-CO NO→SO", "BB-NO-SO-001", "CO-North", "BB-NO-SO-A-"),
-            ("Last-Mile Drop", "DROP-001", "CO-South", "BB-SO-"),
+            ("Backbone DT→NO Path A", "BB-DT-NO-001"),
+            ("Metro Downtown Ring", "MR-DT-001"),
+            ("Spur North Business", "BS-NO-001"),
+            ("Cross-CO NO→SO", "BB-NO-SO-001"),
+            ("Last-Mile Drop", "DROP-001"),
         ]
 
-        for name, cid, origin_device_name, cable_prefix in circuits_to_create:
-            circuit = FiberCircuit.objects.create(
+        for name, cid in circuits_to_create:
+            FiberCircuit.objects.create(
                 name=name,
                 cid=cid,
                 strand_count=2,
                 status="active",
                 description=f"Sample circuit: {name}",
             )
-
-            # Find origin FrontPorts on the origin device
-            origin_device = self.devices.get(origin_device_name)
-            if not origin_device:
-                self.stdout.write(f"  Created circuit: {name} (no origin device found)")
-                continue
-
-            # Find FrontPorts on this device that belong to cables matching
-            # the prefix, via strand linkage rather than name parsing.
-            from django.db.models import Q
-
-            origin_fps = []
-            strands = (
-                FiberStrand.objects.filter(
-                    Q(front_port_a__device=origin_device) | Q(front_port_b__device=origin_device),
-                    fiber_cable__cable__label__startswith=f"{origin_device_name} \u2192",
-                    fiber_cable__cable__label__contains=cable_prefix,
-                )
-                .select_related("front_port_a", "front_port_b")
-                .order_by("fiber_cable_id", "position")
-            )
-            for strand in strands:
-                for fp in (strand.front_port_a, strand.front_port_b):
-                    if fp is not None and fp.device_id == origin_device.pk:
-                        origin_fps.append(fp)
-
-            # Fallback: just pick the first 2 FrontPorts on the device
-            if not origin_fps:
-                origin_fps = list(FrontPort.objects.filter(device=origin_device).order_by("name")[:2])
-
-            # Trace paths for up to 2 strands
-            paths_created = 0
-            for pos, fp in enumerate(origin_fps[:2], 1):
-                try:
-                    path = FiberCircuitPath.from_origin(fp)
-                    path.circuit = circuit
-                    path.position = pos
-                    path.save()
-                    path.rebuild_nodes()
-                    paths_created += 1
-                except Exception as e:
-                    self.stdout.write(f"    Trace from {fp} failed: {e}")
-
-            hops = "no paths"
-            if paths_created > 0:
-                first_path = FiberCircuitPath.objects.filter(circuit=circuit).first()
-                if first_path:
-                    hops = f"{len(first_path.path)} hops, complete={first_path.is_complete}"
-            self.stdout.write(f"  Created circuit: {name} ({paths_created} paths, {hops})")
+            self.stdout.write(f"  Created circuit: {name} (fiber paths are assigned after analysis)")

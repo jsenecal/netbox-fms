@@ -24,13 +24,11 @@ from netbox_fms.models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberCircuitNode,
-    FiberCircuitPath,
     FiberStrand,
     SplicePlan,
     SplicePlanEntry,
 )
-from tests.conftest import make_infra
+from tests.conftest import assign_strand_path, make_infra, make_strand_path
 
 User = get_user_model()
 
@@ -67,7 +65,7 @@ def _no_perm_client(username):
 
 
 class TestCircuitEndpointPermissions(TestCase):
-    """The circuit-node viewset and the protecting view must honour constraints."""
+    """The protecting view must honour object-permission constraints."""
 
     @classmethod
     def setUpTestData(cls):
@@ -76,32 +74,13 @@ class TestCircuitEndpointPermissions(TestCase):
         fp = FrontPort.objects.create(device=device, name="PermC-FP", type="lc")
         cls.cable = Cable.objects.create()
 
-        cls.nodes = {}
         for name in ("Perm-A", "Perm-B"):
             circuit = FiberCircuit.objects.create(
                 name=name,
                 status=FiberCircuitStatusChoices.ACTIVE,
                 strand_count=1,
             )
-            path = FiberCircuitPath.objects.create(
-                circuit=circuit,
-                position=1,
-                origin=fp,
-                path=[{"type": "cable", "id": cls.cable.pk}],
-                is_complete=False,
-            )
-            cls.nodes[name] = FiberCircuitNode.objects.create(path=path, position=1, cable=cls.cable)
-
-    def test_circuit_nodes_list_honours_constraints(self):
-        client = _constrained_client(
-            FiberCircuitNode,
-            {"path__circuit__name": "Perm-A"},
-            "perm-nodes",
-        )
-        resp = client.get("/api/plugins/fms/fiber-circuit-nodes/")
-        assert resp.status_code == 200
-        ids = {r["id"] for r in resp.data["results"]}
-        assert ids == {self.nodes["Perm-A"].pk}
+            assign_strand_path(circuit, make_strand_path(cls.cable, end_a=fp))
 
     def test_protecting_view_honours_constraints(self):
         client = _constrained_client(FiberCircuit, {"name": "Perm-A"}, "perm-protecting")
@@ -123,7 +102,7 @@ class TestCircuitEndpointPermissions(TestCase):
         assert resp.status_code == 200, resp.content
         names = {c["name"] for c in resp.data["results"]}
         assert names == {"Perm-A"}
-        perm_a_circuit = self.nodes["Perm-A"].path.circuit
+        perm_a_circuit = FiberCircuit.objects.get(name="Perm-A")
         assert resp.data["by_reference"] == {"cable": {str(self.cable.pk): [perm_a_circuit.pk]}}
 
     # v2 token digests need a pepper; pin one so the test does not depend
@@ -205,14 +184,7 @@ class TestClosureStrandsEndpointPermissions(TestCase):
             status=FiberCircuitStatusChoices.ACTIVE,
             strand_count=1,
         )
-        path = FiberCircuitPath.objects.create(
-            circuit=circuit,
-            position=1,
-            origin=fp,
-            path=[{"type": "cable", "id": cable.pk}],
-            is_complete=False,
-        )
-        FiberCircuitNode.objects.create(path=path, position=1, front_port=fp)
+        assign_strand_path(circuit, make_strand_path(cls.protected_strand, end_a=fp))
 
         cls.plan = SplicePlan.objects.create(
             closure=cls.closure,
@@ -230,7 +202,7 @@ class TestClosureStrandsEndpointPermissions(TestCase):
     def test_strands_visible_to_permitted_user(self):
         """The restriction must not hide data from a user who holds view permission."""
         client = _constrained_client(
-            [FiberCable, FiberStrand, FiberCircuitNode, SplicePlan, Device],
+            [FiberCable, FiberStrand, FiberCircuit, SplicePlan, Device],
             None,
             "perm-strands-ok",
         )

@@ -17,7 +17,6 @@ from django.urls import reverse
 
 from netbox_fms.constants import FIBER_CABLE_TYPES
 from netbox_fms.forms import (
-    CircuitWizardStep2Form,
     ClosureCableWizardStep1Form,
     ClosureCableWizardStep2Form,
     InsertSlackLoopForm,
@@ -282,9 +281,6 @@ class TestClosureCableWizardForms(TestCase):
         object selector popup so duplicate device names across sites can be
         disambiguated by site/location/rack filters."""
         assert ClosureCableWizardStep1Form(near_device=self.device_a).fields["far_end_device"].selector
-        step2 = CircuitWizardStep2Form()
-        assert step2.fields["origin_device"].selector
-        assert step2.fields["destination_device"].selector
         assert InsertSlackLoopForm().fields["closure"].selector
 
     def test_step2_type_choices_are_fiber_only(self):

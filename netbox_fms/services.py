@@ -30,7 +30,7 @@ from .models import (
     ClosureCableEntry,
     FiberCable,
     FiberCircuit,
-    FiberCircuitNode,
+    FiberCircuitPath,
     FiberStrand,
     SplicePlanEntry,
     TubeAssignment,
@@ -1222,50 +1222,86 @@ def import_live_state(plan):
     }
 
 
-def protecting_nodes(front_port_ids, user=None):
-    """
-    FiberCircuitNodes on active (non-decommissioned) circuits referencing
-    the given front ports.
+# The front ports an assignment touches: its path ends and the ports its
+# strands land on. Rear ports and splice entries are not stored hops; they
+# protect through these front ports, so the reference types the protecting
+# endpoint accepted before the hop index keep working.
+_ASSIGNED_FRONT_PORTS = (
+    "strand_path__end_a_port",
+    "strand_path__end_b_port",
+    "strand_path__hops__strand__front_port_a",
+    "strand_path__hops__strand__front_port_b",
+)
 
-    Integrity checks (blocking edits to circuit-protected splices) must
-    leave ``user`` unset so every circuit counts regardless of the
-    requesting user's permissions; display contexts pass ``user`` to
-    restrict the rows to that user's visible objects.
+# The reference types the protecting endpoint and the delete guards accept,
+# each mapped to the lookups from an assignment to that object. A cable is
+# crossed either as a plain-cable hop or through a strand of its FiberCable.
+ASSIGNMENT_REFERENCE_LOOKUPS = {
+    "cable": ("strand_path__hops__cable_id", "strand_path__hops__strand__fiber_cable__cable_id"),
+    "fiber_strand": ("strand_path__hops__strand_id",),
+    "provider_circuit": ("strand_path__hops__provider_circuit_id",),
+    "front_port": tuple(f"{port}_id" for port in _ASSIGNED_FRONT_PORTS),
+    "rear_port": tuple(f"{port}__mappings__rear_port_id" for port in _ASSIGNED_FRONT_PORTS),
+    "splice_entry": tuple(
+        f"{port}__splice_entries_{side}__id" for port in _ASSIGNED_FRONT_PORTS for side in ("a", "b")
+    ),
+}
+ASSIGNMENT_REFERENCE_FIELDS = tuple(ASSIGNMENT_REFERENCE_LOOKUPS)
+
+
+def active_assignments(user=None):
+    """Assignments that protect plant: active, on a circuit that is not decommissioned.
+
+    Integrity checks leave ``user`` unset so every circuit counts; display
+    contexts pass the user to restrict the rows to the circuits they may view.
     """
-    qs = FiberCircuitNode.objects.all()
-    if user is not None:
-        qs = qs.restrict(user, "view")
-    return (
-        qs.filter(front_port_id__in=front_port_ids)
-        .exclude(path__circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED)
-        .select_related("path__circuit")
+    queryset = FiberCircuitPath.objects.filter(active=True).exclude(
+        circuit__status=FiberCircuitStatusChoices.DECOMMISSIONED
     )
+    if user is not None:
+        queryset = queryset.filter(circuit__in=FiberCircuit.objects.restrict(user, "view"))
+    return queryset
+
+
+def protecting_assignments(reference, ids, user=None):
+    """Active assignments whose path touches any of the referenced objects, in one indexed query."""
+    condition = Q()
+    for lookup in ASSIGNMENT_REFERENCE_LOOKUPS[reference]:
+        condition |= Q(**{f"{lookup}__in": list(ids)})
+    return active_assignments(user).filter(condition).distinct()
+
+
+def _reference_rows(reference, ids, user):
+    """``(referenced_id, circuit_id)`` pairs for every lookup of a reference type."""
+    for lookup in ASSIGNMENT_REFERENCE_LOOKUPS[reference]:
+        yield from active_assignments(user).filter(**{f"{lookup}__in": ids}).values_list(lookup, "circuit_id")
+
+
+def protecting_circuits_by_front_port(front_port_ids, user=None):
+    """{front_port_id: FiberCircuit} for the front ports an active assignment protects."""
+    ids = list(set(front_port_ids))
+    if not ids:
+        return {}
+    circuit_of = {}
+    for fp_id, circuit_id in _reference_rows("front_port", ids, user):
+        circuit_of.setdefault(fp_id, circuit_id)
+    circuits = FiberCircuit.objects.in_bulk(set(circuit_of.values()))
+    return {fp_id: circuits[circuit_id] for fp_id, circuit_id in circuit_of.items()}
 
 
 def protecting_circuit_groups(references, user):
-    """
-    Map each input reference to the circuits whose paths it carries.
+    """Map each input reference to the circuits whose assignments it carries.
 
-    ``references`` maps FiberCircuitNode reference field names ("cable",
-    "front_port", ...) to lists of object IDs. Returns ``(circuit_ids,
-    groups)``: ``groups`` is ``{param: {ref_id: set of circuit IDs}}``
-    covering every input ID (an empty set marks a reference carrying no
-    circuit), and ``circuit_ids`` is their union.
-
-    Rows are restricted to circuits the user may view. Decommissioned
-    circuits are excluded for the same reason ``protecting_nodes`` excludes
-    them; since decommissioning deletes a circuit's nodes, the exclusion is
-    belt-and-suspenders rather than load-bearing.
+    ``references`` maps reference types (ASSIGNMENT_REFERENCE_FIELDS) to
+    lists of object ids. Returns ``(circuit_ids, groups)``: ``groups`` is
+    ``{param: {ref_id: set of circuit ids}}`` covering every input id (an
+    empty set marks a reference carrying no circuit), ``circuit_ids`` their
+    union. Rows are restricted to the circuits the user may view.
     """
-    restricted = FiberCircuit.objects.restrict(user, "view").exclude(status=FiberCircuitStatusChoices.DECOMMISSIONED)
-    circuit_ids = set()
-    groups = {}
+    circuit_ids, groups = set(), {}
     for param, ids in references.items():
         matched = {ref_id: set() for ref_id in ids}
-        pairs = FiberCircuitNode.objects.filter(**{f"{param}_id__in": ids}, path__circuit__in=restricted).values_list(
-            f"{param}_id", "path__circuit_id"
-        )
-        for ref_id, circuit_id in pairs:
+        for ref_id, circuit_id in _reference_rows(param, ids, user):
             matched[ref_id].add(circuit_id)
             circuit_ids.add(circuit_id)
         groups[param] = matched

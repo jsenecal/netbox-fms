@@ -29,9 +29,8 @@ from netbox_fms.models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberCircuitNode,
-    FiberCircuitPath,
 )
+from tests.conftest import assign_strand_path, make_strand_path
 
 
 class TestFiberAttenuationSpecModel(TestCase):
@@ -203,22 +202,14 @@ class TestFiberCircuitPathCalculatedLossProperty(TestCase):
         )
 
     def _make_path_with_cables(self, *length_unit_pairs, position=1):
-        path = FiberCircuitPath.objects.create(
-            circuit=self.circuit,
-            position=position,
-            origin=self.fp_a,
-            destination=self.fp_b,
-            path=[],
-            is_complete=True,
+        strands = []
+        for length, unit in length_unit_pairs:
+            cable = Cable.objects.create(length=length, length_unit=unit)
+            fc = FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
+            strands.append(fc.fiber_strands.order_by("position").first())
+        return assign_strand_path(
+            self.circuit, make_strand_path(*strands, end_a=self.fp_a, end_b=self.fp_b), position=position
         )
-        for idx, (length, unit) in enumerate(length_unit_pairs, start=1):
-            cable = Cable.objects.create(
-                length=length if length is not None else None,
-                length_unit=unit,
-            )
-            FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
-            FiberCircuitNode.objects.create(path=path, position=idx, cable=cable)
-        return path
 
     def test_property_returns_list_of_tuples_sorted_by_wavelength(self):
         path = self._make_path_with_cables((Decimal("1000"), "m"))
@@ -255,14 +246,9 @@ class TestFiberCircuitPathCalculatedLossProperty(TestCase):
         assert result[1550] == Decimal("0.440")  # 2km × 0.22
 
     def test_empty_when_no_cables_in_path(self):
-        path = FiberCircuitPath.objects.create(
-            circuit=self.circuit,
-            position=2,
-            origin=self.fp_a,
-            path=[],
-            is_complete=False,
-        )
-        assert path.calculated_loss_db == []
+        plain = Cable.objects.create()
+        assignment = assign_strand_path(self.circuit, make_strand_path(plain), position=2)
+        assert assignment.calculated_loss_db == []
 
     def test_empty_when_cable_has_no_length(self):
         path = self._make_path_with_cables((None, ""))
@@ -286,20 +272,13 @@ class TestFiberCircuitPathCalculatedLossProperty(TestCase):
             max_loss_db_per_km=Decimal("0.3500"),
         )
 
-        path = FiberCircuitPath.objects.create(
-            circuit=self.circuit,
-            position=3,
-            origin=self.fp_a,
-            destination=self.fp_b,
-            path=[],
-            is_complete=True,
-        )
         c1 = Cable.objects.create(length=Decimal("1000"), length_unit="m")
-        FiberCable.objects.create(cable=c1, fiber_cable_type=self.fct)
-        FiberCircuitNode.objects.create(path=path, position=1, cable=c1)
+        strand_1 = FiberCable.objects.create(cable=c1, fiber_cable_type=self.fct).fiber_strands.first()
         c2 = Cable.objects.create(length=Decimal("1000"), length_unit="m")
-        FiberCable.objects.create(cable=c2, fiber_cable_type=other_type)
-        FiberCircuitNode.objects.create(path=path, position=2, cable=c2)
+        strand_2 = FiberCable.objects.create(cable=c2, fiber_cable_type=other_type).fiber_strands.first()
+        path = assign_strand_path(
+            self.circuit, make_strand_path(strand_1, strand_2, end_a=self.fp_a, end_b=self.fp_b), position=3
+        )
 
         result = dict(path.calculated_loss_db)
         assert 1310 in result  # both cables have 1310 spec

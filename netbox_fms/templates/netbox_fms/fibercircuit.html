@@ -37,6 +37,10 @@
                     </td>
                 </tr>
                 <tr>
+                    <th scope="row">{% trans "Broken" %}</th>
+                    <td>{% if object.is_broken %}<span class="fms-badge fms-badge--protected">{% trans "Yes" %}</span>{% else %}&mdash;{% endif %}</td>
+                </tr>
+                <tr>
                     <th scope="row">{% trans "Strand Count" %}</th>
                     <td>{{ object.strand_count }}</td>
                 </tr>
@@ -70,16 +74,18 @@
 <div class="row mb-3">
     <div class="col col-md-12">
         <div class="card">
-            <h5 class="card-header">{% trans "Paths" %}</h5>
+            <h5 class="card-header">{% trans "Assigned fiber paths" %}</h5>
             <div class="card-body">
                 {% if paths %}
                 <table class="table table-hover">
                     <thead>
                         <tr>
                             <th>{% trans "Position" %}</th>
-                            <th>{% trans "Origin" %}</th>
-                            <th>{% trans "Destination" %}</th>
-                            <th>{% trans "Complete" %}</th>
+                            <th>{% trans "Fiber path" %}</th>
+                            <th>{% trans "End A" %}</th>
+                            <th>{% trans "End B" %}</th>
+                            <th>{% trans "Completeness" %}</th>
+                            <th>{% trans "Status" %}</th>
                             <th>{% trans "Calculated Loss (dB)" %}</th>
                             <th>{% trans "Actual Loss (dB)" %}</th>
                             <th>{% trans "Wavelength (nm)" %}</th>
@@ -90,9 +96,11 @@
                         {% for path in paths %}
                         <tr>
                             <td>{{ path.position }}</td>
-                            <td>{{ path.origin|linkify }}</td>
-                            <td>{% if path.destination %}{{ path.destination|linkify }}{% else %}&mdash;{% endif %}</td>
-                            <td>{% if path.is_complete %}<span class="fms-badge fms-badge--live">&#10003;</span>{% else %}<span class="fms-badge fms-badge--draft">&mdash;</span>{% endif %}</td>
+                            <td>{{ path.strand_path|linkify }}</td>
+                            <td>{% if path.strand_path.end_a_port %}{{ path.strand_path.end_a_port|linkify }}{% else %}&mdash;{% endif %}</td>
+                            <td>{% if path.strand_path.end_b_port %}{{ path.strand_path.end_b_port|linkify }}{% else %}&mdash;{% endif %}</td>
+                            <td>{{ path.strand_path.get_completeness_display }}</td>
+                            <td>{% include "netbox_fms/inc/assignment_status_badge.html" with assignment=path %}</td>
                             <td>{% with loss=path.get_calculated_loss_db %}{% if loss is not None %}{{ loss }}{% else %}&mdash;{% endif %}{% endwith %}</td>
                             <td>{% if path.actual_loss_db is not None %}{{ path.actual_loss_db }}{% else %}&mdash;{% endif %}</td>
                             <td>{% if path.wavelength_nm %}{{ path.wavelength_nm }}{% else %}&mdash;{% endif %}</td>
@@ -102,7 +110,7 @@
                     </tbody>
                 </table>
                 {% else %}
-                <p class="text-muted">{% trans "No paths defined." %}</p>
+                <p class="text-muted">{% trans "No fiber paths assigned." %}</p>
                 {% endif %}
             </div>
         </div>

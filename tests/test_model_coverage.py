@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 import pytest
-from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, RearPort, Site
+from dcim.models import Cable, Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.core.exceptions import ValidationError
 
 from netbox_fms.choices import (
@@ -17,14 +17,13 @@ from netbox_fms.models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberCircuitNode,
     FiberCircuitPath,
     RibbonTemplate,
     SlackLoop,
     SplicePlan,
     SplicePlanEntry,
 )
-from tests.conftest import make_front_port
+from tests.conftest import make_front_port, make_strand_path
 
 
 @pytest.fixture
@@ -502,17 +501,16 @@ class TestSlackLoopEdgeCases:
 class TestFiberCircuitPathClean:
     @pytest.fixture
     def circuit_fixtures(self, base_fixtures):
-        fp = make_front_port(base_fixtures["device"], "FP-Origin")
         circuit = FiberCircuit.objects.create(
             name="Clean-Circuit", strand_count=2, status=FiberCircuitStatusChoices.ACTIVE
         )
-        return {**base_fixtures, "fp": fp, "circuit": circuit}
+        return {**base_fixtures, "circuit": circuit}
 
     def test_actual_loss_without_wavelength_raises(self, circuit_fixtures):
         path = FiberCircuitPath(
             circuit=circuit_fixtures["circuit"],
+            strand_path=make_strand_path(),
             position=1,
-            origin=circuit_fixtures["fp"],
             actual_loss_db=Decimal("2.0"),
             wavelength_nm=None,
         )
@@ -522,8 +520,8 @@ class TestFiberCircuitPathClean:
     def test_actual_loss_with_wavelength_passes(self, circuit_fixtures):
         path = FiberCircuitPath(
             circuit=circuit_fixtures["circuit"],
+            strand_path=make_strand_path(),
             position=1,
-            origin=circuit_fixtures["fp"],
             actual_loss_db=Decimal("2.0"),
             wavelength_nm=1550,
         )
@@ -531,148 +529,19 @@ class TestFiberCircuitPathClean:
 
     def test_path_count_exceeds_strand_count_raises(self, circuit_fixtures):
         circuit = circuit_fixtures["circuit"]
-        fp = circuit_fixtures["fp"]
-        fp2 = make_front_port(circuit_fixtures["device"], "FP-P2")
-        fp3 = make_front_port(circuit_fixtures["device"], "FP-P3")
 
-        # Create paths up to strand_count (2)
-        FiberCircuitPath.objects.create(circuit=circuit, position=1, origin=fp)
-        FiberCircuitPath.objects.create(circuit=circuit, position=2, origin=fp2)
+        # Assign paths up to strand_count (2)
+        FiberCircuitPath.objects.create(circuit=circuit, strand_path=make_strand_path(), position=1)
+        FiberCircuitPath.objects.create(circuit=circuit, strand_path=make_strand_path(), position=2)
 
-        # Third path should fail
-        path = FiberCircuitPath(circuit=circuit, position=3, origin=fp3)
+        # A third assignment must fail
+        path = FiberCircuitPath(circuit=circuit, strand_path=make_strand_path(), position=3)
         with pytest.raises(ValidationError, match="strand count"):
             path.clean()
 
     def test_str(self, circuit_fixtures):
-        path = FiberCircuitPath(
-            circuit=circuit_fixtures["circuit"],
-            position=1,
-            origin=circuit_fixtures["fp"],
-        )
-        assert "path 1" in str(path)
-        assert "incomplete" in str(path)
-
-    def test_str_with_destination(self, circuit_fixtures):
-        fp2 = make_front_port(circuit_fixtures["device"], "FP-Dest")
-        path = FiberCircuitPath(
-            circuit=circuit_fixtures["circuit"],
-            position=1,
-            origin=circuit_fixtures["fp"],
-            destination=fp2,
-        )
-        assert "incomplete" not in str(path)
-
-
-# ---------------------------------------------------------------------------
-# FiberCircuit.save() — status transitions
-# ---------------------------------------------------------------------------
-
-
-class TestFiberCircuitStatusTransitions:
-    @pytest.fixture
-    def circuit_with_path(self, base_fixtures):
-        device = base_fixtures["device"]
-        fp = make_front_port(device, "FC-Origin")
-        circuit = FiberCircuit.objects.create(
-            name="Trans-Circuit", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE
-        )
-        path = FiberCircuitPath.objects.create(
-            circuit=circuit,
-            position=1,
-            origin=fp,
-            path=[{"type": "front_port", "id": fp.pk}],
-            is_complete=False,
-        )
-        path.rebuild_nodes()
-        return {"circuit": circuit, "path": path, "fp": fp}
-
-    def test_decommission_deletes_nodes(self, circuit_with_path):
-        circuit = circuit_with_path["circuit"]
-        path = circuit_with_path["path"]
-        assert path.nodes.count() > 0
-
-        circuit.status = FiberCircuitStatusChoices.DECOMMISSIONED
-        circuit.save()
-        assert FiberCircuitNode.objects.filter(path=path).count() == 0
-
-    def test_reactivation_rebuilds_nodes(self, circuit_with_path):
-        circuit = circuit_with_path["circuit"]
-        path = circuit_with_path["path"]
-
-        # Decommission first
-        circuit.status = FiberCircuitStatusChoices.DECOMMISSIONED
-        circuit.save()
-        assert path.nodes.count() == 0
-
-        # Reactivate
-        circuit.status = FiberCircuitStatusChoices.ACTIVE
-        circuit.save()
-        path.refresh_from_db()
-        assert path.nodes.count() > 0
-
-
-# ---------------------------------------------------------------------------
-# FiberCircuitPath.rebuild_nodes()
-# ---------------------------------------------------------------------------
-
-
-class TestFiberCircuitPathRebuildNodes:
-    def test_rebuild_with_various_node_types(self, base_fixtures):
-        device = base_fixtures["device"]
-        fp = make_front_port(device, "RN-FP")
-        rp = RearPort.objects.create(device=device, name="RN-RP", type="lc")
-        cable = Cable.objects.create()
-        cable.a_terminations = []
-        cable.b_terminations = []
-        cable.save()
-
-        circuit = FiberCircuit.objects.create(
-            name="Rebuild-Circuit", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE
-        )
-        path = FiberCircuitPath.objects.create(
-            circuit=circuit,
-            position=1,
-            origin=fp,
-            path=[
-                {"type": "front_port", "id": fp.pk},
-                {"type": "cable", "id": cable.pk},
-                {"type": "rear_port", "id": rp.pk},
-            ],
-            is_complete=False,
-        )
-        path.rebuild_nodes()
-
-        nodes = list(path.nodes.order_by("position"))
-        assert len(nodes) >= 3
-        assert nodes[0].front_port_id == fp.pk
-        assert nodes[1].cable_id == cable.pk
-        assert nodes[2].rear_port_id == rp.pk
-
-
-# ---------------------------------------------------------------------------
-# FiberCircuitNode.__str__
-# ---------------------------------------------------------------------------
-
-
-class TestFiberCircuitNodeStr:
-    def test_str_with_cable(self, base_fixtures):
-        device = base_fixtures["device"]
-        fp = make_front_port(device, "NS-FP")
-        cable = Cable.objects.create()
-        cable.a_terminations = []
-        cable.b_terminations = []
-        cable.save()
-
-        circuit = FiberCircuit.objects.create(
-            name="NodeStr-Circuit", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE
-        )
-        path = FiberCircuitPath.objects.create(
-            circuit=circuit, position=1, origin=fp, path=[{"type": "cable", "id": cable.pk}], is_complete=False
-        )
-        path.rebuild_nodes()
-        node = path.nodes.first()
-        assert "cable" in str(node)
+        path = FiberCircuitPath(circuit=circuit_fixtures["circuit"], strand_path=make_strand_path(), position=1)
+        assert str(path) == "Clean-Circuit path 1"
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,6 @@ from netbox_fms.services import (
     strand_port_groups,
 )
 from netbox_fms.signals import fms_portmapping_bypass
-from netbox_fms.trace import trace_fiber_path
 from tests.conftest import (
     changes_logged,
     is_indexed,
@@ -31,6 +30,7 @@ from tests.conftest import (
     saves_seen,
     stored_columns,
 )
+from tests.test_path_walker import chain_from
 
 
 def provision_reference(fc, device, port_type, fk_field, warnings):
@@ -189,6 +189,5 @@ class TestQuietCable(BulkProvisioningCase):
             assert device.front_port_count == FrontPort.objects.filter(device=device).count() == 48
             assert device.rear_port_count == RearPort.objects.filter(device=device).count() == 4
         strand = fc.fiber_strands.get(position=17)
-        result = trace_fiber_path(strand.front_port_a)
-        assert result["is_complete"] is True
-        assert result["destination"].pk == strand.front_port_b_id
+        chain = chain_from(strand.front_port_a)
+        assert chain.end_b.port_id == strand.front_port_b_id

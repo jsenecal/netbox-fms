@@ -14,6 +14,7 @@ from .types import (
     FiberCableTypeType,
     FiberCircuitPathType,
     FiberCircuitType,
+    FiberStrandPathType,
     FiberStrandType,
     RibbonTemplateType,
     RibbonType,
@@ -77,6 +78,9 @@ class NetBoxFMSQuery:
 
     fiber_circuit_path: FiberCircuitPathType = strawberry_django.field()
     fiber_circuit_path_list: list[FiberCircuitPathType] = strawberry_django.field()
+
+    fiber_strand_path: FiberStrandPathType = strawberry_django.field()
+    fiber_strand_path_list: list[FiberStrandPathType] = strawberry_django.field()
 
     slack_loop: SlackLoopType = strawberry_django.field()
     slack_loop_list: list[SlackLoopType] = strawberry_django.field()

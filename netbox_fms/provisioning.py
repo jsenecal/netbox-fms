@@ -1,29 +1,19 @@
 """Fiber circuit provisioning engine.
 
 Provides DAG-based pathfinding to discover available fiber routes between two
-devices (closures) and a transactional factory to create FiberCircuit instances
-from selected proposals.
+devices (closures).
 
 IMPORTANT: NetBox 4.5+ uses the PortMapping model to link FrontPort <-> RearPort.
 FrontPort has NO rear_port or rear_port_position attributes.
 """
 
-import re
 from collections import defaultdict
 from itertools import combinations, pairwise
 
-from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
+from dcim.models import CableTermination, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
 
-from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
-from .models import (
-    FiberCircuitNode,
-    FiberCircuitPath,
-    FiberStrand,
-    SplicePlan,
-    SplicePlanEntry,
-)
+from .models import FiberStrandPathHop, SplicePlanEntry
 from .trace import paired_rear_port_terminations
 
 # ---------------------------------------------------------------------------
@@ -109,17 +99,11 @@ def _get_port_mappings_for_rearport(rp_id):
 
 
 def _get_occupied_front_port_ids():
-    """Return set of FrontPort IDs already used in active FiberCircuitNodes."""
-    return set(
-        FiberCircuitNode.objects.filter(
-            front_port__isnull=False,
-            path__circuit__status__in=[
-                FiberCircuitStatusChoices.PLANNED,
-                FiberCircuitStatusChoices.STAGED,
-                FiberCircuitStatusChoices.ACTIVE,
-            ],
-        ).values_list("front_port_id", flat=True)
+    """Front ports landed by a strand of a path that an active assignment holds."""
+    rows = FiberStrandPathHop.objects.filter(strand__isnull=False, path__assignments__active=True).values_list(
+        "strand__front_port_a_id", "strand__front_port_b_id"
     )
+    return {fp for fp_a, fp_b in rows for fp in (fp_a, fp_b) if fp is not None}
 
 
 def _get_existing_splices_map(device_id):
@@ -523,156 +507,3 @@ def find_fiber_paths(origin_device, destination_device, strand_count=1, prioriti
     all_candidates.sort(key=lambda c: _score_candidate(c, priorities))
 
     return all_candidates[:max_results]
-
-
-def create_circuit_from_proposal(proposal, name_template="Circuit-{n}", name=None, splice_project=None):
-    """Create a FiberCircuit from a selected proposal.
-
-    Args:
-        proposal: A proposal dict from find_fiber_paths()
-        name_template: Name template with {n} placeholder for auto-increment
-        name: Literal circuit name (takes precedence over name_template)
-        splice_project: Optional SpliceProject instance to link new SplicePlans to
-
-    Returns:
-        The created FiberCircuit instance
-    """
-    from .models import FiberCircuit
-
-    fp_ct = ContentType.objects.get_for_model(FrontPort)
-
-    with transaction.atomic():
-        # Resolve circuit name: literal name takes precedence
-        if name:
-            circuit_name = name
-        else:
-            circuit_name = _resolve_name_template(name_template)
-
-        # Create the FiberCircuit
-        circuit = FiberCircuit(
-            name=circuit_name,
-            status=FiberCircuitStatusChoices.PLANNED,
-            strand_count=len(proposal["strands"]),
-        )
-        circuit.save()
-
-        # Create FiberCircuitPath per strand
-        for idx, strand in enumerate(proposal["strands"]):
-            hops = strand["hops"]
-            origin_fp_id = hops[0]["fp_entry_id"]
-            destination_fp_id = hops[-1]["fp_exit_id"]
-
-            # Build path JSON
-            path_json = []
-            for hop in hops:
-                path_json.append({"type": "front_port", "id": hop["fp_entry_id"]})
-                path_json.append({"type": "rear_port", "id": hop["entry_rp_id"]})
-                path_json.append({"type": "cable", "id": hop["cable_id"]})
-                path_json.append({"type": "rear_port", "id": hop["exit_rp_id"]})
-                path_json.append({"type": "front_port", "id": hop["fp_exit_id"]})
-
-            fcp = FiberCircuitPath.objects.create(
-                circuit=circuit,
-                position=idx + 1,
-                origin_id=origin_fp_id,
-                destination_id=destination_fp_id,
-                path=path_json,
-                is_complete=True,
-            )
-
-            # Create FiberCircuitNode rows for protection
-            node_pos = 1
-            for entry in path_json:
-                kwargs = {"path": fcp, "position": node_pos}
-                if entry["type"] == "cable":
-                    kwargs["cable_id"] = entry["id"]
-                elif entry["type"] == "front_port":
-                    kwargs["front_port_id"] = entry["id"]
-                elif entry["type"] == "rear_port":
-                    kwargs["rear_port_id"] = entry["id"]
-                FiberCircuitNode.objects.create(**kwargs)
-                node_pos += 1
-
-            # Create strand nodes
-            fp_ids = [e["id"] for e in path_json if e["type"] == "front_port"]
-            strands = FiberStrand.objects.landed_on(fp_ids).distinct()
-            for fs in strands:
-                FiberCircuitNode.objects.create(path=fcp, position=node_pos, fiber_strand=fs)
-                node_pos += 1
-
-        # Create splices for new connections
-        for splice_info in proposal.get("splices_needed", []):
-            device_id = splice_info["device_id"]
-            fp_a_id = splice_info["fp_a_id"]
-            fp_b_id = splice_info["fp_b_id"]
-
-            # Create 0-length cable for splice
-            splice_cable = Cable.objects.create(length=0, length_unit="m")
-            CableTermination.objects.create(
-                cable=splice_cable,
-                cable_end="A",
-                termination_type=fp_ct,
-                termination_id=fp_a_id,
-            )
-            CableTermination.objects.create(
-                cable=splice_cable,
-                cable_end="B",
-                termination_type=fp_ct,
-                termination_id=fp_b_id,
-            )
-
-            # Create SplicePlanEntry — link to project if provided
-            if splice_project:
-                # Create a new plan for this closure, linked to the project
-                plan, _ = SplicePlan.objects.get_or_create(
-                    closure_id=device_id,
-                    project=splice_project,
-                    defaults={
-                        "name": f"{Device.objects.get(pk=device_id).name} — {splice_project.name}",
-                        "status": SplicePlanStatusChoices.DRAFT,
-                    },
-                )
-            else:
-                plan = SplicePlan.objects.filter(closure_id=device_id).first()
-            if plan:
-                # Find the tray (module) for fiber_a
-                fp_a = FrontPort.objects.get(pk=fp_a_id)
-                SplicePlanEntry.objects.create(
-                    plan=plan,
-                    tray_id=fp_a.module_id,
-                    fiber_a_id=fp_a_id,
-                    fiber_b_id=fp_b_id,
-                )
-                plan.diff_stale = True
-                plan.save(update_fields=["diff_stale"])
-
-    return circuit
-
-
-def _resolve_name_template(name_template):
-    """Resolve a name template with {n} auto-increment.
-
-    Uses select_for_update for concurrency safety.
-    """
-    from .models import FiberCircuit
-
-    if "{n}" not in name_template:
-        return name_template
-
-    # Extract prefix (everything before {n})
-    prefix = name_template.split("{n}")[0]
-    suffix = name_template.split("{n}")[-1] if name_template.endswith("{n}") is False else ""
-
-    # Find the highest existing number with this prefix
-    existing = FiberCircuit.objects.select_for_update().filter(name__startswith=prefix).values_list("name", flat=True)
-
-    max_n = 0
-    pattern = re.compile(re.escape(prefix) + r"(\d+)" + re.escape(suffix) + r"$")
-    for name in existing:
-        match = pattern.match(name)
-        if match:
-            n = int(match.group(1))
-            if n > max_n:
-                max_n = n
-
-    return name_template.replace("{n}", str(max_n + 1))

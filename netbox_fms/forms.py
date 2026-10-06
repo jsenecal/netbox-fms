@@ -49,6 +49,7 @@ from .choices import (
     FiberColorSchemeChoices,
     FireRatingChoices,
     MarkerTypeChoices,
+    PathCompletenessChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -1041,7 +1042,9 @@ class FiberCircuitFilterForm(NetBoxModelFilterSetForm):
         label=_("Provider circuit"),
     )
 
-    fieldsets = (FieldSet("q", "status", "tenant_id", "provider_id", "provider_circuit_id"),)
+    is_broken = forms.NullBooleanField(required=False, label=_("Broken"))
+
+    fieldsets = (FieldSet("q", "status", "is_broken", "tenant_id", "provider_id", "provider_circuit_id"),)
 
 
 # ---------------------------------------------------------------------------
@@ -1050,132 +1053,31 @@ class FiberCircuitFilterForm(NetBoxModelFilterSetForm):
 
 
 class FiberCircuitPathForm(NetBoxModelForm):
-    """Form for creating/editing a FiberCircuitPath."""
+    """Edit form for an assignment: only the measured optical parameters are user input.
 
-    circuit = DynamicModelChoiceField(
-        queryset=FiberCircuit.objects.all(),
-        label=_("Circuit"),
-    )
-    origin_device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        selector=True,
-        label=_("Origin Device"),
-        initial_params={"frontports": "$origin"},
-    )
-    origin = DynamicModelChoiceField(
-        queryset=FrontPort.objects.all(),
-        label=_("Origin"),
-        context={"parent": "device"},
-        query_params={"device_id": "$origin_device"},
-    )
-    destination_device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        selector=True,
-        label=_("Destination Device"),
-        initial_params={"frontports": "$destination"},
-    )
-    destination = DynamicModelChoiceField(
-        queryset=FrontPort.objects.all(),
-        required=False,
-        label=_("Destination"),
-        context={"parent": "device"},
-        query_params={"device_id": "$destination_device"},
-    )
+    Assignments are created through the picker (assign fibers); the
+    circuit, the fiber path and the hop snapshot are not editable.
+    """
 
     fieldsets = (
-        FieldSet(
-            "circuit",
-            "position",
-            "origin_device",
-            "origin",
-            "destination_device",
-            "destination",
-            name=_("Path"),
-        ),
         FieldSet("actual_loss_db", "wavelength_nm", name=_("Optical Parameters")),
         FieldSet("tags", name=_("Additional")),
     )
 
     class Meta:
         model = FiberCircuitPath
-        fields = (
-            "circuit",
-            "position",
-            "origin",
-            "destination",
-            "actual_loss_db",
-            "wavelength_nm",
-            "tags",
-        )
+        fields = ("actual_loss_db", "wavelength_nm", "tags")
 
 
 class FiberCircuitPathFilterForm(NetBoxModelFilterSetForm):
     """Filter form for FiberCircuitPath."""
 
     model = FiberCircuitPath
-    circuit_id = DynamicModelChoiceField(
-        queryset=FiberCircuit.objects.all(),
-        required=False,
-        label=_("Circuit"),
-    )
-    is_complete = forms.NullBooleanField(required=False, label=_("Complete"))
-
-
-# ---------------------------------------------------------------------------
-# Circuit Wizard
-# ---------------------------------------------------------------------------
-
-
-class CircuitWizardStep1Form(forms.Form):
-    """Step 1: Circuit basics."""
-
-    name = forms.CharField(max_length=200, label=_("Circuit Name"))
-    cid = forms.CharField(max_length=200, required=False, label=_("Circuit ID"))
-    strand_count = forms.IntegerField(min_value=1, initial=1, label=_("Strand Count"))
-    tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False, label=_("Tenant"))
-
-
-class CircuitWizardStep2Form(forms.Form):
-    """Step 2: Select origin and destination devices."""
-
-    origin_device = DynamicModelChoiceField(queryset=Device.objects.all(), label=_("Origin Device"), selector=True)
-    destination_device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        label=_("Destination Device"),
-        selector=True,
-    )
-
-    def clean(self):
-        super().clean()
-        origin = self.cleaned_data.get("origin_device")
-        destination = self.cleaned_data.get("destination_device")
-        if origin and destination and origin == destination:
-            raise ValidationError(_("Origin and destination must be different devices."))
-        return self.cleaned_data
-
-
-class CircuitWizardStep3Form(forms.Form):
-    """Step 3: Pick a route proposal."""
-
-    selected_proposal = forms.IntegerField(widget=forms.RadioSelect, label=_("Select Route"))
-
-
-class CircuitWizardStep4Form(forms.Form):
-    """Step 4: Splice project selection (only when new splices needed)."""
-
-    splice_project = DynamicModelChoiceField(
-        queryset=SpliceProject.objects.all(),
-        required=False,
-        label=_("Existing Splice Project"),
-    )
-    new_project_name = forms.CharField(
-        max_length=100,
-        required=False,
-        label=_("Or Create New Project"),
-        help_text=_("Enter a name to create a new splice project."),
-    )
+    circuit_id = DynamicModelChoiceField(queryset=FiberCircuit.objects.all(), required=False, label=_("Circuit"))
+    completeness = forms.MultipleChoiceField(choices=PathCompletenessChoices, required=False)
+    active = forms.NullBooleanField(required=False, label=_("Active"))
+    is_broken = forms.NullBooleanField(required=False, label=_("Broken"))
+    delivered_incomplete = forms.NullBooleanField(required=False, label=_("Delivered incomplete"))
 
 
 # ---------------------------------------------------------------------------

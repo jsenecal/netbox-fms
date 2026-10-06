@@ -1,218 +1,110 @@
-from dcim.models import (
-    Cable,
-    Device,
-    DeviceRole,
-    DeviceType,
-    FrontPort,
-    Manufacturer,
-    Module,
-    ModuleBay,
-    ModuleType,
-    Site,
-)
-from django.db import IntegrityError, models
+from dcim.models import Cable, PortMapping
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from netbox_fms.choices import FiberCircuitStatusChoices
-from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath
-
-
-class TestFiberCircuitNode(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        site = Site.objects.create(name="Node Site", slug="node-site")
-        mfr = Manufacturer.objects.create(name="Node Mfr", slug="node-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="NodeDev", slug="nodedev")
-        role = DeviceRole.objects.create(name="Node Role", slug="node-role")
-        device = Device.objects.create(name="NodeDev-1", site=site, device_type=dt, role=role)
-        mt = ModuleType.objects.create(manufacturer=mfr, model="NodeTray")
-        bay = ModuleBay.objects.create(device=device, name="Bay1")
-        tray = Module.objects.create(device=device, module_bay=bay, module_type=mt)
-        cls.fp = FrontPort.objects.create(device=device, module=tray, name="NF1", type="lc")
-        cls.cable = Cable.objects.create()
-        cls.circuit = FiberCircuit.objects.create(
-            name="Node-Test",
-            status=FiberCircuitStatusChoices.ACTIVE,
-            strand_count=1,
-        )
-        cls.path = FiberCircuitPath.objects.create(
-            circuit=cls.circuit,
-            position=1,
-            origin=cls.fp,
-            path=[],
-            is_complete=False,
-        )
-
-    def test_create_cable_node(self):
-        node = FiberCircuitNode.objects.create(path=self.path, position=1, cable=self.cable)
-        assert node.pk is not None
-
-    def test_create_front_port_node(self):
-        node = FiberCircuitNode.objects.create(path=self.path, position=2, front_port=self.fp)
-        assert node.pk is not None
-
-    def test_unique_position_per_path(self):
-        FiberCircuitNode.objects.create(path=self.path, position=1, cable=self.cable)
-        with self.assertRaises(IntegrityError):
-            FiberCircuitNode.objects.create(path=self.path, position=1, front_port=self.fp)
-
-    def test_protect_cable_deletion(self):
-        cable = Cable.objects.create()
-        FiberCircuitNode.objects.create(path=self.path, position=10, cable=cable)
-        with self.assertRaises(models.ProtectedError):
-            cable.delete()
-
-    def test_protect_front_port_deletion(self):
-        site = Site.objects.create(name="FP Prot Site", slug="fp-prot-site")
-        mfr = Manufacturer.objects.create(name="FP Prot Mfr", slug="fp-prot-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="FPProtDev", slug="fpprotdev")
-        role = DeviceRole.objects.create(name="FP Prot Role", slug="fp-prot-role")
-        dev = Device.objects.create(name="FPProtDev-1", site=site, device_type=dt, role=role)
-        fp = FrontPort.objects.create(device=dev, name="ProtFP", type="lc")
-        FiberCircuitNode.objects.create(path=self.path, position=11, front_port=fp)
-        with self.assertRaises(models.ProtectedError):
-            fp.delete()
-
-    def test_create_provider_circuit_node(self):
-        from tests.conftest import make_provider_circuit
-
-        span = make_provider_circuit("Node")
-        node = FiberCircuitNode.objects.create(path=self.path, position=90, provider_circuit=span.circuit)
-        assert node.provider_circuit == span.circuit
-
-    def test_protect_provider_circuit_deletion(self):
-        from tests.conftest import make_provider_circuit
-
-        span = make_provider_circuit("Prot")
-        FiberCircuitNode.objects.create(path=self.path, position=91, provider_circuit=span.circuit)
-        with self.assertRaises(models.ProtectedError):
-            span.circuit.delete()
-
-    def test_rebuild_nodes_creates_provider_circuit_node(self):
-        from tests.conftest import make_provider_circuit
-
-        span = make_provider_circuit("Rebuild")
-        self.path.path = [{"type": "provider_circuit", "id": span.circuit.pk}]
-        self.path.save()
-        self.path.rebuild_nodes()
-        assert self.path.nodes.filter(provider_circuit=span.circuit).exists()
-
-    def test_cascade_on_path_delete(self):
-        circuit = FiberCircuit.objects.create(
-            name="Cascade-Test",
-            status=FiberCircuitStatusChoices.ACTIVE,
-            strand_count=1,
-        )
-        path = FiberCircuitPath.objects.create(
-            circuit=circuit,
-            position=1,
-            origin=self.fp,
-            path=[],
-            is_complete=False,
-        )
-        cable = Cable.objects.create()
-        FiberCircuitNode.objects.create(path=path, position=1, cable=cable)
-        path_pk = path.pk
-        assert FiberCircuitNode.objects.filter(path_id=path_pk).count() == 1
-        path.delete()
-        assert FiberCircuitNode.objects.filter(path_id=path_pk).count() == 0
-
-
-class TestFiberCircuitLifecycle(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        site = Site.objects.create(name="LC Site", slug="lc-site")
-        mfr = Manufacturer.objects.create(name="LC Mfr", slug="lc-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="LCDev", slug="lcdev")
-        role = DeviceRole.objects.create(name="LC Role", slug="lc-role")
-        device = Device.objects.create(name="LCDev-1", site=site, device_type=dt, role=role)
-        cls.fp = FrontPort.objects.create(device=device, name="LF1", type="lc")
-        cls.cable = Cable.objects.create()
-
-    def test_decommission_deletes_nodes(self):
-        circuit = FiberCircuit.objects.create(
-            name="Decomm-Test",
-            status=FiberCircuitStatusChoices.ACTIVE,
-            strand_count=1,
-        )
-        path = FiberCircuitPath.objects.create(
-            circuit=circuit,
-            position=1,
-            origin=self.fp,
-            path=[{"type": "cable", "id": self.cable.pk}],
-            is_complete=False,
-        )
-        FiberCircuitNode.objects.create(path=path, position=1, cable=self.cable)
-        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 1
-
-        circuit.status = FiberCircuitStatusChoices.DECOMMISSIONED
-        circuit.save()
-
-        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 0
-
-    def test_reactivate_rebuilds_nodes(self):
-        circuit = FiberCircuit.objects.create(
-            name="Reactivate-Test",
-            status=FiberCircuitStatusChoices.DECOMMISSIONED,
-            strand_count=1,
-        )
-        path = FiberCircuitPath.objects.create(
-            circuit=circuit,
-            position=1,
-            origin=self.fp,
-            path=[{"type": "cable", "id": self.cable.pk}],
-            is_complete=False,
-        )
-        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 0
-
-        circuit.status = FiberCircuitStatusChoices.ACTIVE
-        circuit.save()
-
-        assert FiberCircuitNode.objects.filter(path__circuit=circuit).count() == 1
-        node = FiberCircuitNode.objects.get(path=path)
-        assert node.cable_id == self.cable.pk
+from netbox_fms.choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
+from netbox_fms.models import FiberCable, FiberCableType, FiberCircuit, SplicePlan, SplicePlanEntry
+from netbox_fms.services import create_closure_cable, protecting_assignments, protecting_circuits_by_front_port
+from tests.conftest import (
+    assign_strand_path,
+    make_authed_client,
+    make_closure_pair,
+    make_infra,
+    make_provider_circuit,
+    make_strand_path,
+    make_tray_module,
+    make_tray_type,
+)
 
 
 class TestProviderCircuitProjection(TestCase):
-    """provider_circuits mirrors the node index (issue #135)."""
+    """provider_circuits mirrors the provider-circuit hops of active assignments (issue #135)."""
 
     @classmethod
     def setUpTestData(cls):
-        from tests.conftest import connect_rp_to_ct, make_mapped_endpoint, make_provider_circuit
-
-        end_a = make_mapped_endpoint("ProjA")
-        end_b = make_mapped_endpoint("ProjB")
-        cls.fp_a = end_a.fp
-
-        cls.span = make_provider_circuit("Proj")
-        connect_rp_to_ct(end_a.rp, cls.span.term_a)
-        connect_rp_to_ct(end_b.rp, cls.span.term_z)
-
+        span = make_provider_circuit("Proj")
+        cls.span = span
+        _site, mfr, _dt, _role = make_infra("Proj")
+        fct = FiberCableType.objects.create(manufacturer=mfr, model="PJ-1", strand_count=1, construction="tight_buffer")
+        fc = FiberCable.objects.create(cable=Cable.objects.create(), fiber_cable_type=fct)
+        cls.path = make_strand_path(
+            fc.fiber_strands.get(), Cable.objects.create(), span.circuit, Cable.objects.create()
+        )
         cls.fc = FiberCircuit.objects.create(name="Proj-FC", status=FiberCircuitStatusChoices.ACTIVE, strand_count=1)
-        cls.path = FiberCircuitPath.from_origin(cls.fp_a)
-        cls.path.circuit = cls.fc
-        cls.path.position = 1
-        cls.path.save()
 
-    def test_rebuild_populates_projection(self):
-        self.path.rebuild_nodes()
+    def test_sync_populates_from_the_hops(self):
+        assign_strand_path(self.fc, self.path)
+        self.fc.sync_provider_circuits()
         assert list(self.fc.provider_circuits.all()) == [self.span.circuit]
 
-    def test_decommission_empties_projection(self):
-        self.path.rebuild_nodes()
+    def test_decommission_empties_and_reactivation_repopulates(self):
+        assign_strand_path(self.fc, self.path)
         self.fc.status = FiberCircuitStatusChoices.DECOMMISSIONED
         self.fc.save()
         assert self.fc.provider_circuits.count() == 0
-
-    def test_reactivate_repopulates_projection(self):
-        self.path.rebuild_nodes()
-        self.fc.status = FiberCircuitStatusChoices.DECOMMISSIONED
-        self.fc.save()
         self.fc.status = FiberCircuitStatusChoices.ACTIVE
         self.fc.save()
         assert list(self.fc.provider_circuits.all()) == [self.span.circuit]
 
-    def test_path_delete_resyncs_projection(self):
-        self.path.rebuild_nodes()
-        self.path.delete()
+    def test_unassigning_resyncs_the_projection(self):
+        assignment = assign_strand_path(self.fc, self.path)
+        self.fc.sync_provider_circuits()
+        assignment.delete()
         assert self.fc.provider_circuits.count() == 0
+
+
+class TestProtectionLookups(TestCase):
+    """Every reference type the protecting endpoint accepts resolves to the assignment that carries it.
+
+    Rear ports and splice entries are not stored hops; they protect through
+    the front ports the assigned strands land on.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair("PL")
+        fct = FiberCableType.objects.create(
+            manufacturer=pair.mfr, model="PL-2", strand_count=2, construction="tight_buffer"
+        )
+        fc, _ = create_closure_cable(device_a=pair.dev_a, device_b=pair.dev_b, fiber_cable_type=fct)
+        cls.s1, cls.s2 = list(fc.fiber_strands.order_by("position"))
+        plan = SplicePlan.objects.create(closure=pair.dev_b, name="PL plan", status=SplicePlanStatusChoices.ARCHIVED)
+        tray = make_tray_module(pair.dev_b, make_tray_type(pair.mfr, "PL Tray"), "Bay 1")
+        cls.entry = SplicePlanEntry.objects.create(
+            plan=plan, tray=tray, fiber_a=cls.s1.front_port_b, fiber_b=cls.s2.front_port_b
+        )
+        cls.rear_port = PortMapping.objects.get(front_port=cls.s1.front_port_a).rear_port
+        cls.circuit = FiberCircuit.objects.create(name="PL-C", status=FiberCircuitStatusChoices.ACTIVE, strand_count=1)
+        cls.assignment = assign_strand_path(cls.circuit, make_strand_path(cls.s1, end_a=cls.s1.front_port_a))
+        gone = FiberCircuit.objects.create(
+            name="PL-gone", status=FiberCircuitStatusChoices.DECOMMISSIONED, strand_count=1
+        )
+        assign_strand_path(gone, make_strand_path(cls.s2), active=False)
+
+    def test_each_reference_type_resolves_through_the_assignment(self):
+        for reference, ref_id in (
+            ("fiber_strand", self.s1.pk),
+            ("cable", self.s1.fiber_cable.cable_id),
+            ("front_port", self.s1.front_port_b_id),
+            ("rear_port", self.rear_port.pk),
+            ("splice_entry", self.entry.pk),
+        ):
+            found = list(protecting_assignments(reference, [ref_id]))
+            assert found == [self.assignment], reference
+
+    def test_inactive_and_decommissioned_assignments_protect_nothing(self):
+        assert list(protecting_assignments("fiber_strand", [self.s2.pk])) == []
+        assert protecting_circuits_by_front_port([self.s2.front_port_a_id, self.s2.front_port_b_id]) == {}
+        assert protecting_circuits_by_front_port([]) == {}
+
+    def test_applying_a_plan_over_protected_fibers_is_refused(self):
+        client = make_authed_client("pl-apply")
+        resp = client.post(f"/api/plugins/fms/splice-plans/{self.entry.plan_id}/apply/", format="json")
+        assert resp.status_code == 409, resp.content
+        assert "PL-C" in resp.json()["error"]
+
+    def test_front_port_lookup_names_the_circuit_and_honours_the_user(self):
+        by_port = protecting_circuits_by_front_port([self.s1.front_port_a_id, self.s1.front_port_b_id])
+        assert by_port == {self.s1.front_port_a_id: self.circuit, self.s1.front_port_b_id: self.circuit}
+        nobody = get_user_model().objects.create_user(username="pl-nobody", password="x")  # noqa: S106
+        assert protecting_circuits_by_front_port([self.s1.front_port_a_id], user=nobody) == {}

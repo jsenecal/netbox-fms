@@ -13,6 +13,7 @@ from .choices import (
     FiberCircuitStatusChoices,
     FiberColorSchemeChoices,
     FireRatingChoices,
+    PathCompletenessChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -30,6 +31,7 @@ from .models import (
     FiberCircuit,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -464,25 +466,33 @@ class FiberCircuitFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         label=_("Provider circuit (ID)"),
     )
 
+    is_broken = django_filters.BooleanFilter()
+
     search_fields = ("name__icontains", "cid__icontains", "description__icontains")
 
     class Meta:
         model = FiberCircuit
-        fields = ("id", "name", "cid", "status", "strand_count", "tenant")
+        fields = ("id", "name", "cid", "status", "strand_count", "tenant", "is_broken")
 
 
 class FiberCircuitPathFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
-    """FilterSet for FiberCircuitPath model."""
+    """FilterSet for FiberCircuitPath (the assignment)."""
 
     circuit_id = django_filters.ModelMultipleChoiceFilter(
-        queryset=FiberCircuit.objects.all(),
-        field_name="circuit",
-        label=_("Circuit (ID)"),
+        queryset=FiberCircuit.objects.all(), field_name="circuit", label=_("Circuit (ID)")
     )
-    is_complete = django_filters.BooleanFilter()
+    strand_path_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=FiberStrandPath.objects.all(), field_name="strand_path", label=_("Fiber path (ID)")
+    )
+    completeness = django_filters.MultipleChoiceFilter(
+        choices=PathCompletenessChoices, field_name="strand_path__completeness"
+    )
+    active = django_filters.BooleanFilter()
+    is_broken = django_filters.BooleanFilter()
+    delivered_incomplete = django_filters.BooleanFilter()
 
     search_fields = ("circuit__name__icontains", "circuit__cid__icontains")
 
     class Meta:
         model = FiberCircuitPath
-        fields = ("id", "circuit", "position", "is_complete", "wavelength_nm")
+        fields = ("id", "circuit", "position", "active", "is_broken", "delivered_incomplete", "wavelength_nm")

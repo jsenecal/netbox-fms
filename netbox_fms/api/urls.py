@@ -25,7 +25,6 @@ router.register("tube-assignments", views.TubeAssignmentViewSet)
 router.register("slack-loops", views.SlackLoopViewSet)
 router.register("fiber-circuits", views.FiberCircuitViewSet)
 router.register("fiber-circuit-paths", views.FiberCircuitPathViewSet)
-router.register("fiber-circuit-nodes", views.FiberCircuitNodeViewSet)
 urlpatterns = (
     [
         path(

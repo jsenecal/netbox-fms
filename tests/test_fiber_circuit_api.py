@@ -2,24 +2,14 @@ from dcim.models import Cable, Device
 from django.test import TestCase
 
 from netbox_fms.choices import FiberCircuitStatusChoices
-from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath
-from tests.conftest import make_authed_client, make_front_port, make_infra
+from netbox_fms.models import FiberCircuit
+from tests.conftest import assign_strand_path, make_authed_client, make_front_port, make_infra, make_strand_path
 
 
-def make_protected_circuit(name, origin, node_refs):
-    """Active circuit with one path from ``origin`` and one FiberCircuitNode
-    per entry of ``node_refs``, each a single-key dict naming the node's
-    reference FK (e.g. ``{"cable": cable}`` or ``{"front_port": fp}``)."""
+def make_protected_circuit(name, *hops, end_a=None):
+    """Active circuit with one assignment over a path of these hops (strands, cables, circuits)."""
     circuit = FiberCircuit.objects.create(name=name, status=FiberCircuitStatusChoices.ACTIVE, strand_count=1)
-    path = FiberCircuitPath.objects.create(
-        circuit=circuit,
-        position=1,
-        origin=origin,
-        path=[{"type": "cable", "id": ref["cable"].pk} for ref in node_refs if "cable" in ref],
-        is_complete=False,
-    )
-    for position, ref in enumerate(node_refs, start=1):
-        FiberCircuitNode.objects.create(path=path, position=position, **ref)
+    assign_strand_path(circuit, make_strand_path(*hops, end_a=end_a))
     return circuit
 
 
@@ -60,11 +50,8 @@ class TestFiberCircuitAPI(TestCase):
 class TestProtectionQueryAPI(TestCase):
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = make_infra("Prot")
-        device = Device.objects.create(name="ProtDev-1", site=site, device_type=dt, role=role)
-        fp = make_front_port(device, "ProtFP")
         cls.cable = Cable.objects.create()
-        make_protected_circuit("Prot-Circuit", fp, [{"cable": cls.cable}])
+        make_protected_circuit("Prot-Circuit", cls.cable)
 
     def setUp(self):
         self.client_api = make_authed_client("prottest")
@@ -101,8 +88,8 @@ class TestProtectionBulkQueryAPI(TestCase):
 
         # Circuit A rides cable1 and terminates on cls.fp; circuit B rides
         # cable1 and cable2. Cable3 carries nothing.
-        cls.circuit_a = make_protected_circuit("Bulk-A", cls.fp, [{"cable": cls.cable1}, {"front_port": cls.fp}])
-        cls.circuit_b = make_protected_circuit("Bulk-B", cls.fp, [{"cable": cls.cable1}, {"cable": cls.cable2}])
+        cls.circuit_a = make_protected_circuit("Bulk-A", cls.cable1, end_a=cls.fp)
+        cls.circuit_b = make_protected_circuit("Bulk-B", cls.cable1, cls.cable2)
 
     def setUp(self):
         self.client_api = make_authed_client("bulkprot")
@@ -177,11 +164,8 @@ class TestProviderCircuitQueries(TestCase):
     def setUpTestData(cls):
         from tests.conftest import make_provider_circuit
 
-        site, mfr, dt, role = make_infra("PCQ")
-        device = Device.objects.create(name="PCQ-Dev", site=site, device_type=dt, role=role)
-        origin = make_front_port(device, "PCQ-FP")
         cls.span = make_provider_circuit("Query")
-        cls.riding = make_protected_circuit("Riding", origin, [{"provider_circuit": cls.span.circuit}])
+        cls.riding = make_protected_circuit("Riding", cls.span.circuit)
         cls.riding.sync_provider_circuits()
         cls.other = FiberCircuit.objects.create(name="NotRiding", strand_count=1)
 

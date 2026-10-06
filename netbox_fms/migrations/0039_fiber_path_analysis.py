@@ -4,6 +4,19 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def wipe_hand_entered_paths(apps, schema_editor):
+    """Paths are derived by analysis from here on: the hand-made rows and their node index go.
+
+    Circuits keep their identity and are re-assigned after the upgrade; the
+    provider-circuit projection is rebuilt by the first assignment.
+    """
+    alias = schema_editor.connection.alias
+    apps.get_model("netbox_fms", "FiberCircuitNode").objects.using(alias).all().delete()
+    apps.get_model("netbox_fms", "FiberCircuitPath").objects.using(alias).all().delete()
+    FiberCircuit = apps.get_model("netbox_fms", "FiberCircuit")
+    FiberCircuit.provider_circuits.through.objects.using(alias).all().delete()
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -92,5 +105,77 @@ class Migration(migrations.Migration):
                 'ordering': ('path', 'position'),
                 'constraints': [models.UniqueConstraint(fields=('path', 'position'), name='fiberstrandpathhop_unique_position'), models.CheckConstraint(condition=models.Q(models.Q(('cable__isnull', True), ('provider_circuit__isnull', True), ('strand__isnull', False)), models.Q(('cable__isnull', False), ('provider_circuit__isnull', True), ('strand__isnull', True)), models.Q(('cable__isnull', True), ('provider_circuit__isnull', False), ('strand__isnull', True)), _connector='OR'), name='fiberstrandpathhop_exactly_one_ref')],
             },
+        ),
+        migrations.RunPython(wipe_hand_entered_paths, migrations.RunPython.noop),
+        migrations.AlterUniqueTogether(
+            name='fibercircuitnode',
+            unique_together=None,
+        ),
+        migrations.RemoveConstraint(
+            model_name='fibercircuitnode',
+            name='fibercircuitnode_exactly_one_ref',
+        ),
+        migrations.RemoveField(
+            model_name='fibercircuitpath',
+            name='destination',
+        ),
+        migrations.RemoveField(
+            model_name='fibercircuitpath',
+            name='is_complete',
+        ),
+        migrations.RemoveField(
+            model_name='fibercircuitpath',
+            name='origin',
+        ),
+        migrations.RemoveField(
+            model_name='fibercircuitpath',
+            name='path',
+        ),
+        migrations.AddField(
+            model_name='fibercircuit',
+            name='is_broken',
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name='fibercircuitpath',
+            name='active',
+            field=models.BooleanField(default=True),
+        ),
+        migrations.AddField(
+            model_name='fibercircuitpath',
+            name='assigned_hops',
+            field=models.JSONField(default=list),
+        ),
+        migrations.AddField(
+            model_name='fibercircuitpath',
+            name='broken_reason',
+            field=models.CharField(blank=True, max_length=20),
+        ),
+        migrations.AddField(
+            model_name='fibercircuitpath',
+            name='delivered_incomplete',
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name='fibercircuitpath',
+            name='is_broken',
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name='fibercircuitpath',
+            name='strand_path',
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='assignments', to='netbox_fms.fiberstrandpath'),
+        ),
+        migrations.AlterField(
+            model_name='fibercircuitpath',
+            name='strand_path',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='assignments', to='netbox_fms.fiberstrandpath'),
+        ),
+        migrations.AddConstraint(
+            model_name='fibercircuitpath',
+            constraint=models.UniqueConstraint(condition=models.Q(('active', True)), fields=('strand_path',), name='fibercircuitpath_one_active_per_path'),
+        ),
+        migrations.DeleteModel(
+            name='FiberCircuitNode',
         ),
     ]

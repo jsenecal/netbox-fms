@@ -18,10 +18,18 @@ from dcim.models import (
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from netbox_fms.choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
-from netbox_fms.models import FiberCircuit, SplicePlan, SpliceProject
-from netbox_fms.provisioning import _generate_single_hop_candidates, create_circuit_from_proposal, find_fiber_paths
-from tests.conftest import connect_tube_cable, make_closure_pair, make_mapped_rear_ports
+from netbox_fms.choices import FiberCircuitStatusChoices
+from netbox_fms.models import FiberCable, FiberCableType, FiberCircuit, FiberStrand
+from netbox_fms.provisioning import _generate_single_hop_candidates, _get_occupied_front_port_ids, find_fiber_paths
+from netbox_fms.services import create_closure_cable
+from tests.conftest import (
+    assign_strand_path,
+    connect_tube_cable,
+    land_strands,
+    make_closure_pair,
+    make_mapped_rear_ports,
+    make_strand_path,
+)
 
 
 def _setup_linear_network(site, mfr, num_closures, strands_per_cable=4):
@@ -150,194 +158,6 @@ class TestFindPaths(TestCase):
         assert route[-1] == dest_dev.pk
 
 
-class TestCreateFromProposal(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.site = Site.objects.create(name="Create Site", slug="create-site")
-        cls.mfr = Manufacturer.objects.create(name="Create Mfr", slug="create-mfr")
-        cls.closures, cls.cables = _setup_linear_network(cls.site, cls.mfr, num_closures=2, strands_per_cable=4)
-
-    def test_create_circuit_from_proposal(self):
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        assert len(results) > 0
-        circuit = FiberCircuit.create_from_proposal(results[0], name_template="Test-{n}")
-        assert circuit.pk is not None
-        assert circuit.name == "Test-1"
-        assert circuit.paths.count() == 1
-
-    def test_auto_increment_name(self):
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        FiberCircuit.create_from_proposal(results[0], name_template="Inc-{n}")
-        # Need fresh results for second circuit (strands may be taken)
-        results2 = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        if results2:
-            circuit2 = FiberCircuit.create_from_proposal(results2[0], name_template="Inc-{n}")
-            assert circuit2.name == "Inc-2"
-
-    def test_circuit_has_correct_status(self):
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        circuit = FiberCircuit.create_from_proposal(results[0], name_template="Status-{n}")
-        assert circuit.status == FiberCircuitStatusChoices.PLANNED
-
-    def test_circuit_path_has_nodes(self):
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        circuit = FiberCircuit.create_from_proposal(results[0], name_template="Nodes-{n}")
-        path = circuit.paths.first()
-        assert path is not None
-        assert path.nodes.count() > 0
-
-    def test_multi_strand_circuit(self):
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=2,
-            priorities=["hop_count"],
-        )
-        assert len(results) > 0
-        circuit = FiberCircuit.create_from_proposal(results[0], name_template="Multi-{n}")
-        assert circuit.strand_count == 2
-        assert circuit.paths.count() == 2
-
-
-class TestCreateFromProposalWithSpliceProject(TestCase):
-    """Tests for the splice_project and name parameters on create_circuit_from_proposal."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.site = Site.objects.create(name="SplProj Site", slug="splproj-site")
-        cls.mfr = Manufacturer.objects.create(name="SplProj Mfr", slug="splproj-mfr")
-        # 3 closures → 2 hops → intermediate closure needs splices
-        cls.closures, cls.cables = _setup_linear_network(cls.site, cls.mfr, num_closures=3, strands_per_cable=4)
-
-    def test_splice_project_creates_linked_plans(self):
-        """When splice_project is provided, SplicePlans are created linked to the project."""
-        project = SpliceProject.objects.create(name="Test Project")
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        assert len(results) > 0
-        proposal = results[0]
-        # Multi-hop proposals should have splices_needed at intermediate closure
-        assert len(proposal["splices_needed"]) > 0
-
-        circuit = FiberCircuit.create_from_proposal(proposal, name_template="SP-{n}", splice_project=project)
-        assert circuit.pk is not None
-
-        # A SplicePlan should now exist for the intermediate closure, linked to the project
-        intermediate_dev = self.closures[1][0]
-        plan = SplicePlan.objects.filter(closure=intermediate_dev, project=project).first()
-        assert plan is not None
-        assert plan.status == SplicePlanStatusChoices.DRAFT
-        assert project.name in plan.name
-        assert plan.entries.count() > 0
-
-    def test_no_splice_project_preserves_existing_behavior(self):
-        """When splice_project is None, existing SplicePlan lookup behavior is used."""
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        assert len(results) > 0
-        proposal = results[0]
-        assert len(proposal["splices_needed"]) > 0
-
-        # No splice_project → no new SplicePlan created (none pre-exists)
-        circuit = FiberCircuit.create_from_proposal(proposal, name_template="NoSP-{n}")
-        assert circuit.pk is not None
-
-        intermediate_dev = self.closures[1][0]
-        # No plan should have been auto-created without a project
-        assert SplicePlan.objects.filter(closure=intermediate_dev).count() == 0
-
-    def test_literal_name_parameter(self):
-        """The name parameter should be used as a literal circuit name."""
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        assert len(results) > 0
-        circuit = FiberCircuit.create_from_proposal(
-            results[0], name_template="Should-Not-Use-{n}", name="My Literal Name"
-        )
-        assert circuit.name == "My Literal Name"
-
-    def test_splice_project_reuses_existing_plan(self):
-        """If a plan already exists for (closure, project), it is reused via get_or_create."""
-        project = SpliceProject.objects.create(name="Reuse Project")
-        intermediate_dev = self.closures[1][0]
-        existing_plan = SplicePlan.objects.create(
-            closure=intermediate_dev,
-            project=project,
-            name="Pre-existing Plan",
-            status=SplicePlanStatusChoices.DRAFT,
-        )
-
-        origin_dev = self.closures[0][0]
-        dest_dev = self.closures[-1][0]
-        results = FiberCircuit.find_paths(
-            origin_device=origin_dev,
-            destination_device=dest_dev,
-            strand_count=1,
-            priorities=["hop_count"],
-        )
-        assert len(results) > 0
-
-        FiberCircuit.create_from_proposal(results[0], name_template="Reuse-{n}", splice_project=project)
-
-        # Should still be only one plan for this (closure, project)
-        plans = SplicePlan.objects.filter(closure=intermediate_dev, project=project)
-        assert plans.count() == 1
-        assert plans.first().pk == existing_plan.pk
-
-
 def _tube_pairs(proposal):
     """The (entry_rp_id, exit_rp_id) pair of every strand's first hop in a proposal."""
     return {(s["hops"][0]["entry_rp_id"], s["hops"][0]["exit_rp_id"]) for s in proposal["strands"]}
@@ -392,15 +212,24 @@ class TestMultiTubeCablePairing(TestCase):
         Strands of one circuit (a Tx/Rx pair) must share route and specs, so
         strand adjacency ranks ahead of hop count.
         """
-        # Occupy RP1 position 1 and RP2 position 2, leaving the direct cable
-        # only a cross-tube pair (RP1 position 2 + RP2 position 1).
+        # Occupy RP1 position 1 and RP2 position 2 with assignments, leaving
+        # the direct cable only a cross-tube pair (RP1 position 2 + RP2 position 1).
+        fct = FiberCableType.objects.create(
+            manufacturer=self.dev_a.device_type.manufacturer, model="MTP-4", strand_count=4, construction="tight_buffer"
+        )
+        fc = FiberCable.objects.create(cable=self.cable, fiber_cable_type=fct)
+        land_strands(fc, self.fps_a, fk="front_port_a")
+        land_strands(fc, self.fps_b, fk="front_port_b")
+
+        def strand_at(rp, position):
+            fp_id = PortMapping.objects.get(rear_port=rp, rear_port_position=position).front_port_id
+            return FiberStrand.objects.landed_on([fp_id]).get()
+
         for rp, position in ((self.rp_a1, 1), (self.rp_a2, 2)):
-            proposal = next(
-                p
-                for p in find_fiber_paths(self.dev_a, self.dev_b, strand_count=1)
-                if p["strands"][0]["hops"][0]["entry_rp_id"] == rp.pk and p["strands"][0]["position"] == position
+            circuit = FiberCircuit.objects.create(
+                name=f"occupy {rp.name} {position}", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE
             )
-            create_circuit_from_proposal(proposal, name=f"occupy {rp.name} {position}")
+            assign_strand_path(circuit, make_strand_path(strand_at(rp, position)))
 
         # Detour A -- C -- B over single-tube cables with two free positions each.
         dev_c = Device.objects.create(
@@ -416,6 +245,28 @@ class TestMultiTubeCablePairing(TestCase):
 
         assert {(c["hop_count"], c["is_contiguous"]) for c in results} == {(1, False), (2, True)}
         assert results[0]["hop_count"] == 2
+        direct = next(c for c in results if c["hop_count"] == 1)
+        assert {(s["hops"][0]["entry_rp_id"], s["position"]) for s in direct["strands"]} == {
+            (self.rp_a1.pk, 2),
+            (self.rp_a2.pk, 1),
+        }
+
+
+class TestOccupiedFrontPorts(TestCase):
+    def test_only_active_assignments_occupy(self):
+        pair = make_closure_pair("OCC")
+        fct = FiberCableType.objects.create(
+            manufacturer=pair.mfr, model="OCC-2", strand_count=2, construction="tight_buffer"
+        )
+        fc, _ = create_closure_cable(device_a=pair.dev_a, device_b=pair.dev_b, fiber_cable_type=fct)
+        s1, s2 = list(fc.fiber_strands.order_by("position"))
+        live = FiberCircuit.objects.create(name="OCC-live", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE)
+        assign_strand_path(live, make_strand_path(s1))
+        gone = FiberCircuit.objects.create(
+            name="OCC-gone", strand_count=1, status=FiberCircuitStatusChoices.DECOMMISSIONED
+        )
+        assign_strand_path(gone, make_strand_path(s2), active=False)
+        assert _get_occupied_front_port_ids() == {s1.front_port_a_id, s1.front_port_b_id}
 
 
 def _avail(rp, position, cable_id=1):

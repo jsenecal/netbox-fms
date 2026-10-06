@@ -11,6 +11,7 @@ from utilities.tracking import TrackingModelMixin
 
 from .choices import (
     ArmorTypeChoices,
+    AssignmentBrokenReasonChoices,
     CableElementTypeChoices,
     ConstructionChoices,
     DeploymentChoices,
@@ -50,7 +51,6 @@ __all__ = (
     "SlackLoop",
     "FiberCircuit",
     "FiberCircuitPath",
-    "FiberCircuitNode",
     "FiberStrandPath",
     "FiberStrandPathHop",
     "PathAnomaly",
@@ -1877,7 +1877,12 @@ class FiberCircuit(NetBoxModel):
         related_name="fiber_circuits",
         blank=True,
         verbose_name=_("provider circuits"),
-        help_text=_("Provider circuits this fiber circuit crosses. Derived from traced paths; not editable."),
+        help_text=_("Provider circuits this fiber circuit crosses. Derived from assigned paths; not editable."),
+    )
+    is_broken = models.BooleanField(
+        default=False,
+        verbose_name=_("broken"),
+        help_text=_("An active assignment's fiber path no longer matches the hops it was assigned with."),
     )
     comments = models.TextField(blank=True, verbose_name=_("comments"))
 
@@ -1897,25 +1902,30 @@ class FiberCircuit(NetBoxModel):
         return reverse("plugins:netbox_fms:fibercircuit", args=[self.pk])
 
     def save(self, *args, **kwargs):
-        """Save and rebuild or delete nodes on status transitions."""
-        is_new = self.pk is None
+        """Save; a transition into or out of decommissioned deactivates or reactivates the assignments."""
         old_status = None
-        if not is_new:
+        if self.pk is not None:
             old_status = FiberCircuit.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+        decommissioned = FiberCircuitStatusChoices.DECOMMISSIONED
         super().save(*args, **kwargs)
-        if not is_new and old_status != self.status:
-            if self.status == FiberCircuitStatusChoices.DECOMMISSIONED:
-                FiberCircuitNode.objects.filter(path__circuit=self).delete()
-            elif old_status == FiberCircuitStatusChoices.DECOMMISSIONED:
-                for path in self.paths.all():
-                    path.rebuild_nodes()
-            self.sync_provider_circuits()
+        if old_status is None or old_status == self.status:
+            return
+        if self.status == decommissioned:
+            self.paths.filter(active=True).update(active=False)
+        elif old_status == decommissioned:
+            self.paths.filter(active=False).update(active=True)
+        self.sync_provider_circuits()
 
     def sync_provider_circuits(self):
-        """Recompute the provider-circuit projection from the node index."""
+        """Recompute the provider-circuit projection from the hops of the active assignments."""
         from circuits.models import Circuit
 
-        self.provider_circuits.set(Circuit.objects.filter(fiber_circuit_nodes__path__circuit=self).distinct())
+        self.provider_circuits.set(
+            Circuit.objects.filter(
+                fiber_path_hops__path__assignments__circuit=self,
+                fiber_path_hops__path__assignments__active=True,
+            ).distinct()
+        )
 
     @classmethod
     def find_paths(cls, origin_device, destination_device, strand_count=1, priorities=None, max_results=20):
@@ -1934,22 +1944,15 @@ class FiberCircuit(NetBoxModel):
             max_results=max_results,
         )
 
-    @classmethod
-    def create_from_proposal(cls, proposal, name_template="Circuit-{n}", name=None, splice_project=None):
-        """Create a FiberCircuit from a selected proposal.
-
-        Delegates to the provisioning engine. See
-        ``netbox_fms.provisioning.create_circuit_from_proposal`` for full documentation.
-        """
-        from .provisioning import create_circuit_from_proposal
-
-        return create_circuit_from_proposal(
-            proposal, name_template=name_template, name=name, splice_project=splice_project
-        )
-
 
 class FiberCircuitPath(NetBoxModel):
-    """One strand's end-to-end journey through cables and splices."""
+    """A circuit's assignment of one analyzed fiber path.
+
+    ``assigned_hops`` is the snapshot taken when the path was assigned: a
+    deliberate record the analysis compares the live hops against. Any
+    difference marks the assignment broken until the new route is
+    authorized or acknowledged.
+    """
 
     circuit = models.ForeignKey(
         to="netbox_fms.FiberCircuit",
@@ -1957,23 +1960,22 @@ class FiberCircuitPath(NetBoxModel):
         related_name="paths",
         verbose_name=_("circuit"),
     )
-    position = models.PositiveIntegerField(verbose_name=_("position"))
-    origin = models.ForeignKey(
-        to="dcim.FrontPort",
+    strand_path = models.ForeignKey(
+        to="netbox_fms.FiberStrandPath",
         on_delete=models.PROTECT,
-        related_name="fiber_circuit_path_origins",
-        verbose_name=_("origin"),
+        related_name="assignments",
+        verbose_name=_("fiber path"),
     )
-    destination = models.ForeignKey(
-        to="dcim.FrontPort",
-        on_delete=models.SET_NULL,
-        related_name="fiber_circuit_path_destinations",
-        blank=True,
-        null=True,
-        verbose_name=_("destination"),
+    position = models.PositiveIntegerField(verbose_name=_("position"))
+    active = models.BooleanField(default=True, help_text=_("False while the circuit is decommissioned."))
+    assigned_hops = models.JSONField(default=list, verbose_name=_("assigned hops"))
+    delivered_incomplete = models.BooleanField(
+        default=False,
+        verbose_name=_("delivered incomplete"),
+        help_text=_("Assigned with incomplete paths allowed."),
     )
-    path = models.JSONField(default=list, verbose_name=_("path"))
-    is_complete = models.BooleanField(default=False, verbose_name=_("complete"))
+    is_broken = models.BooleanField(default=False, verbose_name=_("broken"))
+    broken_reason = models.CharField(max_length=20, choices=AssignmentBrokenReasonChoices, blank=True)
     actual_loss_db = models.DecimalField(
         verbose_name=_("actual loss (dB)"),
         max_digits=6,
@@ -1990,41 +1992,41 @@ class FiberCircuitPath(NetBoxModel):
     class Meta:
         ordering = ("circuit", "position")
         unique_together = (("circuit", "position"),)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["strand_path"],
+                condition=models.Q(active=True),
+                name="fibercircuitpath_one_active_per_path",
+            ),
+        ]
         verbose_name = _("fiber circuit path")
         verbose_name_plural = _("fiber circuit paths")
 
     def __str__(self):
-        """Return circuit, position, origin, and destination."""
-        dest = self.destination or "incomplete"
-        return f"{self.circuit} path {self.position}: {self.origin} → {dest}"
+        return f"{self.circuit} path {self.position}"
 
     def get_absolute_url(self):
-        """Return the detail URL for this fiber circuit path."""
+        """Return the detail URL for this assignment."""
         return reverse("plugins:netbox_fms:fibercircuitpath", args=[self.pk])
 
     @property
     def calculated_loss_db(self):
-        """Per-wavelength calculated loss across all cables in the path.
+        """Per-wavelength calculated loss summed over the strand hops of the assigned path.
 
-        Returns a list of ``(wavelength_nm, loss_db)`` tuples, sorted by
-        wavelength. Each cable's contribution comes from
-        ``FiberCable.calculated_loss_db``; a wavelength is included only
-        when *every* cable in the path reports a value at it. Per-cable
-        losses are summed and quantised to 0.001 dB.
+        Each strand's FiberCable contributes ``FiberCable.calculated_loss_db``;
+        a wavelength is included only when every cable reports a value at
+        it. A plain-cable or provider-circuit hop has no spec, so a path
+        crossing one reports nothing.
         """
         from decimal import ROUND_HALF_UP, Decimal
 
-        cable_nodes = self.nodes.filter(cable__isnull=False).select_related("cable__fiber_attributes__fiber_cable_type")
         per_cable = []
-        for node in cable_nodes:
-            fc = getattr(node.cable, "fiber_attributes", None)
-            if fc is None:
+        for hop in self.strand_path.hops.select_related("strand__fiber_cable__fiber_cable_type"):
+            if hop.strand_id is None:
                 return []
-            per_cable.append(dict(fc.calculated_loss_db))
-
+            per_cable.append(dict(hop.strand.fiber_cable.calculated_loss_db))
         if not per_cable:
             return []
-
         common_wavelengths = set.intersection(*(set(d.keys()) for d in per_cable))
         quant = Decimal("0.001")
         return [
@@ -2035,9 +2037,9 @@ class FiberCircuitPath(NetBoxModel):
     def get_calculated_loss_db(self, wavelength_nm=None):
         """Calculated loss (Decimal dB) at a single wavelength, or None.
 
-        Defaults to the path's own ``wavelength_nm`` field. Returns
-        ``None`` if no spec rows cover that wavelength or if the path
-        has no operating wavelength set.
+        Defaults to the assignment's own ``wavelength_nm`` field. Returns
+        ``None`` if no spec rows cover that wavelength or if no operating
+        wavelength is set.
         """
         wl = wavelength_nm if wavelength_nm is not None else self.wavelength_nm
         if wl is None:
@@ -2045,74 +2047,17 @@ class FiberCircuitPath(NetBoxModel):
         return dict(self.calculated_loss_db).get(int(wl))
 
     def clean(self):
-        """Validate wavelength is set when an actual loss is recorded and path count fits."""
+        """Wavelength is required with an actual loss; active assignments may not exceed the strand count."""
         super().clean()
         if self.actual_loss_db is not None and self.wavelength_nm is None:
             raise ValidationError({"wavelength_nm": _("Wavelength is required when an actual loss is recorded.")})
         if self.circuit_id:
-            existing = self.circuit.paths.exclude(pk=self.pk).count()
+            existing = self.circuit.paths.filter(active=True).exclude(pk=self.pk).count()
             if existing >= self.circuit.strand_count:
                 raise ValidationError(
-                    _("Cannot add more paths than the circuit's strand count (%(count)s)."),
+                    _("Cannot assign more paths than the circuit's strand count (%(count)s)."),
                     params={"count": self.circuit.strand_count},
                 )
-
-    @classmethod
-    def from_origin(cls, front_port):
-        """Trace a fiber path from a FrontPort and return an unsaved FiberCircuitPath."""
-        from .trace import trace_fiber_path
-
-        result = trace_fiber_path(front_port)
-        return cls(
-            origin=result["origin"],
-            destination=result["destination"],
-            path=result["path"],
-            is_complete=result["is_complete"],
-        )
-
-    def retrace(self):
-        """Re-trace from origin, update path JSON, and atomically rebuild nodes."""
-        from .trace import trace_fiber_path
-
-        result = trace_fiber_path(self.origin)
-        self.destination = result["destination"]
-        self.path = result["path"]
-        self.is_complete = result["is_complete"]
-        self.save()
-        if self.circuit.status != FiberCircuitStatusChoices.DECOMMISSIONED:
-            self.rebuild_nodes()
-        else:
-            self.nodes.all().delete()
-
-    def rebuild_nodes(self):
-        """Walk self.path JSON and create FiberCircuitNode rows."""
-        self.nodes.all().delete()
-        position = 1
-        for entry in self.path:
-            node_type = entry["type"]
-            obj_id = entry["id"]
-            kwargs = {"path": self, "position": position}
-            if node_type in FiberCircuitNode.REFERENCE_FIELDS:
-                kwargs[f"{node_type}_id"] = obj_id
-            FiberCircuitNode.objects.create(**kwargs)
-            position += 1
-        self._create_strand_nodes(position)
-        self.circuit.sync_provider_circuits()
-
-    def _create_strand_nodes(self, start_position):
-        """Create FiberCircuitNode entries for FiberStrands derived from path FrontPorts."""
-        fp_ids = [e["id"] for e in self.path if e["type"] == "front_port"]
-        strands = FiberStrand.objects.landed_on(fp_ids).distinct()
-        pos = start_position
-        for strand in strands:
-            FiberCircuitNode.objects.create(path=self, position=pos, fiber_strand=strand)
-            pos += 1
-
-
-# The reference FK fields of FiberCircuitNode, exactly one of which is
-# populated per node. Module-level so the Meta check constraint is built
-# from the same tuple the model exposes as REFERENCE_FIELDS.
-NODE_REFERENCE_FIELDS = ("cable", "front_port", "rear_port", "fiber_strand", "splice_entry", "provider_circuit")
 
 
 def _exactly_one_of(*fields):
@@ -2121,95 +2066,6 @@ def _exactly_one_of(*fields):
     for populated in fields:
         condition |= models.Q(**{f"{field}__isnull": field != populated for field in fields})
     return condition
-
-
-class FiberCircuitNode(models.Model):
-    """Relational index of objects in a fiber circuit path for PROTECT-based deletion prevention."""
-
-    # Path entry types map 1:1 onto these FK names; the protecting API
-    # accepts them as its reference types.
-    REFERENCE_FIELDS = NODE_REFERENCE_FIELDS
-
-    # Not a NetBoxModel, so wire up the restricted manager explicitly --
-    # the API exposes this model and must be able to enforce object
-    # permissions on it via .restrict().
-    objects = RestrictedQuerySet.as_manager()
-
-    path = models.ForeignKey(
-        to="netbox_fms.FiberCircuitPath",
-        on_delete=models.CASCADE,
-        related_name="nodes",
-        verbose_name=_("path"),
-    )
-    position = models.PositiveIntegerField(verbose_name=_("position"))
-    cable = models.ForeignKey(
-        to="dcim.Cable",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        related_name="fiber_circuit_nodes",
-        verbose_name=_("cable"),
-    )
-    front_port = models.ForeignKey(
-        to="dcim.FrontPort",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        related_name="fiber_circuit_nodes",
-        verbose_name=_("front port"),
-    )
-    rear_port = models.ForeignKey(
-        to="dcim.RearPort",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        related_name="fiber_circuit_nodes",
-        verbose_name=_("rear port"),
-    )
-    fiber_strand = models.ForeignKey(
-        to="netbox_fms.FiberStrand",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        related_name="fiber_circuit_nodes",
-        verbose_name=_("fiber strand"),
-    )
-    splice_entry = models.ForeignKey(
-        to="netbox_fms.SplicePlanEntry",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        related_name="fiber_circuit_nodes",
-        verbose_name=_("splice entry"),
-    )
-    provider_circuit = models.ForeignKey(
-        to="circuits.Circuit",
-        on_delete=models.PROTECT,
-        blank=True,
-        null=True,
-        related_name="fiber_circuit_nodes",
-        verbose_name=_("provider circuit"),
-    )
-
-    class Meta:
-        ordering = ("path", "position")
-        unique_together = (("path", "position"),)
-        verbose_name = _("fiber circuit node")
-        verbose_name_plural = _("fiber circuit nodes")
-        constraints = [
-            models.CheckConstraint(
-                name="fibercircuitnode_exactly_one_ref",
-                condition=_exactly_one_of(*NODE_REFERENCE_FIELDS),
-            ),
-        ]
-
-    def __str__(self):
-        """Return the populated reference field and its value."""
-        for field in self.REFERENCE_FIELDS:
-            obj = getattr(self, field)
-            if obj is not None:
-                return f"{field}: {obj}"
-        return f"node #{self.position}"
 
 
 # ---------------------------------------------------------------------------
@@ -2229,6 +2085,11 @@ def hops_to_json(refs):
 def refs_from_json(data):
     """Hop references back from the snapshot shape."""
     return [(entry["type"], entry["id"]) for entry in data]
+
+
+def hops_snapshot(strand_path):
+    """The assignment snapshot of a path's current hops."""
+    return hops_to_json(strand_path.hop_refs())
 
 
 class FiberStrandPath(models.Model):
@@ -2316,7 +2177,7 @@ class FiberStrandPathHop(models.Model):
         blank=True,
         null=True,
         related_name="fiber_path_hops",
-        help_text=_("Only for cables that carry no FiberCable."),
+        help_text=_("Cables without a FiberCable, or a fiber position with no landed strand."),
     )
     provider_circuit = models.ForeignKey(
         to="circuits.Circuit",

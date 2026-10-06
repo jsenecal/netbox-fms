@@ -1,0 +1,8 @@
+{% load i18n %}
+{% if not assignment.active %}
+    <span class="fms-badge fms-badge--draft">{% trans "Inactive" %}</span>
+{% elif assignment.is_broken %}
+    <span class="fms-badge fms-badge--protected" title="{{ assignment.get_broken_reason_display }}">{% trans "Broken" %}</span>
+{% else %}
+    <span class="fms-badge fms-badge--live">{% trans "Healthy" %}</span>
+{% endif %}

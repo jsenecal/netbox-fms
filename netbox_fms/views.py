@@ -45,10 +45,6 @@ from .forms import (
     BufferTubeTemplateForm,
     CableElementTemplateBulkEditForm,
     CableElementTemplateForm,
-    CircuitWizardStep1Form,
-    CircuitWizardStep2Form,
-    CircuitWizardStep3Form,
-    CircuitWizardStep4Form,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
     ClosureCableWizardStep1Form,
@@ -108,9 +104,9 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberCircuitNode,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -120,7 +116,6 @@ from .models import (
     TrayProfile,
     TubeAssignment,
 )
-from .provisioning import create_circuit_from_proposal, find_fiber_paths
 from .services import (
     UNASSIGNED_TRAY_ID,
     NeedsMappingConfirmation,
@@ -135,7 +130,7 @@ from .services import (
     get_or_recompute_diff,
     import_live_state,
     link_cable_topology,
-    protecting_nodes,
+    protecting_circuits_by_front_port,
     tray_utilization,
 )
 from .tables import (
@@ -149,6 +144,7 @@ from .tables import (
     FiberCableTypeTable,
     FiberCircuitPathTable,
     FiberCircuitTable,
+    FiberStrandPathTable,
     FiberStrandTable,
     RibbonTable,
     RibbonTemplateTable,
@@ -548,13 +544,7 @@ class FiberCableView(generic.ObjectView):
 
     def get_extra_context(self, request, instance):
         total_strands = instance.fiber_strands.count()
-        active_strands = (
-            instance.fiber_strands.filter(
-                fiber_circuit_nodes__isnull=False,
-            )
-            .distinct()
-            .count()
-        )
+        active_strands = instance.fiber_strands.filter(path_hops__path__assignments__active=True).distinct().count()
         available_strands = total_strands - active_strands
         return {
             "strand_stats": {
@@ -699,9 +689,16 @@ class CableElementView(generic.ObjectView):
     queryset = CableElement.objects.all()
 
 
+def _assignments_on_cable(queryset, cable):
+    """Assignments whose path crosses the cable: as a strand of its FiberCable or as a plain-cable hop."""
+    return queryset.filter(
+        Q(strand_path__hops__cable=cable) | Q(strand_path__hops__strand__fiber_cable__cable=cable)
+    ).distinct()
+
+
 @register_model_view(Cable, "fibercircuits", path="fiber-circuits")
 class CableFiberCircuitsView(generic.ObjectChildrenView):
-    """Display fiber circuit paths passing through a dcim.Cable."""
+    """Fiber circuit assignments whose path crosses a dcim.Cable."""
 
     queryset = Cable.objects.all()
     child_model = FiberCircuitPath
@@ -710,22 +707,15 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
     actions = ()
     tab = ViewTab(
         label=_("Fiber Circuits"),
-        badge=lambda obj: FiberCircuitPath.objects.filter(nodes__cable=obj).distinct().count(),
+        badge=lambda obj: _assignments_on_cable(FiberCircuitPath.objects.all(), obj).count(),
         permission="netbox_fms.view_fibercircuitpath",
         weight=600,
         hide_if_empty=True,
     )
 
     def get_children(self, request, parent):
-        """Return fiber circuit paths that traverse the parent cable."""
-        return (
-            FiberCircuitPath.objects.restrict(request.user, "view")
-            .filter(
-                nodes__cable=parent,
-            )
-            .select_related("circuit", "origin", "destination")
-            .distinct()
-        )
+        queryset = FiberCircuitPath.objects.restrict(request.user, "view").select_related("circuit", "strand_path")
+        return _assignments_on_cable(queryset, parent)
 
 
 # ---------------------------------------------------------------------------
@@ -1444,24 +1434,6 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
         # Snapshot for change logging
         old_cable.snapshot()
 
-        # Handle FiberCircuitNode references defensively
-        rewiring_records = []
-        try:
-            nodes = FiberCircuitNode.objects.filter(
-                models.Q(cable=old_cable) | models.Q(fiber_strand__fiber_cable=old_fiber_cable)
-            )
-            for node in nodes:
-                record = {"path_id": node.path_id, "position": node.position}
-                if node.cable_id:
-                    record["field"] = "cable"
-                elif node.fiber_strand_id:
-                    record["field"] = "fiber_strand"
-                    record["strand_position"] = node.fiber_strand.position
-                rewiring_records.append(record)
-            nodes.delete()
-        except (ImportError, LookupError):
-            pass
-
         # Delete old cable (cascades FiberCable, strands, etc.)
         old_cable.delete()
 
@@ -1512,26 +1484,6 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
         ClosureCableEntry.objects.create(closure=closure, fiber_cable=fc_a)
         ClosureCableEntry.objects.create(closure=closure, fiber_cable=fc_b)
 
-        # Re-wire FiberCircuitNodes
-        if rewiring_records:
-            try:
-                for record in rewiring_records:
-                    kwargs = {"path_id": record["path_id"], "position": record["position"]}
-                    if record["field"] == "cable":
-                        kwargs["cable"] = cable_a
-                    elif record["field"] == "fiber_strand":
-                        strand_pos = record["strand_position"]
-                        strand = fc_a.fiber_strands.filter(position=strand_pos).first()
-                        if not strand:
-                            strand = fc_b.fiber_strands.filter(position=strand_pos).first()
-                        if strand:
-                            kwargs["fiber_strand"] = strand
-                        else:
-                            continue
-                    FiberCircuitNode.objects.create(**kwargs)
-            except (ImportError, LookupError):
-                pass
-
         # Delete the SlackLoop
         slack_loop.delete()
 
@@ -1575,11 +1527,12 @@ class SlackLoopInsertView(LoginRequiredMixin, View):
 class FiberCircuitListView(generic.ObjectListView):
     """List all fiber circuits."""
 
-    queryset = FiberCircuit.objects.select_related("tenant").annotate(path_count=Count("paths"))
+    queryset = FiberCircuit.objects.select_related("tenant").annotate(
+        path_count=Count("paths", filter=Q(paths__active=True))
+    )
     table = FiberCircuitTable
     filterset = FiberCircuitFilterSet
     filterset_form = FiberCircuitFilterForm
-    template_name = "netbox_fms/fibercircuit_list.html"
 
 
 class FiberCircuitView(generic.ObjectView):
@@ -1588,7 +1541,11 @@ class FiberCircuitView(generic.ObjectView):
     queryset = FiberCircuit.objects.all()
 
     def get_extra_context(self, request, instance):
-        return {"paths": instance.paths.all()}
+        return {
+            "paths": instance.paths.select_related("strand_path__end_a_port", "strand_path__end_b_port").order_by(
+                "position"
+            )
+        }
 
 
 class FiberCircuitEditView(generic.ObjectEditView):
@@ -1628,238 +1585,52 @@ class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
     table = FiberCircuitTable
 
 
-class CircuitWizardView(LoginRequiredMixin, View):
-    """4-step htmx wizard for guided fiber circuit creation."""
-
-    SESSION_KEY = "circuit_wizard"
-    SESSION_TTL = 3600  # 1 hour
-
-    def _get_state(self, request):
-        state = request.session.get(self.SESSION_KEY, {})
-        if state and time.time() - state.get("timestamp", 0) > self.SESSION_TTL:
-            request.session.pop(self.SESSION_KEY, None)
-            return {}
-        return state
-
-    def _set_state(self, request, state):
-        state["timestamp"] = time.time()
-        request.session[self.SESSION_KEY] = state
-        request.session.modified = True
-
-    def _clear_state(self, request):
-        request.session.pop(self.SESSION_KEY, None)
-
-    def get(self, request):
-        if request.GET.get("restart"):
-            self._clear_state(request)
-            return redirect("plugins:netbox_fms:fibercircuit_wizard")
-        state = self._get_state(request)
-        step = state.get("step", 1)
-        return self._render_step(request, step, state)
-
-    def post(self, request):
-        state = self._get_state(request)
-        step = state.get("step", 1)
-        if request.POST.get("_back"):
-            state["step"] = max(1, step - 1)
-            self._set_state(request, state)
-            return self._render_step(request, state["step"], state)
-        if step == 1:
-            return self._process_step1(request, state)
-        elif step == 2:
-            return self._process_step2(request, state)
-        elif step == 3:
-            return self._process_step3(request, state)
-        elif step == 4:
-            return self._process_step4(request, state)
-        return self._render_step(request, 1, {})
-
-    def _render_step(self, request, step, state):
-        ctx = {"state": state, "current_step": step}
-        if step == 1:
-            ctx["form"] = CircuitWizardStep1Form(
-                initial={
-                    "name": state.get("name", ""),
-                    "cid": state.get("cid", ""),
-                    "strand_count": state.get("strand_count", 1),
-                    "tenant": state.get("tenant_id"),
-                }
-            )
-        elif step == 2:
-            ctx["form"] = CircuitWizardStep2Form(
-                initial={
-                    "origin_device": state.get("origin_device_id"),
-                    "destination_device": state.get("destination_device_id"),
-                }
-            )
-        elif step == 3:
-            ctx["proposals"] = state.get("proposals", [])
-            ctx["form"] = CircuitWizardStep3Form()
-        elif step == 4:
-            proposals = state.get("proposals", [])
-            idx = state.get("selected_proposal_idx", 0)
-            ctx["proposal"] = proposals[idx] if idx < len(proposals) else {}
-            ctx["needs_splices"] = ctx["proposal"].get("new_splice_count", 0) > 0
-            ctx["form"] = CircuitWizardStep4Form()
-        template = f"netbox_fms/htmx/circuit_wizard_step{step}.html"
-        if request.headers.get("HX-Request"):
-            return render(request, template, ctx)
-        return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
-
-    def _process_step1(self, request, state):
-        form = CircuitWizardStep1Form(request.POST)
-        if not form.is_valid():
-            ctx = {"form": form, "state": state, "current_step": 1}
-            template = "netbox_fms/htmx/circuit_wizard_step1.html"
-            if request.headers.get("HX-Request"):
-                return render(request, template, ctx)
-            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
-        state.update(
-            {
-                "step": 2,
-                "name": form.cleaned_data["name"],
-                "cid": form.cleaned_data.get("cid", ""),
-                "strand_count": form.cleaned_data["strand_count"],
-                "tenant_id": form.cleaned_data["tenant"].pk if form.cleaned_data.get("tenant") else None,
-            }
-        )
-        self._set_state(request, state)
-        return self._render_step(request, 2, state)
-
-    def _process_step2(self, request, state):
-        form = CircuitWizardStep2Form(request.POST)
-        if not form.is_valid():
-            ctx = {"form": form, "state": state, "current_step": 2}
-            template = "netbox_fms/htmx/circuit_wizard_step2.html"
-            if request.headers.get("HX-Request"):
-                return render(request, template, ctx)
-            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
-        origin = form.cleaned_data["origin_device"]
-        destination = form.cleaned_data["destination_device"]
-        strand_count = state.get("strand_count", 1)
-        try:
-            proposals = find_fiber_paths(origin, destination, strand_count)
-        except Exception as e:
-            messages.error(request, _("Pathfinding error: {error}").format(error=str(e)))
-            ctx = {"form": form, "state": state, "current_step": 2}
-            template = "netbox_fms/htmx/circuit_wizard_step2.html"
-            if request.headers.get("HX-Request"):
-                return render(request, template, ctx)
-            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
-        if not proposals:
-            messages.error(request, _("No routes found. Check that ports are provisioned on both devices."))
-            ctx = {"form": form, "state": state, "current_step": 2}
-            template = "netbox_fms/htmx/circuit_wizard_step2.html"
-            if request.headers.get("HX-Request"):
-                return render(request, template, ctx)
-            return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
-        state.update(
-            {
-                "step": 3,
-                "origin_device_id": origin.pk,
-                "destination_device_id": destination.pk,
-                "proposals": proposals,
-            }
-        )
-        self._set_state(request, state)
-        return self._render_step(request, 3, state)
-
-    def _process_step3(self, request, state):
-        proposals = state.get("proposals", [])
-        try:
-            idx = int(request.POST.get("selected_proposal", 0))
-        except (TypeError, ValueError):
-            idx = 0
-        if idx < 0 or idx >= len(proposals):
-            messages.error(request, _("Invalid route selection."))
-            return self._render_step(request, 3, state)
-        state.update({"step": 4, "selected_proposal_idx": idx})
-        self._set_state(request, state)
-        return self._render_step(request, 4, state)
-
-    def _process_step4(self, request, state):
-        form = CircuitWizardStep4Form(request.POST)
-        proposals = state.get("proposals", [])
-        idx = state.get("selected_proposal_idx", 0)
-        proposal = proposals[idx] if idx < len(proposals) else None
-        if not proposal:
-            messages.error(request, _("Session expired. Please start over."))
-            self._clear_state(request)
-            return redirect("plugins:netbox_fms:fibercircuit_wizard")
-        needs_splices = proposal.get("new_splice_count", 0) > 0
-        splice_project = None
-        if needs_splices:
-            if not form.is_valid():
-                ctx = {"form": form, "state": state, "current_step": 4, "proposal": proposal, "needs_splices": True}
-                template = "netbox_fms/htmx/circuit_wizard_step4.html"
-                if request.headers.get("HX-Request"):
-                    return render(request, template, ctx)
-                return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
-            if form.cleaned_data.get("splice_project"):
-                splice_project = form.cleaned_data["splice_project"]
-            elif form.cleaned_data.get("new_project_name"):
-                splice_project = SpliceProject.objects.create(name=form.cleaned_data["new_project_name"])
-            else:
-                messages.error(request, _("Please select or create a splice project for the new splices."))
-                ctx = {"form": form, "state": state, "current_step": 4, "proposal": proposal, "needs_splices": True}
-                template = "netbox_fms/htmx/circuit_wizard_step4.html"
-                if request.headers.get("HX-Request"):
-                    return render(request, template, ctx)
-                return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
-        try:
-            circuit = create_circuit_from_proposal(proposal, name=state.get("name"), splice_project=splice_project)
-            tenant_id = state.get("tenant_id")
-            if tenant_id:
-                circuit.tenant_id = tenant_id
-                circuit.save(update_fields=["tenant_id"])
-            cid = state.get("cid")
-            if cid:
-                circuit.cid = cid
-                circuit.save(update_fields=["cid"])
-            messages.success(
-                request,
-                _('Circuit "{name}" created with {count} paths.').format(
-                    name=circuit.name, count=circuit.paths.count()
-                ),
-            )
-        except Exception as e:
-            messages.error(request, _("Error creating circuit: {error}").format(error=str(e)))
-            return self._render_step(request, 4, state)
-        self._clear_state(request)
-        return redirect(circuit.get_absolute_url())
-
-
-# ---------------------------------------------------------------------------
-# FiberCircuitPath
-# ---------------------------------------------------------------------------
-
-
 class FiberCircuitPathListView(generic.ObjectListView):
     """List all fiber circuit paths."""
 
-    queryset = FiberCircuitPath.objects.select_related("circuit", "origin", "destination")
+    queryset = FiberCircuitPath.objects.select_related("circuit", "strand_path")
     table = FiberCircuitPathTable
     filterset = FiberCircuitPathFilterSet
     filterset_form = FiberCircuitPathFilterForm
 
 
 class FiberCircuitPathView(generic.ObjectView):
-    """Display a single fiber circuit path."""
+    """Display a single assignment."""
 
-    queryset = FiberCircuitPath.objects.select_related("circuit", "origin", "destination")
+    queryset = FiberCircuitPath.objects.select_related("circuit", "strand_path")
 
 
 class FiberCircuitPathEditView(generic.ObjectEditView):
-    """Handle fiber circuit path creation and editing."""
+    """Edit the measured optical parameters of an assignment."""
 
     queryset = FiberCircuitPath.objects.all()
     form = FiberCircuitPathForm
 
 
 class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
-    """Delete a fiber circuit path."""
+    """Delete an assignment, releasing its fiber path."""
 
     queryset = FiberCircuitPath.objects.all()
+
+
+class FiberStrandPathListView(generic.ObjectListView):
+    """Analyzed fiber paths (read-only: the analysis job is the only writer)."""
+
+    queryset = FiberStrandPath.objects.select_related("end_a_port__device", "end_b_port__device")
+    table = FiberStrandPathTable
+    actions = ()
+
+
+class FiberStrandPathView(generic.ObjectView):
+    """One analyzed fiber path with its hops and assignments."""
+
+    queryset = FiberStrandPath.objects.select_related("end_a_port__device", "end_b_port__device")
+
+    def get_extra_context(self, request, instance):
+        return {
+            "hops": instance.hops.select_related("strand__fiber_cable", "cable", "provider_circuit"),
+            "assignments": instance.assignments.select_related("circuit"),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -2288,7 +2059,7 @@ class DevicePendingWorkView(generic.ObjectView):
                         fp_ids.add(entry.fiber_a_id)
                         fp_ids.add(entry.fiber_b_id)
                 if fp_ids:
-                    protected_circuits = set(protecting_nodes(fp_ids).values_list("path__circuit__name", flat=True))
+                    protected_circuits = {c.name for c in protecting_circuits_by_front_port(fp_ids).values()}
                     if protected_circuits:
                         names = ", ".join(sorted(protected_circuits))
                         messages.error(

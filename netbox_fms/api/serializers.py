@@ -23,9 +23,10 @@ from ..models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberCircuitNode,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
+    FiberStrandPathHop,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -596,23 +597,62 @@ class FiberCircuitSerializer(NetBoxModelSerializer):
             "strand_count",
             "tenant",
             "provider_circuits",
+            "is_broken",
             "comments",
             "tags",
             "custom_fields",
             "created",
             "last_updated",
         )
+        read_only_fields = ("is_broken",)
         brief_fields = ("id", "url", "display", "name", "cid", "status")
 
 
-class FiberCircuitPathSerializer(NetBoxModelSerializer):
-    """Serializer for FiberCircuitPath model.
+class FiberStrandPathHopSerializer(serializers.ModelSerializer):
+    """One hop of an analyzed fiber path."""
 
-    ``calculated_loss_db`` is a computed list of
-    ``[wavelength_nm, loss_db]`` pairs derived from each cable's
-    ``FiberAttenuationSpec`` rows and glass length; it is read-only.
+    class Meta:
+        model = FiberStrandPathHop
+        fields = ("position", "strand", "cable", "provider_circuit")
+        read_only_fields = fields
+
+
+class FiberStrandPathSerializer(serializers.ModelSerializer):
+    """Read-only view of an analyzed fiber path with its hops."""
+
+    end_a_port = FrontPortSerializer(nested=True, read_only=True)
+    end_b_port = FrontPortSerializer(nested=True, read_only=True)
+    hops = FiberStrandPathHopSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FiberStrandPath
+        fields = (
+            "id",
+            "end_a_port",
+            "end_b_port",
+            "end_a_kind",
+            "end_b_kind",
+            "end_a_reason",
+            "end_b_reason",
+            "completeness",
+            "route_key",
+            "is_proposed",
+            "is_defective",
+            "computed_at",
+            "hops",
+        )
+        read_only_fields = fields
+
+
+class FiberCircuitPathSerializer(NetBoxModelSerializer):
+    """An assignment of an analyzed fiber path to a circuit.
+
+    Created only through the circuit's ``assign`` action; here only the
+    measured optical parameters are writable. ``calculated_loss_db`` is a
+    read-only list of ``[wavelength_nm, loss_db]`` pairs.
     """
 
+    strand_path = FiberStrandPathSerializer(read_only=True)
     calculated_loss_db = serializers.SerializerMethodField()
 
     def get_calculated_loss_db(self, obj):
@@ -625,11 +665,13 @@ class FiberCircuitPathSerializer(NetBoxModelSerializer):
             "url",
             "display",
             "circuit",
+            "strand_path",
             "position",
-            "origin",
-            "destination",
-            "path",
-            "is_complete",
+            "active",
+            "assigned_hops",
+            "delivered_incomplete",
+            "is_broken",
+            "broken_reason",
             "calculated_loss_db",
             "actual_loss_db",
             "wavelength_nm",
@@ -638,26 +680,16 @@ class FiberCircuitPathSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
         )
-        brief_fields = ("id", "url", "display", "position", "is_complete")
-
-
-class FiberCircuitNodeSerializer(serializers.ModelSerializer):
-    """Serializer for FiberCircuitNode model."""
-
-    class Meta:
-        model = FiberCircuitNode
-        fields = (
-            "id",
-            "path",
+        read_only_fields = (
+            "circuit",
             "position",
-            "cable",
-            "front_port",
-            "rear_port",
-            "fiber_strand",
-            "splice_entry",
-            "provider_circuit",
+            "active",
+            "assigned_hops",
+            "delivered_incomplete",
+            "is_broken",
+            "broken_reason",
         )
-        read_only_fields = fields
+        brief_fields = ("id", "url", "display", "position", "is_broken")
 
 
 # ---------------------------------------------------------------------------

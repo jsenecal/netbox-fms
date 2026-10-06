@@ -18,7 +18,18 @@ from dcim.models import (
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from netbox_fms.trace_hops import build_hops
+from netbox_fms.choices import SplicePlanStatusChoices
+from netbox_fms.models import FiberCableType, FiberStrand, SplicePlan, SplicePlanEntry
+from netbox_fms.services import create_closure_cable
+from netbox_fms.trace_hops import build_hops, flat_entries
+from tests.conftest import (
+    connect_front_ports,
+    make_closure_pair,
+    make_provider_circuit,
+    make_strand_path,
+    make_tray_module,
+    make_tray_type,
+)
 
 
 def _make_device(site, mfr, name, suffix=""):
@@ -273,3 +284,77 @@ class TestProviderCircuitHop(TestCase):
         hops = build_hops([{"type": "provider_circuit", "id": 999999}])
         assert hops[0]["cid"] == "Circuit #999999"
         assert hops[0]["provider"] is None
+
+
+class TestFlatEntries(TestCase):
+    """flat_entries rebuilds the port-level trace the renderer consumes from a stored path."""
+
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair("FE")
+        cls.dev_a, cls.dev_b = pair.dev_a, pair.dev_b
+        dev_c = make_closure_pair("FE2").dev_b
+        fct = FiberCableType.objects.create(
+            manufacturer=pair.mfr, model="FE-2", strand_count=2, construction="tight_buffer"
+        )
+        fc_ab, _ = create_closure_cable(device_a=cls.dev_a, device_b=cls.dev_b, fiber_cable_type=fct)
+        fc_bc, _ = create_closure_cable(device_a=cls.dev_b, device_b=dev_c, fiber_cable_type=fct)
+        cls.s1 = fc_ab.fiber_strands.order_by("position").first()
+        cls.t1 = fc_bc.fiber_strands.order_by("position").first()
+        connect_front_ports(cls.s1.front_port_b, cls.t1.front_port_a)
+        plan = SplicePlan.objects.create(closure=cls.dev_b, name="FE plan", status=SplicePlanStatusChoices.ARCHIVED)
+        tray = make_tray_module(cls.dev_b, make_tray_type(pair.mfr, "FE Tray"), "Bay 1")
+        cls.entry = SplicePlanEntry.objects.create(
+            plan=plan, tray=tray, fiber_a=cls.s1.front_port_b, fiber_b=cls.t1.front_port_a
+        )
+
+    def _rear(self, fp_id):
+        return PortMapping.objects.get(front_port_id=fp_id).rear_port_id
+
+    def test_strand_hops_expand_to_ports_cables_and_splice_entries(self):
+        path = make_strand_path(self.s1, self.t1, end_a=self.s1.front_port_a, end_b=self.t1.front_port_b)
+        types_and_ids = [(e["type"], e["id"]) for e in flat_entries(path)]
+        assert types_and_ids == [
+            ("front_port", self.s1.front_port_a_id),
+            ("rear_port", self._rear(self.s1.front_port_a_id)),
+            ("cable", self.s1.fiber_cable.cable_id),
+            ("rear_port", self._rear(self.s1.front_port_b_id)),
+            ("front_port", self.s1.front_port_b_id),
+            ("splice_entry", self.entry.pk),
+            ("front_port", self.t1.front_port_a_id),
+            ("rear_port", self._rear(self.t1.front_port_a_id)),
+            ("cable", self.t1.fiber_cable.cable_id),
+            ("rear_port", self._rear(self.t1.front_port_b_id)),
+            ("front_port", self.t1.front_port_b_id),
+        ]
+        assert [h["type"] for h in build_hops(flat_entries(path))] == ["device", "cable", "device", "cable", "device"]
+
+    def test_a_path_read_from_its_b_end_orients_each_strand(self):
+        path = make_strand_path(self.t1, self.s1, end_a=self.t1.front_port_b, end_b=self.s1.front_port_a)
+        fps = [e["id"] for e in flat_entries(path) if e["type"] == "front_port"]
+        assert fps == [
+            self.t1.front_port_b_id,
+            self.t1.front_port_a_id,
+            self.s1.front_port_b_id,
+            self.s1.front_port_a_id,
+        ]
+
+    def test_plain_cable_and_provider_hops_stay_single_entries(self):
+        span = make_provider_circuit("FE")
+        plain = Cable.objects.create()
+        path = make_strand_path(self.s1, plain, span.circuit, end_a=self.s1.front_port_a)
+        tail = [(e["type"], e["id"]) for e in flat_entries(path)][-2:]
+        assert tail == [("cable", plain.pk), ("provider_circuit", span.circuit.pk)]
+
+    def test_half_landed_strand_and_unmapped_port(self):
+        from netbox_fms.signals import fms_portmapping_bypass
+
+        FiberStrand.objects.filter(pk=self.s1.pk).update(front_port_b=None)
+        with fms_portmapping_bypass():
+            PortMapping.objects.filter(front_port_id=self.s1.front_port_a_id).delete()
+        self.s1.refresh_from_db()
+        path = make_strand_path(self.s1, end_a=self.s1.front_port_a)
+        assert [(e["type"], e["id"]) for e in flat_entries(path)] == [
+            ("front_port", self.s1.front_port_a_id),
+            ("cable", self.s1.fiber_cable.cable_id),
+        ]
