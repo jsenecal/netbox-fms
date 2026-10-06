@@ -157,7 +157,12 @@ def _fiber_device_ids():
 
 
 def _expand_region(plant, seed_device_ids):
-    frontier = _fiber_device_ids() if seed_device_ids is None else set(seed_device_ids)
+    if seed_device_ids is None:
+        from .path_analysis import device_ids_on_paths
+
+        frontier = _fiber_device_ids() | device_ids_on_paths()
+    else:
+        frontier = set(seed_device_ids)
     cable_ids = set()
     while frontier:
         plant.device_ids |= frontier

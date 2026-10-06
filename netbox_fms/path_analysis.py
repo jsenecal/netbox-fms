@@ -9,12 +9,22 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, fields
+from datetime import timedelta
 
 from django.db import connection
 from django.db.models import Q
+from django.utils import timezone
+from netbox.plugins import get_plugin_config
 
 from .bulk import BATCH_SIZE
-from .models import FiberStrandPath, FiberStrandPathHop, PathAnomaly
+from .models import (
+    FiberStrandPath,
+    FiberStrandPathHop,
+    PathAnalysisQueue,
+    PathAnomaly,
+    RouteChangeAuthorization,
+)
+from .path_graph import load_plant, walk_all
 
 # A plugin-private PostgreSQL advisory lock id, far from NetBox's own keys.
 ANALYSIS_LOCK_KEY = 1_960_001
@@ -186,11 +196,15 @@ def write_results(chains, stored_paths, *, computed_at):
         new_chains.extend(
             chain for chain in candidates if chain is not keeper and tuple(chain.hops) not in same_component
         )
-        if keep.hops == refs:
+        values = _path_fields(keep, computed_at)
+        # Equal hops can still carry different ends (a port gained or lost its far side), so compare those too.
+        if keep.hops == refs and all(
+            getattr(path, name) == value for name, value in values.items() if name != "computed_at"
+        ):
             path.computed_at = computed_at
             unchanged.append(path)
         else:
-            for name, value in _path_fields(keep, computed_at).items():
+            for name, value in values.items():
                 setattr(path, name, value)
             rewritten.append((path, keep))
 
@@ -232,3 +246,21 @@ def replace_anomalies(anomalies, device_ids=None):
         [PathAnomaly(kind=a.kind, strand_id=a.strand_id, front_port_id=a.front_port_id) for a in anomalies],
         batch_size=BATCH_SIZE,
     )
+
+
+def run_reconcile():
+    """Analyze the whole plant against every stored path and purge stale bookkeeping.
+
+    Queue rows created before the start are superseded by this run; rows
+    inserted meanwhile keep their own scheduled job. Authorizations older
+    than one reconcile cycle were never consumed and are dropped.
+    """
+    started = timezone.now()
+    plant = load_plant(None)
+    stats = write_results(walk_all(plant), FiberStrandPath.objects.prefetch_related("hops"), computed_at=started)
+    replace_anomalies(plant.anomalies)
+    PathAnalysisQueue.objects.filter(created__lt=started).delete()
+    cycle = timedelta(minutes=get_plugin_config("netbox_fms", "path_reconcile_interval_minutes"))
+    RouteChangeAuthorization.objects.filter(created__lt=started - cycle).delete()
+    stats.devices = len(plant.device_ids)
+    return stats

@@ -16,7 +16,15 @@ class NetBoxFMSConfig(PluginConfig):
     author_email = "contact@jonathansenecal.com"
     base_url = "fms"
     min_version = "4.5.0"
-    default_settings = {}
+    default_settings = {
+        # Fixed batching window: the first plant change schedules the analysis
+        # this many seconds out; later changes inside the window ride along.
+        "path_analysis_window_seconds": 30,
+        # Cadence of the full reconcile that repairs whatever bypassed signals.
+        "path_reconcile_interval_minutes": 1440,
+        # Re-route search bound as a share of the route's spans, rounded up.
+        "reroute_window_ratio": 0.2,
+    }
 
     def ready(self):
         super().ready()
