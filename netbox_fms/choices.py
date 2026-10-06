@@ -275,3 +275,102 @@ class TrayRoleChoices(ChoiceSet):
         (SPLICE_TRAY, _("Splice Tray")),
         (EXPRESS_BASKET, _("Express Basket")),
     )
+
+
+#
+# Fiber path analysis choices
+#
+
+
+class PathEndKindChoices(ChoiceSet):
+    """How one end of an analyzed fiber path finishes."""
+
+    TERMINATED = "terminated"
+    OPEN = "open"
+
+    CHOICES = (
+        (TERMINATED, _("Terminated")),
+        (OPEN, _("Open")),
+    )
+
+
+class PathEndReasonChoices(ChoiceSet):
+    """Why an analyzed fiber path end is open."""
+
+    UNSPLICED = "unspliced"
+    CABLE_END = "cable_end"
+
+    CHOICES = (
+        (UNSPLICED, _("Unspliced in a closure where sibling fibers are spliced")),
+        (CABLE_END, _("Cable end with nothing beyond it")),
+    )
+
+
+class PathCompletenessChoices(ChoiceSet):
+    """Both, one or neither end of a fiber path terminated."""
+
+    TERMINATED_TERMINATED = "terminated_terminated"
+    TERMINATED_OPEN = "terminated_open"
+    OPEN_OPEN = "open_open"
+
+    CHOICES = (
+        (TERMINATED_TERMINATED, _("Terminated at both ends")),
+        (TERMINATED_OPEN, _("Open at one end")),
+        (OPEN_OPEN, _("Open at both ends")),
+    )
+
+    @classmethod
+    def from_end_kinds(cls, kind_a, kind_b):
+        """The completeness value for a path whose ends have these kinds."""
+        terminated_ends = (kind_a, kind_b).count(PathEndKindChoices.TERMINATED)
+        return (cls.OPEN_OPEN, cls.TERMINATED_OPEN, cls.TERMINATED_TERMINATED)[terminated_ends]
+
+
+class PathAnomalyKindChoices(ChoiceSet):
+    """Plant shapes the analysis refuses to trace."""
+
+    TOO_MANY_CONNECTIONS = "too_many_connections"
+    LOOP = "loop"
+    DANGLING_REFERENCE = "dangling_reference"
+
+    CHOICES = (
+        (TOO_MANY_CONNECTIONS, _("More than two fiber connections")),
+        (LOOP, _("Loop")),
+        (DANGLING_REFERENCE, _("Dangling reference")),
+    )
+
+
+class AssignmentBrokenReasonChoices(ChoiceSet):
+    """Why a circuit's assignment no longer matches its assigned hops."""
+
+    HOPS_CHANGED = "hops_changed"
+    PATH_LOST = "path_lost"
+
+    CHOICES = (
+        (HOPS_CHANGED, _("Hops changed")),
+        (PATH_LOST, _("Path lost")),
+    )
+
+
+class PathAnalysisReasonChoices(ChoiceSet):
+    """Why a device was queued for path analysis (observability only)."""
+
+    CABLE_CHANGED = "cable_changed"
+    CABLE_DELETED = "cable_deleted"
+    SPLICE_CHANGED = "splice_changed"
+    PORT_MAPPING_CHANGED = "port_mapping_changed"
+    STRAND_CHANGED = "strand_changed"
+    FAULT_CHANGED = "fault_changed"
+    CLOSURE_ENTRY_CHANGED = "closure_entry_changed"
+    BULK_OPERATION = "bulk_operation"
+
+    CHOICES = (
+        (CABLE_CHANGED, _("Cable changed")),
+        (CABLE_DELETED, _("Cable deleted")),
+        (SPLICE_CHANGED, _("Splice changed")),
+        (PORT_MAPPING_CHANGED, _("Port mapping changed")),
+        (STRAND_CHANGED, _("Strand changed")),
+        (FAULT_CHANGED, _("Fault changed")),
+        (CLOSURE_ENTRY_CHANGED, _("Closure entry changed")),
+        (BULK_OPERATION, _("Bulk operation")),
+    )
