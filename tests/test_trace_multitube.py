@@ -8,12 +8,15 @@ RearPorts per end, distinguished by CableTermination.connector), spliced
 fiber-for-fiber at Y, and prove the trace stays on its own tube end to end.
 """
 
+from types import SimpleNamespace
+
 from dcim.models import Cable, CableTermination, FrontPort, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
 from netbox_fms.models import FiberCircuitPath
-from tests.conftest import connect_front_ports, make_closure_with_tray
+from netbox_fms.trace import pair_far_rear_port_termination
+from tests.conftest import connect_front_ports, connect_tube_cable, make_closure_with_tray
 
 
 def _make_closure(name):
@@ -45,28 +48,6 @@ def _make_dual_tube(device, tray, prefix):
     return rp1, fp1a, fp1b, rp2, fp2a, fp2b
 
 
-def _connect_dual_tube_cable(cable, near_rp1, near_rp2, far_rp1, far_rp2):
-    """Terminate a two-tube trunk cable, tube 1 first (the ordering trap)."""
-    rp_ct = ContentType.objects.get_for_model(RearPort)
-    for near_rp, far_rp, connector in [(near_rp1, far_rp1, 1), (near_rp2, far_rp2, 2)]:
-        CableTermination.objects.create(
-            cable=cable,
-            cable_end="A",
-            termination_type=rp_ct,
-            termination_id=near_rp.pk,
-            connector=connector,
-            positions=[1, 2],
-        )
-        CableTermination.objects.create(
-            cable=cable,
-            cable_end="B",
-            termination_type=rp_ct,
-            termination_id=far_rp.pk,
-            connector=connector,
-            positions=[1, 2],
-        )
-
-
 class TestTraceMultiTubeCrossing(TestCase):
     """X -- C1 -- Y -- C2 -- Z, each trunk cable carrying two tubes."""
 
@@ -89,11 +70,12 @@ class TestTraceMultiTubeCrossing(TestCase):
             cls.dev_z, cls.tray_z, "Z"
         )
 
+        # Tube 1 is terminated before tube 2 (the ordering trap).
         cls.cable1 = Cable.objects.create()
-        _connect_dual_tube_cable(cls.cable1, cls.rp_x1, cls.rp_x2, cls.rp_y_c1_1, cls.rp_y_c1_2)
+        connect_tube_cable(cls.cable1, [(cls.rp_x1, cls.rp_y_c1_1), (cls.rp_x2, cls.rp_y_c1_2)])
 
         cls.cable2 = Cable.objects.create()
-        _connect_dual_tube_cable(cls.cable2, cls.rp_y_c2_1, cls.rp_y_c2_2, cls.rp_z1, cls.rp_z2)
+        connect_tube_cable(cls.cable2, [(cls.rp_y_c2_1, cls.rp_z1), (cls.rp_y_c2_2, cls.rp_z2)])
 
         # Splice jumpers at Y, fiber-for-fiber: tube 1 <-> tube 1, tube 2 <-> tube 2.
         connect_front_ports(cls.fp_y_c1_1a, cls.fp_y_c2_1a)
@@ -182,3 +164,18 @@ class TestTraceMixedConnectorSingleRP(TestCase):
 
         assert result.is_complete is True
         assert result.destination == self.fp_b
+
+
+class TestPairFarRearPortTermination:
+    """The pure tube-pairing rule shared by the trace engine and the circuit wizard."""
+
+    def test_unmatched_connector_on_multi_rp_cable_does_not_cross(self):
+        """Near connector has no far match and an end carries two rear ports: refuse to guess.
+
+        The single-RP fallback only applies when both ends have exactly one
+        rear port, since that is the only case with one way to align them.
+        """
+        near_terms = [SimpleNamespace(connector=1), SimpleNamespace(connector=2)]
+        far_terms = [SimpleNamespace(connector=3)]
+
+        assert pair_far_rear_port_termination(1, near_terms, far_terms) is None

@@ -200,6 +200,29 @@ def land_strands(fc, front_ports, rear_port=None, fk="front_port_a"):
     return strands
 
 
+def connect_tube_cable(cable, tube_pairs):
+    """Terminate a multi-tube trunk cable on RearPorts, one tube at a time.
+
+    ``tube_pairs`` lists ``(a_rear_port, b_rear_port)`` per tube in tube
+    order; the n-th pair gets connector ``n`` on both ends, which is how the
+    trace engine and the circuit wizard tell tubes of one cable apart.
+    """
+    from dcim.models import CableTermination, RearPort
+    from django.contrib.contenttypes.models import ContentType
+
+    rp_ct = ContentType.objects.get_for_model(RearPort)
+    for connector, (a_rp, b_rp) in enumerate(tube_pairs, start=1):
+        for cable_end, rp in (("A", a_rp), ("B", b_rp)):
+            CableTermination.objects.create(
+                cable=cable,
+                cable_end=cable_end,
+                termination_type=rp_ct,
+                termination_id=rp.pk,
+                connector=connector,
+                positions=list(range(1, rp.positions + 1)),
+            )
+
+
 def connect_front_ports(port_a, port_b):
     """Create a zero-length jumper cable between two FrontPorts."""
     from dcim.models import Cable, CableTermination

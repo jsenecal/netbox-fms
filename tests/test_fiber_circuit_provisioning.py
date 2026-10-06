@@ -20,6 +20,8 @@ from django.test import TestCase
 
 from netbox_fms.choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
 from netbox_fms.models import FiberCircuit, SplicePlan, SpliceProject
+from netbox_fms.provisioning import _generate_single_hop_candidates, create_circuit_from_proposal, find_fiber_paths
+from tests.conftest import connect_tube_cable, make_closure_pair, make_mapped_rear_ports
 
 
 def _setup_linear_network(site, mfr, num_closures, strands_per_cable=4):
@@ -334,3 +336,116 @@ class TestCreateFromProposalWithSpliceProject(TestCase):
         plans = SplicePlan.objects.filter(closure=intermediate_dev, project=project)
         assert plans.count() == 1
         assert plans.first().pk == existing_plan.pk
+
+
+def _tube_pairs(proposal):
+    """The (entry_rp_id, exit_rp_id) pair of every strand's first hop in a proposal."""
+    return {(s["hops"][0]["entry_rp_id"], s["hops"][0]["exit_rp_id"]) for s in proposal["strands"]}
+
+
+class TestMultiTubeCablePairing(TestCase):
+    """Regression tests for issue #197: the wizard crossed buffer tubes mid-cable.
+
+    Two closures joined by a two-tube trunk (RP1/RP2 at each end, connectors
+    1 and 2 on both ends). A strand entering on tube 1 must leave on tube 1.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair("MTP")
+        cls.dev_a, cls.dev_b = pair.dev_a, pair.dev_b
+        (cls.rp_a1, cls.rp_a2), cls.fps_a = make_mapped_rear_ports(cls.dev_a, ["RP1", "RP2"], "A-{rp}-{i}", 2)
+        (cls.rp_b1, cls.rp_b2), cls.fps_b = make_mapped_rear_ports(cls.dev_b, ["RP1", "RP2"], "B-{rp}-{i}", 2)
+        cls.cable = Cable.objects.create()
+        connect_tube_cable(cls.cable, [(cls.rp_a1, cls.rp_b1), (cls.rp_a2, cls.rp_b2)])
+
+    def test_strands_never_cross_tubes(self):
+        """Every proposed strand pairs a rear port with its same-connector far end."""
+        results = find_fiber_paths(self.dev_a, self.dev_b, strand_count=1, priorities=["lowest_strand"])
+
+        assert results
+        same_tube = {(self.rp_a1.pk, self.rp_b1.pk), (self.rp_a2.pk, self.rp_b2.pk)}
+        for proposal in results:
+            assert _tube_pairs(proposal) <= same_tube, _tube_pairs(proposal)
+
+    def test_ambiguous_connectorless_cable_yields_no_route(self):
+        """Two connector-less rear ports per end cannot be paired, so no fiber is proposed."""
+        CableTermination.objects.filter(cable=self.cable).update(connector=None)
+
+        assert find_fiber_paths(self.dev_a, self.dev_b, strand_count=1) == []
+
+    def test_asymmetric_connectorless_cable_yields_no_route(self):
+        """One connector-less rear port on A facing two on B: no pair holds from both ends.
+
+        Each B tube resolves to the single A rear port, but a trace entering
+        from A sees two far candidates and refuses to cross. The wizard must
+        not offer edges the trace cannot reproduce (issue #197).
+        """
+        CableTermination.objects.filter(cable=self.cable).update(connector=None)
+        CableTermination.objects.filter(cable=self.cable, cable_end="A", termination_id=self.rp_a2.pk).delete()
+
+        assert find_fiber_paths(self.dev_a, self.dev_b, strand_count=1) == []
+
+    def test_default_ranking_prefers_contiguous_pair_over_fewer_hops(self):
+        """A same-tube pair two hops away outranks a scattered direct pair by default.
+
+        Strands of one circuit (a Tx/Rx pair) must share route and specs, so
+        strand adjacency ranks ahead of hop count.
+        """
+        # Occupy RP1 position 1 and RP2 position 2, leaving the direct cable
+        # only a cross-tube pair (RP1 position 2 + RP2 position 1).
+        for rp, position in ((self.rp_a1, 1), (self.rp_a2, 2)):
+            proposal = next(
+                p
+                for p in find_fiber_paths(self.dev_a, self.dev_b, strand_count=1)
+                if p["strands"][0]["hops"][0]["entry_rp_id"] == rp.pk and p["strands"][0]["position"] == position
+            )
+            create_circuit_from_proposal(proposal, name=f"occupy {rp.name} {position}")
+
+        # Detour A -- C -- B over single-tube cables with two free positions each.
+        dev_c = Device.objects.create(
+            name="MTP-C", site=self.dev_a.site, device_type=self.dev_a.device_type, role=self.dev_a.role
+        )
+        (rp_a3,), _ = make_mapped_rear_ports(self.dev_a, ["RP3"], "A-{rp}-{i}", 2)
+        (rp_b3,), _ = make_mapped_rear_ports(self.dev_b, ["RP3"], "B-{rp}-{i}", 2)
+        (rp_c_in, rp_c_out), _ = make_mapped_rear_ports(dev_c, ["IN", "OUT"], "C-{rp}-{i}", 2)
+        connect_tube_cable(Cable.objects.create(), [(rp_a3, rp_c_in)])
+        connect_tube_cable(Cable.objects.create(), [(rp_c_out, rp_b3)])
+
+        results = find_fiber_paths(self.dev_a, self.dev_b, strand_count=2)
+
+        assert {(c["hop_count"], c["is_contiguous"]) for c in results} == {(1, False), (2, True)}
+        assert results[0]["hop_count"] == 2
+
+
+def _avail(rp, position, cable_id=1):
+    """One available position on a hop, as _find_available_strand_groups builds it.
+
+    Rear port ``rp`` (1 or 2) is tube ``rp`` of the cable; front-port ids are
+    derived so each position gets its own pair.
+    """
+    return {
+        "cable_info": {"cable_id": cable_id},
+        "position": position,
+        "fp_entry_id": 100 * rp + position,
+        "fp_exit_id": 200 * rp + position,
+        "entry_rp_id": 10 + rp,
+        "exit_rp_id": 20 + rp,
+    }
+
+
+class TestContiguityStaysWithinTube:
+    """Regression tests for issue #197: adjacency never crosses a tube boundary.
+
+    The last free fiber of tube 1 and the first free fiber of tube 2 carry
+    consecutive position numbers but sit in different buffer tubes, so a
+    strand group spanning them is not contiguous.
+    """
+
+    def test_cross_tube_group_is_not_contiguous(self):
+        """Tube 1 position 2 next to tube 2 position 1: consecutive numbers, different rear ports."""
+        candidates = _generate_single_hop_candidates([_avail(1, 2), _avail(2, 1)], 2, [1, 2])
+
+        assert len(candidates) == 1
+        assert candidates[0]["is_contiguous"] is False
+        assert candidates[0]["lowest_position"] == 1

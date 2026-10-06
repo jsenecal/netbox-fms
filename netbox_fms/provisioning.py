@@ -10,7 +10,7 @@ FrontPort has NO rear_port or rear_port_position attributes.
 
 import re
 from collections import defaultdict
-from itertools import combinations
+from itertools import combinations, pairwise
 
 from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
 from django.contrib.contenttypes.models import ContentType
@@ -24,6 +24,7 @@ from .models import (
     SplicePlan,
     SplicePlanEntry,
 )
+from .trace import pair_far_rear_port_termination
 
 # ---------------------------------------------------------------------------
 # DAG construction helpers
@@ -40,16 +41,15 @@ def _build_device_graph(origin_device, destination_device):
     """
     rp_ct = ContentType.objects.get_for_model(RearPort)
 
-    # Find all cables that connect RearPorts on devices
-    # Get all cable terminations on RearPorts
-    all_terms = CableTermination.objects.filter(
-        termination_type=rp_ct,
-    ).select_related("cable")
-
-    # Group terminations by cable
+    # Group every rear-port cable termination by cable, in pk order so the
+    # tube pairing below sees each end the way the trace engine does.
+    all_terms = CableTermination.objects.filter(termination_type=rp_ct).order_by("pk")
     cable_terms = defaultdict(list)
+    rp_device = {}
     for term in all_terms:
         cable_terms[term.cable_id].append(term)
+        # CableTermination caches its rear port's device on save.
+        rp_device[term.termination_id] = term._device_id
 
     edges = defaultdict(list)  # (dev_a_id, dev_b_id) -> [cable_info, ...]
     adjacency = defaultdict(set)
@@ -58,44 +58,44 @@ def _build_device_graph(origin_device, destination_device):
     for cable_id, terms in cable_terms.items():
         a_terms = [t for t in terms if t.cable_end == "A"]
         b_terms = [t for t in terms if t.cable_end == "B"]
-        if not a_terms or not b_terms:
-            continue
 
-        # Get the devices for each side
-        a_rp_ids = [t.termination_id for t in a_terms]
-        b_rp_ids = [t.termination_id for t in b_terms]
-
-        a_rps = RearPort.objects.filter(pk__in=a_rp_ids).values_list("pk", "device_id")
-        b_rps = RearPort.objects.filter(pk__in=b_rp_ids).values_list("pk", "device_id")
-
-        a_rp_map = dict(a_rps)
-        b_rp_map = dict(b_rps)
-
-        for a_term in a_terms:
-            a_dev_id = a_rp_map.get(a_term.termination_id)
-            if a_dev_id is None:
-                continue
-            for b_term in b_terms:
-                b_dev_id = b_rp_map.get(b_term.termination_id)
-                if b_dev_id is None:
-                    continue
-
-                cable_info = {
-                    "cable_id": cable_id,
-                    "rp_a_id": a_term.termination_id,
-                    "rp_b_id": b_term.termination_id,
-                    "dev_a_id": a_dev_id,
-                    "dev_b_id": b_dev_id,
-                }
-                # Add edges in both directions for pathfinding
-                edges[(a_dev_id, b_dev_id)].append(cable_info)
-                edges[(b_dev_id, a_dev_id)].append(cable_info)
-                adjacency[a_dev_id].add(b_dev_id)
-                adjacency[b_dev_id].add(a_dev_id)
-                all_device_ids.add(a_dev_id)
-                all_device_ids.add(b_dev_id)
+        for rp_a_id, rp_b_id in _paired_rear_ports(a_terms, b_terms):
+            a_dev_id = rp_device[rp_a_id]
+            b_dev_id = rp_device[rp_b_id]
+            cable_info = {
+                "cable_id": cable_id,
+                "rp_a_id": rp_a_id,
+                "rp_b_id": rp_b_id,
+                "dev_a_id": a_dev_id,
+                "dev_b_id": b_dev_id,
+            }
+            # Add edges in both directions for pathfinding
+            edges[(a_dev_id, b_dev_id)].append(cable_info)
+            edges[(b_dev_id, a_dev_id)].append(cable_info)
+            adjacency[a_dev_id].add(b_dev_id)
+            adjacency[b_dev_id].add(a_dev_id)
+            all_device_ids.add(a_dev_id)
+            all_device_ids.add(b_dev_id)
 
     return edges, adjacency, all_device_ids
+
+
+def _paired_rear_ports(a_terms, b_terms):
+    """The (rp_a_id, rp_b_id) tube pairs of one cable, in A-end order.
+
+    The wizard walks a cable in both directions, so a pair is kept only when
+    the pairing rule (pair_far_rear_port_termination, shared with the trace
+    engine) resolves it from either end: a trace entering at A must land on
+    the B rear port, and a trace entering at that B rear port must land back
+    on A. A pair that holds from one end only is an edge the trace could not
+    reproduce.
+    """
+    pairs = []
+    for a in a_terms:
+        b = pair_far_rear_port_termination(a.connector, a_terms, b_terms)
+        if b is not None and pair_far_rear_port_termination(b.connector, b_terms, a_terms) is a:
+            pairs.append((a.termination_id, b.termination_id))
+    return pairs
 
 
 def _find_all_simple_paths(adjacency, origin_id, dest_id, max_depth=10):
@@ -247,6 +247,32 @@ def _find_available_strand_groups(route_device_ids, edges, strand_count, occupie
     return _generate_multi_hop_candidates(hops, hop_availabilities, strand_count, route_device_ids, occupied_fps)
 
 
+def _strand_hop(a):
+    """The per-strand hop record for one available position."""
+    return {
+        "cable_id": a["cable_info"]["cable_id"],
+        "fp_entry_id": a["fp_entry_id"],
+        "fp_exit_id": a["fp_exit_id"],
+        "entry_rp_id": a["entry_rp_id"],
+        "exit_rp_id": a["exit_rp_id"],
+        "position": a["position"],
+    }
+
+
+def _is_contiguous(first_hops):
+    """Whether a strand group occupies consecutive positions of one rear port.
+
+    Judged on each strand's first hop. Adjacency never crosses a buffer
+    tube or ribbon boundary: the last fiber of one tube and the first fiber
+    of the next land on different rear ports, so their consecutive position
+    numbers do not make them neighbors.
+    """
+    if len({hop["entry_rp_id"] for hop in first_hops}) != 1:
+        return False
+    positions = sorted(hop["position"] for hop in first_hops)
+    return all(later - earlier == 1 for earlier, later in pairwise(positions))
+
+
 def _generate_single_hop_candidates(avail, strand_count, route_device_ids):
     """Generate candidates for a single-hop route."""
     candidates = []
@@ -260,44 +286,14 @@ def _generate_single_hop_candidates(avail, strand_count, route_device_ids):
         if len(cable_avail) < strand_count:
             continue
 
-        # Generate contiguous groups first (for adjacency), then any combo
-        # Try contiguous groups
-        sorted_avail = sorted(cable_avail, key=lambda x: x["position"])
+        # Walk the cable tube by tube so same-tube windows come out contiguous
+        # and only the windows straddling a tube boundary are scattered.
+        sorted_avail = sorted(cable_avail, key=lambda x: (x["entry_rp_id"], x["position"]))
         for start in range(len(sorted_avail) - strand_count + 1):
             group = sorted_avail[start : start + strand_count]
-            positions = [g["position"] for g in group]
-            is_contiguous = all(positions[j + 1] - positions[j] == 1 for j in range(len(positions) - 1))
-
-            strands = []
-            for g in group:
-                strands.append(
-                    {
-                        "hops": [
-                            {
-                                "cable_id": g["cable_info"]["cable_id"],
-                                "fp_entry_id": g["fp_entry_id"],
-                                "fp_exit_id": g["fp_exit_id"],
-                                "entry_rp_id": g["entry_rp_id"],
-                                "exit_rp_id": g["exit_rp_id"],
-                                "position": g["position"],
-                            }
-                        ],
-                        "position": g["position"],
-                    }
-                )
-
-            candidates.append(
-                {
-                    "strands": strands,
-                    "route": route_device_ids,
-                    "hop_count": len(route_device_ids) - 1,
-                    "new_splice_count": 0,
-                    "existing_splice_count": 0,
-                    "is_contiguous": is_contiguous,
-                    "lowest_position": min(positions),
-                    "splices_needed": [],
-                }
-            )
+            # A single-hop group is a set of one-hop chains with no splice.
+            chains = [[(0, a, None)] for a in group]
+            candidates.append(_chains_to_candidate(chains, route_device_ids, {}))
 
     return candidates
 
@@ -388,7 +384,7 @@ def _generate_multi_hop_candidates(hops, hop_availabilities, strand_count, route
 
     if strand_count == 1:
         for chain in chain_subset:
-            candidate = _chain_to_candidate(chain, route_device_ids, splice_maps)
+            candidate = _chains_to_candidate([chain], route_device_ids, splice_maps)
             if candidate:
                 candidates.append(candidate)
     else:
@@ -420,32 +416,18 @@ def _generate_multi_hop_candidates(hops, hop_availabilities, strand_count, route
     return candidates
 
 
-def _chain_to_candidate(chain, route_device_ids, splice_maps):
-    """Convert a single chain to a candidate dict."""
-    return _chains_to_candidate([chain], route_device_ids, splice_maps)
-
-
 def _chains_to_candidate(chains, route_device_ids, splice_maps):
-    """Convert multiple chains to a single candidate dict."""
+    """Convert a group of strand chains (one per strand) to a single candidate dict."""
     strands = []
     total_new_splices = 0
     total_existing_splices = 0
     all_splices_needed = []
-    positions = []
+    first_hops = []
 
     for chain in chains:
         strand_hops = []
         for hop_idx, a, prev_exit_fp in chain:
-            strand_hops.append(
-                {
-                    "cable_id": a["cable_info"]["cable_id"],
-                    "fp_entry_id": a["fp_entry_id"],
-                    "fp_exit_id": a["fp_exit_id"],
-                    "entry_rp_id": a["entry_rp_id"],
-                    "exit_rp_id": a["exit_rp_id"],
-                    "position": a["position"],
-                }
-            )
+            strand_hops.append(_strand_hop(a))
 
             # Check splice at entry (intermediate closure)
             if prev_exit_fp is not None:
@@ -470,11 +452,7 @@ def _chains_to_candidate(chains, route_device_ids, splice_maps):
             }
         )
         if strand_hops:
-            positions.append(strand_hops[0]["position"])
-
-    is_contiguous = len(positions) > 1 and all(
-        sorted(positions)[j + 1] - sorted(positions)[j] == 1 for j in range(len(positions) - 1)
-    )
+            first_hops.append(strand_hops[0])
 
     return {
         "strands": strands,
@@ -482,8 +460,8 @@ def _chains_to_candidate(chains, route_device_ids, splice_maps):
         "hop_count": len(route_device_ids) - 1,
         "new_splice_count": total_new_splices,
         "existing_splice_count": total_existing_splices,
-        "is_contiguous": is_contiguous,
-        "lowest_position": min(positions) if positions else 0,
+        "is_contiguous": _is_contiguous(first_hops),
+        "lowest_position": min((hop["position"] for hop in first_hops), default=0),
         "splices_needed": all_splices_needed,
     }
 
@@ -525,7 +503,10 @@ def find_fiber_paths(origin_device, destination_device, strand_count=1, prioriti
         destination_device: Destination Device (closure)
         strand_count: Number of strands needed
         priorities: List of scoring priority names, in order. Options:
-            "hop_count", "new_splices", "strand_adjacency", "lowest_strand"
+            "strand_adjacency", "hop_count", "new_splices", "lowest_strand".
+            Defaults to that order: the strands of one circuit (a Tx/Rx
+            pair) must stay on the same tube and route, so adjacency
+            outranks a shorter path.
         max_results: Maximum number of results to return
 
     Returns:
@@ -538,7 +519,7 @@ def find_fiber_paths(origin_device, destination_device, strand_count=1, prioriti
             - splices_needed: list of splice info dicts
     """
     if priorities is None:
-        priorities = ["hop_count", "new_splices", "strand_adjacency", "lowest_strand"]
+        priorities = ["strand_adjacency", "hop_count", "new_splices", "lowest_strand"]
 
     edges, adjacency, all_device_ids = _build_device_graph(origin_device, destination_device)
 
