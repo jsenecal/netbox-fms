@@ -65,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are brought up to date in bulk.
 - `networkx` is a new runtime dependency.
 
+### Removed
+
+- The route planner `netbox_fms.provisioning.find_fiber_paths` and
+  `FiberCircuit.find_paths`: nothing called them once paths were derived by
+  the analysis and assigned from the picker, which carries the contiguity
+  rule as `assignment.is_contiguous`.
+
 ### Changed
 
 - The trace view reads the stored path instead of re-walking the plant per

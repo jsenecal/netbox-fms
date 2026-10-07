@@ -1,11 +1,12 @@
 """find_assignable_path_groups (#196 spec section 3): filters and contiguity-first ranking."""
 
+import pytest
 from dcim.choices import DeviceStatusChoices
 from dcim.models import Cable, Device, Site
 from django.test import TestCase
 from tenancy.models import Tenant
 
-from netbox_fms.assignment import _device_sequence, _group_is_contiguous, find_assignable_path_groups
+from netbox_fms.assignment import _device_sequence, _group_is_contiguous, find_assignable_path_groups, is_contiguous
 from netbox_fms.choices import FiberCircuitStatusChoices
 from netbox_fms.models import FiberCableType, FiberCircuit, FiberStrandPath
 from netbox_fms.path_analysis import run_reconcile
@@ -13,6 +14,19 @@ from netbox_fms.services import create_closure_cable
 from tests.conftest import assign_strand_path, connect_front_ports, make_closure_pair, make_strand_path
 
 ACTIVE, PLANNED = FiberCircuitStatusChoices.ACTIVE, FiberCircuitStatusChoices.PLANNED
+
+
+@pytest.mark.parametrize(
+    ("mappings", "expected"),
+    [
+        ([(11, 1), (11, 2)], True),
+        ([(11, 1), (11, 3)], False),
+        # Tube 1 position 2 next to tube 2 position 1: consecutive numbers, different rear ports (#197).
+        ([(11, 2), (12, 1)], False),
+    ],
+)
+def test_contiguity_is_adjacent_positions_of_one_rear_port(mappings, expected):
+    assert is_contiguous(mappings) is expected
 
 
 class PickerCase(TestCase):

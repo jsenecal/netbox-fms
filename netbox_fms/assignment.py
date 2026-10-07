@@ -9,6 +9,7 @@ action and the API share.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 
 from dcim.models import Cable, Device, PortMapping
 from django.contrib.contenttypes.models import ContentType
@@ -19,7 +20,6 @@ from django.shortcuts import get_object_or_404
 from .choices import FiberCircuitStatusChoices, PathCompletenessChoices
 from .models import FiberCircuit, FiberCircuitPath, FiberStrandPath, RouteChangeAuthorization, hops_snapshot
 from .path_analysis import accept_current_hops, sync_circuit_broken
-from .provisioning import _is_contiguous
 
 
 def _assignment_errors(circuit, paths, allow_incomplete):
@@ -265,6 +265,19 @@ def _first_strand_position(path):
     return next((hop.strand.position for hop in path.hops.all() if hop.strand_id), 0)
 
 
+def is_contiguous(mappings):
+    """Whether ``(rear_port_id, position)`` mappings occupy consecutive positions of one rear port.
+
+    Adjacency never crosses a buffer tube or ribbon boundary: the last fiber
+    of one tube and the first fiber of the next land on different rear
+    ports, so their consecutive position numbers do not make them neighbors.
+    """
+    if len({rear_port_id for rear_port_id, _position in mappings}) != 1:
+        return False
+    positions = sorted(position for _rear_port_id, position in mappings)
+    return all(later - earlier == 1 for earlier, later in pairwise(positions))
+
+
 def _group_is_contiguous(paths, mapping_of):
     """Adjacent positions of one rear port at every strand hop of the route (the wizard's rule, per cable)."""
     # Paths sharing a route key cross the same cables, but one may cross a cable as a plain-cable hop with no
@@ -276,13 +289,8 @@ def _group_is_contiguous(paths, mapping_of):
     if not strands_per_path[0]:
         return False
     for index in range(len(strands_per_path[0])):
-        records = []
-        for strands in strands_per_path:
-            mapping = mapping_of.get(strands[index].front_port_a_id)
-            if mapping is None:
-                return False
-            records.append({"entry_rp_id": mapping[0], "position": mapping[1]})
-        if not _is_contiguous(records):
+        mappings = [mapping_of.get(strands[index].front_port_a_id) for strands in strands_per_path]
+        if None in mappings or not is_contiguous(mappings):
             return False
     return True
 

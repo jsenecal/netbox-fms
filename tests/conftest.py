@@ -220,7 +220,7 @@ def connect_tube_cable(cable, tube_pairs):
 
     ``tube_pairs`` lists ``(a_rear_port, b_rear_port)`` per tube in tube
     order; the n-th pair gets connector ``n`` on both ends, which is how the
-    analysis loader and the provisioning engine tell tubes of one cable apart.
+    analysis loader tells tubes of one cable apart.
     """
     from dcim.models import CableTermination, RearPort
     from django.contrib.contenttypes.models import ContentType

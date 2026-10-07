@@ -216,17 +216,10 @@ route, filtered and ranked); `assign_paths()` creates assignments;
 `RouteChangeAuthorization`. The `*_for(user, ...)` variants add the
 permission checks used by the UI and API.
 
-### `provisioning.py` -- Route discovery library
-
-- **`find_fiber_paths(origin, destination, strand_count, ...)`** -- BFS/DFS
-  pathfinding over a device-connectivity graph; scores candidate routes by
-  configurable priorities. It is a library function: nothing in the UI calls
-  it, because paths are derived by analysis and assigned from the picker.
-
 ### `trace.py` and `trace_hops.py` -- Pairing rule and display hops
 
 `trace.py` holds only the rule that pairs rear ports across a cable (by
-connector number), shared by the walker and the picker. `trace_hops.py`
+connector number) for the walker. `trace_hops.py`
 builds the display hops of the trace view from a stored path
 (`flat_entries`, `build_hops`).
 
