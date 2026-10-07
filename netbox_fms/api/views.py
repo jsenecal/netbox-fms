@@ -4,15 +4,19 @@ from dcim.models import CableTermination, Device, FrontPort, Module
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count
+from django.shortcuts import get_object_or_404
 from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.viewsets import ReadOnlyModelViewSet
 
+from ..assignment import acknowledge_route, assign_paths
 from ..choices import PathCompletenessChoices, SplicePlanStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
@@ -26,6 +30,9 @@ from ..filters import (
     FiberCircuitFilterSet,
     FiberCircuitPathFilterSet,
     FiberStrandFilterSet,
+    FiberStrandPathFilterSet,
+    PathAnalysisQueueFilterSet,
+    PathAnomalyFilterSet,
     RibbonFilterSet,
     RibbonTemplateFilterSet,
     SlackLoopFilterSet,
@@ -47,6 +54,9 @@ from ..models import (
     FiberCircuit,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
+    PathAnalysisQueue,
+    PathAnomaly,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -69,6 +79,7 @@ from ..services import (
 )
 from ..trace_hops import build_hops, flat_entries
 from .serializers import (
+    AssignPathsSerializer,
     BufferTubeSerializer,
     BufferTubeTemplateSerializer,
     CableElementSerializer,
@@ -79,7 +90,10 @@ from .serializers import (
     FiberCableTypeSerializer,
     FiberCircuitPathSerializer,
     FiberCircuitSerializer,
+    FiberStrandPathSerializer,
     FiberStrandSerializer,
+    PathAnalysisQueueSerializer,
+    PathAnomalySerializer,
     RibbonSerializer,
     RibbonTemplateSerializer,
     SlackLoopSerializer,
@@ -507,6 +521,41 @@ class FiberCircuitViewSet(NetBoxModelViewSet):
     serializer_class = FiberCircuitSerializer
     filterset_class = FiberCircuitFilterSet
 
+    def _circuit_to_change(self, pk):
+        """The circuit, if the user may change it; the generic POST restriction only asks for "add"."""
+        return get_object_or_404(FiberCircuit.objects.restrict(self.request.user, "change"), pk=pk)
+
+    @action(detail=True, methods=["post"])
+    def assign(self, request, pk=None):
+        """Assign analyzed fiber paths to this circuit, in the given order."""
+        circuit = self._circuit_to_change(pk)
+        if not request.user.has_perm("netbox_fms.add_fibercircuitpath"):
+            raise PermissionDenied("Assigning fiber paths requires add_fibercircuitpath.")
+        body = AssignPathsSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        ids = body.validated_data["strand_paths"]
+        by_pk = FiberStrandPath.objects.restrict(request.user, "view").in_bulk(ids)
+        if len(by_pk) != len(set(ids)):
+            raise RestValidationError({"strand_paths": ["Unknown fiber path id(s)."]})
+        try:
+            assignments = assign_paths(
+                circuit, [by_pk[pk] for pk in ids], allow_incomplete=body.validated_data["allow_incomplete"]
+            )
+        except ValidationError as exc:
+            return Response({"strand_paths": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
+        data = FiberCircuitPathSerializer(assignments, many=True, context={"request": request}).data
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="acknowledge-route")
+    def acknowledge_route(self, request, pk=None):
+        """Accept the current hops of this circuit's broken assignments."""
+        circuit = self._circuit_to_change(pk)
+        if not request.user.has_perm("netbox_fms.change_fibercircuitpath"):
+            raise PermissionDenied("Acknowledging a route requires change_fibercircuitpath.")
+        acknowledged = acknowledge_route(circuit)
+        circuit.refresh_from_db()
+        return Response({"acknowledged": acknowledged, "is_broken": circuit.is_broken})
+
 
 class FiberCircuitPathViewSet(NetBoxModelViewSet):
     """Assignments of analyzed fiber paths to circuits.
@@ -559,6 +608,37 @@ class ProtectingQueryPermissions(TokenPermissions):
 
     def _verify_write_permission(self, request):
         return True
+
+
+class RestrictedReadOnlyViewSet(ReadOnlyModelViewSet):
+    """Read-only access to an internal model, restricted to what the user may view."""
+
+    def get_queryset(self):
+        return super().get_queryset().restrict(self.request.user, "view")
+
+
+class FiberStrandPathViewSet(RestrictedReadOnlyViewSet):
+    """Analyzed fiber paths, derived by the path analysis."""
+
+    queryset = FiberStrandPath.objects.select_related("end_a_port", "end_b_port").prefetch_related("hops")
+    serializer_class = FiberStrandPathSerializer
+    filterset_class = FiberStrandPathFilterSet
+
+
+class PathAnomalyViewSet(RestrictedReadOnlyViewSet):
+    """Plant shapes the analysis refused to trace."""
+
+    queryset = PathAnomaly.objects.select_related("strand", "front_port")
+    serializer_class = PathAnomalySerializer
+    filterset_class = PathAnomalyFilterSet
+
+
+class PathAnalysisQueueViewSet(RestrictedReadOnlyViewSet):
+    """Devices waiting for path analysis."""
+
+    queryset = PathAnalysisQueue.objects.select_related("device")
+    serializer_class = PathAnalysisQueueSerializer
+    filterset_class = PathAnalysisQueueFilterSet
 
 
 class FiberCircuitProtectingAPIView(APIView):

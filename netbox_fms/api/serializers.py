@@ -27,6 +27,8 @@ from ..models import (
     FiberStrand,
     FiberStrandPath,
     FiberStrandPathHop,
+    PathAnalysisQueue,
+    PathAnomaly,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -623,11 +625,18 @@ class FiberStrandPathSerializer(serializers.ModelSerializer):
     end_a_port = FrontPortSerializer(nested=True, read_only=True)
     end_b_port = FrontPortSerializer(nested=True, read_only=True)
     hops = FiberStrandPathHopSerializer(many=True, read_only=True)
+    url = serializers.HyperlinkedIdentityField(view_name="plugins-api:netbox_fms-api:fiberstrandpath-detail")
+    display = serializers.SerializerMethodField()
+
+    def get_display(self, obj):
+        return str(obj)
 
     class Meta:
         model = FiberStrandPath
         fields = (
             "id",
+            "url",
+            "display",
             "end_a_port",
             "end_b_port",
             "end_a_kind",
@@ -641,6 +650,36 @@ class FiberStrandPathSerializer(serializers.ModelSerializer):
             "computed_at",
             "hops",
         )
+        read_only_fields = fields
+
+
+class AssignPathsSerializer(serializers.Serializer):
+    """Body of the circuit ``assign`` action."""
+
+    strand_paths = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
+    allow_incomplete = serializers.BooleanField(default=False)
+
+
+class PathAnomalySerializer(serializers.ModelSerializer):
+    """A plant shape the analysis refused to trace (read-only)."""
+
+    url = serializers.HyperlinkedIdentityField(view_name="plugins-api:netbox_fms-api:pathanomaly-detail")
+
+    class Meta:
+        model = PathAnomaly
+        fields = ("id", "url", "kind", "strand", "front_port", "detected_at")
+        read_only_fields = fields
+
+
+class PathAnalysisQueueSerializer(serializers.ModelSerializer):
+    """A device waiting for path analysis (read-only)."""
+
+    url = serializers.HyperlinkedIdentityField(view_name="plugins-api:netbox_fms-api:pathanalysisqueue-detail")
+    device = DeviceSerializer(nested=True, read_only=True)
+
+    class Meta:
+        model = PathAnalysisQueue
+        fields = ("id", "url", "device", "reason", "created")
         read_only_fields = fields
 
 

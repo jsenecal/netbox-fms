@@ -25,10 +25,13 @@ from netbox_fms.models import (
     FiberCableType,
     FiberCircuit,
     FiberStrand,
+    FiberStrandPath,
+    PathAnalysisQueue,
+    PathAnomaly,
     SplicePlan,
     SplicePlanEntry,
 )
-from tests.conftest import assign_strand_path, make_infra, make_strand_path
+from tests.conftest import assign_strand_path, make_authed_client, make_infra, make_strand_path
 
 User = get_user_model()
 
@@ -217,3 +220,45 @@ class TestClosureStrandsEndpointPermissions(TestCase):
         assert protected["protected"] is True
         assert protected["circuit_name"] == "PermS-Circuit"
         assert resp.data["plan_version"] is not None
+
+
+class TestReadOnlyPathEndpoints(TestCase):
+    """The analysis endpoints are read-only and honour object permissions (the custom-view restrict rule)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site, mfr, dt, role = make_infra("PermP")
+        device = Device.objects.create(name="PermP-1", site=site, device_type=dt, role=role)
+        fp = FrontPort.objects.create(device=device, name="PermP-FP", type="lc")
+        cls.terminated = make_strand_path(Cable.objects.create(), end_a=fp, end_b=fp)
+        cls.open = make_strand_path(Cable.objects.create())
+        PathAnomaly.objects.create(kind="loop", front_port=fp)
+        PathAnalysisQueue.objects.create(device=device, reason="cable_changed")
+
+    def test_strand_paths_honour_constraints(self):
+        client = _constrained_client(FiberStrandPath, {"completeness": "terminated_terminated"}, "perm-paths")
+        resp = client.get("/api/plugins/fms/fiber-strand-paths/")
+        assert resp.status_code == 200
+        assert [r["id"] for r in resp.data["results"]] == [self.terminated.pk]
+        assert resp.data["results"][0]["url"].endswith(f"/fiber-strand-paths/{self.terminated.pk}/")
+        assert client.get(f"/api/plugins/fms/fiber-strand-paths/{self.open.pk}/").status_code == 404
+
+    def test_anomalies_and_queue_are_hidden_without_permission(self):
+        client = _no_perm_client("perm-nopaths")
+        for endpoint in ("path-anomalies", "path-analysis-queue", "fiber-strand-paths"):
+            resp = client.get(f"/api/plugins/fms/{endpoint}/")
+            assert resp.status_code in (200, 403), endpoint
+            if resp.status_code == 200:
+                assert resp.data["results"] == [], endpoint
+
+    def test_anomalies_and_queue_are_listed_with_view_permission(self):
+        client = _constrained_client([PathAnomaly, PathAnalysisQueue], None, "perm-anomalies")
+        assert [r["kind"] for r in client.get("/api/plugins/fms/path-anomalies/").data["results"]] == ["loop"]
+        queue = client.get("/api/plugins/fms/path-analysis-queue/")
+        assert [r["reason"] for r in queue.data["results"]] == ["cable_changed"]
+        assert queue.data["results"][0]["url"].endswith(f"/path-analysis-queue/{queue.data['results'][0]['id']}/")
+
+    def test_write_verbs_are_rejected(self):
+        client = make_authed_client("perm-paths-rw")
+        for endpoint in ("fiber-strand-paths", "path-anomalies", "path-analysis-queue"):
+            assert client.post(f"/api/plugins/fms/{endpoint}/", {}, format="json").status_code == 405, endpoint
