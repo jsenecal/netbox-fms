@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from dcim.models import Cable, Device, PortMapping
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from .choices import FiberCircuitStatusChoices, PathCompletenessChoices
@@ -86,6 +86,55 @@ def acknowledge_route(circuit):
             assignment.save()
         sync_circuit_broken(circuit)
     return len(broken)
+
+
+def visible_paths(user, ids):
+    """The fiber paths with these ids, in order, through the user's view permission.
+
+    Refused as a whole when any id is unknown or hidden from the user, so a
+    selection is never silently narrowed.
+    """
+    by_pk = FiberStrandPath.objects.restrict(user, "view").in_bulk(ids)
+    if len(by_pk) != len(set(ids)):
+        raise ValidationError("Unknown fiber path id(s).")
+    return [by_pk[pk] for pk in ids]
+
+
+def require_assign_permission(user):
+    if not user.has_perm("netbox_fms.add_fibercircuitpath"):
+        raise PermissionDenied("Assigning fiber paths requires add_fibercircuitpath.")
+
+
+def require_acknowledge_permission(user):
+    if not user.has_perm("netbox_fms.change_fibercircuitpath"):
+        raise PermissionDenied("Acknowledging a route requires change_fibercircuitpath.")
+
+
+def assign_paths_for(user, circuit, strand_paths, *, allow_incomplete=False):
+    """assign_paths for a user: needs add on assignments, and the rows written must satisfy its constraints.
+
+    The model-level permission check ignores object constraints, so the rows
+    just written are re-read through the user's restricted queryset; a
+    shortfall raises PermissionDenied and the whole transaction rolls back.
+    The caller has already resolved the circuit through its change permission.
+    """
+    require_assign_permission(user)
+    with transaction.atomic():
+        assignments = assign_paths(circuit, strand_paths, allow_incomplete=allow_incomplete)
+        allowed = FiberCircuitPath.objects.restrict(user, "add").filter(pk__in=[a.pk for a in assignments])
+        if allowed.count() != len(assignments):
+            raise PermissionDenied("These assignments are outside your add permission on fiber circuit paths.")
+    return assignments
+
+
+def acknowledge_route_for(user, circuit):
+    """acknowledge_route for a user: needs change on assignments, including on every broken one."""
+    require_acknowledge_permission(user)
+    affected = circuit.paths.filter(active=True, is_broken=True)
+    permitted = FiberCircuitPath.objects.restrict(user, "change").filter(pk__in=affected.values("pk"))
+    if permitted.count() != affected.count():
+        raise PermissionDenied("These assignments are outside your change permission on fiber circuit paths.")
+    return acknowledge_route(circuit)
 
 
 def authorize_route_change(circuit, source):
@@ -305,3 +354,13 @@ def find_assignable_path_groups(
             )
     groups.sort(key=lambda g: (not g.is_contiguous, g.hop_count, g.lowest_position))
     return groups
+
+
+def viewable_groups(groups, user):
+    """The picker groups whose every path the user may view; a partly hidden group cannot be assigned anyway."""
+    visible = set(
+        FiberStrandPath.objects.restrict(user, "view")
+        .filter(pk__in=[pk for group in groups for pk in group.path_ids])
+        .values_list("pk", flat=True)
+    )
+    return [group for group in groups if visible.issuperset(group.path_ids)]

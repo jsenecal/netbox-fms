@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Assign fibers action on a fiber circuit, the circuit wizard rebuilt on the
+  same picker (it creates the circuit and assigns its paths in one
+  transaction), an Acknowledge route action, and read-only Fiber Paths, Path
+  Anomalies and Analysis Queue pages under FMS > Path Analysis. Every page and
+  action honors the user's object permissions, including constraints.
 - `netbox_fms.bulk`: `create_splices(closure, splices, notify=True)` and
   `assign_tubes(closure, assignments, notify=True)` write many splices or
   tube assignments with a few bulk statements and store exactly what the

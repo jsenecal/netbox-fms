@@ -346,8 +346,8 @@ def make_authed_client(username="api-test"):
     return client
 
 
-def client_with(username, grants):
-    """API client whose permissions are ``grants``: (model, actions, constraints) triples."""
+def user_with(username, grants):
+    """A user whose permissions are ``grants``: (model, actions, constraints) triples."""
     from django.contrib.contenttypes.models import ContentType
     from users.models import ObjectPermission
 
@@ -358,9 +358,23 @@ def client_with(username, grants):
         )
         perm.object_types.set([ContentType.objects.get_for_model(model)])
         perm.users.add(user)
-    client = APIClient()
     # Re-fetch so no stale permission cache rides along on the user instance
-    client.force_authenticate(user=get_user_model().objects.get(pk=user.pk))
+    return get_user_model().objects.get(pk=user.pk)
+
+
+def client_with(username, grants):
+    """API client whose permissions are ``grants``: (model, actions, constraints) triples."""
+    client = APIClient()
+    client.force_authenticate(user=user_with(username, grants))
+    return client
+
+
+def ui_client_with(username, grants):
+    """Session-logged-in Django client whose permissions are ``grants`` (for the UI views)."""
+    from django.test import Client
+
+    client = Client()
+    client.force_login(user_with(username, grants))
     return client
 
 

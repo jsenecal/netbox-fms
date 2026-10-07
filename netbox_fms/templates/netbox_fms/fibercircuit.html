@@ -4,6 +4,22 @@
 {% load i18n %}
 {% load static %}
 
+{% block extra_controls %}
+{% if perms.netbox_fms.add_fibercircuitpath and perms.netbox_fms.change_fibercircuit %}
+<a href="{% url 'plugins:netbox_fms:fibercircuit_assign' pk=object.pk %}" class="btn btn-primary">
+    <i class="mdi mdi-link-variant-plus"></i> {% trans "Assign fibers" %}
+</a>
+{% endif %}
+{% if object.is_broken and perms.netbox_fms.change_fibercircuitpath and perms.netbox_fms.change_fibercircuit %}
+<form method="post" action="{% url 'plugins:netbox_fms:fibercircuit_acknowledge_route' pk=object.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-warning">
+        <i class="mdi mdi-check-decagram"></i> {% trans "Acknowledge route" %}
+    </button>
+</form>
+{% endif %}
+{% endblock extra_controls %}
+
 {% block content %}
 <link rel="stylesheet" href="{% static 'netbox_fms/css/fms-components.css' %}">
 <div class="fms-component">

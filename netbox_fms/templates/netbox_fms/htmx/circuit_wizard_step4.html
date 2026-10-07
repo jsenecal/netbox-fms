@@ -1,0 +1,46 @@
+{% load helpers %}
+{% load i18n %}
+
+<div class="card">
+    <h5 class="card-header">{% trans "Step 4: Review and Create" %}</h5>
+    <div class="card-body">
+        {% if wizard_error %}
+        <div class="alert alert-danger" role="alert">
+            <i class="mdi mdi-alert"></i> {% blocktrans with error=wizard_error %}Could not assign the fiber paths: {{ error }}{% endblocktrans %}
+        </div>
+        {% endif %}
+        <table class="table table-hover attr-table mb-3">
+            <tr><th scope="row">{% trans "Name" %}</th><td>{{ state.name }}</td></tr>
+            {% if state.cid %}<tr><th scope="row">{% trans "Circuit ID" %}</th><td>{{ state.cid }}</td></tr>{% endif %}
+            <tr><th scope="row">{% trans "Status" %}</th><td>{{ state.status }}</td></tr>
+            <tr><th scope="row">{% trans "Strand Count" %}</th><td>{{ state.strand_count }}</td></tr>
+            <tr><th scope="row">{% trans "Hops" %}</th><td>{{ group.hop_count }}</td></tr>
+            <tr>
+                <th scope="row">{% trans "Fiber paths" %}</th>
+                <td>
+                    {% for path in group.paths %}
+                    {% if path.end_a_port %}{{ path.end_a_port|linkify }}{% else %}&mdash;{% endif %}
+                    {% trans "to" %}
+                    {% if path.end_b_port %}{{ path.end_b_port|linkify }}{% else %}&mdash;{% endif %}
+                    ({{ path.get_completeness_display }})<br>
+                    {% endfor %}
+                </td>
+            </tr>
+        </table>
+        <form method="post" action="{% url 'plugins:netbox_fms:fibercircuit_wizard' %}">
+            {% csrf_token %}
+            <input type="hidden" name="confirm" value="1">
+            <div class="text-end">
+                <a href="{% url 'plugins:netbox_fms:fibercircuit_wizard' %}?restart=1" class="btn btn-outline-secondary">
+                    {% trans "Start Over" %}
+                </a>
+                <button type="submit" name="_back" value="1" class="btn btn-outline-primary">
+                    <i class="mdi mdi-arrow-left"></i> {% trans "Back" %}
+                </button>
+                <button type="submit" class="btn btn-success">
+                    <i class="mdi mdi-check-bold"></i> {% trans "Create Circuit" %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

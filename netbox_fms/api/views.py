@@ -1,6 +1,7 @@
 from collections import OrderedDict
 
 from dcim.models import CableTermination, Device, FrontPort, Module
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count
@@ -16,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
-from ..assignment import acknowledge_route, assign_paths
+from ..assignment import acknowledge_route_for, assign_paths_for, require_assign_permission, visible_paths
 from ..choices import PathCompletenessChoices, SplicePlanStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
@@ -535,25 +536,16 @@ class FiberCircuitViewSet(NetBoxModelViewSet):
     def assign(self, request, pk=None):
         """Assign analyzed fiber paths to this circuit, in the given order."""
         circuit = self._circuit_to_change(pk)
-        if not request.user.has_perm("netbox_fms.add_fibercircuitpath"):
-            raise PermissionDenied("Assigning fiber paths requires add_fibercircuitpath.")
         body = AssignPathsSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        ids = body.validated_data["strand_paths"]
-        by_pk = FiberStrandPath.objects.restrict(request.user, "view").in_bulk(ids)
-        if len(by_pk) != len(set(ids)):
-            raise RestValidationError({"strand_paths": ["Unknown fiber path id(s)."]})
         try:
-            with transaction.atomic():
-                assignments = assign_paths(
-                    circuit, [by_pk[pk] for pk in ids], allow_incomplete=body.validated_data["allow_incomplete"]
-                )
-                # The model-level check above ignores constraints; the rows just written must satisfy them.
-                allowed = FiberCircuitPath.objects.restrict(request.user, "add").filter(
-                    pk__in=[a.pk for a in assignments]
-                )
-                if allowed.count() != len(assignments):
-                    raise PermissionDenied("These assignments are outside your add permission on fiber circuit paths.")
+            require_assign_permission(request.user)
+            body.is_valid(raise_exception=True)
+            paths = visible_paths(request.user, body.validated_data["strand_paths"])
+            assignments = assign_paths_for(
+                request.user, circuit, paths, allow_incomplete=body.validated_data["allow_incomplete"]
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc)) from exc
         except ValidationError as exc:
             return Response({"strand_paths": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         data = FiberCircuitPathSerializer(assignments, many=True, context={"request": request}).data
@@ -563,13 +555,10 @@ class FiberCircuitViewSet(NetBoxModelViewSet):
     def acknowledge_route(self, request, pk=None):
         """Accept the current hops of this circuit's broken assignments."""
         circuit = self._circuit_to_change(pk)
-        if not request.user.has_perm("netbox_fms.change_fibercircuitpath"):
-            raise PermissionDenied("Acknowledging a route requires change_fibercircuitpath.")
-        affected = circuit.paths.filter(active=True, is_broken=True)
-        permitted = FiberCircuitPath.objects.restrict(request.user, "change").filter(pk__in=affected.values("pk"))
-        if permitted.count() != affected.count():
-            raise PermissionDenied("These assignments are outside your change permission on fiber circuit paths.")
-        acknowledged = acknowledge_route(circuit)
+        try:
+            acknowledged = acknowledge_route_for(request.user, circuit)
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc)) from exc
         circuit.refresh_from_db()
         return Response({"acknowledged": acknowledged, "is_broken": circuit.is_broken})
 

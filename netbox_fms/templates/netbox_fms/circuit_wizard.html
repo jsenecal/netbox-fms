@@ -1,0 +1,22 @@
+{% extends 'base/layout.html' %}
+{% load i18n %}
+
+{% block title %}{% trans "Circuit Wizard" %}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-8 col-lg-6">
+        <nav class="mb-3">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item {% if current_step == 1 %}active fw-bold{% endif %}">1 {% trans "Basics" %}</li>
+                <li class="breadcrumb-item {% if current_step == 2 %}active fw-bold{% endif %}">2 {% trans "Filters" %}</li>
+                <li class="breadcrumb-item {% if current_step == 3 %}active fw-bold{% endif %}">3 {% trans "Route" %}</li>
+                <li class="breadcrumb-item {% if current_step == 4 %}active fw-bold{% endif %}">4 {% trans "Create" %}</li>
+            </ol>
+        </nav>
+        <div id="wizard-content">
+            {% include step_template %}
+        </div>
+    </div>
+</div>
+{% endblock %}

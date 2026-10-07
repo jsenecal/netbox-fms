@@ -2,14 +2,15 @@ import operator
 import time
 from functools import reduce
 
+from circuits.models import Circuit
 from dcim.choices import LinkStatusChoices
 from dcim.models import Cable, CableTermination, Device, FrontPort, Module, RearPort
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
-from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -19,7 +20,15 @@ from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
-from .assignment import authorize_route_change
+from .assignment import (
+    acknowledge_route_for,
+    assign_paths_for,
+    authorize_route_change,
+    find_assignable_path_groups,
+    require_assign_permission,
+    viewable_groups,
+    visible_paths,
+)
 from .choices import SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
@@ -34,6 +43,9 @@ from .filters import (
     FiberCircuitFilterSet,
     FiberCircuitPathFilterSet,
     FiberStrandFilterSet,
+    FiberStrandPathFilterSet,
+    PathAnalysisQueueFilterSet,
+    PathAnomalyFilterSet,
     RibbonFilterSet,
     RibbonTemplateFilterSet,
     SlackLoopFilterSet,
@@ -44,10 +56,13 @@ from .filters import (
     TubeAssignmentFilterSet,
 )
 from .forms import (
+    AssignFibersForm,
+    AssignFibersSelectionForm,
     BufferTubeTemplateBulkEditForm,
     BufferTubeTemplateForm,
     CableElementTemplateBulkEditForm,
     CableElementTemplateForm,
+    CircuitWizardStep1Form,
     ClosureCableEntryFilterForm,
     ClosureCableEntryForm,
     ClosureCableWizardStep1Form,
@@ -70,8 +85,11 @@ from .forms import (
     FiberCircuitImportForm,
     FiberCircuitPathFilterForm,
     FiberCircuitPathForm,
+    FiberStrandPathFilterForm,
     InsertSlackLoopForm,
     LinkTopologyForm,
+    PathAnalysisQueueFilterForm,
+    PathAnomalyFilterForm,
     RibbonTemplateBulkEditForm,
     RibbonTemplateForm,
     SlackLoopBulkEditForm,
@@ -96,6 +114,7 @@ from .forms import (
     TubeAssignmentFilterForm,
     TubeAssignmentForm,
     TubeAssignmentImportForm,
+    picker_kwargs,
 )
 from .models import (
     BufferTube,
@@ -110,6 +129,8 @@ from .models import (
     FiberCircuitPath,
     FiberStrand,
     FiberStrandPath,
+    PathAnalysisQueue,
+    PathAnomaly,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -152,6 +173,8 @@ from .tables import (
     FiberCircuitTable,
     FiberStrandPathTable,
     FiberStrandTable,
+    PathAnalysisQueueTable,
+    PathAnomalyTable,
     RibbonTable,
     RibbonTemplateTable,
     SlackLoopTable,
@@ -1552,6 +1575,7 @@ class FiberCircuitListView(generic.ObjectListView):
     table = FiberCircuitTable
     filterset = FiberCircuitFilterSet
     filterset_form = FiberCircuitFilterForm
+    template_name = "netbox_fms/fibercircuit_list.html"
 
 
 class FiberCircuitView(generic.ObjectView):
@@ -1560,11 +1584,14 @@ class FiberCircuitView(generic.ObjectView):
     queryset = FiberCircuit.objects.all()
 
     def get_extra_context(self, request, instance):
-        return {
-            "paths": instance.paths.select_related("strand_path__end_a_port", "strand_path__end_b_port").order_by(
-                "position"
-            )
-        }
+        # An assignment shows its fiber path and the path's end ports, so both must be viewable.
+        paths = (
+            instance.paths.restrict(request.user, "view")
+            .filter(strand_path__in=FiberStrandPath.objects.restrict(request.user, "view"))
+            .select_related("strand_path__end_a_port", "strand_path__end_b_port")
+            .order_by("position")
+        )
+        return {"paths": paths}
 
 
 class FiberCircuitEditView(generic.ObjectEditView):
@@ -1637,7 +1664,67 @@ class FiberStrandPathListView(generic.ObjectListView):
 
     queryset = FiberStrandPath.objects.select_related("end_a_port__device", "end_b_port__device")
     table = FiberStrandPathTable
+    filterset = FiberStrandPathFilterSet
+    filterset_form = FiberStrandPathFilterForm
     actions = ()
+
+    def get_queryset(self, request):
+        """Hop counts, and the active assignments the user may see (the circuit is linked, so it must be viewable)."""
+        assignments = (
+            FiberCircuitPath.objects.restrict(request.user, "view")
+            .filter(active=True, circuit__in=FiberCircuit.objects.restrict(request.user, "view"))
+            .select_related("circuit")
+        )
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(hop_count=Count("hops", distinct=True))
+            .prefetch_related(Prefetch("assignments", queryset=assignments, to_attr="visible_assignments"))
+        )
+
+
+def _visible(user, model, ids):
+    """The objects with these ids that the user may view, keyed by pk."""
+    return model.objects.restrict(user, "view").in_bulk({pk for pk in ids if pk is not None})
+
+
+def _cell(visible, ref_id):
+    """(object, hidden) for a reference: hidden when it points at something the user may not view."""
+    return visible.get(ref_id), ref_id is not None and ref_id not in visible
+
+
+def _hop_rows(user, hops):
+    """The hops of a path with every referenced strand, cable and provider circuit restricted to the user."""
+
+    def cable_id(hop):
+        return hop.strand.fiber_cable.cable_id if hop.strand_id else hop.cable_id
+
+    strands = _visible(user, FiberStrand, (hop.strand_id for hop in hops))
+    cables = _visible(user, Cable, (cable_id(hop) for hop in hops))
+    circuits = _visible(user, Circuit, (hop.provider_circuit_id for hop in hops))
+    rows = []
+    for hop in hops:
+        row = {"position": hop.position}
+        for key, visible, ref_id in (
+            ("strand", strands, hop.strand_id),
+            ("cable", cables, cable_id(hop)),
+            ("provider_circuit", circuits, hop.provider_circuit_id),
+        ):
+            row[key], row[f"{key}_hidden"] = _cell(visible, ref_id)
+        rows.append(row)
+    return rows
+
+
+def _end_cells(user, path):
+    """The two end ports of a path and their devices, hidden where the user may not view them."""
+    ports = _visible(user, FrontPort, (path.end_a_port_id, path.end_b_port_id))
+    devices = _visible(user, Device, (port.device_id for port in ports.values()))
+    cells = {}
+    for side in ("a", "b"):
+        port, hidden = _cell(ports, getattr(path, f"end_{side}_port_id"))
+        cells[f"end_{side}_port"], cells[f"end_{side}_hidden"] = port, hidden
+        cells[f"end_{side}_device"] = devices.get(port.device_id) if port else None
+    return cells
 
 
 class FiberStrandPathView(generic.ObjectView):
@@ -1647,16 +1734,262 @@ class FiberStrandPathView(generic.ObjectView):
 
     def get_extra_context(self, request, instance):
         # Assignments link their circuits, so both the assignment and the
-        # circuit must be ones the requesting user may view.
+        # circuit must be ones the requesting user may view; hops and ends
+        # likewise show only the references the user may view.
         assignments = (
             instance.assignments.restrict(request.user, "view")
             .filter(circuit__in=FiberCircuit.objects.restrict(request.user, "view"))
             .select_related("circuit")
         )
+        hops = list(instance.hops.select_related("strand__fiber_cable"))
         return {
-            "hops": instance.hops.select_related("strand__fiber_cable", "cable", "provider_circuit"),
+            "hop_rows": _hop_rows(request.user, hops),
             "assignments": assignments,
+            **_end_cells(request.user, instance),
         }
+
+
+class PathAnomalyListView(generic.ObjectListView):
+    """Plant shapes the analysis refused to trace (read-only)."""
+
+    queryset = PathAnomaly.objects.select_related("strand", "front_port")
+    table = PathAnomalyTable
+    filterset = PathAnomalyFilterSet
+    filterset_form = PathAnomalyFilterForm
+    actions = ()
+
+
+class PathAnalysisQueueListView(generic.ObjectListView):
+    """Devices waiting for the next analysis run (read-only)."""
+
+    queryset = PathAnalysisQueue.objects.select_related("device")
+    table = PathAnalysisQueueTable
+    filterset = PathAnalysisQueueFilterSet
+    filterset_form = PathAnalysisQueueFilterForm
+    actions = ()
+
+
+# ---------------------------------------------------------------------------
+# Assign fibers and the circuit wizard (both on the shared picker)
+# ---------------------------------------------------------------------------
+
+
+def group_state(group):
+    """The session-safe form of a picker group."""
+    return {
+        "route_key": group.route_key,
+        "path_ids": group.path_ids,
+        "is_contiguous": group.is_contiguous,
+        "hop_count": group.hop_count,
+        "lowest_position": group.lowest_position,
+    }
+
+
+def _group_row(state, paths):
+    """What the templates show per group: the group facts plus its paths."""
+    return {**state, "paths": paths, "path_ids_csv": ",".join(str(pk) for pk in state["path_ids"])}
+
+
+def _group_rows(groups):
+    return [_group_row(group_state(group), group.paths) for group in groups]
+
+
+def _rows_from_state(user, state_groups):
+    """Rows for stored groups, re-fetching their paths through the user's view permission."""
+    by_pk = _visible(user, FiberStrandPath, (pk for group in state_groups for pk in group["path_ids"]))
+    return [_group_row(group, [by_pk[pk] for pk in group["path_ids"] if pk in by_pk]) for group in state_groups]
+
+
+class FiberCircuitAssignView(LoginRequiredMixin, View):
+    """Assign fibers to an existing circuit through the shared picker."""
+
+    template_name = "netbox_fms/fibercircuit_assign.html"
+
+    def _circuit(self, request, pk):
+        circuit = get_object_or_404(FiberCircuit.objects.restrict(request.user, "change"), pk=pk)
+        require_assign_permission(request.user)
+        return circuit
+
+    def _render(self, request, circuit, form, groups=None):
+        allow_incomplete = form.is_bound and form.is_valid() and form.cleaned_data["allow_incomplete"]
+        context = {"object": circuit, "form": form, "groups": groups, "allow_incomplete": allow_incomplete}
+        return render(request, self.template_name, context)
+
+    def get(self, request, pk):
+        circuit = self._circuit(request, pk)
+        return self._render(request, circuit, AssignFibersForm(user=request.user))
+
+    def post(self, request, pk):
+        circuit = self._circuit(request, pk)
+        if request.POST.get("action") == "assign":
+            return self._assign(request, circuit)
+        form = AssignFibersForm(request.POST, user=request.user)
+        groups = None
+        if form.is_valid():
+            remaining = circuit.strand_count - circuit.paths.filter(active=True).count()
+            if remaining <= 0:
+                messages.error(request, _("This circuit already has all its fiber paths assigned."))
+            else:
+                found = find_assignable_path_groups(
+                    remaining, circuit_status=circuit.status, **picker_kwargs(form.cleaned_data)
+                )
+                groups = _group_rows(viewable_groups(found, request.user))
+        return self._render(request, circuit, form, groups)
+
+    def _assign(self, request, circuit):
+        selection = AssignFibersSelectionForm(request.POST)
+        if selection.is_valid():
+            try:
+                paths = visible_paths(request.user, selection.cleaned_data["strand_paths"])
+                assigned = assign_paths_for(
+                    request.user, circuit, paths, allow_incomplete=selection.cleaned_data["allow_incomplete"]
+                )
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+            else:
+                messages.success(request, _("Assigned {count} fiber path(s).").format(count=len(assigned)))
+                return redirect(circuit.get_absolute_url())
+        return redirect(reverse("plugins:netbox_fms:fibercircuit_assign", args=[circuit.pk]))
+
+
+class FiberCircuitAcknowledgeRouteView(LoginRequiredMixin, View):
+    """Accept the current hops of a circuit's broken assignments."""
+
+    def post(self, request, pk):
+        circuit = get_object_or_404(FiberCircuit.objects.restrict(request.user, "change"), pk=pk)
+        count = acknowledge_route_for(request.user, circuit)
+        messages.success(request, _("Acknowledged the route of {count} assignment(s).").format(count=count))
+        return redirect(circuit.get_absolute_url())
+
+
+class CircuitWizardView(LoginRequiredMixin, View):
+    """Four-step htmx wizard: basics, picker filters, pick a route group, create and assign in one transaction."""
+
+    SESSION_KEY = "circuit_wizard"
+    SESSION_TTL = 3600  # 1 hour
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            require_assign_permission(request.user)
+            if not request.user.has_perm("netbox_fms.add_fibercircuit"):
+                raise PermissionDenied("Creating a circuit requires add_fibercircuit.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def _get_state(self, request):
+        state = request.session.get(self.SESSION_KEY, {})
+        if state and time.time() - state.get("timestamp", 0) > self.SESSION_TTL:
+            request.session.pop(self.SESSION_KEY, None)
+            return {}
+        return state
+
+    def _set_state(self, request, state):
+        state["timestamp"] = time.time()
+        request.session[self.SESSION_KEY] = state
+        request.session.modified = True
+
+    def _clear_state(self, request):
+        request.session.pop(self.SESSION_KEY, None)
+
+    def get(self, request):
+        if request.GET.get("restart"):
+            self._clear_state(request)
+            return redirect("plugins:netbox_fms:fibercircuit_wizard")
+        state = self._get_state(request)
+        return self._render_step(request, state.get("step", 1), state)
+
+    def post(self, request):
+        state = self._get_state(request)
+        step = state.get("step", 1)
+        if "_back" in request.POST and step > 1:
+            state["step"] = step - 1
+            self._set_state(request, state)
+            return self._render_step(request, step - 1, state)
+        return getattr(self, f"_process_step{step}")(request, state)
+
+    def _render_step(self, request, step, state, form=None, wizard_error=None):
+        ctx = {"state": state, "current_step": step, "wizard_error": wizard_error}
+        if step == 1:
+            ctx["form"] = form or CircuitWizardStep1Form(
+                initial={key: state.get(key) for key in ("name", "cid", "strand_count", "status", "tenant")},
+                user=request.user,
+            )
+        elif step == 2:
+            ctx["form"] = form or AssignFibersForm(user=request.user)
+        elif step == 3:
+            ctx["groups"] = _rows_from_state(request.user, state["groups"])
+        else:
+            ctx["group"] = _rows_from_state(request.user, [state["groups"][state["selected_group"]]])[0]
+        template = f"netbox_fms/htmx/circuit_wizard_step{step}.html"
+        if request.headers.get("HX-Request"):
+            return render(request, template, ctx)
+        return render(request, "netbox_fms/circuit_wizard.html", {**ctx, "step_template": template})
+
+    def _process_step1(self, request, state):
+        form = CircuitWizardStep1Form(request.POST, user=request.user)
+        if not form.is_valid():
+            return self._render_step(request, 1, state, form=form)
+        state.update({"step": 2, **{k: (v.pk if hasattr(v, "pk") else v) for k, v in form.cleaned_data.items()}})
+        self._set_state(request, state)
+        return self._render_step(request, 2, state)
+
+    def _process_step2(self, request, state):
+        form = AssignFibersForm(request.POST, user=request.user)
+        if not form.is_valid():
+            return self._render_step(request, 2, state, form=form)
+        found = find_assignable_path_groups(
+            state["strand_count"], circuit_status=state["status"], **picker_kwargs(form.cleaned_data)
+        )
+        groups = viewable_groups(found, request.user)
+        if not groups:
+            messages.error(request, _("No assignable fiber paths match these filters."))
+            return self._render_step(request, 2, state, form=form)
+        state.update(
+            {
+                "step": 3,
+                "allow_incomplete": form.cleaned_data["allow_incomplete"],
+                "groups": [group_state(group) for group in groups[:50]],
+            }
+        )
+        self._set_state(request, state)
+        return self._render_step(request, 3, state)
+
+    def _process_step3(self, request, state):
+        try:
+            index = int(request.POST.get("selected_group", 0))
+        except ValueError:
+            index = -1
+        if not 0 <= index < len(state["groups"]):
+            messages.error(request, _("Invalid route selection."))
+            return self._render_step(request, 3, state)
+        state.update({"step": 4, "selected_group": index})
+        self._set_state(request, state)
+        return self._render_step(request, 4, state)
+
+    def _process_step4(self, request, state):
+        path_ids = state["groups"][state["selected_group"]]["path_ids"]
+        try:
+            paths = visible_paths(request.user, path_ids)
+            with transaction.atomic():
+                circuit = FiberCircuit.objects.create(
+                    name=state["name"],
+                    cid=state.get("cid") or "",
+                    status=state["status"],
+                    strand_count=state["strand_count"],
+                    tenant_id=state.get("tenant"),
+                )
+                if not FiberCircuit.objects.restrict(request.user, "add").filter(pk=circuit.pk).exists():
+                    raise PermissionDenied("This circuit is outside your add permission on fiber circuits.")
+                assign_paths_for(request.user, circuit, paths, allow_incomplete=state["allow_incomplete"])
+        except ValidationError as exc:
+            error = "; ".join(exc.messages)
+            messages.error(request, _("Could not assign the fiber paths: {error}").format(error=error))
+            return self._render_step(request, 4, state, wizard_error=error)
+        self._clear_state(request)
+        messages.success(
+            request,
+            _('Circuit "{name}" created with {count} fiber path(s).').format(name=circuit.name, count=len(paths)),
+        )
+        return redirect(circuit.get_absolute_url())
 
 
 # ---------------------------------------------------------------------------

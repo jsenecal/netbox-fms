@@ -244,9 +244,19 @@ urlpatterns = [
         views.FiberCircuitPathDeleteView.as_view(),
         name="fibercircuitpath_delete",
     ),
-    # FiberStrandPath (read-only)
+    # Assign fibers and the circuit wizard
+    path("fiber-circuits/wizard/", views.CircuitWizardView.as_view(), name="fibercircuit_wizard"),
+    path("fiber-circuits/<int:pk>/assign/", views.FiberCircuitAssignView.as_view(), name="fibercircuit_assign"),
+    path(
+        "fiber-circuits/<int:pk>/acknowledge-route/",
+        views.FiberCircuitAcknowledgeRouteView.as_view(),
+        name="fibercircuit_acknowledge_route",
+    ),
+    # Path analysis (read-only)
     path("fiber-paths/", views.FiberStrandPathListView.as_view(), name="fiberstrandpath_list"),
     path("fiber-paths/<int:pk>/", views.FiberStrandPathView.as_view(), name="fiberstrandpath"),
+    path("path-anomalies/", views.PathAnomalyListView.as_view(), name="pathanomaly_list"),
+    path("path-analysis-queue/", views.PathAnalysisQueueListView.as_view(), name="pathanalysisqueue_list"),
     # Fiber Overview HTMX actions
     path(
         "fiber-overview/<int:pk>/update-gland/",

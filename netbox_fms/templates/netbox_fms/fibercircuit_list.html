@@ -1,0 +1,10 @@
+{% extends 'generic/object_list.html' %}
+{% load i18n %}
+
+{% block extra_controls %}
+    {% if perms.netbox_fms.add_fibercircuit and perms.netbox_fms.add_fibercircuitpath %}
+    <a href="{% url 'plugins:netbox_fms:fibercircuit_wizard' %}" class="btn btn-outline-success">
+        <i class="mdi mdi-creation"></i> {% trans "Circuit Wizard" %}
+    </a>
+    {% endif %}
+{% endblock %}

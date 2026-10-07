@@ -164,6 +164,26 @@ menu = PluginMenu(
             ),
         ),
         (
+            "Path Analysis",
+            (
+                PluginMenuItem(
+                    link="plugins:netbox_fms:fiberstrandpath_list",
+                    link_text="Fiber Paths",
+                    permissions=["netbox_fms.view_fiberstrandpath"],
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:pathanomaly_list",
+                    link_text="Path Anomalies",
+                    permissions=["netbox_fms.view_pathanomaly"],
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:pathanalysisqueue_list",
+                    link_text="Analysis Queue",
+                    permissions=["netbox_fms.view_pathanalysisqueue"],
+                ),
+            ),
+        ),
+        (
             "Splice Planning",
             (
                 PluginMenuItem(
