@@ -245,6 +245,13 @@ def sync_circuit_broken(circuit):
     return True
 
 
+def accept_current_hops(assignment):
+    """Make the path's current hops the assigned ones and clear the broken flags (not saved)."""
+    assignment.snapshot()
+    assignment.assigned_hops = hops_snapshot(assignment.strand_path)
+    assignment.is_broken, assignment.broken_reason = False, ""
+
+
 def _end_strands(refs):
     """The first and last strand of a hop list: the strands that sit on the end devices."""
     strands = [ref_id for kind, ref_id in refs if kind == "strand"]
@@ -276,12 +283,9 @@ def evaluate_assignments(paths, stats):
         if current == assigned:
             if not assignment.is_broken:
                 continue
-            assignment.snapshot()
-            assignment.is_broken, assignment.broken_reason = False, ""
+            accept_current_hops(assignment)
         elif current and assignment.circuit_id in authorized and _end_strands(current) == _end_strands(assigned):
-            assignment.snapshot()
-            assignment.assigned_hops = hops_snapshot(assignment.strand_path)
-            assignment.is_broken, assignment.broken_reason = False, ""
+            accept_current_hops(assignment)
             consumed.add(assignment.circuit_id)
             stats.assignments_authorized += 1
         else:

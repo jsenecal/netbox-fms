@@ -184,8 +184,9 @@ POST /api/plugins/fms/fiber-circuits/{id}/acknowledge-route/
 
 Acknowledging sets each broken assignment's `assigned_hops` to the current
 hops and clears the flags. It does not recover a `path_lost` assignment
-whose path has no hops: unassign it (delete the assignment) and assign a
-current path instead.
+whose path has no hops: that assignment is skipped and stays broken (and so
+does the circuit), and `acknowledged` counts only the assignments accepted.
+Unassign it (delete the assignment) and assign a current path instead.
 
 ---
 

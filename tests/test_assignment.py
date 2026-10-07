@@ -101,6 +101,27 @@ class TestAcknowledgeAndAuthorize(AssignCase):
         assert assignment.assigned_hops == [{"type": "strand", "id": self.s1.pk}]
         assert (assignment.is_broken, assignment.broken_reason, self.circuit.is_broken) == (False, "", False)
 
+    def test_acknowledge_leaves_a_path_lost_assignment_broken(self):
+        """A hop-less path has nothing to accept; healing it would leave a circuit with no fiber under it."""
+        assign_strand_path(
+            self.circuit, self.complete[0], assigned_hops=[], is_broken=True, broken_reason="hops_changed"
+        )
+        lost_hops = [{"type": "strand", "id": self.s4.pk}]
+        lost = assign_strand_path(
+            self.circuit,
+            make_strand_path(),
+            assigned_hops=lost_hops,
+            is_broken=True,
+            broken_reason=AssignmentBrokenReasonChoices.PATH_LOST,
+        )
+        FiberCircuit.objects.filter(pk=self.circuit.pk).update(is_broken=True)
+        self.circuit.refresh_from_db()
+        assert acknowledge_route(self.circuit) == 1
+        lost.refresh_from_db()
+        self.circuit.refresh_from_db()
+        assert (lost.is_broken, lost.broken_reason, lost.assigned_hops) == (True, "path_lost", lost_hops)
+        assert self.circuit.is_broken is True
+
     def test_acknowledge_is_a_no_op_without_broken_assignments(self):
         assign_strand_path(self.circuit, self.complete[0])
         assert acknowledge_route(self.circuit) == 0

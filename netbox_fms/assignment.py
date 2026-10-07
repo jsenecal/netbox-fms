@@ -18,7 +18,7 @@ from django.shortcuts import get_object_or_404
 
 from .choices import FiberCircuitStatusChoices, PathCompletenessChoices
 from .models import FiberCircuit, FiberCircuitPath, FiberStrandPath, RouteChangeAuthorization, hops_snapshot
-from .path_analysis import sync_circuit_broken
+from .path_analysis import accept_current_hops, sync_circuit_broken
 from .provisioning import _is_contiguous
 
 
@@ -76,17 +76,25 @@ def assign_paths(circuit, strand_paths, *, allow_incomplete=False):
     return assignments
 
 
+def acknowledgeable_assignments(circuit):
+    """The broken assignments of the circuit that acknowledging accepts: those whose path still has hops.
+
+    A path that lost every hop offers nothing to accept; taking its empty hop
+    list would leave the assignment healthy with no fiber under it. Such a
+    ``path_lost`` assignment stays broken until it is unassigned.
+    """
+    return circuit.paths.filter(active=True, is_broken=True).exclude(strand_path__hops__isnull=True)
+
+
 def acknowledge_route(circuit):
-    """Accept the current hops of every broken assignment of the circuit; returns how many were broken."""
+    """Accept the current hops of every acknowledgeable assignment of the circuit; returns how many."""
     with transaction.atomic():
-        broken = list(circuit.paths.filter(active=True, is_broken=True).select_related("strand_path"))
-        for assignment in broken:
-            assignment.snapshot()
-            assignment.assigned_hops = hops_snapshot(assignment.strand_path)
-            assignment.is_broken, assignment.broken_reason = False, ""
+        accepted = list(acknowledgeable_assignments(circuit).select_related("strand_path"))
+        for assignment in accepted:
+            accept_current_hops(assignment)
             assignment.save()
         sync_circuit_broken(circuit)
-    return len(broken)
+    return len(accepted)
 
 
 def circuit_to_change(user, pk):
@@ -134,9 +142,9 @@ def assign_paths_for(user, circuit, strand_paths, *, allow_incomplete=False):
 
 
 def acknowledge_route_for(user, circuit):
-    """acknowledge_route for a user: needs change on assignments, including on every broken one."""
+    """acknowledge_route for a user: needs change on assignments, including on every one it would accept."""
     require_acknowledge_permission(user)
-    affected = circuit.paths.filter(active=True, is_broken=True)
+    affected = acknowledgeable_assignments(circuit)
     permitted = FiberCircuitPath.objects.restrict(user, "change").filter(pk__in=affected.values("pk"))
     if permitted.count() != affected.count():
         raise PermissionDenied("These assignments are outside your change permission on fiber circuit paths.")
