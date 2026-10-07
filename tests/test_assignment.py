@@ -2,7 +2,9 @@
 
 from dcim.models import Cable, Device
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from netbox_fms.assignment import acknowledge_route, assign_paths, authorize_route_change
 from netbox_fms.choices import AssignmentBrokenReasonChoices, FiberCircuitStatusChoices
@@ -75,6 +77,17 @@ class TestAssignPaths(AssignCase):
         with self.assertRaises(ValidationError) as ctx:
             assign_paths(self.circuit, [self.complete[0], self.complete[0]])
         assert "more than once" in str(ctx.exception)
+
+    def test_candidate_paths_are_locked_before_the_exclusivity_check(self):
+        """Two circuits racing for one path must queue on its row instead of colliding on the unique index."""
+        with CaptureQueriesContext(connection) as queries:
+            assign_paths(self.circuit, self.complete[:1])
+        sql = [q["sql"] for q in queries]
+        lock = next((i for i, q in enumerate(sql) if "FOR UPDATE" in q and '"netbox_fms_fiberstrandpath"' in q), None)
+        exclusivity = next(
+            i for i, q in enumerate(sql) if q.startswith("SELECT") and '"netbox_fms_fibercircuitpath"' in q
+        )
+        assert lock is not None and lock < exclusivity, sql
 
     def test_decommissioned_circuit_takes_no_assignment(self):
         self.circuit.status = FiberCircuitStatusChoices.DECOMMISSIONED

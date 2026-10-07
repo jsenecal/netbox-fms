@@ -57,6 +57,8 @@ def assign_paths(circuit, strand_paths, *, allow_incomplete=False):
     paths = list(strand_paths)
     with transaction.atomic():
         circuit = FiberCircuit.objects.select_for_update().get(pk=circuit.pk)
+        # Two circuits racing for one path must queue on its row here, not collide on the unique index below.
+        list(FiberStrandPath.objects.select_for_update().filter(pk__in=[p.pk for p in paths]).order_by("pk"))
         errors = _assignment_errors(circuit, paths, allow_incomplete)
         if errors:
             raise ValidationError(errors)
