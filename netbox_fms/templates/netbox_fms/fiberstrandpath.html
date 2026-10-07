@@ -10,11 +10,11 @@
             <table class="table table-hover attr-table">
                 <tr>
                     <th scope="row">{% trans "End A" %}</th>
-                    <td>{% include 'netbox_fms/inc/path_end.html' with port=end_a_port device=end_a_device hidden=end_a_hidden kind=object.get_end_a_kind_display reason=object.end_a_reason reason_display=object.get_end_a_reason_display %}</td>
+                    <td>{% include 'netbox_fms/inc/path_end.html' with port=end_a_port device=end_a_device device_hidden=end_a_device_hidden hidden=end_a_hidden kind=object.get_end_a_kind_display reason=object.end_a_reason reason_display=object.get_end_a_reason_display %}</td>
                 </tr>
                 <tr>
                     <th scope="row">{% trans "End B" %}</th>
-                    <td>{% include 'netbox_fms/inc/path_end.html' with port=end_b_port device=end_b_device hidden=end_b_hidden kind=object.get_end_b_kind_display reason=object.end_b_reason reason_display=object.get_end_b_reason_display %}</td>
+                    <td>{% include 'netbox_fms/inc/path_end.html' with port=end_b_port device=end_b_device device_hidden=end_b_device_hidden hidden=end_b_hidden kind=object.get_end_b_kind_display reason=object.end_b_reason reason_display=object.get_end_b_reason_display %}</td>
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Completeness" %}</th>

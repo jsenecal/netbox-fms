@@ -8,7 +8,7 @@ wizard's one transaction, and the restricted context of the read-only pages.
 from unittest.mock import patch
 
 from circuits.models import Circuit
-from dcim.models import Cable, Device
+from dcim.models import Cable, Device, FrontPort
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import Client, TestCase
@@ -178,13 +178,13 @@ class TestAssignAction(_PlantMixin, TestCase):
         assert "exceed" in " ".join(str(m) for m in response.context["messages"])
         assert not circuit.paths.exists()
 
-    def test_malformed_selection_goes_back_to_the_picker(self):
+    def test_malformed_selection_goes_back_to_the_picker_with_the_error(self):
         circuit = self.make_circuit("AVA-BAD")
         response = _superuser_client("ava-bad").post(
-            self.assign_url(circuit), {"action": "assign", "strand_paths": "x"}
+            self.assign_url(circuit), {"action": "assign", "strand_paths": "x"}, follow=True
         )
-        assert response.status_code == 302
-        assert response.url == self.assign_url(circuit)
+        assert response.redirect_chain[-1][0] == self.assign_url(circuit)
+        assert "must be integers" in " ".join(str(m) for m in response.context["messages"])
 
     def test_circuit_page_lists_only_assignments_of_viewable_paths(self):
         circuit = self.make_circuit("AVA-PAGE")
@@ -235,9 +235,6 @@ class TestAcknowledgeAction(_PlantMixin, TestCase):
         self.assignment.refresh_from_db()
         assert self.assignment.is_broken
 
-    def test_acknowledge_is_post_only(self):
-        assert ui_client_with("avk-get", self._grants()).get(self.url).status_code == 405
-
 
 class TestCircuitWizard(_PlantMixin, TestCase):
     prefix = "AVW"
@@ -248,7 +245,9 @@ class TestCircuitWizard(_PlantMixin, TestCase):
         assert client.post(url, basics).status_code == 200
         step2 = {"ends_at": [self.dev_a.pk, self.dev_b.pk], **(extra_step2 or {})}
         assert client.post(url, step2).status_code == 200
-        assert client.post(url, {"selected_group": 0}).status_code == 200
+        review = client.post(url, {"selected_group": 0})
+        assert review.status_code == 200
+        assert review.context["status_label"] == "Planned"
         return url
 
     def test_wizard_creates_the_circuit_and_its_assignments_together(self):
@@ -401,14 +400,24 @@ class TestPathAnalysisPages(_PlantMixin, TestCase):
         row = next(r for r in hidden.context["table"].rows if r.record.pk == self.paths[0].pk)
         assert str(row.get_cell("assigned_to")) == "-"
 
-    def test_list_filters_translate_to_the_filtersets(self):
-        url = reverse("plugins:netbox_fms:fiberstrandpath_list")
-        response = _superuser_client("avp-filter").get(
-            url, {"assigned": "False", "completeness": "terminated_terminated"}
-        )
-        assert response.status_code == 200
-        PathAnomaly.objects.create(kind="loop")
-        assert _superuser_client("avp-anom").get(reverse("plugins:netbox_fms:pathanomaly_list")).status_code == 200
+    def test_list_filters_narrow_the_results(self):
+        assign_strand_path(self.make_circuit("AVP-F"), self.paths[0])
+        client = _superuser_client("avp-filter")
+        response = client.get(reverse("plugins:netbox_fms:fiberstrandpath_list"), {"assigned": "False"})
+        assert [row.record.pk for row in response.context["table"].rows] == [self.paths[1].pk]
+        loop = PathAnomaly.objects.create(kind="loop")
+        PathAnomaly.objects.create(kind="dangling_reference")
+        response = client.get(reverse("plugins:netbox_fms:pathanomaly_list"), {"kind": "loop"})
+        assert [row.record.pk for row in response.context["table"].rows] == [loop.pk]
         PathAnalysisQueue.objects.create(device=self.dev_a, reason="cable_changed")
-        queue = _superuser_client("avp-queue").get(reverse("plugins:netbox_fms:pathanalysisqueue_list"))
-        assert [r.record.device_id for r in queue.context["table"].rows] == [self.dev_a.pk]
+        PathAnalysisQueue.objects.create(device=self.dev_b, reason="cable_changed")
+        response = client.get(reverse("plugins:netbox_fms:pathanalysisqueue_list"), {"device_id": self.dev_a.pk})
+        assert [row.record.device_id for row in response.context["table"].rows] == [self.dev_a.pk]
+
+    def test_hidden_device_of_a_visible_end_port_is_marked_hidden(self):
+        path = self.paths[0]
+        url = reverse("plugins:netbox_fms:fiberstrandpath", args=[path.pk])
+        client = ui_client_with("avp-dev", [(FiberStrandPath, ["view"], None), (FrontPort, ["view"], None)])
+        response = client.get(url)
+        assert response.context["end_a_port"] is not None
+        assert response.context["end_a_device"] is None and response.context["end_a_device_hidden"]

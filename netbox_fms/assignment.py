@@ -14,6 +14,7 @@ from dcim.models import Cable, Device, PortMapping
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 
 from .choices import FiberCircuitStatusChoices, PathCompletenessChoices
 from .models import FiberCircuit, FiberCircuitPath, FiberStrandPath, RouteChangeAuthorization, hops_snapshot
@@ -86,6 +87,11 @@ def acknowledge_route(circuit):
             assignment.save()
         sync_circuit_broken(circuit)
     return len(broken)
+
+
+def circuit_to_change(user, pk):
+    """The circuit, if the user may change it (404 otherwise); a bare POST restriction only asks for "add"."""
+    return get_object_or_404(FiberCircuit.objects.restrict(user, "change"), pk=pk)
 
 
 def visible_paths(user, ids):

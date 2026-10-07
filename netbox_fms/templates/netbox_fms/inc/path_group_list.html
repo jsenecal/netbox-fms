@@ -17,10 +17,7 @@
                 <ul class="list-unstyled mb-0 small">
                     {% for path in group.paths %}
                     <li>
-                        {% if path.end_a_port %}{{ path.end_a_port|linkify }}{% else %}&mdash;{% endif %}
-                        {% trans "to" %}
-                        {% if path.end_b_port %}{{ path.end_b_port|linkify }}{% else %}&mdash;{% endif %}
-                        ({{ path.get_completeness_display }})
+                        {% include 'netbox_fms/inc/path_line.html' %}
                     </li>
                     {% endfor %}
                 </ul>

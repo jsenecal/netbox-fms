@@ -1,23 +1,26 @@
 from collections import OrderedDict
 
 from dcim.models import CableTermination, Device, FrontPort, Module
-from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count
-from django.shortcuts import get_object_or_404
 from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
-from ..assignment import acknowledge_route_for, assign_paths_for, require_assign_permission, visible_paths
+from ..assignment import (
+    acknowledge_route_for,
+    assign_paths_for,
+    circuit_to_change,
+    require_assign_permission,
+    visible_paths,
+)
 from ..choices import PathCompletenessChoices, SplicePlanStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
@@ -528,24 +531,18 @@ class FiberCircuitViewSet(NetBoxModelViewSet):
     serializer_class = FiberCircuitSerializer
     filterset_class = FiberCircuitFilterSet
 
-    def _circuit_to_change(self, pk):
-        """The circuit, if the user may change it; the generic POST restriction only asks for "add"."""
-        return get_object_or_404(FiberCircuit.objects.restrict(self.request.user, "change"), pk=pk)
-
     @action(detail=True, methods=["post"], permission_classes=[CircuitActionPermissions])
     def assign(self, request, pk=None):
         """Assign analyzed fiber paths to this circuit, in the given order."""
-        circuit = self._circuit_to_change(pk)
+        circuit = circuit_to_change(request.user, pk)
         body = AssignPathsSerializer(data=request.data)
+        require_assign_permission(request.user)
         try:
-            require_assign_permission(request.user)
             body.is_valid(raise_exception=True)
             paths = visible_paths(request.user, body.validated_data["strand_paths"])
             assignments = assign_paths_for(
                 request.user, circuit, paths, allow_incomplete=body.validated_data["allow_incomplete"]
             )
-        except DjangoPermissionDenied as exc:
-            raise PermissionDenied(str(exc)) from exc
         except ValidationError as exc:
             return Response({"strand_paths": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         data = FiberCircuitPathSerializer(assignments, many=True, context={"request": request}).data
@@ -554,11 +551,8 @@ class FiberCircuitViewSet(NetBoxModelViewSet):
     @action(detail=True, methods=["post"], url_path="acknowledge-route", permission_classes=[CircuitActionPermissions])
     def acknowledge_route(self, request, pk=None):
         """Accept the current hops of this circuit's broken assignments."""
-        circuit = self._circuit_to_change(pk)
-        try:
-            acknowledged = acknowledge_route_for(request.user, circuit)
-        except DjangoPermissionDenied as exc:
-            raise PermissionDenied(str(exc)) from exc
+        circuit = circuit_to_change(request.user, pk)
+        acknowledged = acknowledge_route_for(request.user, circuit)
         circuit.refresh_from_db()
         return Response({"acknowledged": acknowledged, "is_broken": circuit.is_broken})
 

@@ -12,17 +12,14 @@
         <table class="table table-hover attr-table mb-3">
             <tr><th scope="row">{% trans "Name" %}</th><td>{{ state.name }}</td></tr>
             {% if state.cid %}<tr><th scope="row">{% trans "Circuit ID" %}</th><td>{{ state.cid }}</td></tr>{% endif %}
-            <tr><th scope="row">{% trans "Status" %}</th><td>{{ state.status }}</td></tr>
+            <tr><th scope="row">{% trans "Status" %}</th><td>{{ status_label }}</td></tr>
             <tr><th scope="row">{% trans "Strand Count" %}</th><td>{{ state.strand_count }}</td></tr>
             <tr><th scope="row">{% trans "Hops" %}</th><td>{{ group.hop_count }}</td></tr>
             <tr>
                 <th scope="row">{% trans "Fiber paths" %}</th>
                 <td>
                     {% for path in group.paths %}
-                    {% if path.end_a_port %}{{ path.end_a_port|linkify }}{% else %}&mdash;{% endif %}
-                    {% trans "to" %}
-                    {% if path.end_b_port %}{{ path.end_b_port|linkify }}{% else %}&mdash;{% endif %}
-                    ({{ path.get_completeness_display }})<br>
+                    {% include 'netbox_fms/inc/path_line.html' %}<br>
                     {% endfor %}
                 </td>
             </tr>

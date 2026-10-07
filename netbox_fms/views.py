@@ -24,12 +24,13 @@ from .assignment import (
     acknowledge_route_for,
     assign_paths_for,
     authorize_route_change,
+    circuit_to_change,
     find_assignable_path_groups,
     require_assign_permission,
     viewable_groups,
     visible_paths,
 )
-from .choices import SplicePlanStatusChoices, TrayRoleChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
     BufferTubeFilterSet,
@@ -1724,13 +1725,14 @@ def _end_cells(user, path):
         port, hidden = _cell(ports, getattr(path, f"end_{side}_port_id"))
         cells[f"end_{side}_port"], cells[f"end_{side}_hidden"] = port, hidden
         cells[f"end_{side}_device"] = devices.get(port.device_id) if port else None
+        cells[f"end_{side}_device_hidden"] = port is not None and port.device_id not in devices
     return cells
 
 
 class FiberStrandPathView(generic.ObjectView):
     """One analyzed fiber path with its hops and assignments."""
 
-    queryset = FiberStrandPath.objects.select_related("end_a_port__device", "end_b_port__device")
+    queryset = FiberStrandPath.objects.all()
 
     def get_extra_context(self, request, instance):
         # Assignments link their circuits, so both the assignment and the
@@ -1806,7 +1808,7 @@ class FiberCircuitAssignView(LoginRequiredMixin, View):
     template_name = "netbox_fms/fibercircuit_assign.html"
 
     def _circuit(self, request, pk):
-        circuit = get_object_or_404(FiberCircuit.objects.restrict(request.user, "change"), pk=pk)
+        circuit = circuit_to_change(request.user, pk)
         require_assign_permission(request.user)
         return circuit
 
@@ -1849,6 +1851,8 @@ class FiberCircuitAssignView(LoginRequiredMixin, View):
             else:
                 messages.success(request, _("Assigned {count} fiber path(s).").format(count=len(assigned)))
                 return redirect(circuit.get_absolute_url())
+        else:
+            messages.error(request, "; ".join(m for errors in selection.errors.values() for m in errors))
         return redirect(reverse("plugins:netbox_fms:fibercircuit_assign", args=[circuit.pk]))
 
 
@@ -1856,7 +1860,7 @@ class FiberCircuitAcknowledgeRouteView(LoginRequiredMixin, View):
     """Accept the current hops of a circuit's broken assignments."""
 
     def post(self, request, pk):
-        circuit = get_object_or_404(FiberCircuit.objects.restrict(request.user, "change"), pk=pk)
+        circuit = circuit_to_change(request.user, pk)
         count = acknowledge_route_for(request.user, circuit)
         messages.success(request, _("Acknowledged the route of {count} assignment(s).").format(count=count))
         return redirect(circuit.get_absolute_url())
@@ -1919,6 +1923,7 @@ class CircuitWizardView(LoginRequiredMixin, View):
             ctx["groups"] = _rows_from_state(request.user, state["groups"])
         else:
             ctx["group"] = _rows_from_state(request.user, [state["groups"][state["selected_group"]]])[0]
+            ctx["status_label"] = dict(FiberCircuitStatusChoices.CHOICES)[state["status"]]
         template = f"netbox_fms/htmx/circuit_wizard_step{step}.html"
         if request.headers.get("HX-Request"):
             return render(request, template, ctx)
