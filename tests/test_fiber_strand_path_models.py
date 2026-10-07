@@ -5,19 +5,15 @@ from dcim.models import Cable, Device
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.test import TestCase
-from django.utils import timezone
 
 from netbox_fms.choices import (
     PathAnalysisReasonChoices,
     PathAnomalyKindChoices,
-    PathCompletenessChoices,
-    PathEndKindChoices,
 )
 from netbox_fms.models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberStrandPath,
     FiberStrandPathHop,
     PathAnalysisQueue,
     PathAnomaly,
@@ -25,19 +21,7 @@ from netbox_fms.models import (
     hops_to_json,
     refs_from_json,
 )
-from tests.conftest import make_front_port, make_infra
-
-
-def make_strand_path(**overrides):
-    fields = {
-        "end_a_kind": PathEndKindChoices.OPEN,
-        "end_b_kind": PathEndKindChoices.OPEN,
-        "completeness": PathCompletenessChoices.OPEN_OPEN,
-        "route_key": "",
-        "computed_at": timezone.now(),
-    }
-    fields.update(overrides)
-    return FiberStrandPath.objects.create(**fields)
+from tests.conftest import make_front_port, make_infra, make_strand_path
 
 
 def test_hops_json_round_trip_is_pure():
