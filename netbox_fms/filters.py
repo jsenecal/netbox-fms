@@ -510,7 +510,7 @@ class FiberStrandPathFilterSet(BaseFilterSet):
     end_a_port_id = django_filters.NumberFilter(field_name="end_a_port")
     end_b_port_id = django_filters.NumberFilter(field_name="end_b_port")
     strand_id = django_filters.NumberFilter(field_name="hops__strand", distinct=True, label=_("Strand (ID)"))
-    cable_id = django_filters.NumberFilter(field_name="hops__cable", distinct=True, label=_("Plain cable (ID)"))
+    cable_id = django_filters.NumberFilter(method="filter_cable", label=_("Cable (ID)"))
     device_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Device.objects.all(), method="filter_device", label=_("Device (ID)")
     )
@@ -519,6 +519,12 @@ class FiberStrandPathFilterSet(BaseFilterSet):
     class Meta:
         model = FiberStrandPath
         fields = ("id", "route_key", "is_proposed", "is_defective")
+
+    def filter_cable(self, queryset, name, value):
+        """Paths over this cable, as a plain cable hop or as the cable of a fiber cable's strand hop."""
+        return queryset.filter(
+            models.Q(hops__cable=value) | models.Q(hops__strand__fiber_cable__cable=value)
+        ).distinct()
 
     def filter_device(self, queryset, name, value):
         """Paths with a hop or an end on any of these devices."""

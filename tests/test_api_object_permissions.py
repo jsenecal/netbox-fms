@@ -31,7 +31,7 @@ from netbox_fms.models import (
     SplicePlan,
     SplicePlanEntry,
 )
-from tests.conftest import assign_strand_path, make_authed_client, make_infra, make_strand_path
+from tests.conftest import assign_strand_path, client_with, make_authed_client, make_infra, make_strand_path
 
 User = get_user_model()
 
@@ -44,19 +44,7 @@ def _constrained_client(models, constraints, username):
     """
     if not isinstance(models, (list, tuple)):
         models = [models]
-    user = User.objects.create_user(username=username, password="x")  # noqa: S106
-    perm = ObjectPermission.objects.create(
-        name=f"perm-{username}",
-        enabled=True,
-        actions=["view"],
-        constraints=constraints,
-    )
-    perm.object_types.set([ContentType.objects.get_for_model(m) for m in models])
-    perm.users.add(user)
-    client = APIClient()
-    # Re-fetch so no stale permission cache rides along on the user instance
-    client.force_authenticate(user=User.objects.get(pk=user.pk))
-    return client
+    return client_with(username, [(model, ["view"], constraints) for model in models])
 
 
 def _no_perm_client(username):
@@ -246,10 +234,7 @@ class TestReadOnlyPathEndpoints(TestCase):
     def test_anomalies_and_queue_are_hidden_without_permission(self):
         client = _no_perm_client("perm-nopaths")
         for endpoint in ("path-anomalies", "path-analysis-queue", "fiber-strand-paths"):
-            resp = client.get(f"/api/plugins/fms/{endpoint}/")
-            assert resp.status_code in (200, 403), endpoint
-            if resp.status_code == 200:
-                assert resp.data["results"] == [], endpoint
+            assert client.get(f"/api/plugins/fms/{endpoint}/").status_code == 403, endpoint
 
     def test_anomalies_and_queue_are_listed_with_view_permission(self):
         client = _constrained_client([PathAnomaly, PathAnalysisQueue], None, "perm-anomalies")

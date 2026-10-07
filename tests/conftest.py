@@ -346,6 +346,24 @@ def make_authed_client(username="api-test"):
     return client
 
 
+def client_with(username, grants):
+    """API client whose permissions are ``grants``: (model, actions, constraints) triples."""
+    from django.contrib.contenttypes.models import ContentType
+    from users.models import ObjectPermission
+
+    user = get_user_model().objects.create_user(username=username, password="x")  # noqa: S106
+    for index, (model, actions, constraints) in enumerate(grants):
+        perm = ObjectPermission.objects.create(
+            name=f"{username}-{index}", enabled=True, actions=actions, constraints=constraints
+        )
+        perm.object_types.set([ContentType.objects.get_for_model(model)])
+        perm.users.add(user)
+    client = APIClient()
+    # Re-fetch so no stale permission cache rides along on the user instance
+    client.force_authenticate(user=get_user_model().objects.get(pk=user.pk))
+    return client
+
+
 def make_provider_circuit(prefix):
     """Provider + type + circuit with A and Z terminations, uncabled."""
     from circuits.models import Circuit, CircuitTermination, CircuitType, Provider

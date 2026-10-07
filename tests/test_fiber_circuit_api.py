@@ -1,9 +1,5 @@
 from dcim.models import Cable, Device
-from django.contrib.auth import get_user_model
-from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
-from rest_framework.test import APIClient
-from users.models import ObjectPermission
 
 from netbox_fms.choices import FiberCircuitStatusChoices
 from netbox_fms.models import (
@@ -15,7 +11,14 @@ from netbox_fms.models import (
     PathAnalysisQueue,
     PathAnomaly,
 )
-from tests.conftest import assign_strand_path, make_authed_client, make_front_port, make_infra, make_strand_path
+from tests.conftest import (
+    assign_strand_path,
+    client_with,
+    make_authed_client,
+    make_front_port,
+    make_infra,
+    make_strand_path,
+)
 
 
 def make_protected_circuit(name, *hops, end_a=None):
@@ -204,20 +207,6 @@ class TestProviderCircuitQueries(TestCase):
         assert [c["id"] for c in response.json()] == [self.riding.pk]
 
 
-def _client_with(username, grants):
-    """API client whose permissions are ``grants``: (model, actions, constraints) triples."""
-    user = get_user_model().objects.create_user(username=username, password="x")  # noqa: S106
-    for index, (model, actions, constraints) in enumerate(grants):
-        perm = ObjectPermission.objects.create(
-            name=f"{username}-{index}", enabled=True, actions=actions, constraints=constraints
-        )
-        perm.object_types.set([ContentType.objects.get_for_model(model)])
-        perm.users.add(user)
-    client = APIClient()
-    client.force_authenticate(user=get_user_model().objects.get(pk=user.pk))
-    return client
-
-
 class TestAssignAPI(TestCase):
     """The assign and acknowledge-route actions wrap assign_paths / acknowledge_route."""
 
@@ -258,7 +247,7 @@ class TestAssignAPI(TestCase):
 
     def test_circuit_permissions_alone_do_not_allow_the_actions(self):
         """Editing the circuit is not enough: assigning needs add and acknowledging change on its paths."""
-        client = _client_with(
+        client = client_with(
             "aapi-circuitonly",
             [(FiberCircuit, ["add", "view", "change"], None), (FiberStrandPath, ["view"], None)],
         )
@@ -286,13 +275,13 @@ class TestAssignAPI(TestCase):
         assert response.status_code == 405
 
     def test_actions_need_the_assignment_permissions(self):
-        viewer = _client_with("aapi-viewer", [(FiberCircuit, ["view"], None), (FiberStrandPath, ["view"], None)])
+        viewer = client_with("aapi-viewer", [(FiberCircuit, ["view"], None), (FiberStrandPath, ["view"], None)])
         assert viewer.post(self.url + "assign/", {"strand_paths": [self.p1.pk]}, format="json").status_code == 403
         assert viewer.post(self.url + "acknowledge-route/", {}, format="json").status_code == 403
 
     def test_user_with_add_but_not_change_on_the_circuit_cannot_assign(self):
         """Assigning edits the circuit, so the change permission on that circuit gates it."""
-        client = _client_with(
+        client = client_with(
             "aapi-addonly",
             [
                 (FiberCircuit, ["add", "view"], None),
@@ -301,11 +290,54 @@ class TestAssignAPI(TestCase):
             ],
         )
         response = client.post(self.url + "assign/", {"strand_paths": [self.p1.pk]}, format="json")
-        assert response.status_code == 404
+        assert response.status_code == 403
         assert not self.circuit.paths.exists()
 
+    def test_fiber_assigner_without_add_on_the_circuit_can_assign_and_acknowledge(self):
+        """The actions edit the circuit: POST maps to change_fibercircuit, not add."""
+        client = client_with(
+            "aapi-assigner",
+            [
+                (FiberCircuit, ["view", "change"], None),
+                (FiberCircuitPath, ["add", "change"], None),
+                (FiberStrandPath, ["view"], None),
+            ],
+        )
+        response = client.post(self.url + "assign/", {"strand_paths": [self.p1.pk]}, format="json")
+        assert response.status_code == 201, response.content
+        FiberCircuitPath.objects.filter(circuit=self.circuit).update(is_broken=True, broken_reason="hops_changed")
+        response = client.post(self.url + "acknowledge-route/", {}, format="json")
+        assert response.status_code == 200, response.content
+        assert response.data["acknowledged"] == 1
+
+    def test_assign_is_refused_when_the_new_assignments_fall_outside_the_add_constraint(self):
+        client = client_with(
+            "aapi-addscoped",
+            [
+                (FiberCircuit, ["view", "change"], None),
+                (FiberCircuitPath, ["add"], {"circuit__name": "AAPI-O"}),
+                (FiberStrandPath, ["view"], None),
+            ],
+        )
+        response = client.post(self.url + "assign/", {"strand_paths": [self.p1.pk]}, format="json")
+        assert response.status_code == 403
+        assert not self.circuit.paths.exists()
+
+    def test_acknowledge_is_refused_when_the_assignments_fall_outside_the_change_constraint(self):
+        assign_strand_path(self.circuit, self.p1, assigned_hops=[], is_broken=True, broken_reason="hops_changed")
+        client = client_with(
+            "aapi-changescoped",
+            [
+                (FiberCircuit, ["view", "change"], None),
+                (FiberCircuitPath, ["change"], {"circuit__name": "AAPI-O"}),
+            ],
+        )
+        response = client.post(self.url + "acknowledge-route/", {}, format="json")
+        assert response.status_code == 403
+        assert self.circuit.paths.get().is_broken is True
+
     def test_change_permission_constraint_on_the_circuit_is_enforced(self):
-        client = _client_with(
+        client = client_with(
             "aapi-scoped",
             [
                 (FiberCircuit, ["add", "view"], None),
@@ -322,7 +354,7 @@ class TestAssignAPI(TestCase):
         assert client.post(self.url + "acknowledge-route/", {}, format="json").status_code == 200
 
     def test_assign_cannot_use_a_path_the_user_may_not_view(self):
-        client = _client_with(
+        client = client_with(
             "aapi-pathscoped",
             [
                 (FiberCircuit, ["add", "view", "change"], None),
@@ -346,15 +378,15 @@ class TestPathFilters(TestCase):
         fct = FiberCableType.objects.create(
             manufacturer=mfr, model="PFLT-2", strand_count=2, construction="tight_buffer"
         )
-        cable = Cable.objects.create()
-        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        cls.strand, other_strand = list(fc.fiber_strands.order_by("position"))
+        cls.fiber_cable_cable = Cable.objects.create()
+        fc = FiberCable.objects.create(cable=cls.fiber_cable_cable, fiber_cable_type=fct)
+        cls.strand = fc.fiber_strands.order_by("position").first()
         cls.device = Device.objects.create(name="PFLT-1", site=site, device_type=dt, role=role)
         cls.elsewhere = Device.objects.create(name="PFLT-2", site=site, device_type=dt, role=role)
         cls.fp = make_front_port(cls.device, "PFLT-A")
         cls.assigned = make_strand_path(cls.strand, end_a=cls.fp, end_b=cls.fp)
         cls.plain = Cable.objects.create()
-        cls.free = make_strand_path(other_strand, cls.plain)
+        cls.free = make_strand_path(cls.plain)
         circuit = FiberCircuit.objects.create(name="PFLT-C", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE)
         assign_strand_path(circuit, cls.assigned)
         PathAnomaly.objects.create(kind="loop", strand=cls.strand, front_port=cls.fp)
@@ -377,6 +409,7 @@ class TestPathFilters(TestCase):
         assert self.ids(paths, f"device_id={self.device.pk}") == [self.assigned.pk]
         assert self.ids(paths, f"device_id={self.elsewhere.pk}") == []
         assert self.ids(paths, f"strand_id={self.strand.pk}") == [self.assigned.pk]
+        assert self.ids(paths, f"cable_id={self.fiber_cable_cable.pk}") == [self.assigned.pk]
         assert self.ids(paths, f"cable_id={self.plain.pk}") == [self.free.pk]
         assert self.ids(paths, f"end_a_port_id={self.fp.pk}") == [self.assigned.pk]
         assert self.ids(paths, f"end_b_port_id={self.fp.pk}") == [self.assigned.pk]
