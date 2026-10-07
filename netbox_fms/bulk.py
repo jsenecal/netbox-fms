@@ -147,6 +147,8 @@ def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     FrontPort of ``closure`` that carries no cable, and may appear once in
     the batch. Returns the new cables in input order.
     """
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
     from .signals import mark_plans_stale
 
     specs = list(splices)
@@ -198,6 +200,7 @@ def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     else:
         search_backend.cache(cables, remove_existing=False)
         mark_plans_stale([closure.pk])
+        enqueue_devices([closure.pk], PathAnalysisReasonChoices.BULK_OPERATION)
     return cables
 
 
@@ -278,7 +281,9 @@ def assign_tubes(closure, assignments, *, notify=True) -> list[TubeAssignment]:
     yet. Capacity is not enforced here, as nowhere else: an over-full tray
     is reported, never refused. Returns the assignments in input order.
     """
+    from .choices import PathAnalysisReasonChoices
     from .models import TubeAssignment
+    from .path_queue import enqueue_devices
     from .signals import relabel_tray_labels
 
     specs = list(assignments)
@@ -311,4 +316,5 @@ def assign_tubes(closure, assignments, *, notify=True) -> list[TubeAssignment]:
     for tray_id, port_ids in by_tray.items():
         FrontPort.objects.filter(pk__in=port_ids).exclude(module_id=tray_id).update(module_id=tray_id, last_updated=now)
     relabel_tray_labels({tube.fiber_cable for tube in tubes.values()})
+    enqueue_devices([closure.pk], PathAnalysisReasonChoices.BULK_OPERATION)
     return rows

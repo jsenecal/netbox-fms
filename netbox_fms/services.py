@@ -24,7 +24,12 @@ from .bulk import (
     closure_side_ports,
     create_splices,
 )
-from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
+from .choices import (
+    FiberCircuitStatusChoices,
+    PathAnalysisReasonChoices,
+    SplicePlanStatusChoices,
+    TrayRoleChoices,
+)
 from .models import (
     BufferTube,
     ClosureCableEntry,
@@ -35,6 +40,7 @@ from .models import (
     SplicePlanEntry,
     TubeAssignment,
 )
+from .path_queue import enqueue_devices
 from .signals import _cable_strand_ports, _rear_port_strand_groups, fms_portmapping_bypass
 
 logger = logging.getLogger(__name__)
@@ -459,6 +465,7 @@ def _provision_device_ports(fc, device, port_type, fk_field, warnings, notify=Tr
         update_counter(Device, device.pk, "front_port_count", len(fronts))
         search_backend.cache(rears, remove_existing=False)
         search_backend.cache(fronts, remove_existing=False)
+        enqueue_devices([device.pk], PathAnalysisReasonChoices.BULK_OPERATION)
 
     return provisioned
 

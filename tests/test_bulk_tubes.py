@@ -1,11 +1,14 @@
 """Bulk tube assignment: same assignments and port moves as the per-object path."""
 
+from unittest.mock import patch
+
 from dcim.models import Device, FrontPort
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
 from netbox_fms.bulk import TubeSpec, assign_tubes
-from netbox_fms.models import BufferTubeTemplate, FiberCableType, TubeAssignment
+from netbox_fms.jobs import PathAnalysisJob
+from netbox_fms.models import BufferTubeTemplate, FiberCableType, PathAnalysisQueue, TubeAssignment
 from netbox_fms.services import create_closure_cable
 from tests.conftest import (
     is_indexed,
@@ -77,6 +80,12 @@ class TestEquivalence(BulkTubeCase):
         assert found == expected
         assert sum(1 for tray, _label in found["closure_ports"].values() if tray == "Tray 1") == 12
         assert set(found["far_ports"].values()) == {None}
+
+    def test_quiet_mode_queues_the_closure_for_analysis(self):
+        with patch.object(PathAnalysisJob, "enqueue"), self.captureOnCommitCallbacks(execute=True):
+            assign_tubes(self.closure, self.specs(), notify=False)
+        queued = set(PathAnalysisQueue.objects.values_list("device_id", "reason"))
+        assert queued == {(self.closure.pk, "bulk_operation")}
 
     def test_interactive_mode_saves_each_assignment(self):
         _, expected = rolled_back(self.reference, lambda: dump_assignments(self.closure, self.far))

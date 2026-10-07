@@ -1,12 +1,21 @@
 """Bulk port provisioning: same ports, mappings and strand links as the per-object path."""
 
+from unittest.mock import patch
+
 from dcim.models import Cable, FrontPort, PortMapping, RearPort
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
 from netbox_fms import naming
-from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, FiberStrand
+from netbox_fms.jobs import PathAnalysisJob
+from netbox_fms.models import (
+    BufferTubeTemplate,
+    FiberCable,
+    FiberCableType,
+    FiberStrand,
+    PathAnalysisQueue,
+)
 from netbox_fms.services import (
     _compile_label_templates,
     _port_context_builder,
@@ -179,6 +188,12 @@ class TestReceiversReplaced(BulkProvisioningCase):
 
 
 class TestQuietCable(BulkProvisioningCase):
+    def test_a_quietly_created_cable_queues_both_devices_for_analysis(self):
+        with patch.object(PathAnalysisJob, "enqueue"), self.captureOnCommitCallbacks(execute=True):
+            create_closure_cable(device_a=self.dev_a, device_b=self.dev_b, fiber_cable_type=self.tubed, notify=False)
+        queued = set(PathAnalysisQueue.objects.values_list("device_id", "reason"))
+        assert {(self.dev_a.pk, "bulk_operation"), (self.dev_b.pk, "bulk_operation")} <= queued
+
     def test_a_quietly_created_cable_counts_its_ports_and_traces_end_to_end(self):
         fc, warnings = create_closure_cable(
             device_a=self.dev_a, device_b=self.dev_b, fiber_cable_type=self.tubed, notify=False

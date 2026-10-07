@@ -1,12 +1,15 @@
 """Bulk splice creation: same stored rows as the per-object path, in two modes."""
 
+from unittest.mock import patch
+
 from dcim.models import Cable, CableTermination, Device, FrontPort
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from netbox_fms.bulk import SpliceSpec, create_splices
-from netbox_fms.models import BufferTubeTemplate, FiberCableType, SplicePlan
+from netbox_fms.jobs import PathAnalysisJob
+from netbox_fms.models import BufferTubeTemplate, FiberCableType, PathAnalysisQueue, SplicePlan
 from netbox_fms.services import create_closure_cable, front_port_splice_pairs
 from tests.conftest import (
     changes_logged,
@@ -185,6 +188,12 @@ class TestQuietReplacements(BulkSpliceCase):
         plan.refresh_from_db()
         assert plan.diff_stale is True
         assert is_indexed(cable, "BSP-JUMPER")
+
+    def test_quiet_mode_queues_the_closure_for_analysis(self):
+        with patch.object(PathAnalysisJob, "enqueue"), self.captureOnCommitCallbacks(execute=True):
+            create_splices(self.closure, self.specs(self.pairs[:1]), notify=False)
+        queued = set(PathAnalysisQueue.objects.values_list("device_id", "reason"))
+        assert queued == {(self.closure.pk, "bulk_operation")}
 
 
 class TestChangeLog(BulkSpliceCase):
