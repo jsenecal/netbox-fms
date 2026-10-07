@@ -18,6 +18,7 @@ from netbox_fms.choices import (
 )
 from netbox_fms.models import FiberCable, FiberCableType, FiberStrand
 from netbox_fms.path_graph import (
+    OPEN_CABLE_END,
     Anomaly,
     ChainEnd,
     fp_node,
@@ -40,8 +41,6 @@ from tests.conftest import (
     make_mapped_rear_ports,
     make_provider_circuit,
 )
-
-OPEN_NO_PORT = ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END)
 
 
 def _make_closure(name):
@@ -232,7 +231,7 @@ class TestWalkMultiTube(TestCase):
         PortMapping.objects.filter(rear_port=self.rp_y12, rear_port_position=1).delete()
         chain = chain_from(self.fp_x2a)
         assert chain.hops == [("cable", self.cable1.pk)]
-        assert chain.end_b == OPEN_NO_PORT
+        assert chain.end_b == OPEN_CABLE_END
         assert chain.completeness == PathCompletenessChoices.OPEN_OPEN
 
     def test_connectorless_two_tube_cable_is_not_crossed(self):
@@ -436,7 +435,7 @@ class TestUnlandedStrands(TestCase):
         chains = walk_from(plant, fp_node(s1.front_port_a_id))
         assert [chain.hops for chain in chains] == [[("strand", s1.pk)]]
         assert chains[0].end_a.port_id == s1.front_port_a_id
-        assert chains[0].end_b == OPEN_NO_PORT
+        assert chains[0].end_b == OPEN_CABLE_END
         assert chains[0].cable_ids == [cable.pk]
 
     def test_strands_with_no_ports_are_orphan_chains_open_at_both_ends(self):
@@ -446,7 +445,7 @@ class TestUnlandedStrands(TestCase):
         plant = load_plant([self.dev_a.pk])
         chains = orphan_chains(plant)
         assert [chain.hops for chain in chains] == [[("strand", s.pk)] for s in fc.fiber_strands.order_by("pk")]
-        assert all(chain.end_a == chain.end_b == OPEN_NO_PORT for chain in chains)
+        assert all(chain.end_a == chain.end_b == OPEN_CABLE_END for chain in chains)
         assert len(walk_all(plant)) == 2
 
 
@@ -476,4 +475,4 @@ class TestProposed(TestCase):
             PortMapping.objects.filter(pk=mapping.pk).delete()
         plant = load_plant([self.dev_a.pk])
         (chain,) = walk_from(plant, rp_node(mapping.rear_port_id, mapping.rear_port_position))
-        assert OPEN_NO_PORT in (chain.end_a, chain.end_b)
+        assert OPEN_CABLE_END in (chain.end_a, chain.end_b)

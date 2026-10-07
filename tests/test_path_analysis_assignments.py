@@ -9,14 +9,14 @@ from netbox_fms.assignment import authorize_route_change
 from netbox_fms.choices import AssignmentBrokenReasonChoices, FiberCircuitStatusChoices, PathEndKindChoices
 from netbox_fms.models import FiberCable, FiberCableType, FiberCircuit, FiberStrandPath, RouteChangeAuthorization
 from netbox_fms.path_analysis import write_results
-from netbox_fms.path_graph import Chain, ChainEnd
+from netbox_fms.path_graph import OPEN_CABLE_END, Chain
 from tests.conftest import assign_strand_path, changes_logged, make_infra, make_strand_path
-
-OPEN = ChainEnd(None, PathEndKindChoices.OPEN, "cable_end")
 
 
 def chain(*strands):
-    return Chain([("strand", s.pk) for s in strands], OPEN, OPEN, [s.fiber_cable.cable_id for s in strands])
+    return Chain(
+        [("strand", s.pk) for s in strands], OPEN_CABLE_END, OPEN_CABLE_END, [s.fiber_cable.cable_id for s in strands]
+    )
 
 
 class EvaluationCase(TestCase):

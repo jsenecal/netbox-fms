@@ -2,12 +2,11 @@
 
 from types import SimpleNamespace
 
-from netbox_fms.choices import PathCompletenessChoices, PathEndKindChoices, PathEndReasonChoices
-from netbox_fms.path_graph import Chain, ChainEnd, fp_node, route_key_for, rp_node
+from netbox_fms.choices import PathCompletenessChoices, PathEndKindChoices
+from netbox_fms.path_graph import OPEN_CABLE_END, Chain, ChainEnd, fp_node, route_key_for, rp_node
 from netbox_fms.trace import pair_far_rear_port_termination, paired_rear_port_terminations
 
 TERMINATED = ChainEnd(1, PathEndKindChoices.TERMINATED, "")
-OPEN = ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END)
 
 
 def test_route_key_is_stable_and_order_sensitive():
@@ -18,16 +17,16 @@ def test_route_key_is_stable_and_order_sensitive():
 
 def test_completeness_follows_the_end_kinds():
     assert Chain([("cable", 1)], TERMINATED, TERMINATED, [1]).completeness == "terminated_terminated"
-    assert Chain([("cable", 1)], TERMINATED, OPEN, [1]).completeness == "terminated_open"
-    assert Chain([("cable", 1)], OPEN, OPEN, [1]).completeness == PathCompletenessChoices.OPEN_OPEN
+    assert Chain([("cable", 1)], TERMINATED, OPEN_CABLE_END, [1]).completeness == "terminated_open"
+    assert Chain([("cable", 1)], OPEN_CABLE_END, OPEN_CABLE_END, [1]).completeness == PathCompletenessChoices.OPEN_OPEN
 
 
 def test_reversed_swaps_ends_and_reverses_hops_and_cables():
-    chain = Chain([("strand", 5), ("provider_circuit", 2), ("strand", 6)], TERMINATED, OPEN, [10, 11])
+    chain = Chain([("strand", 5), ("provider_circuit", 2), ("strand", 6)], TERMINATED, OPEN_CABLE_END, [10, 11])
     back = chain.reversed()
     assert back.hops == [("strand", 6), ("provider_circuit", 2), ("strand", 5)]
     assert back.cable_ids == [11, 10]
-    assert (back.end_a, back.end_b) == (OPEN, TERMINATED)
+    assert (back.end_a, back.end_b) == (OPEN_CABLE_END, TERMINATED)
     assert back.route_key != chain.route_key
     assert chain.strand_ids == [5, 6]
 

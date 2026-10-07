@@ -50,6 +50,10 @@ class ChainEnd:
     reason: str = ""
 
 
+# The end of a chain that stops short of any port: at a cable end, with nothing to name.
+OPEN_CABLE_END = ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END)
+
+
 @dataclass
 class Chain:
     """Ordered hops between two classified ends, as the walker emits them."""
@@ -474,7 +478,7 @@ def _edge_strands(data):
 def classify_end(plant, node):
     """Terminated for a non-splice port or one patched onto an interface; open otherwise."""
     if node[0] != NODE_FP:
-        return ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END)
+        return OPEN_CABLE_END
     fp = node[1]
     if plant.fp_type.get(fp) != PortTypeChoices.TYPE_SPLICE or fp in plant.fp_terminated:
         return ChainEnd(fp, PathEndKindChoices.TERMINATED, "")
@@ -529,7 +533,7 @@ def _half_landed_chains(plant, component):
             Chain(
                 [("strand", strand_id)],
                 classify_end(plant, node),
-                ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END),
+                OPEN_CABLE_END,
                 [cable_id],
                 _is_proposed(plant, [cable_id], (node,)),
             )
@@ -539,12 +543,11 @@ def _half_landed_chains(plant, component):
 
 def orphan_chains(plant):
     """Single-hop chains for strands that land on no port at all: open at both ends, no port."""
-    open_end = ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END)
     return [
         Chain(
             [("strand", strand_id)],
-            open_end,
-            open_end,
+            OPEN_CABLE_END,
+            OPEN_CABLE_END,
             [plant.strand_cable[strand_id]],
             plant.strand_cable[strand_id] in plant.planned_cables,
         )

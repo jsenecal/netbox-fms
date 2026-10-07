@@ -6,7 +6,7 @@ from dcim.models import Cable, RearPort
 from django.test import TestCase
 from django.utils import timezone
 
-from netbox_fms.choices import PathAnomalyKindChoices, PathEndKindChoices, PathEndReasonChoices
+from netbox_fms.choices import PathAnomalyKindChoices, PathEndKindChoices
 from netbox_fms.models import FiberCable, FiberCableType, FiberStrand, FiberStrandPath, PathAnomaly
 from netbox_fms.path_analysis import (
     device_ids_on_paths,
@@ -15,15 +15,14 @@ from netbox_fms.path_analysis import (
     try_analysis_lock,
     write_results,
 )
-from netbox_fms.path_graph import Anomaly, Chain, ChainEnd, route_key_for
+from netbox_fms.path_graph import OPEN_CABLE_END, Anomaly, Chain, ChainEnd, route_key_for
 from netbox_fms.services import create_closure_cable
 from tests.conftest import make_closure_pair, make_infra
 
 TERMINATED = ChainEnd(None, PathEndKindChoices.TERMINATED, "")
-OPEN = ChainEnd(None, PathEndKindChoices.OPEN, PathEndReasonChoices.CABLE_END)
 
 
-def strand_chain(*strands, end_a=OPEN, end_b=OPEN):
+def strand_chain(*strands, end_a=OPEN_CABLE_END, end_b=OPEN_CABLE_END):
     return Chain([("strand", s.pk) for s in strands], end_a, end_b, [s.fiber_cable.cable_id for s in strands])
 
 
@@ -52,7 +51,7 @@ class WriterCase(TestCase):
 
 class TestWriteOutcomes(WriterCase):
     def test_new_chain_creates_a_path_with_its_hops_and_derived_fields(self):
-        chain = strand_chain(self.s1, self.t1, end_a=TERMINATED, end_b=OPEN)
+        chain = strand_chain(self.s1, self.t1, end_a=TERMINATED, end_b=OPEN_CABLE_END)
         stats = write_results([chain], self.stored(), computed_at=self.now)
         path = FiberStrandPath.objects.get()
         assert stats.paths_created == 1
@@ -141,9 +140,9 @@ class TestWriteOutcomes(WriterCase):
         assert FiberStrandPath.objects.get().pk == path.pk
 
     def test_reversed_and_changed_chain_keeps_the_stored_orientation(self):
-        path = self.store(strand_chain(self.s2, self.s3, end_a=TERMINATED, end_b=OPEN))
+        path = self.store(strand_chain(self.s2, self.s3, end_a=TERMINATED, end_b=OPEN_CABLE_END))
         write_results(
-            [strand_chain(self.s3, self.s2, self.s1, end_a=OPEN, end_b=TERMINATED)],
+            [strand_chain(self.s3, self.s2, self.s1, end_a=OPEN_CABLE_END, end_b=TERMINATED)],
             self.stored(),
             computed_at=self.now,
         )
@@ -152,8 +151,12 @@ class TestWriteOutcomes(WriterCase):
         assert (path.end_a_kind, path.end_b_kind) == ("terminated", "open")
 
     def test_strand_chain_with_no_stored_strand_is_new_even_if_it_shares_a_cable_hop(self):
-        self.store(Chain([("cable", self.cable.pk), ("strand", self.s1.pk)], OPEN, OPEN, [self.cable.pk]))
-        chain = Chain([("strand", self.t1.pk), ("cable", self.cable.pk)], OPEN, OPEN, [self.cable.pk])
+        self.store(
+            Chain([("cable", self.cable.pk), ("strand", self.s1.pk)], OPEN_CABLE_END, OPEN_CABLE_END, [self.cable.pk])
+        )
+        chain = Chain(
+            [("strand", self.t1.pk), ("cable", self.cable.pk)], OPEN_CABLE_END, OPEN_CABLE_END, [self.cable.pk]
+        )
         FiberStrand.objects.filter(pk=self.s1.pk).delete()
         stats = write_results([chain], self.stored(), computed_at=self.now)
         assert (stats.paths_updated, stats.paths_created, stats.paths_deleted) == (0, 1, 1)
@@ -199,9 +202,14 @@ class TestPathDeviceLookups(WriterCase):
         plain_cable = Cable.objects.create(
             a_terminations=[RearPort.objects.create(device=pair.dev_a, name="WRL-RP", type="splice", positions=2)]
         )
-        by_cable = self.store(Chain([("cable", plain_cable.pk)], OPEN, OPEN, [plain_cable.pk]))
+        by_cable = self.store(Chain([("cable", plain_cable.pk)], OPEN_CABLE_END, OPEN_CABLE_END, [plain_cable.pk]))
         by_end = self.store(
-            Chain([("strand", self.s1.pk)], ChainEnd(landed.front_port_b_id, "terminated"), OPEN, [self.cable.pk])
+            Chain(
+                [("strand", self.s1.pk)],
+                ChainEnd(landed.front_port_b_id, "terminated"),
+                OPEN_CABLE_END,
+                [self.cable.pk],
+            )
         )
         assert path_ids_through_devices([pair.dev_a.pk]) == {by_strand.pk, by_cable.pk}
         assert path_ids_through_devices([pair.dev_b.pk]) == {by_strand.pk, by_end.pk}
