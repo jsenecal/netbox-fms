@@ -36,7 +36,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from dcim.choices import LinkStatusChoices
-from dcim.models import Cable, CableTermination, FrontPort, Module
+from dcim.models import Cable, CablePath, CableTermination, FrontPort, Module
+from dcim.utils import create_cablepaths, object_to_path_node
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db.models import prefetch_related_objects
@@ -139,6 +140,22 @@ def _jumper(spec, defaults) -> Cable:
     return cable
 
 
+def rebuild_paths_through(ports) -> None:
+    """Rebuild every NetBox CablePath that runs through any of ``ports``.
+
+    NetBox retraces paths only when Cable.save() sends its trace_paths
+    signal, and the bulk writers never call save(); without this, a path
+    that dead-ended at a port stays incomplete after the port is cabled.
+    One overlap query finds every affected path once; NetBox's own
+    rebuild_paths() queries once per port and would retrace a path again for
+    every touched port it crosses.
+    """
+    nodes = [object_to_path_node(port) for port in ports]
+    for path in CablePath.objects.filter(_nodes__overlap=nodes):
+        path.delete()
+        create_cablepaths(path.origins)
+
+
 @cached_lookups()
 def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     """Splice pairs of the closure's FrontPorts: one connected Cable per pair, terminated on both.
@@ -190,6 +207,7 @@ def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     FrontPort.objects.bulk_update(
         touched, ["cable", "cable_end", "cable_connector", "cable_positions", "last_updated"], batch_size=BATCH_SIZE
     )
+    rebuild_paths_through(touched)
 
     if notify:
         announce(Cable, cables)

@@ -1,6 +1,6 @@
 """Bulk splice creation: same stored rows as the per-object path, in two modes."""
 
-from dcim.models import Cable, CableTermination, Device, FrontPort
+from dcim.models import Cable, CablePath, CableTermination, Device, FrontPort, Interface
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
@@ -75,6 +75,34 @@ class BulkSpliceCase(TestCase):
 
     def specs(self, pairs=None, **attrs):
         return [SpliceSpec(a, b, dict(attrs) or None) for a, b in (pairs or self.pairs)]
+
+
+class TestCablePaths(BulkSpliceCase):
+    """NetBox's own Interface paths cross the new jumpers.
+
+    NetBox rebuilds CablePaths only when Cable.save() sends its trace_paths
+    signal; the bulk writer never calls save(), so the paths that dead-ended
+    at the closure stayed incomplete after a splice plan was applied.
+    """
+
+    def assert_interfaces_connect(self, notify):
+        near = Interface.objects.create(device=self.far1, name="BSP-xe0", type="10gbase-x-sfpp")
+        Cable(a_terminations=[near], b_terminations=[self.strands_a[1].front_port_a]).save()
+        far = Interface.objects.create(device=self.far2, name="BSP-xe0", type="10gbase-x-sfpp")
+        Cable(a_terminations=[far], b_terminations=[self.strands_b[1].front_port_b]).save()
+
+        create_splices(self.closure, self.specs(self.pairs[:1]), notify=notify)
+
+        near.refresh_from_db()
+        path = CablePath.objects.get(pk=near._path_id)
+        assert path.is_complete
+        assert path.destinations == [far]
+
+    def test_quiet_splices_complete_the_interface_path(self):
+        self.assert_interfaces_connect(notify=False)
+
+    def test_announced_splices_complete_the_interface_path(self):
+        self.assert_interfaces_connect(notify=True)
 
 
 class TestEquivalence(BulkSpliceCase):
