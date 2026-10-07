@@ -553,13 +553,24 @@ def orphan_chains(plant):
     ]
 
 
-def walk_all(plant):
-    """Every chain of the loaded plant: one per fiber component plus the port-less strands."""
+def walk_nodes(plant, nodes):
+    """The chains reached from these start nodes, each fiber component walked once, plus the port-less strands.
+
+    A strand landed on a port with no place in the graph (no mapping, no
+    cable) is walked from that port like any other start node.
+    """
     chains, seen = [], set()
-    for node in sorted(plant.graph.nodes):
+    for node in nodes:
         if node in seen:
             continue
-        seen |= nx.node_connected_component(plant.graph, node)
+        if node in plant.graph:
+            seen |= nx.node_connected_component(plant.graph, node)
         chains.extend(walk_from(plant, node))
     chains.extend(orphan_chains(plant))
     return chains
+
+
+def walk_all(plant):
+    """Every chain of the loaded plant: one per fiber component plus the strands that land on no graph node."""
+    landed = {fp_node(fp_id) for fp_id in plant.strand_by_fp}
+    return walk_nodes(plant, sorted(set(plant.graph.nodes) | landed))

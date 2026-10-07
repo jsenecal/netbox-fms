@@ -135,11 +135,13 @@ class TestFilterShortcut(QueueCase):
 
 class TestAutocommit(TransactionTestCase):
     def setUp(self):
+        self.enterContext(patch.object(PathAnalysisJob, "enqueue"))
         self.pair = pair = make_closure_pair("PQT")
         fct = FiberCableType.objects.create(
             manufacturer=pair.mfr, model="PQT-1", strand_count=1, construction="tight_buffer"
         )
         create_closure_cable(device_a=pair.dev_a, device_b=pair.dev_b, fiber_cable_type=fct)
+        PathAnalysisQueue.objects.all().delete()
 
     def test_a_real_commit_keeps_surviving_rows_and_drops_a_rolled_back_savepoint(self):
         pair = self.pair

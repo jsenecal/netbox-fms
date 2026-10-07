@@ -11,7 +11,6 @@ from collections import defaultdict
 from dataclasses import dataclass, fields
 from datetime import timedelta
 
-import networkx as nx
 from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
@@ -29,7 +28,7 @@ from .models import (
     hops_snapshot,
     refs_from_json,
 )
-from .path_graph import fp_node, load_plant, orphan_chains, walk_all, walk_from
+from .path_graph import fp_node, load_plant, walk_all, walk_nodes
 
 # A plugin-private PostgreSQL advisory lock id, far from NetBox's own keys.
 ANALYSIS_LOCK_KEY = 1_960_001
@@ -335,6 +334,24 @@ def run_reconcile():
     return stats
 
 
+def _anomalies_on(plant, device_ids):
+    """The region's anomalies that touch these devices: the same scope replace_anomalies clears.
+
+    The loaded region reaches past the analyzed devices; anomalies out there
+    are the reconcile's, and inserting them here would duplicate the rows
+    the delete never reaches.
+    """
+
+    def touches(anomaly):
+        if anomaly.front_port_id is not None:
+            return plant.fp_device.get(anomaly.front_port_id) in device_ids
+        devices = set(plant.cable_devices.get(plant.strand_cable[anomaly.strand_id], ()))
+        devices.update(plant.fp_device.get(fp) for fp in plant.strand_ports[anomaly.strand_id] if fp is not None)
+        return not devices.isdisjoint(device_ids)
+
+    return [anomaly for anomaly in plant.anomalies if touches(anomaly)]
+
+
 def analyze_devices(device_ids):
     """Re-analyze the fibers through these devices.
 
@@ -355,20 +372,13 @@ def analyze_devices(device_ids):
         for kind, ref_id in path.hop_refs():
             if kind == "strand":
                 start_fps.update(fp for fp in plant.strand_ports.get(ref_id, (None, None)) if fp is not None)
-    chains, seen = [], set()
-    for node in sorted(fp_node(fp) for fp in start_fps):
-        if node in seen:
-            continue
-        if node in plant.graph:
-            seen |= nx.node_connected_component(plant.graph, node)
-        chains.extend(walk_from(plant, node))
-    chains.extend(orphan_chains(plant))
+    chains = walk_nodes(plant, sorted(fp_node(fp) for fp in start_fps))
     strand_ids = {ref_id for chain in chains for kind, ref_id in chain.hops if kind == "strand"}
     stored = {path.pk: path for path in in_scope}
     joined = FiberStrandPath.objects.filter(hops__strand_id__in=strand_ids).exclude(pk__in=stored).distinct()
     for path in joined.prefetch_related("hops"):
         stored[path.pk] = path
     stats = write_results(chains, stored.values(), computed_at=computed_at)
-    replace_anomalies(plant.anomalies, device_ids=device_ids)
+    replace_anomalies(_anomalies_on(plant, device_ids), device_ids=device_ids)
     stats.devices = len(device_ids)
     return stats

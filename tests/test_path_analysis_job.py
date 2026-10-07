@@ -4,15 +4,18 @@ import uuid
 from unittest.mock import patch
 
 from core.models import Job
+from dcim.models import Cable, PortMapping
 from django.test import TestCase
+from netbox.plugins import get_plugin_config
 from netbox.registry import registry
 
 from netbox_fms.choices import FiberCircuitStatusChoices, PathAnalysisReasonChoices
 from netbox_fms.jobs import PathAnalysisJob, PathReconcileJob
-from netbox_fms.models import FiberCableType, FiberCircuit, FiberStrandPath, PathAnalysisQueue
+from netbox_fms.models import FiberCableType, FiberCircuit, FiberStrand, FiberStrandPath, PathAnalysisQueue, PathAnomaly
 from netbox_fms.path_analysis import analyze_devices, run_reconcile
 from netbox_fms.services import create_closure_cable
-from tests.conftest import assign_strand_path, connect_front_ports, make_closure_pair
+from netbox_fms.signals import fms_portmapping_bypass
+from tests.conftest import assign_strand_path, connect_front_ports, make_closure_pair, make_front_port
 
 
 def snapshot_paths():
@@ -51,7 +54,6 @@ class JobCase(TestCase):
 class TestAnalyzeDevices(JobCase):
     def test_a_splice_at_a_queued_device_rewrites_and_breaks_the_assignment(self):
         connect_front_ports(self.s1.front_port_b, self.t1.front_port_a)
-        PathAnalysisQueue.objects.all().delete()
         stats = analyze_devices({self.dev_b.pk})
         self.assignment.refresh_from_db()
         assert stats.devices == 1
@@ -84,6 +86,43 @@ class TestAnalyzeDevices(JobCase):
         assert stats.paths_deleted == 1  # u1's own path merged into the stored s1+t1 path, which does not touch dev_d
         merged = FiberStrandPath.objects.get(hops__strand=self.s1)
         assert merged.hop_refs() == [("strand", self.s1.pk), ("strand", self.t1.pk), ("strand", u1.pk)]
+
+    def anomaly_rows(self):
+        return sorted(PathAnomaly.objects.values_list("kind", "strand_id", "front_port_id"))
+
+    def test_an_anomaly_beyond_the_analyzed_device_is_not_inserted_again(self):
+        t2 = self.fc_bc.fiber_strands.order_by("position").last()
+        extra = make_front_port(self.dev_c, "JOB-extra")
+        connect_front_ports(self.s1.front_port_b, self.t1.front_port_a)
+        Cable.objects.create(a_terminations=[self.t1.front_port_b], b_terminations=[t2.front_port_b, extra])
+        run_reconcile()
+        (row,) = self.anomaly_rows()
+        assert row == ("too_many_connections", None, self.t1.front_port_b_id)
+        analyze_devices({self.dev_a.pk})
+        analyze_devices({self.dev_a.pk})
+        assert self.anomaly_rows() == [row]
+
+    def test_a_strand_anomaly_is_replaced_on_its_cable_devices_and_left_alone_elsewhere(self):
+        t2 = self.fc_bc.fiber_strands.order_by("position").last()
+        connect_front_ports(self.t1.front_port_a, t2.front_port_a)
+        connect_front_ports(self.t1.front_port_b, t2.front_port_b)  # a loop on the B-C cable
+        run_reconcile()
+        before = self.anomaly_rows()
+        assert before and {kind for kind, _s, _f in before} == {"loop"}
+        analyze_devices({self.dev_b.pk})
+        analyze_devices({self.dev_a.pk})
+        assert self.anomaly_rows() == before
+
+    def test_a_strand_landed_on_a_port_outside_the_graph_survives_both_analyses(self):
+        s2 = self.fc_ab.fiber_strands.order_by("position").last()
+        FiberStrand.objects.filter(pk=s2.pk).update(front_port_b=None)
+        with fms_portmapping_bypass():
+            PortMapping.objects.filter(front_port=s2.front_port_a).delete()
+        analyze_devices({self.dev_a.pk})
+        incremental = snapshot_paths()
+        assert any(hops == (("strand", s2.pk),) for hops, *_rest in incremental)
+        run_reconcile()
+        assert snapshot_paths() == incremental
 
 
 class TestJobRun(JobCase):
@@ -127,4 +166,6 @@ class TestJobRun(JobCase):
 
 
 def test_reconcile_is_registered_as_a_system_job_with_the_configured_interval():
-    assert registry["system_jobs"][PathReconcileJob] == {"interval": 1440}
+    assert registry["system_jobs"][PathReconcileJob] == {
+        "interval": get_plugin_config("netbox_fms", "path_reconcile_interval_minutes")
+    }
