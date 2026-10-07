@@ -1,0 +1,130 @@
+"""The incremental analysis job (change-queue spec section 8) and the reconcile registration (section 10)."""
+
+import uuid
+from unittest.mock import patch
+
+from core.models import Job
+from django.test import TestCase
+from netbox.registry import registry
+
+from netbox_fms.choices import FiberCircuitStatusChoices, PathAnalysisReasonChoices
+from netbox_fms.jobs import PathAnalysisJob, PathReconcileJob
+from netbox_fms.models import FiberCableType, FiberCircuit, FiberStrandPath, PathAnalysisQueue
+from netbox_fms.path_analysis import analyze_devices, run_reconcile
+from netbox_fms.services import create_closure_cable
+from tests.conftest import assign_strand_path, connect_front_ports, make_closure_pair
+
+
+def snapshot_paths():
+    return sorted(
+        (tuple(path.hop_refs()), path.end_a_kind, path.end_b_kind, path.end_a_port_id, path.end_b_port_id)
+        for path in FiberStrandPath.objects.prefetch_related("hops")
+    )
+
+
+class JobCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair("JOB")
+        cls.dev_a, cls.dev_b = pair.dev_a, pair.dev_b
+        cls.dev_c = make_closure_pair("JOB2").dev_b
+        fct = FiberCableType.objects.create(
+            manufacturer=pair.mfr, model="JOB-2", strand_count=2, construction="tight_buffer"
+        )
+        cls.fc_ab, _ = create_closure_cable(device_a=cls.dev_a, device_b=cls.dev_b, fiber_cable_type=fct)
+        cls.fc_bc, _ = create_closure_cable(device_a=cls.dev_b, device_b=cls.dev_c, fiber_cable_type=fct)
+        cls.s1 = cls.fc_ab.fiber_strands.order_by("position").first()
+        cls.t1 = cls.fc_bc.fiber_strands.order_by("position").first()
+        run_reconcile()
+        cls.circuit = FiberCircuit.objects.create(name="JOB-C", strand_count=1, status=FiberCircuitStatusChoices.ACTIVE)
+        cls.assignment = assign_strand_path(cls.circuit, FiberStrandPath.objects.get(hops__strand=cls.s1))
+
+    @staticmethod
+    def job():
+        return Job.objects.create(name=PathAnalysisJob.name, status="running", job_id=uuid.uuid4())
+
+    def queue(self, *devices):
+        for device in devices:
+            PathAnalysisQueue.objects.create(device=device, reason=PathAnalysisReasonChoices.SPLICE_CHANGED)
+
+
+class TestAnalyzeDevices(JobCase):
+    def test_a_splice_at_a_queued_device_rewrites_and_breaks_the_assignment(self):
+        connect_front_ports(self.s1.front_port_b, self.t1.front_port_a)
+        PathAnalysisQueue.objects.all().delete()
+        stats = analyze_devices({self.dev_b.pk})
+        self.assignment.refresh_from_db()
+        assert stats.devices == 1
+        # s1's path absorbs t1's (deleted); the two other strands' paths now end 'unspliced' at the spliced device
+        assert stats.paths_updated == 3 and stats.paths_deleted == 1
+        assert self.assignment.is_broken is True
+        assert self.assignment.strand_path.hop_refs() == [("strand", self.s1.pk), ("strand", self.t1.pk)]
+
+    def test_an_unchanged_device_rewrites_nothing(self):
+        stats = analyze_devices({self.dev_c.pk})
+        assert (stats.paths_created, stats.paths_updated, stats.paths_deleted) == (0, 0, 0)
+
+    def test_incremental_result_equals_a_full_reconcile(self):
+        connect_front_ports(self.s1.front_port_b, self.t1.front_port_a)
+        analyze_devices({self.dev_b.pk})
+        incremental = snapshot_paths()
+        run_reconcile()
+        assert snapshot_paths() == incremental
+
+    def test_a_path_outside_the_dirty_devices_that_holds_a_walked_strand_is_rewritten_too(self):
+        dev_d = make_closure_pair("JOB3").dev_b
+        fc_cd, _ = create_closure_cable(
+            device_a=self.dev_c, device_b=dev_d, fiber_cable_type=self.fc_bc.fiber_cable_type
+        )
+        u1 = fc_cd.fiber_strands.order_by("position").first()
+        connect_front_ports(self.s1.front_port_b, self.t1.front_port_a)
+        run_reconcile()
+        connect_front_ports(self.t1.front_port_b, u1.front_port_a)  # joins the stored s1+t1 path to u1 at dev_c
+        stats = analyze_devices({dev_d.pk})
+        assert stats.paths_deleted == 1  # u1's own path merged into the stored s1+t1 path, which does not touch dev_d
+        merged = FiberStrandPath.objects.get(hops__strand=self.s1)
+        assert merged.hop_refs() == [("strand", self.s1.pk), ("strand", self.t1.pk), ("strand", u1.pk)]
+
+
+class TestJobRun(JobCase):
+    def test_run_analyzes_the_queued_devices_and_clears_exactly_those_rows(self):
+        self.queue(self.dev_a, self.dev_b)
+        before = set(PathAnalysisQueue.objects.values_list("pk", flat=True))
+
+        def analyze_and_insert(device_ids):
+            PathAnalysisQueue.objects.create(device=self.dev_c, reason=PathAnalysisReasonChoices.CABLE_CHANGED)
+            return analyze_devices(device_ids)
+
+        with patch("netbox_fms.jobs.analyze_devices", side_effect=analyze_and_insert) as analyze:
+            PathAnalysisJob(self.job()).run()
+        analyze.assert_called_once_with({self.dev_a.pk, self.dev_b.pk})
+        remaining = set(PathAnalysisQueue.objects.values_list("pk", flat=True))
+        assert remaining.isdisjoint(before) and len(remaining) == 1
+
+    def test_a_failed_run_deletes_no_rows(self):
+        self.queue(self.dev_a)
+        with patch("netbox_fms.jobs.analyze_devices", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                PathAnalysisJob(self.job()).run()
+        assert PathAnalysisQueue.objects.count() == 1
+
+    def test_a_held_lock_reschedules_instead_of_running(self):
+        self.queue(self.dev_a)
+        with (
+            patch("netbox_fms.jobs.try_analysis_lock", return_value=False),
+            patch("netbox_fms.jobs.schedule_analysis") as schedule,
+            patch("netbox_fms.jobs.analyze_devices") as analyze,
+        ):
+            PathAnalysisJob(self.job()).run()
+        schedule.assert_called_once_with()
+        analyze.assert_not_called()
+        assert PathAnalysisQueue.objects.count() == 1
+
+    def test_an_empty_queue_is_a_no_op(self):
+        with patch("netbox_fms.jobs.analyze_devices") as analyze:
+            PathAnalysisJob(self.job()).run()
+        analyze.assert_not_called()
+
+
+def test_reconcile_is_registered_as_a_system_job_with_the_configured_interval():
+    assert registry["system_jobs"][PathReconcileJob] == {"interval": 1440}

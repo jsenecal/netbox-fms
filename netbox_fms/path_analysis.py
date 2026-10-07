@@ -11,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass, fields
 from datetime import timedelta
 
+import networkx as nx
 from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
@@ -28,7 +29,7 @@ from .models import (
     hops_snapshot,
     refs_from_json,
 )
-from .path_graph import load_plant, walk_all
+from .path_graph import fp_node, load_plant, orphan_chains, walk_all, walk_from
 
 # A plugin-private PostgreSQL advisory lock id, far from NetBox's own keys.
 ANALYSIS_LOCK_KEY = 1_960_001
@@ -195,11 +196,7 @@ def write_results(chains, stored_paths, *, computed_at):
         path, refs = stored[pk], refs_of[pk]
         keeper = _keeper(refs, candidates)
         keep = _oriented(keeper, refs)  # may be a new, reversed Chain object; identity checks use ``keeper``
-        # The same component reached from two start ports yields identical or mirrored chains; store one.
-        same_component = (tuple(keeper.hops), tuple(reversed(keeper.hops)))
-        new_chains.extend(
-            chain for chain in candidates if chain is not keeper and tuple(chain.hops) not in same_component
-        )
+        new_chains.extend(chain for chain in candidates if chain is not keeper)
         values = _path_fields(keep, computed_at)
         # Equal hops can still carry different ends (a port gained or lost its far side), so compare those too.
         if keep.hops == refs and all(
@@ -335,4 +332,43 @@ def run_reconcile():
     cycle = timedelta(minutes=get_plugin_config("netbox_fms", "path_reconcile_interval_minutes"))
     RouteChangeAuthorization.objects.filter(created__lt=started - cycle).delete()
     stats.devices = len(plant.device_ids)
+    return stats
+
+
+def analyze_devices(device_ids):
+    """Re-analyze the fibers through these devices.
+
+    Loads their region, walks from every front port on them and from the
+    ends and strand landings of every stored path through them, and writes
+    the chains against those paths plus any path holding a walked strand
+    (a splice may have joined a path from elsewhere).
+    """
+    device_ids = set(device_ids)
+    computed_at = timezone.now()
+    plant = load_plant(device_ids)
+    in_scope = list(
+        FiberStrandPath.objects.filter(pk__in=path_ids_through_devices(device_ids)).prefetch_related("hops")
+    )
+    start_fps = {fp for device_id in device_ids for fp in plant.device_fps.get(device_id, ())}
+    for path in in_scope:
+        start_fps.update(fp for fp in (path.end_a_port_id, path.end_b_port_id) if fp is not None)
+        for kind, ref_id in path.hop_refs():
+            if kind == "strand":
+                start_fps.update(fp for fp in plant.strand_ports.get(ref_id, (None, None)) if fp is not None)
+    chains, seen = [], set()
+    for node in sorted(fp_node(fp) for fp in start_fps):
+        if node in seen:
+            continue
+        if node in plant.graph:
+            seen |= nx.node_connected_component(plant.graph, node)
+        chains.extend(walk_from(plant, node))
+    chains.extend(orphan_chains(plant))
+    strand_ids = {ref_id for chain in chains for kind, ref_id in chain.hops if kind == "strand"}
+    stored = {path.pk: path for path in in_scope}
+    joined = FiberStrandPath.objects.filter(hops__strand_id__in=strand_ids).exclude(pk__in=stored).distinct()
+    for path in joined.prefetch_related("hops"):
+        stored[path.pk] = path
+    stats = write_results(chains, stored.values(), computed_at=computed_at)
+    replace_anomalies(plant.anomalies, device_ids=device_ids)
+    stats.devices = len(device_ids)
     return stats

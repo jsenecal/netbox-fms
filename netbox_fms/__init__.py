@@ -35,6 +35,16 @@ class NetBoxFMSConfig(PluginConfig):
         from .signals import connect_signals
 
         connect_signals()
+
+        from netbox.jobs import system_job
+        from netbox.plugins import get_plugin_config
+
+        from .jobs import PathReconcileJob
+
+        # Registered here rather than with the decorator because the interval is a plugin setting.
+        # rqworker reads the registry after every ready(), so this runtime registration is picked up.
+        system_job(interval=int(get_plugin_config("netbox_fms", "path_reconcile_interval_minutes")))(PathReconcileJob)
+
         from utilities.counters import connect_counters
 
         from .models import FiberCableType

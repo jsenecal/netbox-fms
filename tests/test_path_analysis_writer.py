@@ -140,16 +140,6 @@ class TestWriteOutcomes(WriterCase):
         assert (stats.paths_updated, stats.paths_created, stats.paths_deleted) == (0, 0, 0)
         assert FiberStrandPath.objects.get().pk == path.pk
 
-    def test_identical_chains_for_one_path_are_stored_once(self):
-        path = self.store(strand_chain(self.s1, self.s2))
-        stats = write_results(
-            [strand_chain(self.s1, self.s2), strand_chain(self.s1, self.s2), strand_chain(self.s2, self.s1)],
-            self.stored(),
-            computed_at=self.now,
-        )
-        assert (stats.paths_updated, stats.paths_created, stats.paths_deleted) == (0, 0, 0)
-        assert FiberStrandPath.objects.get().pk == path.pk
-
     def test_reversed_and_changed_chain_keeps_the_stored_orientation(self):
         path = self.store(strand_chain(self.s2, self.s3, end_a=TERMINATED, end_b=OPEN))
         write_results(
