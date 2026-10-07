@@ -7,7 +7,7 @@ from dcim.api.serializers import (
     ModuleSerializer,
     ModuleTypeSerializer,
 )
-from netbox.api.serializers import NetBoxModelSerializer
+from netbox.api.serializers import BaseModelSerializer, NetBoxModelSerializer
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from tenancy.api.serializers import TenantSerializer
@@ -610,7 +610,7 @@ class FiberCircuitSerializer(NetBoxModelSerializer):
         brief_fields = ("id", "url", "display", "name", "cid", "status")
 
 
-class FiberStrandPathHopSerializer(serializers.ModelSerializer):
+class FiberStrandPathHopSerializer(BaseModelSerializer):
     """One hop of an analyzed fiber path."""
 
     class Meta:
@@ -619,17 +619,12 @@ class FiberStrandPathHopSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class FiberStrandPathSerializer(serializers.ModelSerializer):
+class FiberStrandPathSerializer(BaseModelSerializer):
     """Read-only view of an analyzed fiber path with its hops."""
 
     end_a_port = FrontPortSerializer(nested=True, read_only=True)
     end_b_port = FrontPortSerializer(nested=True, read_only=True)
     hops = FiberStrandPathHopSerializer(many=True, read_only=True)
-    url = serializers.HyperlinkedIdentityField(view_name="plugins-api:netbox_fms-api:fiberstrandpath-detail")
-    display = serializers.SerializerMethodField()
-
-    def get_display(self, obj):
-        return str(obj)
 
     class Meta:
         model = FiberStrandPath

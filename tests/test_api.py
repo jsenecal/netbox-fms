@@ -394,6 +394,21 @@ class TestCoreListEndpoints(TestCase):
         assert resp.status_code == 200, resp.content
 
 
+class TestNestedPathSerializers:
+    """Serializers nested under a NetBox serializer take NetBox's ``nested`` contract.
+
+    NetBox 4.5 plans list prefetches by reading ``.nested`` on every nested
+    serializer; a plain DRF serializer there made the fiber-circuit-paths list
+    and trace endpoints answer 500 on 4.5 only.
+    """
+
+    def test_strand_path_serializers_accept_nested(self):
+        from netbox_fms.api.serializers import FiberStrandPathHopSerializer, FiberStrandPathSerializer
+
+        for serializer in (FiberStrandPathSerializer, FiberStrandPathHopSerializer):
+            assert serializer(nested=True).nested is True
+
+
 # ---------------------------------------------------------------------------
 # Optimistic Locking
 # ---------------------------------------------------------------------------
