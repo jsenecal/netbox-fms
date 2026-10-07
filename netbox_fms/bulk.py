@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 
 from dcim.choices import LinkStatusChoices
 from dcim.models import Cable, CablePath, CableTermination, FrontPort, Module
-from dcim.utils import create_cablepaths, object_to_path_node
+from dcim.utils import create_cablepaths, decompile_path_node, object_to_path_node
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db.models import prefetch_related_objects
@@ -154,6 +154,26 @@ def rebuild_paths_through(ports) -> None:
     for path in CablePath.objects.filter(_nodes__overlap=nodes):
         path.delete()
         create_cablepaths(path.origins)
+
+
+def stale_cable_paths() -> tuple[list[CablePath], list[FrontPort]]:
+    """Incomplete CablePaths whose dead-end FrontPort has since been cabled, and those ports.
+
+    A path that stops at a FrontPort with no cable is genuinely incomplete;
+    one that stops at a FrontPort which now carries a cable was never
+    retraced -- what splice-plan apply left behind before it rebuilt paths.
+    """
+    fp_type_id = ContentType.objects.get_for_model(FrontPort).pk
+    dead_ends = {}
+    for path in CablePath.objects.filter(is_complete=False):
+        port_ids = {obj_id for type_id, obj_id in map(decompile_path_node, path.path[-1]) if type_id == fp_type_id}
+        if port_ids:
+            dead_ends[path] = port_ids
+    cabled = {
+        port.pk: port for port in FrontPort.objects.filter(pk__in=set().union(*dead_ends.values()), cable__isnull=False)
+    }
+    stale = [path for path, port_ids in dead_ends.items() if port_ids & cabled.keys()]
+    return stale, list(cabled.values())
 
 
 @cached_lookups()

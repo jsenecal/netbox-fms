@@ -10,6 +10,7 @@ from netbox_fms.models import BufferTubeTemplate, FiberCableType, SplicePlan
 from netbox_fms.services import create_closure_cable, front_port_splice_pairs
 from netbox_fms.trace import trace_fiber_path
 from tests.conftest import (
+    call_command_capture,
     changes_logged,
     is_indexed,
     make_infra,
@@ -103,6 +104,43 @@ class TestCablePaths(BulkSpliceCase):
 
     def test_announced_splices_complete_the_interface_path(self):
         self.assert_interfaces_connect(notify=True)
+
+
+class TestRepairCablePaths(BulkSpliceCase):
+    """repair_cable_paths retraces the paths earlier splice-plan applies left dead-ended."""
+
+    def setUp(self):
+        self.near = Interface.objects.create(device=self.far1, name="BSP-xe0", type="10gbase-x-sfpp")
+        Cable(a_terminations=[self.near], b_terminations=[self.strands_a[1].front_port_a]).save()
+        self.far = Interface.objects.create(device=self.far2, name="BSP-xe0", type="10gbase-x-sfpp")
+        Cable(a_terminations=[self.far], b_terminations=[self.strands_b[1].front_port_b]).save()
+        # The per-object writer the releases before the fix used: no Cable.save(), no retrace.
+        reference_splices(self.pairs[:1])
+
+    def near_path(self):
+        self.near.refresh_from_db()
+        return CablePath.objects.get(pk=self.near._path_id)
+
+    def test_stale_paths_are_rebuilt(self):
+        assert not self.near_path().is_complete
+
+        out, _ = call_command_capture("repair_cable_paths")
+
+        assert self.near_path().destinations == [self.far]
+        assert "Rebuilt" in out
+
+    def test_dry_run_reports_without_writing(self):
+        out, _ = call_command_capture("repair_cable_paths", "--dry-run")
+
+        assert not self.near_path().is_complete
+        assert "2 stale cable path(s)" in out
+
+    def test_nothing_stale_is_a_no_op(self):
+        call_command_capture("repair_cable_paths")
+
+        out, _ = call_command_capture("repair_cable_paths")
+
+        assert "No stale cable paths" in out
 
 
 class TestEquivalence(BulkSpliceCase):
