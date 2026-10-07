@@ -12,17 +12,18 @@
 [![Documentation](https://img.shields.io/badge/docs-jsenecal.github.io-blue)](https://jsenecal.github.io/netbox-fms/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 
-Define fiber cable construction as reusable blueprints, auto-instantiate components on cable creation, plan splices with diff computation and draw.io export, and provision end-to-end fiber circuits with DAG-based pathfinding -- all within NetBox's native UI and API.
+Define fiber cable construction as reusable blueprints, auto-instantiate components on cable creation, plan splices with diff computation and draw.io export, and assign analyzed fiber paths to end-to-end fiber circuits -- all within NetBox's native UI and API.
 
 ## Features
 
 - **Cable type blueprints with auto-instantiation** -- Define fiber cable construction once as a FiberCableType, then create instances that automatically populate buffer tubes, ribbons, strands, and cable elements following NetBox's Device/DeviceType pattern.
 - **Four construction cases** -- Loose tube, ribbon-in-tube, central-core ribbon, and tight buffer cable designs with full template-driven instantiation.
 - **EIA/TIA-598, ABNT NBR 14771, and DIN IEC 60304 color schemes** -- Each FiberCableType selects the strand color standard applied when instances are created; tube and ribbon template color pickers follow the selected standard.
-- **Per-wavelength loss budgeting** -- Attach manufacturer max-attenuation specs (dB/km) to each FiberCableType at any wavelength. `FiberCircuitPath.calculated_loss_db` computes per-wavelength losses across the full cable path from spec values and each cable's `glass_length`.
+- **Fiber path analysis** -- Every fiber path is derived from the plant by a background analysis (networkx loader and walker), stored once with its end classification, completeness and route key, and kept current by a change queue and a nightly reconcile. Odd shapes are quarantined as anomalies, not guessed at.
+- **Circuit assignment** -- Circuits assign analyzed paths through one picker (wizard, "Assign fibers" action, `assign` API) that groups paths by route and ranks them by tube contiguity. A path that changes under a circuit marks it broken until the route is acknowledged or an approved change authorized it; every object on an assigned path is deletion-protected.
+- **Per-wavelength loss budgeting** -- Attach manufacturer max-attenuation specs (dB/km) to each FiberCableType at any wavelength. `FiberCircuitPath.calculated_loss_db` sums per-wavelength losses over the strands of the assigned path from spec values and each cable's `glass_length`.
 - **Splice planning** -- Map strand-to-strand connections in splice closures, compute diffs against live state, and export diagrams to draw.io for field crews.
-- **Fiber circuit provisioning** -- End-to-end provisioning with DAG-based pathfinding and multi-hop tracing.
-- **Provider span awareness** -- The trace engine crosses core Circuits cabled inline (leased dark fiber through a provider meet-me room) as opaque hops; each fiber circuit tracks the provider circuits it rides, with provider/circuit impact filters and deletion protection.
+- **Provider span awareness** -- The analysis crosses core Circuits cabled inline (leased dark fiber through a provider meet-me room) as opaque hops; each fiber circuit tracks the provider circuits its assigned paths ride, with provider/circuit impact filters and deletion protection.
 - **Device fiber overview** -- Per-device fiber connection view, splice closure management with tray and group organization.
 - **Slack loop tracking** -- Record slack loop locations and storage methods at splice closures, with insert-into-closure workflows.
 - **Port label templates** -- FMS-provisioned FrontPorts and RearPorts carry human-readable labels (cable, tube, ribbon, strand color, absolute fiber number) rendered from sandboxed Jinja2 templates, customizable plugin-wide through `PLUGINS_CONFIG` and refreshed automatically when the cable is relabeled.

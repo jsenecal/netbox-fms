@@ -40,7 +40,14 @@ erDiagram
     ClosureCableEntry ||--|| FiberCable : "cable"
 
     FiberCircuit ||--o{ FiberCircuitPath : "has"
-    FiberCircuitPath ||--o{ FiberCircuitNode : "has"
+    FiberCircuitPath }o--|| FiberStrandPath : "assigns"
+    FiberStrandPath ||--o{ FiberStrandPathHop : "has"
+    FiberStrandPathHop }o--o| FiberStrand : "strand"
+    FiberStrandPathHop }o--o| Cable : "cable (dcim)"
+    FiberStrandPathHop }o--o| Circuit : "provider circuit (circuits)"
+    FiberCircuit ||--o{ RouteChangeAuthorization : "authorized by"
+    PathAnomaly }o--o| FiberStrand : "strand"
+    PathAnalysisQueue }o--|| Device : "device (dcim)"
 ```
 
 ### Model Groups
@@ -94,8 +101,12 @@ Created automatically by `FiberCable._instantiate_components()` when a new
 | Model | Purpose |
 |-------|---------|
 | `FiberCircuit` | End-to-end logical circuit spanning multiple fiber segments and splices. |
-| `FiberCircuitPath` | One contiguous path (A-to-Z direction or protection path) within a circuit. |
-| `FiberCircuitNode` | An ordered node within a path, referencing the specific fiber strand and device traversed. |
+| `FiberCircuitPath` | A circuit's assignment of one analyzed `FiberStrandPath`: the assigned-hops snapshot, `active`, `is_broken` / `broken_reason`, loss fields. |
+| `FiberStrandPath` | One continuous fiber chain between two classified ends, derived by the analysis (internal model, read-only UI and API). Carries completeness, `route_key`, `is_proposed` and `is_defective`. |
+| `FiberStrandPathHop` | One ordered step of a path: a strand, a plain cable (no FiberCable) or a provider circuit. |
+| `PathAnomaly` | A plant shape the analysis refused to trace (too many connections, loop, dangling reference). |
+| `RouteChangeAuthorization` | Records that an approved change may re-route a circuit without breaking it; consumed by the analysis. |
+| `PathAnalysisQueue` | One row per plant change per touched device, waiting for the next analysis run. |
 
 ## Splice Plan Lifecycle
 
@@ -170,25 +181,54 @@ modules.
 - **`propose_port_mapping()`** -- Builds a position-based mapping from strand
   positions to `FrontPort` instances for confirmation before linking.
 
-### `provisioning.py` -- DAG-based fiber circuit provisioning
+### `path_graph.py` -- Graph loader and walker
+
+Bulk-loads the affected plant region (cable terminations, port mappings,
+strand landings, splice jumpers) into a `networkx` graph and walks it in
+memory from every front port to produce chains of hops with classified ends.
+The analysis jobs and the trace view share this one implementation.
+
+### `path_analysis.py` -- Result writer, reconcile and lock
+
+Matches walked chains to stored `FiberStrandPath` rows, rewrites, creates or
+deletes them in bulk, records anomalies, evaluates assignments (broken,
+authorized, `path_lost`) and syncs `FiberCircuit.is_broken`. Also holds the
+PostgreSQL advisory lock that serializes analysis runs and the whole-plant
+reconcile.
+
+### `path_queue.py` -- Change queue
+
+`enqueue_devices(device_ids, reason)` buffers per transaction and writes
+`PathAnalysisQueue` rows on commit; `schedule_analysis()` enqueues the
+`Fiber path analysis` job one window later unless one is already pending.
+
+### `jobs.py` -- Background jobs
+
+`PathAnalysisJob` (incremental, per queued device) and `PathReconcileJob`
+(system job, whole plant, registered in `ready()` with the configured
+interval).
+
+### `assignment.py` -- Picker and assignment
+
+`find_assignable_path_groups()` is the shared picker (groups of paths on one
+route, filtered and ranked); `assign_paths()` creates assignments;
+`acknowledge_route()` accepts new hops; `authorize_route_change()` writes a
+`RouteChangeAuthorization`. The `*_for(user, ...)` variants add the
+permission checks used by the UI and API.
+
+### `provisioning.py` -- Route discovery library
 
 - **`find_fiber_paths(origin, destination, strand_count, ...)`** -- BFS/DFS
-  pathfinding over a device-connectivity graph. Discovers all available fiber
-  routes between two devices, scores candidates by configurable priorities, and
-  returns ranked proposals.
-- **`create_circuit_from_proposal(proposal, ...)`** -- Transactional factory that
-  creates a `FiberCircuit`, its `FiberCircuitPath`, and ordered
-  `FiberCircuitNode` entries from a selected proposal.
-- Internal helpers build the device adjacency graph, compute per-hop strand
-  availability matrices, and chain multi-hop candidates.
+  pathfinding over a device-connectivity graph; scores candidate routes by
+  configurable priorities. It is a library function: nothing in the UI calls
+  it, because paths are derived by analysis and assigned from the picker.
 
-### `trace.py` -- Fiber path trace engine
+### `trace.py` and `trace_hops.py` -- Pairing rule and display hops
 
-- **`trace_fiber_path(origin_front_port)`** -- Starting from a `FrontPort`,
-  navigates the chain: FrontPort -> PortMapping -> RearPort -> CableTermination ->
-  Cable -> far-end RearPort -> PortMapping -> FrontPort, repeating until the path
-  terminates or a splice (`SplicePlanEntry`) redirects to another fiber. Returns
-  the full path with completeness status.
+`trace.py` holds only the rule that pairs rear ports across a cable (by
+connector number), shared by the walker and the picker. `trace_hops.py`
+builds the display hops of the trace view from a stored path
+(`flat_entries`, `build_hops`).
 
 ### `export.py` -- Draw.io diagram generation
 
