@@ -3,8 +3,9 @@
 import uuid
 from unittest.mock import patch
 
-from core.models import Job
+from core.models import Job, ObjectChange
 from dcim.models import Cable, PortMapping
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from netbox.plugins import get_plugin_config
 from netbox.registry import registry
@@ -163,6 +164,32 @@ class TestJobRun(JobCase):
         with patch("netbox_fms.jobs.analyze_devices") as analyze:
             PathAnalysisJob(self.job()).run()
         analyze.assert_not_called()
+
+    def circuit_flip_changes(self):
+        return ObjectChange.objects.filter(changed_object_type__model="fibercircuit", changed_object_id=self.circuit.pk)
+
+    def test_run_logs_the_circuit_flip_under_the_service_user_without_a_request(self):
+        """rqworker runs the job with no request; the is_broken flip must still reach the change log (#196)."""
+        connect_front_ports(self.s1.front_port_b, self.t1.front_port_a)
+        self.queue(self.dev_b)
+        PathAnalysisJob(self.job()).run()
+        change = self.circuit_flip_changes().get()
+        assert change.postchange_data["is_broken"] is True
+        assert change.request_id is not None
+        service = get_user_model().objects.get(username=get_plugin_config("netbox_fms", "analysis_username"))
+        assert change.user == service
+        assert (service.is_active, service.has_usable_password()) == (False, False)
+
+    def test_run_attributes_changes_to_the_job_user_when_there_is_one(self):
+        connect_front_ports(self.s1.front_port_b, self.t1.front_port_a)
+        self.queue(self.dev_b)
+        job = self.job()
+        job.user = get_user_model().objects.create(username="JOB-operator")
+        PathAnalysisJob(job).run()
+        assert self.circuit_flip_changes().get().user == job.user
+        assert (
+            not get_user_model().objects.filter(username=get_plugin_config("netbox_fms", "analysis_username")).exists()
+        )
 
 
 def test_reconcile_is_registered_as_a_system_job_with_the_configured_interval():

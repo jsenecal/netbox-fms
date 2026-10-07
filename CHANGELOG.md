@@ -24,7 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path from the whole plant daily. Settings `path_analysis_window_seconds`
   (30) and `path_reconcile_interval_minutes` (1440); `reroute_window_ratio`
   (0.2) is reserved for the future re-route search and not read yet. The
-  `reconcile_fiber_paths` management command runs a reconcile now.
+  `reconcile_fiber_paths` management command runs a reconcile now. The jobs
+  and the command run as a NetBox request, so the assignments they break and
+  the `is_broken` flips are change-logged and fire event rules; writes are
+  attributed to the job's user or, for the scheduled runs, to an inactive
+  service user named by the `analysis_username` setting (`netbox-fms`).
 - Assignments: circuits assign analyzed paths. The "Assign fibers" action,
   the rebuilt circuit wizard and `POST
   /api/plugins/fms/fiber-circuits/{id}/assign/` share one picker (groups of

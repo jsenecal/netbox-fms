@@ -90,6 +90,7 @@ class TestRunReconcile(TestCase):
             "path_analysis_window_seconds": 30,
             "path_reconcile_interval_minutes": 1440,
             "reroute_window_ratio": 0.2,
+            "analysis_username": "netbox-fms",
         }
 
 

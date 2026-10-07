@@ -24,6 +24,9 @@ class NetBoxFMSConfig(PluginConfig):
         "path_reconcile_interval_minutes": 1440,
         # Re-route search bound as a share of the route's spans, rounded up.
         "reroute_window_ratio": 0.2,
+        # Inactive service user the analysis jobs log their changes as when the
+        # job has no user of its own (created on first use).
+        "analysis_username": "netbox-fms",
     }
 
     def ready(self):

@@ -1,13 +1,58 @@
 """Background jobs of the fiber path analysis."""
 
 import time
+import uuid
+from contextlib import contextmanager
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.http import QueryDict
+from django.utils.datastructures import MultiValueDict
 from netbox.jobs import JobRunner
+from netbox.plugins import get_plugin_config
+from utilities.request import NetBoxFakeRequest, apply_request_processors
 
 from .models import PathAnalysisQueue
 from .path_analysis import analyze_devices, run_reconcile, try_analysis_lock
 from .path_queue import schedule_analysis
+
+
+def analysis_user():
+    """The inactive service user the analysis writes change-log entries as when no job user exists."""
+    User = get_user_model()  # noqa: N806
+    username = get_plugin_config("netbox_fms", "analysis_username")
+    user, created = User.objects.get_or_create(username=username, defaults={"is_active": False})
+    if created:
+        user.set_unusable_password()
+        user.save()
+    return user
+
+
+@contextmanager
+def analysis_request(user=None):
+    """Run the analysis as a NetBox request so its writes are change-logged and fire event rules.
+
+    NetBox's change logging bails out when no current request is set, and a
+    worker has none; the breaking of an assignment and the circuit's
+    ``is_broken`` flip are exactly the changes event rules are meant to see.
+    Writes are attributed to ``user`` (the job's) or to the service user.
+    """
+    request = NetBoxFakeRequest(
+        {
+            "id": uuid.uuid4(),
+            "user": user or analysis_user(),
+            "method": "",
+            "path": "",
+            "path_info": "",
+            "META": {},
+            "COOKIES": {},
+            "GET": QueryDict(),
+            "POST": QueryDict(),
+            "FILES": MultiValueDict(),
+        }
+    )
+    with apply_request_processors(request):
+        yield request
 
 
 class PathReconcileJob(JobRunner):
@@ -17,7 +62,7 @@ class PathReconcileJob(JobRunner):
         name = "Fiber path reconcile"
 
     def run(self, *args, **kwargs):
-        with transaction.atomic():
+        with analysis_request(self.job.user), transaction.atomic():
             if not try_analysis_lock():
                 self.logger.warning("Another fiber path analysis holds the lock; skipping this reconcile")
                 return
@@ -39,7 +84,7 @@ class PathAnalysisJob(JobRunner):
 
     def run(self, *args, **kwargs):
         started = time.monotonic()
-        with transaction.atomic():
+        with analysis_request(self.job.user), transaction.atomic():
             if not try_analysis_lock():
                 self.logger.info("Another fiber path analysis holds the lock; rescheduling one window later")
                 schedule_analysis()

@@ -15,6 +15,7 @@ PLUGINS_CONFIG = {
         "path_analysis_window_seconds": 30,
         "path_reconcile_interval_minutes": 1440,
         "reroute_window_ratio": 0.2,
+        "analysis_username": "netbox-fms",
     },
 }
 ```
@@ -24,6 +25,7 @@ PLUGINS_CONFIG = {
 | `path_analysis_window_seconds`    | `30`    | Batching window: the first plant change schedules the `Fiber path analysis` job this many seconds later; changes inside the window join the same run. |
 | `path_reconcile_interval_minutes` | `1440`  | How often the `Fiber path reconcile` system job rebuilds every fiber path from the plant (default: daily). Read when the worker starts.                |
 | `reroute_window_ratio`            | `0.2`   | Reserved for the future re-route search (the share of a route's spans it may change). Nothing reads it yet.                                            |
+| `analysis_username`               | `"netbox-fms"` | Username of the service user the analysis jobs and `reconcile_fiber_paths` log their changes as (broken assignments, `is_broken` flips) when the job has no user of its own. Created on first use as an inactive user with no usable password; a job run by a user is logged as that user. |
 
 The plugin also reads the port label and port name template settings
 described in [Port Label Templates](../user-guide/port-label-templates.md)
