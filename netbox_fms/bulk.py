@@ -36,7 +36,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from dcim.choices import LinkStatusChoices
-from dcim.models import Cable, CableTermination, FrontPort, Module
+from dcim.models import Cable, CablePath, CableTermination, FrontPort, Module
+from dcim.utils import create_cablepaths, decompile_path_node, object_to_path_node
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db.models import prefetch_related_objects
@@ -139,6 +140,42 @@ def _jumper(spec, defaults) -> Cable:
     return cable
 
 
+def rebuild_paths_through(ports) -> None:
+    """Rebuild every NetBox CablePath that runs through any of ``ports``.
+
+    NetBox retraces paths only when Cable.save() sends its trace_paths
+    signal, and the bulk writers never call save(); without this, a path
+    that dead-ended at a port stays incomplete after the port is cabled.
+    One overlap query finds every affected path once; NetBox's own
+    rebuild_paths() queries once per port and would retrace a path again for
+    every touched port it crosses.
+    """
+    nodes = [object_to_path_node(port) for port in ports]
+    for path in CablePath.objects.filter(_nodes__overlap=nodes):
+        path.delete()
+        create_cablepaths(path.origins)
+
+
+def stale_cable_paths() -> tuple[list[CablePath], list[FrontPort]]:
+    """Incomplete CablePaths whose dead-end FrontPort has since been cabled, and those ports.
+
+    A path that stops at a FrontPort with no cable is genuinely incomplete;
+    one that stops at a FrontPort which now carries a cable was never
+    retraced -- what splice-plan apply left behind before it rebuilt paths.
+    """
+    fp_type_id = ContentType.objects.get_for_model(FrontPort).pk
+    dead_ends = {}
+    for path in CablePath.objects.filter(is_complete=False):
+        port_ids = {obj_id for type_id, obj_id in map(decompile_path_node, path.path[-1]) if type_id == fp_type_id}
+        if port_ids:
+            dead_ends[path] = port_ids
+    cabled = {
+        port.pk: port for port in FrontPort.objects.filter(pk__in=set().union(*dead_ends.values()), cable__isnull=False)
+    }
+    stale = [path for path, port_ids in dead_ends.items() if port_ids & cabled.keys()]
+    return stale, list(cabled.values())
+
+
 @cached_lookups()
 def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     """Splice pairs of the closure's FrontPorts: one connected Cable per pair, terminated on both.
@@ -190,6 +227,7 @@ def create_splices(closure, splices, *, notify=True) -> list[Cable]:
     FrontPort.objects.bulk_update(
         touched, ["cable", "cable_end", "cable_connector", "cable_positions", "last_updated"], batch_size=BATCH_SIZE
     )
+    rebuild_paths_through(touched)
 
     if notify:
         announce(Cable, cables)

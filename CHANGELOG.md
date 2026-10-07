@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Applying a splice plan now completes NetBox's own interface paths through
+  the new splices. NetBox retraces cable paths only when a cable is saved,
+  and splice-plan apply wrote its splice jumpers without that save, so an
+  interface's Connection panel, `/trace/` and the API's connected endpoints
+  kept ending at the closure. Paths through the spliced ports are now
+  rebuilt as part of the apply. To repair splice plans applied before this
+  fix, run `python manage.py repair_cable_paths` (add `--dry-run` to only
+  count the stale paths).
 - Port labels re-rendered in bulk (after a cable rename or a tube
   assignment, with a template that uses the affected token) are indexed
   for search again; the search cache kept the previous labels.
