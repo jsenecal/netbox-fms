@@ -15,7 +15,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from netbox_fms.choices import FiberCircuitStatusChoices
-from netbox_fms.forms import AssignFibersForm, AssignFibersSelectionForm, picker_kwargs
+from netbox_fms.forms import AssignFibersForm, AssignFibersSelectionForm, CircuitWizardStep1Form, picker_kwargs
 from netbox_fms.models import (
     FiberCableType,
     FiberCircuit,
@@ -93,6 +93,13 @@ class TestAssignForms(_PlantMixin, TestCase):
         assert not form.is_valid()
         assert "ends_at" in form.errors
         assert AssignFibersForm({"ends_at": [self.dev_a.pk]}, user=user).is_valid()
+
+    def test_wizard_does_not_offer_a_decommissioned_circuit(self):
+        """A decommissioned circuit takes no assignment, so the wizard would always fail at its last step."""
+        user = user_with("avf-wizard", [(Device, ["view"], None)])
+        offered = [value for value, _label in CircuitWizardStep1Form(user=user).fields["status"].choices]
+        assert FiberCircuitStatusChoices.DECOMMISSIONED not in offered
+        assert FiberCircuitStatusChoices.ACTIVE in offered
 
 
 class TestAssignAction(_PlantMixin, TestCase):

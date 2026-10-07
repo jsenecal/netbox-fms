@@ -1177,7 +1177,11 @@ class CircuitWizardStep1Form(UserRestrictedFormMixin, forms.Form):
     name = forms.CharField(max_length=200, label=_("Circuit Name"))
     cid = forms.CharField(max_length=200, required=False, label=_("Circuit ID"))
     strand_count = forms.IntegerField(min_value=1, initial=1, label=_("Strand Count"))
-    status = forms.ChoiceField(choices=FiberCircuitStatusChoices, initial=FiberCircuitStatusChoices.PLANNED)
+    # A decommissioned circuit takes no assignment, so offering it would fail the wizard at its last step.
+    status = forms.ChoiceField(
+        choices=[c for c in FiberCircuitStatusChoices.CHOICES if c[0] != FiberCircuitStatusChoices.DECOMMISSIONED],
+        initial=FiberCircuitStatusChoices.PLANNED,
+    )
     tenant = DynamicModelChoiceField(queryset=Tenant.objects.all(), required=False, label=_("Tenant"))
 
 
