@@ -84,7 +84,7 @@ side effects described under "Decommissioning".
 
 There are three entry points, all using the same picker.
 
-**Circuit wizard** (Fiber Circuits > Wizard). Creates the circuit and assigns
+**Circuit wizard** (the Circuit Wizard button on the Fiber Circuits list). Creates the circuit and assigns
 its paths in one transaction.
 
 **"Assign fibers" action** on a circuit's page. The same picker for an
@@ -131,10 +131,11 @@ An assignment is refused when:
 
 ### Permissions
 
-Assigning (UI and API) needs `change` on the circuit (not `add`) plus `add`
-and `change` on fiber circuit paths, and honors object-permission
-constraints on all of them. Acknowledging needs `change` on the circuit and
-on the broken assignments.
+Assigning (UI and API) needs `change` on the circuit plus `add` on fiber
+circuit paths, and honors object-permission constraints on both.
+Acknowledging a route needs `change` on the circuit and `change` on the
+broken assignments. Creating a circuit through the wizard also needs `add` on
+fiber circuits.
 
 ---
 
@@ -325,7 +326,7 @@ may call it.
 1. Make sure the plant is modeled (cables, closures, splices). The analysis
    picks up changes within the batching window; check **FMS > Path Analysis >
    Fiber Paths** to see the derived paths.
-2. Open **Fiber Circuits > Wizard**, enter the circuit details and strand
+2. Use the Circuit Wizard button on the Fiber Circuits list, enter the circuit details and strand
    count, set the ends (and any must-pass-through or avoid filters), and
    choose the top-ranked group.
 3. The circuit and its assignments are created together.

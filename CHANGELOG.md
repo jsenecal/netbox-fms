@@ -31,8 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paths on one route, filtered by ends, pass-through devices and avoid lists,
   ranked by tube contiguity, hop count and strand position), with an
   "Allow incomplete paths" option. Assigning needs change on the circuit
-  plus add/change on fiber circuit paths and honors object-permission
-  constraints.
+  plus add on fiber circuit paths and honors object-permission constraints;
+  acknowledging needs change on the circuit and on the broken assignments.
 - Broken circuits: an assignment whose path hops differ from what was
   assigned is marked broken (`FiberCircuitPath.is_broken`, `broken_reason`)
   and the circuit's new `is_broken` field flips with one change-log entry.
