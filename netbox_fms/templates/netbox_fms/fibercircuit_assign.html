@@ -1,0 +1,42 @@
+{% extends 'base/layout.html' %}
+{% load form_helpers %}
+{% load i18n %}
+
+{% block title %}{% trans "Assign fibers" %}: {{ object }}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-8">
+        <div class="card mb-3">
+            <h5 class="card-header">{% blocktrans with name=object.name %}Assign fibers to {{ name }}{% endblocktrans %}</h5>
+            <div class="card-body">
+                <p class="text-muted">
+                    {% blocktrans with count=object.strand_count %}Find a route with fiber paths for this circuit ({{ count }} strand(s)), then assign it.{% endblocktrans %}
+                </p>
+                <form method="post">
+                    {% csrf_token %}
+                    {% render_form form %}
+                    <div class="text-end mt-3">
+                        <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">{% trans "Cancel" %}</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="mdi mdi-magnify"></i> {% trans "Find fiber paths" %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% if groups is not None %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Assignable routes" %}</h5>
+            <div class="card-body">
+                {% if groups %}
+                    {% include 'netbox_fms/inc/path_group_list.html' %}
+                {% else %}
+                    <p class="text-muted">{% trans "No assignable fiber paths match these filters." %}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -5,7 +5,7 @@ from typing import Annotated
 
 import strawberry
 import strawberry_django
-from netbox.graphql.types import NetBoxObjectType
+from netbox.graphql.types import BaseObjectType, NetBoxObjectType
 
 from ..models import (
     BufferTube,
@@ -19,6 +19,8 @@ from ..models import (
     FiberCircuit,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
+    FiberStrandPathHop,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -46,6 +48,8 @@ __all__ = (
     "ClosureCableEntryType",
     "FiberCircuitType",
     "FiberCircuitPathType",
+    "FiberStrandPathType",
+    "FiberStrandPathHopType",
     "SlackLoopType",
     "TrayProfileType",
     "TubeAssignmentType",
@@ -159,6 +163,20 @@ class FiberCircuitPathType(NetBoxObjectType):
     """GraphQL type for FiberCircuitPath."""
 
     circuit: Annotated["FiberCircuitType", strawberry.lazy(".types")]
+    strand_path: Annotated["FiberStrandPathType", strawberry.lazy(".types")]
+
+
+@strawberry_django.type(FiberStrandPathHop, fields="__all__")
+class FiberStrandPathHopType(BaseObjectType):
+    """GraphQL type for one hop of an analyzed fiber path."""
+
+
+@strawberry_django.type(FiberStrandPath, fields="__all__")
+class FiberStrandPathType(BaseObjectType):
+    """GraphQL type for an analyzed fiber path (read-only)."""
+
+    hops: list[Annotated["FiberStrandPathHopType", strawberry.lazy(".types")]]
+    assignments: list[Annotated["FiberCircuitPathType", strawberry.lazy(".types")]]
 
 
 @strawberry_django.type(SlackLoop, fields="__all__")

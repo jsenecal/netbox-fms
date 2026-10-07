@@ -1,5 +1,6 @@
 import django_tables2 as tables
 from django.template.loader import render_to_string
+from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from netbox.tables import NetBoxTable, columns
@@ -16,6 +17,9 @@ from .models import (
     FiberCircuit,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
+    PathAnalysisQueue,
+    PathAnomaly,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -240,7 +244,7 @@ class FiberCableTable(NetBoxTable):
         total = record.fiber_strands.count()
         if not total:
             return "-"
-        active = record.fiber_strands.filter(fiber_circuit_nodes__isnull=False).distinct().count()
+        active = record.fiber_strands.filter(path_hops__path__assignments__active=True).distinct().count()
         return f"{active}/{total}"
 
     class Meta(NetBoxTable.Meta):
@@ -596,22 +600,25 @@ class FiberCircuitTable(NetBoxTable):
     strand_count = tables.Column(verbose_name=_("Strands"))
     tenant = tables.Column(linkify=True, verbose_name=_("Tenant"))
     path_count = tables.Column(verbose_name=_("Paths"), orderable=True)
+    is_broken = columns.BooleanColumn(verbose_name=_("Broken"))
     actions = columns.ActionsColumn()
 
     class Meta(NetBoxTable.Meta):
         model = FiberCircuit
-        fields = ("pk", "name", "cid", "status", "strand_count", "tenant", "path_count", "actions")
-        default_columns = ("pk", "name", "cid", "status", "strand_count", "tenant", "actions")
+        fields = ("pk", "name", "cid", "status", "strand_count", "tenant", "path_count", "is_broken", "actions")
+        default_columns = ("pk", "name", "cid", "status", "strand_count", "tenant", "is_broken", "actions")
 
 
 class FiberCircuitPathTable(NetBoxTable):
-    """Table for displaying FiberCircuitPath objects."""
+    """Table of assignments."""
 
     circuit = tables.Column(linkify=True)
     position = tables.Column()
-    origin = tables.Column(linkify=True)
-    destination = tables.Column(linkify=True)
-    is_complete = columns.BooleanColumn()
+    strand_path = tables.Column(linkify=True, verbose_name=_("Fiber path"))
+    completeness = tables.Column(accessor="strand_path.completeness", verbose_name=_("Completeness"))
+    active = columns.BooleanColumn()
+    is_broken = columns.BooleanColumn(verbose_name=_("Broken"))
+    delivered_incomplete = columns.BooleanColumn(verbose_name=_("Incomplete allowed"))
     actions = columns.ActionsColumn(
         extra_buttons='<a href="{{ record.get_absolute_url }}#trace" class="btn btn-sm btn-outline-primary" '
         'title="Trace"><i class="mdi mdi-transit-connection-variant"></i></a> ',
@@ -624,10 +631,81 @@ class FiberCircuitPathTable(NetBoxTable):
             "id",
             "circuit",
             "position",
-            "origin",
-            "destination",
-            "is_complete",
+            "strand_path",
+            "completeness",
+            "active",
+            "is_broken",
+            "delivered_incomplete",
             "actual_loss_db",
             "wavelength_nm",
         )
-        default_columns = ("circuit", "position", "origin", "destination", "is_complete")
+        default_columns = ("circuit", "position", "strand_path", "completeness", "is_broken")
+
+
+class FiberStrandPathTable(NetBoxTable):
+    """Read-only table of analyzed fiber paths.
+
+    ``hop_count`` is annotated and ``visible_assignments`` prefetched (already
+    restricted to what the user may view) by the list view.
+    """
+
+    id = tables.Column(linkify=True, verbose_name=_("ID"))
+    end_a_port = tables.Column(linkify=True, verbose_name=_("End A"))
+    end_b_port = tables.Column(linkify=True, verbose_name=_("End B"))
+    completeness = columns.ChoiceFieldColumn()
+    hop_count = tables.Column(verbose_name=_("Hops"))
+    is_proposed = columns.BooleanColumn(verbose_name=_("Proposed"))
+    is_defective = columns.BooleanColumn(verbose_name=_("Defective"))
+    assigned_to = tables.Column(accessor="pk", orderable=False, verbose_name=_("Assigned to"))
+    # The analysis job is the only writer: no edit or delete actions.
+    actions = columns.ActionsColumn(actions=())
+
+    class Meta(NetBoxTable.Meta):
+        model = FiberStrandPath
+        fields = (
+            "pk",
+            "id",
+            "end_a_port",
+            "end_b_port",
+            "completeness",
+            "hop_count",
+            "route_key",
+            "is_proposed",
+            "is_defective",
+            "assigned_to",
+            "computed_at",
+        )
+        default_columns = ("id", "end_a_port", "end_b_port", "completeness", "hop_count", "assigned_to")
+
+    def render_assigned_to(self, record):
+        if not record.visible_assignments:
+            return "-"
+        circuit = record.visible_assignments[0].circuit
+        return format_html('<a href="{}">{}</a>', circuit.get_absolute_url(), circuit)
+
+
+class PathAnomalyTable(NetBoxTable):
+    """Read-only table of plant shapes the analysis refused to trace."""
+
+    kind = columns.ChoiceFieldColumn()
+    strand = tables.Column(linkify=True)
+    front_port = tables.Column(linkify=True)
+    actions = columns.ActionsColumn(actions=())
+
+    class Meta(NetBoxTable.Meta):
+        model = PathAnomaly
+        fields = ("pk", "id", "kind", "strand", "front_port", "detected_at")
+        default_columns = ("kind", "strand", "front_port", "detected_at")
+
+
+class PathAnalysisQueueTable(NetBoxTable):
+    """Read-only table of devices waiting for the next analysis run."""
+
+    device = tables.Column(linkify=True)
+    reason = columns.ChoiceFieldColumn()
+    actions = columns.ActionsColumn(actions=())
+
+    class Meta(NetBoxTable.Meta):
+        model = PathAnalysisQueue
+        fields = ("pk", "id", "device", "reason", "created")
+        default_columns = ("device", "reason", "created")

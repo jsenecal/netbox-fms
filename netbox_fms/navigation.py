@@ -159,14 +159,27 @@ menu = PluginMenu(
                     link="plugins:netbox_fms:fibercircuitpath_list",
                     link_text="Fiber Circuit Paths",
                     permissions=["netbox_fms.view_fibercircuitpath"],
-                    buttons=(
-                        PluginMenuButton(
-                            link="plugins:netbox_fms:fibercircuitpath_add",
-                            title="Add",
-                            icon_class="mdi mdi-plus-thick",
-                            permissions=["netbox_fms.add_fibercircuitpath"],
-                        ),
-                    ),
+                    buttons=(),
+                ),
+            ),
+        ),
+        (
+            "Path Analysis",
+            (
+                PluginMenuItem(
+                    link="plugins:netbox_fms:fiberstrandpath_list",
+                    link_text="Fiber Paths",
+                    permissions=["netbox_fms.view_fiberstrandpath"],
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:pathanomaly_list",
+                    link_text="Path Anomalies",
+                    permissions=["netbox_fms.view_pathanomaly"],
+                ),
+                PluginMenuItem(
+                    link="plugins:netbox_fms:pathanalysisqueue_list",
+                    link_text="Analysis Queue",
+                    permissions=["netbox_fms.view_pathanalysisqueue"],
                 ),
             ),
         ),

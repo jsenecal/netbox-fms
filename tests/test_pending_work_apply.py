@@ -9,8 +9,8 @@ from django.contrib.contenttypes.models import ContentType
 from users.models import ObjectPermission
 
 from netbox_fms.choices import FiberCircuitStatusChoices, SplicePlanStatusChoices
-from netbox_fms.models import FiberCircuit, FiberCircuitNode, FiberCircuitPath, SplicePlan, SplicePlanEntry
-from tests.conftest import connect_front_ports, make_front_port, make_infra
+from netbox_fms.models import FiberCircuit, SplicePlan, SplicePlanEntry
+from tests.conftest import assign_strand_path, connect_front_ports, make_front_port, make_infra, make_strand_path
 
 User = get_user_model()
 
@@ -81,8 +81,7 @@ def test_apply_all_blocked_by_protected_circuit(client):
         status=FiberCircuitStatusChoices.ACTIVE,
         strand_count=1,
     )
-    path = FiberCircuitPath.objects.create(circuit=circuit, position=1, origin=fp1, path=[], is_complete=False)
-    FiberCircuitNode.objects.create(path=path, position=1, front_port=fp1)
+    assign_strand_path(circuit, make_strand_path(end_a=fp1))
     _login_superuser(client, "pwpc-admin")
 
     response = client.post(f"/dcim/devices/{closure.pk}/pending-work/")

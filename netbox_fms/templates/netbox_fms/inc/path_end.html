@@ -1,0 +1,1 @@
+{% load helpers %}{% load i18n %}{% if port %}{{ port|linkify }}{% if device %} ({{ device|linkify }}){% elif device_hidden %} (<span class="text-muted">{% trans "Hidden" %}</span>){% endif %}{% elif hidden %}<span class="text-muted">{% trans "Hidden" %}</span>{% else %}&mdash;{% endif %} &middot; {{ kind }}{% if reason %} ({{ reason_display }}){% endif %}

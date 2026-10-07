@@ -22,6 +22,7 @@ nav = [
     { "Port Label Templates" = "user-guide/port-label-templates.md" },
     { "Splice Planning" = "user-guide/splice-planning.md" },
     { "Fiber Circuits" = "user-guide/fiber-circuits.md" },
+    { "Path Analysis" = "user-guide/path-analysis.md" },
     { "Device Fiber Overview" = "user-guide/device-fiber-overview.md" },
   ] },
   { "Developer" = [

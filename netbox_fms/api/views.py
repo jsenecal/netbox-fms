@@ -12,9 +12,16 @@ from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.viewsets import ModelViewSet
+from rest_framework.viewsets import ReadOnlyModelViewSet
 
-from ..choices import SplicePlanStatusChoices
+from ..assignment import (
+    acknowledge_route_for,
+    assign_paths_for,
+    circuit_to_change,
+    require_assign_permission,
+    visible_paths,
+)
+from ..choices import PathCompletenessChoices, SplicePlanStatusChoices
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -27,6 +34,9 @@ from ..filters import (
     FiberCircuitFilterSet,
     FiberCircuitPathFilterSet,
     FiberStrandFilterSet,
+    FiberStrandPathFilterSet,
+    PathAnalysisQueueFilterSet,
+    PathAnomalyFilterSet,
     RibbonFilterSet,
     RibbonTemplateFilterSet,
     SlackLoopFilterSet,
@@ -46,9 +56,11 @@ from ..models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
-    FiberCircuitNode,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
+    PathAnalysisQueue,
+    PathAnomaly,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -59,6 +71,7 @@ from ..models import (
     TubeAssignment,
 )
 from ..services import (
+    ASSIGNMENT_REFERENCE_FIELDS,
     PlanNotApplicable,
     apply_diff,
     device_cable_ids,
@@ -66,10 +79,11 @@ from ..services import (
     get_or_recompute_diff,
     import_live_state,
     protecting_circuit_groups,
-    protecting_nodes,
+    protecting_circuits_by_front_port,
 )
-from ..trace_hops import build_hops
+from ..trace_hops import build_hops, flat_entries
 from .serializers import (
+    AssignPathsSerializer,
     BufferTubeSerializer,
     BufferTubeTemplateSerializer,
     CableElementSerializer,
@@ -78,10 +92,12 @@ from .serializers import (
     FiberAttenuationSpecSerializer,
     FiberCableSerializer,
     FiberCableTypeSerializer,
-    FiberCircuitNodeSerializer,
     FiberCircuitPathSerializer,
     FiberCircuitSerializer,
+    FiberStrandPathSerializer,
     FiberStrandSerializer,
+    PathAnalysisQueueSerializer,
+    PathAnomalySerializer,
     RibbonSerializer,
     RibbonTemplateSerializer,
     SlackLoopSerializer,
@@ -355,7 +371,7 @@ class SplicePlanViewSet(NetBoxModelViewSet):
             all_port_ids.add(item["fiber_b"])
 
         if all_port_ids:
-            protected_names = {n.path.circuit.name for n in protecting_nodes(all_port_ids)}
+            protected_names = {c.name for c in protecting_circuits_by_front_port(all_port_ids).values()}
             if protected_names:
                 names = ", ".join(sorted(protected_names))
                 return Response(
@@ -502,62 +518,81 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 # ---------------------------------------------------------------------------
 
 
+class CircuitActionPermissions(TokenPermissions):
+    """The circuit actions edit the circuit: POST needs change_fibercircuit, not add."""
+
+    perms_map = {**TokenPermissions.perms_map, "POST": TokenPermissions.perms_map["PUT"]}
+
+
 class FiberCircuitViewSet(NetBoxModelViewSet):
     """Manage fiber circuits and their paths."""
 
-    queryset = FiberCircuit.objects.prefetch_related("paths", "tags")
+    queryset = FiberCircuit.objects.prefetch_related("paths", "provider_circuits", "tags")
     serializer_class = FiberCircuitSerializer
     filterset_class = FiberCircuitFilterSet
 
-    @action(detail=True, methods=["post"])
-    def retrace(self, request, pk=None):
-        """Retrace all paths belonging to this fiber circuit."""
-        circuit = self.get_object()
-        for path in circuit.paths.all():
-            path.retrace()
-        serializer = self.get_serializer(circuit)
-        return Response(serializer.data)
+    @action(detail=True, methods=["post"], permission_classes=[CircuitActionPermissions])
+    def assign(self, request, pk=None):
+        """Assign analyzed fiber paths to this circuit, in the given order."""
+        circuit = circuit_to_change(request.user, pk)
+        body = AssignPathsSerializer(data=request.data)
+        require_assign_permission(request.user)
+        try:
+            body.is_valid(raise_exception=True)
+            paths = visible_paths(request.user, body.validated_data["strand_paths"])
+            assignments = assign_paths_for(
+                request.user, circuit, paths, allow_incomplete=body.validated_data["allow_incomplete"]
+            )
+        except ValidationError as exc:
+            return Response({"strand_paths": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
+        data = FiberCircuitPathSerializer(assignments, many=True, context={"request": request}).data
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="acknowledge-route", permission_classes=[CircuitActionPermissions])
+    def acknowledge_route(self, request, pk=None):
+        """Accept the current hops of this circuit's broken assignments."""
+        circuit = circuit_to_change(request.user, pk)
+        acknowledged = acknowledge_route_for(request.user, circuit)
+        circuit.refresh_from_db()
+        return Response({"acknowledged": acknowledged, "is_broken": circuit.is_broken})
 
 
 class FiberCircuitPathViewSet(NetBoxModelViewSet):
-    """Manage fiber circuit paths and provide trace data."""
+    """Assignments of analyzed fiber paths to circuits.
 
-    queryset = FiberCircuitPath.objects.prefetch_related("tags")
+    Assignments are created only through the circuit's ``assign`` action,
+    so this endpoint allows no POST; deleting one unassigns the path.
+    """
+
+    queryset = FiberCircuitPath.objects.select_related("circuit", "strand_path").prefetch_related(
+        "strand_path__hops", "tags"
+    )
     serializer_class = FiberCircuitPathSerializer
     filterset_class = FiberCircuitPathFilterSet
+    http_method_names = ["get", "patch", "put", "delete", "head", "options"]
 
     @action(detail=True, methods=["get"], url_path="trace")
     def trace(self, request, pk=None):
-        """Return the full hop-by-hop trace for this circuit path."""
-        path_obj = self.get_object()
-        hops = build_hops(path_obj.path)
-        data = {
-            "circuit_id": path_obj.circuit_id,
-            "circuit_name": path_obj.circuit.name,
-            "circuit_url": path_obj.circuit.get_absolute_url(),
-            "path_position": path_obj.position,
-            "is_complete": path_obj.is_complete,
-            "total_calculated_loss_db": (
-                str(path_obj.get_calculated_loss_db()) if path_obj.get_calculated_loss_db() is not None else None
-            ),
-            "total_actual_loss_db": str(path_obj.actual_loss_db) if path_obj.actual_loss_db else None,
-            "wavelength_nm": path_obj.wavelength_nm,
-            "hops": hops,
-        }
-        return Response(data)
-
-
-class FiberCircuitNodeViewSet(ModelViewSet):
-    """Provide read-only access to fiber circuit nodes."""
-
-    queryset = FiberCircuitNode.objects.all()
-    serializer_class = FiberCircuitNodeSerializer
-    http_method_names = ["get", "head", "options"]
-
-    def get_queryset(self):
-        # Plain DRF viewsets skip NetBox's object-permission enforcement;
-        # apply the same restriction NetBoxModelViewSet would.
-        return super().get_queryset().restrict(self.request.user, "view")
+        """Return the hop-by-hop trace of the assigned path, read from end A."""
+        assignment = self.get_object()
+        strand_path = assignment.strand_path
+        calculated = assignment.get_calculated_loss_db()
+        return Response(
+            {
+                "circuit_id": assignment.circuit_id,
+                "circuit_name": assignment.circuit.name,
+                "circuit_url": assignment.circuit.get_absolute_url(),
+                "path_position": assignment.position,
+                # The trace-view bundle keys its "Complete" marker on this flag.
+                "is_complete": strand_path.completeness == PathCompletenessChoices.TERMINATED_TERMINATED,
+                "completeness": strand_path.completeness,
+                "is_broken": assignment.is_broken,
+                "total_calculated_loss_db": str(calculated) if calculated is not None else None,
+                "total_actual_loss_db": str(assignment.actual_loss_db) if assignment.actual_loss_db else None,
+                "wavelength_nm": assignment.wavelength_nm,
+                "hops": build_hops(flat_entries(strand_path)),
+            }
+        )
 
 
 class ProtectingQueryPermissions(TokenPermissions):
@@ -573,6 +608,37 @@ class ProtectingQueryPermissions(TokenPermissions):
 
     def _verify_write_permission(self, request):
         return True
+
+
+class RestrictedReadOnlyViewSet(ReadOnlyModelViewSet):
+    """Read-only access to an internal model, restricted to what the user may view."""
+
+    def get_queryset(self):
+        return super().get_queryset().restrict(self.request.user, "view")
+
+
+class FiberStrandPathViewSet(RestrictedReadOnlyViewSet):
+    """Analyzed fiber paths, derived by the path analysis."""
+
+    queryset = FiberStrandPath.objects.select_related("end_a_port", "end_b_port").prefetch_related("hops")
+    serializer_class = FiberStrandPathSerializer
+    filterset_class = FiberStrandPathFilterSet
+
+
+class PathAnomalyViewSet(RestrictedReadOnlyViewSet):
+    """Plant shapes the analysis refused to trace."""
+
+    queryset = PathAnomaly.objects.select_related("strand", "front_port")
+    serializer_class = PathAnomalySerializer
+    filterset_class = PathAnomalyFilterSet
+
+
+class PathAnalysisQueueViewSet(RestrictedReadOnlyViewSet):
+    """Devices waiting for path analysis."""
+
+    queryset = PathAnalysisQueue.objects.select_related("device")
+    serializer_class = PathAnalysisQueueSerializer
+    filterset_class = PathAnalysisQueueFilterSet
 
 
 class FiberCircuitProtectingAPIView(APIView):
@@ -609,7 +675,7 @@ class FiberCircuitProtectingAPIView(APIView):
     def _parse_query_params(self, query_params):
         """Return {param: [ids]} from repeated and/or comma-separated GET params."""
         references = {}
-        for param in FiberCircuitNode.REFERENCE_FIELDS:
+        for param in ASSIGNMENT_REFERENCE_FIELDS:
             values = [v for value in query_params.getlist(param) for v in value.split(",") if v.strip()]
             if values:
                 references[param] = self._coerce_ids(param, values)
@@ -619,11 +685,11 @@ class FiberCircuitProtectingAPIView(APIView):
         """Return {param: [ids]} from a POST body of reference ID lists."""
         if not isinstance(data, dict):
             raise RestValidationError("Expected a JSON object mapping reference types to ID lists.")
-        unknown = set(data) - set(FiberCircuitNode.REFERENCE_FIELDS)
+        unknown = set(data) - set(ASSIGNMENT_REFERENCE_FIELDS)
         if unknown:
             raise RestValidationError(
                 f"Unknown reference type(s): {', '.join(sorted(unknown))}. "
-                f"Supported: {', '.join(FiberCircuitNode.REFERENCE_FIELDS)}."
+                f"Supported: {', '.join(ASSIGNMENT_REFERENCE_FIELDS)}."
             )
         references = {}
         for param, values in data.items():
@@ -691,7 +757,7 @@ def _get_protected_plan_ports(plan):
         fp_ids.add(entry.fiber_b_id)
     if not fp_ids:
         return {}
-    return {n.front_port_id: n.path.circuit.name for n in protecting_nodes(fp_ids)}
+    return {fp_id: circuit.name for fp_id, circuit in protecting_circuits_by_front_port(fp_ids).items()}
 
 
 class ClosureStrandsAPIView(APIView):
@@ -791,12 +857,10 @@ class ClosureStrandsAPIView(APIView):
         all_tray_fp_ids = set(fp_to_strand)
 
         # --- D) Build protection lookup: front_port_id → circuit name ---
-        # A front port is "protected" if referenced by a non-decommissioned FiberCircuitNode
+        # A front port is protected when an active assignment's path touches it.
         protection_lookup = {}  # front_port_id -> (circuit_name, circuit_url)
-        if all_tray_fp_ids:
-            for node in protecting_nodes(all_tray_fp_ids, user=user):
-                circuit = node.path.circuit
-                protection_lookup[node.front_port_id] = (circuit.name, circuit.get_absolute_url())
+        for fp_id, circuit in protecting_circuits_by_front_port(all_tray_fp_ids, user=user).items():
+            protection_lookup[fp_id] = (circuit.name, circuit.get_absolute_url())
 
         cable_groups = []
         for fc in fiber_cables:

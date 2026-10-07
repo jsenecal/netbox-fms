@@ -3,20 +3,20 @@
 A **FiberCircuit** is the end-to-end logical service that runs over your
 fiber plant. Where a `dcim.Cable` represents one physical span, a fiber
 circuit ties together all of the spans, splices, and ports that carry one
-service from origin to destination, with optional parallel paths for
-diversity. Circuits are first-class NetBox objects with their own status
-lifecycle, REST API, GraphQL type, change log, and search index.
+service from origin to destination. Circuits are first-class NetBox objects
+with their own status lifecycle, REST API, change log, and search index.
 
-The circuit subsystem has three responsibilities:
+Circuits do not trace or store paths themselves. A background
+[path analysis](path-analysis.md) derives every fiber path from the plant,
+and a circuit **assigns** analyzed paths. The circuit subsystem has three
+responsibilities:
 
-1. **Discovery.** Given two devices, find candidate paths through the fiber
-   graph (cables + closures + existing splices), score them, and return
-   ranked proposals.
-2. **Provisioning.** Materialize a chosen proposal as a `FiberCircuit` plus
-   one `FiberCircuitPath` per strand, atomically.
-3. **Protection.** Once a circuit is active, prevent its underlying
-   resources (cables, ports, strands, splice entries) from being deleted or
-   re-spliced out from under it.
+1. **Assignment.** Pick analyzed paths for a circuit (wizard, "Assign fibers"
+   action, or API).
+2. **Change detection.** When the plant changes under an assigned path, mark
+   the circuit broken until the new route is authorized or acknowledged.
+3. **Protection.** Prevent anything on an active assignment from being
+   deleted out from under the service.
 
 ---
 
@@ -24,268 +24,191 @@ The circuit subsystem has three responsibilities:
 
 ```mermaid
 erDiagram
-    FiberCircuit ||--o{ FiberCircuitPath : has
-    FiberCircuitPath ||--o{ FiberCircuitNode : has
-    FiberCircuitPath }o--|| FrontPort : "origin (dcim)"
-    FiberCircuitPath }o--o| FrontPort : "destination (dcim)"
-    FiberCircuitNode }o--o| Cable : "cable (dcim)"
-    FiberCircuitNode }o--o| FrontPort : "front_port (dcim)"
-    FiberCircuitNode }o--o| RearPort : "rear_port (dcim)"
-    FiberCircuitNode }o--o| FiberStrand : "fiber_strand"
-    FiberCircuitNode }o--o| SplicePlanEntry : "splice_entry"
+    FiberCircuit ||--o{ FiberCircuitPath : "has (assignments)"
+    FiberCircuitPath }o--|| FiberStrandPath : assigns
+    FiberStrandPath ||--o{ FiberStrandPathHop : has
+    FiberStrandPathHop }o--o| FiberStrand : strand
+    FiberStrandPathHop }o--o| Cable : "cable (dcim)"
+    FiberStrandPathHop }o--o| Circuit : "provider circuit (circuits)"
 ```
 
 ### FiberCircuit
 
 The top-level service object.
 
-| Field           | Type                          | Notes                                                                |
-| --------------- | ----------------------------- | -------------------------------------------------------------------- |
-| `name`          | char(200)                     | Display name, required                                               |
-| `cid`           | char(200)                     | External circuit identifier (work order, internal CID, etc.)         |
-| `status`        | choice                        | `planned`, `staged`, `active`, `decommissioned`                      |
-| `description`   | text                          | Free-form description                                                |
-| `strand_count`  | positive int                  | Number of parallel strand paths the circuit reserves                 |
-| `tenant`        | FK -> `tenancy.Tenant`        | Optional tenant attribution                                          |
-| `comments`      | text                          | Long-form notes                                                      |
+| Field           | Type                   | Notes                                                              |
+| --------------- | ---------------------- | ------------------------------------------------------------------ |
+| `name`          | char(200)              | Display name, required                                             |
+| `cid`           | char(200)              | External circuit identifier (work order, internal CID, etc.)       |
+| `status`        | choice                 | `planned`, `staged`, `active`, `decommissioned`                    |
+| `description`   | text                   | Free-form description                                              |
+| `strand_count`  | positive int           | Number of paths the circuit may assign                             |
+| `tenant`        | FK -> `tenancy.Tenant` | Optional tenant attribution                                        |
+| `is_broken`     | bool (read-only)       | True while any active assignment is broken; maintained by the analysis |
+| `comments`      | text                   | Long-form notes                                                    |
 
-A circuit's `strand_count` caps how many `FiberCircuitPath` rows can hang
-off it. Saving the circuit with `status=decommissioned` deletes all
-`FiberCircuitNode` rows so the underlying objects are no longer protected.
-Moving a decommissioned circuit back to any other status rebuilds nodes by
-calling `FiberCircuitPath.rebuild_nodes()` from the stored path JSON.
+### FiberCircuitPath (an assignment)
 
-### FiberCircuitPath
+One circuit's use of one analyzed path. Assignments are created only by
+assigning (see below) and deleted to unassign.
 
-One strand's journey from origin to destination.
+| Field                  | Notes                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `circuit`, `position`  | Owning circuit and 1-indexed order; unique together                                     |
+| `strand_path`          | The analyzed path (`FiberStrandPath`)                                                   |
+| `active`               | False once the circuit is decommissioned                                                |
+| `assigned_hops`        | Snapshot of the path's hops taken at assignment (updated by acknowledging or authorizing) |
+| `delivered_incomplete` | The path was assigned although not terminated at both ends                              |
+| `is_broken`, `broken_reason` | See "Broken circuits"                                                             |
+| `wavelength_nm`, `actual_loss_db` | Measured loss and its wavelength; the only fields editable after assignment  |
 
-| Field                | Type                | Notes                                                |
-| -------------------- | ------------------- | ---------------------------------------------------- |
-| `circuit`            | FK -> `FiberCircuit` | Owning circuit                                       |
-| `position`           | positive int        | 1-indexed ordering within the circuit                |
-| `origin`             | FK -> `dcim.FrontPort` | Path entry point                                  |
-| `destination`        | FK -> `dcim.FrontPort` | Path exit point (nullable for incomplete traces)  |
-| `path`               | JSON list           | Ordered hop records (front_port / rear_port / cable / splice_entry) |
-| `is_complete`        | bool                | `True` if the trace reached a destination            |
-| `calculated_loss_db` | decimal(6,3)        | Optional design-time loss budget                     |
-| `actual_loss_db`     | decimal(6,3)        | Optional measured loss (OTDR, power meter)           |
-| `wavelength_nm`      | positive int        | Wavelength the loss values apply to; required if either loss is set |
-
-`(circuit, position)` is unique. `clean()` enforces the strand-count cap and
-that `wavelength_nm` is set whenever `calculated_loss_db` or `actual_loss_db`
-is populated.
-
-### FiberCircuitNode
-
-A relational index of every object on a path. Each node references one of
-`cable`, `front_port`, `rear_port`, `fiber_strand`, `splice_entry`, or
-`provider_circuit` via `on_delete=PROTECT`. This is what enforces circuit
-protection: as long as the circuit is not decommissioned, deleting any of
-those underlying objects raises `ProtectedError`.
-
-Nodes are not edited directly. They are rebuilt automatically on path
-retrace, on circuit status transitions, and during provisioning.
+A path can have at most one active assignment.
 
 ---
 
 ## Status lifecycle
 
-| Status            | Meaning                                                                           |
-| ----------------- | --------------------------------------------------------------------------------- |
-| `planned`         | Circuit has been designed but not yet staged. Nodes exist; resources are protected. |
-| `staged`          | Circuit is ready for cutover; pre-deployment activities are in progress.          |
-| `active`          | Circuit is live and carrying traffic.                                             |
-| `decommissioned`  | Circuit is no longer in service. Nodes are deleted; resources are no longer protected. |
+| Status           | Meaning                                                                          |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `planned`        | Circuit has been designed but not yet staged. Its assignments protect their plant. Proposed (planned) plant may be assigned. |
+| `staged`         | Circuit is ready for cutover; pre-deployment activities are in progress.         |
+| `active`         | Circuit is live and carrying traffic.                                            |
+| `decommissioned` | Circuit is no longer in service. Assignments are deactivated and stop protecting. |
 
-There is no enforced state-machine: any transition is permitted, and the
-side effects on `FiberCircuitNode` rows (delete on entering
-`decommissioned`, rebuild on leaving) happen automatically in `save()`.
-
----
-
-## Discovery: `find_fiber_paths()`
-
-The discovery engine lives in `netbox_fms.provisioning`. The public entry
-point is:
-
-```python
-from netbox_fms.provisioning import find_fiber_paths
-
-proposals = find_fiber_paths(
-    origin_device,
-    destination_device,
-    strand_count=1,
-    priorities=None,            # default: ["strand_adjacency", "hop_count",
-                                #           "new_splices", "lowest_strand"]
-    max_results=20,
-)
-```
-
-### Algorithm
-
-1. **Build a device graph.** All cables that terminate on `RearPort`
-   instances are collected. Each tube of a cable becomes a bidirectional
-   edge between the two devices its rear ports belong to. Rear ports are
-   paired across the cable the same way the fiber trace crosses it: by
-   matching `CableTermination.connector` numbers, or, when connectors are
-   not recorded, only when each end has a single rear port. A fiber never
-   enters on one tube and leaves on another.
-2. **Enumerate simple routes.** Depth-first search finds every simple path
-   (no repeated devices) between origin and destination, up to a default
-   max depth of 10.
-3. **Compute hop availability.** For each hop along each route, look at the
-   PortMappings on both ends and find the `RearPort` positions that have
-   matching FrontPorts on entry and exit, with neither FrontPort already
-   occupied (terminated by a non-zero-length cable).
-4. **Generate candidates.** For single-hop routes, every group of
-   `strand_count` available positions on the same cable is a candidate.
-   For multi-hop routes, the engine builds chains: each chain enters a
-   closure on one cable and exits on the next, with a splice (existing or
-   to-be-created) at the intermediate device.
-5. **Score and rank.** Each candidate is scored by the priority list in
-   order. Lower is better.
-
-### Scoring priorities
-
-| Priority           | Meaning                                                          |
-| ------------------ | ---------------------------------------------------------------- |
-| `strand_adjacency` | Prefer strands on consecutive positions of one tube or ribbon    |
-| `hop_count`        | Fewer cable spans win                                            |
-| `new_splices`      | Reuse existing splices over creating new ones                    |
-| `lowest_strand`    | Prefer lower-numbered strand positions (deterministic ordering)  |
-
-The default order is the one in the table. Strand adjacency comes first
-because the strands of one circuit (a Tx/Rx pair, for instance) must share
-a route and fiber specs, so a contiguous pair two hops away beats a
-scattered pair on a direct cable. Adjacency never crosses a buffer tube or
-ribbon boundary: the last fiber of tube 1 and the first fiber of tube 2 are
-not contiguous even though their position numbers are consecutive.
-
-Pass a different ordering or subset to change the ranking. For example, if
-you care more about reusing splices than minimizing hops:
-
-```python
-proposals = find_fiber_paths(
-    origin, dest, strand_count=2,
-    priorities=["new_splices", "hop_count", "strand_adjacency"],
-)
-```
-
-### Proposal shape
-
-Each proposal is a dict:
-
-```python
-{
-    "strands": [
-        {
-            "hops": [
-                {
-                    "cable_id": 42,
-                    "fp_entry_id": 101,
-                    "fp_exit_id": 105,
-                    "entry_rp_id": 71,
-                    "exit_rp_id": 72,
-                    "position": 7,
-                },
-                # ...
-            ],
-            "position": 7,
-        },
-        # one entry per requested strand
-    ],
-    "route": [12, 34, 56],   # ordered device IDs
-    "hop_count": 2,
-    "new_splice_count": 1,
-    "existing_splice_count": 0,
-    "is_contiguous": True,
-    "lowest_position": 7,
-    "splices_needed": [
-        {"device_id": 34, "fp_a_id": 105, "fp_b_id": 110},
-    ],
-}
-```
+There is no enforced state machine; any transition is permitted, with the
+side effects described under "Decommissioning".
 
 ---
 
-## Provisioning: `create_circuit_from_proposal()`
+## Assigning fibers
 
-Once a proposal is selected, materialize it atomically:
+There are three entry points, all using the same picker.
 
-```python
-from netbox_fms.provisioning import create_circuit_from_proposal
+**Circuit wizard** (the Circuit Wizard button on the Fiber Circuits list). Creates the circuit and assigns
+its paths in one transaction.
 
-circuit = create_circuit_from_proposal(
-    proposals[0],
-    name="DC1-DC2 backbone A",          # or use name_template
-    name_template="Circuit-{n}",        # auto-incrementing fallback
-    splice_project=my_project,          # optional SpliceProject for new splices
-)
+**"Assign fibers" action** on a circuit's page. The same picker for an
+existing circuit.
+
+**API:**
+
+```
+POST /api/plugins/fms/fiber-circuits/{id}/assign/
+{"strand_paths": [101, 102], "allow_incomplete": false}
+-> 201 [ {assignment}, {assignment} ]
 ```
 
-Inside a single transaction, the helper:
+`strand_paths` is the ordered list of `fiber-strand-paths` ids; each becomes
+one assignment, in that order. A refusal is HTTP 400 with the problems listed
+under `strand_paths`, and nothing is assigned.
 
-1. Creates the `FiberCircuit` with `status=planned` and `strand_count`
-   matching the number of strands in the proposal.
-2. Creates one `FiberCircuitPath` per strand, populating `origin`,
-   `destination`, `path` (the hop JSON), and `is_complete=True`.
-3. Creates `FiberCircuitNode` rows for every front port, rear port, cable,
-   and splice entry on the path, plus one node per `FiberStrand` derived
-   from the path's front ports.
-4. For each `splices_needed` entry, creates a zero-length `dcim.Cable` with
-   `FrontPort` <-> `FrontPort` terminations (a splice cable) and a matching
-   `SplicePlanEntry`. If `splice_project` is provided, a draft plan is
-   created or reused for that closure under that project; otherwise the
-   first existing plan on the closure is used.
+### The picker
 
-If the transaction fails for any reason, no circuit, paths, nodes, splice
-cables, or plan entries are created.
+The picker offers **groups** of paths: as many paths as the circuit still
+needs (the strand count), all on one route. Filters:
 
-The classmethod helpers `FiberCircuit.find_paths()` and
-`FiberCircuit.create_from_proposal()` proxy to the provisioning module if
-you prefer the model-side API.
+- **Ends at** -- devices the path must end on.
+- **Must pass through** -- an ordered device list.
+- **Avoid devices, cables, sites, tenants** -- exclude any path touching them.
+- **Allow incomplete paths** -- also offer paths not terminated at both ends
+  (for example a hand-off to another owner in a shared structure). Such
+  assignments are flagged `delivered_incomplete`.
+
+Groups are ranked by contiguity first (adjacent strands in the same buffer
+tube on every cable of the route), then fewer hops, then lowest strand
+position. Defective paths are never offered; proposed paths only when the
+circuit's status is `planned`. Paths already assigned are not offered.
+
+### Rules
+
+An assignment is refused when:
+
+- the circuit is decommissioned;
+- it would exceed the circuit's `strand_count`;
+- a path already has an active assignment (one active assignment per path);
+- a path is not terminated at both ends and `allow_incomplete` is off;
+- a path is listed twice.
+
+### Permissions
+
+Assigning (UI and API) needs `change` on the circuit plus `add` on fiber
+circuit paths, and honors object-permission constraints on both.
+Acknowledging a route needs `change` on the circuit and `change` on the
+broken assignments. Creating a circuit through the wizard also needs `add` on
+fiber circuits.
 
 ---
 
-## Tracing and retracing
+## Broken circuits
 
-The trace engine lives in `netbox_fms.trace`. From a starting `FrontPort`
-it walks the chain `FrontPort -> PortMapping -> RearPort ->
-CableTermination -> Cable -> remote RearPort -> PortMapping -> FrontPort`,
-crossing splices (`SplicePlanEntry`) when one is present. A trunk cable
-landing on a `circuits.CircuitTermination` hops the core circuit to its
-other termination and continues (see "Provider spans" below). Loops are
-detected and stop the trace.
+Whenever the analysis re-walks a path with an active assignment, it compares
+the path's hops with `assigned_hops`. **Any** difference -- a hop lost, added
+or replaced, complete path or not -- marks the assignment broken:
 
-`FiberCircuitPath.from_origin(front_port)` returns an unsaved path with
-the trace populated. `FiberCircuitPath.retrace()` re-runs the trace from
-`self.origin`, updates `path` / `destination` / `is_complete`, saves, and
-either rebuilds protection nodes (active circuit) or deletes them
-(decommissioned circuit).
+| `broken_reason` | Meaning                                                  |
+| --------------- | -------------------------------------------------------- |
+| `hops_changed`  | The path still exists but follows different hops         |
+| `path_lost`     | The path has no hops left (its strands or cables are gone) |
 
-The REST API exposes both:
+`FiberCircuit.is_broken` is true while any active assignment is broken. It is
+a real field on the circuit, saved with a change-log entry only when it
+flips, so NetBox event rules and webhooks can notify on the transition.
+(Banners and notification screens beyond the field and the change log are
+separate work.)
 
-```bash
-# Per-path hop-by-hop trace with computed totals
-GET /api/plugins/fms/fiber-circuit-paths/{id}/trace/
+### Authorized changes
 
-# Retrace every path on a circuit
-POST /api/plugins/fms/fiber-circuits/{id}/retrace/
+A **RouteChangeAuthorization** records that an approved change may re-route a
+circuit. When the analysis finds the circuit's hops changed and an
+authorization exists, and the first and last strand hops are unchanged (same
+end strands on the same devices), it accepts the new hops as the assignment,
+keeps the circuit healthy, and consumes the authorization. Today only
+**slack-loop insertion** into a closure writes one, for the circuits riding
+the cut cable. Splice plan authorization is future work.
+
+!!! note
+    Slack-loop insertion clears the circuits' broken state automatically only
+    when the assigned path also crosses other cables. A path made of the cut
+    cable alone loses its hops with the cable and becomes `path_lost`; it
+    needs acknowledging.
+
+### Acknowledging
+
+Anything not authorized stays broken until a user accepts the new route:
+**Acknowledge route** on the circuit's page, or
+
+```
+POST /api/plugins/fms/fiber-circuits/{id}/acknowledge-route/
+-> {"acknowledged": 2, "is_broken": false}
 ```
 
-The trace endpoint returns `{circuit_id, circuit_name, path_position,
-is_complete, hops, total_calculated_loss_db, total_actual_loss_db,
-wavelength_nm}` along with hop records suitable for rendering in the UI's
-trace view.
+Acknowledging sets each broken assignment's `assigned_hops` to the current
+hops and clears the flags. It does not recover a `path_lost` assignment
+whose path has no hops: that assignment is skipped and stays broken (and so
+does the circuit), and `acknowledged` counts only the assignments accepted.
+Unassign it (delete the assignment) and assign a current path instead.
+
+---
+
+## Decommissioning
+
+Setting a circuit to `decommissioned` deactivates its assignments (`active`
+becomes false), so nothing they cover is protected any more and the paths can
+be assigned to other circuits. Moving the circuit back out of
+`decommissioned` reactivates its assignments and re-evaluates them against
+the current plant (the circuit may come back broken). Reactivation is refused
+while another circuit has since assigned one of the paths.
+
+Unassigning a single path is deleting its assignment.
 
 ---
 
 ## Provider spans
 
 Leased dark fiber often rides a provider's circuit between two meet-me
-rooms. Model that span as a core `circuits.Circuit` with two
-terminations, and cable your trunk rear ports to the terminations like
-any other cable end:
+rooms. Model that span as a core `circuits.Circuit` with two terminations,
+and cable your trunk rear ports to the terminations like any other cable
+end:
 
 ```
 RearPort -> Cable -> CircuitTermination (A)
@@ -293,17 +216,13 @@ RearPort -> Cable -> CircuitTermination (A)
 RearPort <- Cable <- CircuitTermination (Z)
 ```
 
-The trace engine crosses the circuit as a single opaque hop, records a
-`provider_circuit` entry in the path, and keeps walking on the far side.
-Back-to-back circuits chain naturally. The intent is deliberately
-narrow: **document that a fiber circuit crosses a provider circuit, not
-the provider's infrastructure.** A core `Circuit` with two cabled
-terminations is all the modeling required -- no provider-side panels,
-fibers, or splices, and no `ProviderNetwork` topology.
+The analysis crosses the circuit as a single opaque hop and keeps walking on
+the far side. Back-to-back circuits chain. The intent is deliberately narrow:
+**document that a fiber circuit crosses a provider circuit, not the provider's
+infrastructure.**
 
-From the traced paths, each `FiberCircuit` maintains an automatically
-synced `provider_circuits` relation (shown on the detail page and in the
-API; never edited by hand). That relation powers the impact queries:
+Each `FiberCircuit` maintains an automatically synced `provider_circuits`
+relation from the hops of its active assignments (never edited by hand):
 
 ```bash
 # All fiber circuits riding any circuit of provider 7
@@ -312,75 +231,73 @@ GET /api/plugins/fms/fiber-circuits/?provider_id=7
 # All fiber circuits riding core circuit 42
 GET /api/plugins/fms/fiber-circuits/?provider_circuit_id=42
 
-# Same question through the protecting endpoint (mixable with other
-# reference types, GET or bulk POST)
+# Same question through the protecting endpoint
 GET /api/plugins/fms/fiber-circuits/protecting/?provider_circuit=42
 ```
 
-Provider circuits carrying an active fiber circuit are protected: like
-cables and ports, the core `Circuit` cannot be deleted while a
-non-decommissioned `FiberCircuit` rides it. The provider span contributes
-no calculated loss; record measured end-to-end loss in
-`actual_loss_db` as usual.
+The provider span contributes no calculated loss; record measured end-to-end
+loss in `actual_loss_db`.
 
 ---
 
 ## Loss budgets
 
-Each path tracks two loss values:
+Each assignment carries:
 
-- **`calculated_loss_db`**: design-time estimate based on fiber attenuation
-  per kilometer, splice losses, and connector losses.
-- **`actual_loss_db`**: measured value from OTDR or power meter testing.
+- **`calculated_loss_db`**: read-only, computed over the strand hops of the
+  assigned path from each FiberCableType's per-wavelength attenuation specs
+  (dB/km) and each cable's `glass_length`. It is a list of
+  `[wavelength_nm, loss_db]` pairs, one per wavelength the specs cover.
+- **`actual_loss_db`**: the measured value from OTDR or power meter testing.
+  Requires `wavelength_nm`.
 
-Both fields are decimal(6,3). When either is set, `wavelength_nm` is
-required so the loss is interpretable. Compare planned versus measured
-loss to spot bad splices or damaged fiber, or to validate that the circuit
-is within receiver sensitivity for the deployed transceivers.
-
-The plugin does not currently compute losses automatically: enter the
-calculated value manually based on your loss budget tooling, then update
-`actual_loss_db` after field testing.
+Compare planned against measured loss to spot bad splices or damaged fiber,
+or to validate the circuit against receiver sensitivity. Provider spans and
+plain-cable hops add no calculated loss.
 
 ---
 
 ## Circuit protection
 
-Circuit protection is what stops you from breaking a live service while
-modifying NetBox. Every object on a non-decommissioned circuit's path has a
-matching `FiberCircuitNode` with `on_delete=PROTECT`, so:
+Protection stops you from breaking a live service while modifying NetBox. An
+object is protected while it is part of an **active** assignment. Deletion is
+refused (`ProtectedError`, or an error message in the UI) for:
 
-- Deleting a `dcim.Cable` referenced by an active path raises
-  `ProtectedError`.
-- Deleting a `FrontPort` or `RearPort` carrying an active circuit raises
-  `ProtectedError`.
-- Bulk-updating splice plan entries that touch a protected fiber returns
-  HTTP 409 with a body listing the conflicting circuit names. See
-  `/api/plugins/fms/splice-plans/{id}/bulk-update/` and the closure
-  Pending Work tab for the user-facing surface.
+- a **strand** that is a hop of an active assignment;
+- a **cable** that is a hop, or carries a strand that is a hop;
+- a **provider circuit** that is a hop;
+- a **front port** that is an end of an active assignment, or that has such a
+  strand landed on it (this also stops a device delete that would cascade
+  into one).
 
-The dedicated endpoint `/api/plugins/fms/fiber-circuits/protecting/`
-answers "which circuits would be affected" for dashboards and pre-flight
-checks. It understands five reference types, matching the FK fields on
-`FiberCircuitNode`: `cable`, `front_port`, `rear_port`, `fiber_strand`,
-and `splice_entry`.
+An unassigned path never blocks deletion; the next analysis simply updates
+or removes it. Splice plans touching protected fibers cannot be applied:
+`/api/plugins/fms/splice-plans/{id}/bulk-update/` returns HTTP 409 listing
+the conflicting circuit names, and the closure Pending Work tab shows the
+same.
+
+### The protecting endpoint
+
+`/api/plugins/fms/fiber-circuits/protecting/` answers "which circuits would be
+affected" for dashboards and pre-flight checks. It understands six reference
+types: `cable`, `fiber_strand`, `provider_circuit`, `front_port`, `rear_port`
+and `splice_entry`. `rear_port` and `splice_entry` resolve through the front
+ports of the assignments.
 
 **GET** takes reference IDs as query parameters -- comma-separated
-(`?cable=42,43`), repeated (`?cable=42&cable=43`), or both -- and returns
-a flat list of the circuits whose paths reference any of them:
+(`?cable=42,43`), repeated (`?cable=42&cable=43`), or both -- and returns a
+flat list of the circuits that reference any of them:
 
 ```
 GET /api/plugins/fms/fiber-circuits/protecting/?cable=42,43&front_port=7
 -> [ {circuit}, {circuit}, ... ]
 ```
 
-**POST** is the bulk maintenance-impact interface. The body maps
-reference types to ID lists, with no practical limit on set size (no URL
-length ceiling). The response carries the deduplicated affected circuits
-once, in `results`, plus a `by_reference` breakdown mapping every input
-ID to the IDs of the circuits it affects -- references that touch no
-circuit map to an empty list, so a maintenance window's harmless members
-are visible at a glance:
+**POST** is the bulk maintenance-impact interface. The body maps reference
+types to ID lists, with no practical limit on set size. The response carries
+the deduplicated affected circuits once, in `results`, plus a `by_reference`
+breakdown mapping every input ID to the IDs of the circuits it affects --
+references that touch no circuit map to an empty list:
 
 ```
 POST /api/plugins/fms/fiber-circuits/protecting/
@@ -395,18 +312,11 @@ POST /api/plugins/fms/fiber-circuits/protecting/
 }
 ```
 
-Unknown reference types, non-list values, and non-integer IDs return
-HTTP 400 with a message naming the offending key, so a typo like
-`"cables"` fails loudly instead of silently matching nothing.
-
-Although POST is normally a write verb, this endpoint's POST is a pure
-read: it requires the same `view_fibercircuit` permission as GET (not
-`add`), object-level permission constraints filter both `results` and
-`by_reference`, and read-only API tokens may call it.
-
-To take resources out from under protection, set the circuit to
-`decommissioned`. The `save()` override deletes its `FiberCircuitNode`
-rows in the same transaction.
+Unknown reference types, non-list values, and non-integer IDs return HTTP 400
+naming the offending key. Although POST is normally a write verb, here it is
+a pure read: it requires `view_fibercircuit` (not `add`), object-level
+constraints filter both `results` and `by_reference`, and read-only API tokens
+may call it.
 
 ---
 
@@ -414,41 +324,44 @@ rows in the same transaction.
 
 ### Provision a new dark-fiber circuit between two POPs
 
-```python
-from dcim.models import Device
-from netbox_fms.provisioning import find_fiber_paths, create_circuit_from_proposal
+1. Make sure the plant is modeled (cables, closures, splices). The analysis
+   picks up changes within the batching window; check **FMS > Path Analysis >
+   Fiber Paths** to see the derived paths.
+2. Use the Circuit Wizard button on the Fiber Circuits list, enter the circuit details and strand
+   count, set the ends (and any must-pass-through or avoid filters), and
+   choose the top-ranked group.
+3. The circuit and its assignments are created together.
 
-origin = Device.objects.get(name="POP-A-CLOSURE")
-dest   = Device.objects.get(name="POP-B-CLOSURE")
-
-proposals = find_fiber_paths(origin, dest, strand_count=2,
-                             priorities=["hop_count", "new_splices"])
-best = proposals[0]
-circuit = create_circuit_from_proposal(best, name="POP-A <-> POP-B (Pair 1)")
-```
+For an existing circuit, use **Assign fibers** on its page or the `assign`
+API action.
 
 ### Cut a circuit over to a new path
 
-1. Create the new circuit with `create_circuit_from_proposal()`. It enters
-   `planned` status, so its nodes are protected immediately.
-2. Verify the new path with `POST .../{id}/retrace/`.
-3. Decommission the old circuit (set status to `decommissioned`). Its
-   protection nodes are deleted, freeing the previously held splices.
+1. Create the new circuit and assign its paths. Its status is `planned`, so
+   it protects its plant immediately and may use proposed plant.
+2. Check the assigned paths on the new circuit's page.
+3. Decommission the old circuit. Its assignments deactivate, freeing its
+   paths.
 4. Set the new circuit to `active`.
+
+### Recover from a broken circuit
+
+1. Find broken circuits (the `is_broken` field on the API, or an event rule on
+   the circuit update).
+2. Open the circuit; each broken assignment shows its `broken_reason`.
+3. If the change is expected, **Acknowledge route**. If a path was lost,
+   unassign it and assign a current path.
 
 ### Inventory all circuits affected by a planned outage
 
-For a quick look at a few resources, the GET form returns a standard
-fiber-circuit list, suitable for a customer notification spreadsheet or
-a maintenance ticket:
+For a few resources, the GET form returns a standard fiber-circuit list:
 
 ```bash
 curl -s -H "Authorization: Token $TOKEN" \
   "$NETBOX_URL/api/plugins/fms/fiber-circuits/protecting/?cable=42,43,44"
 ```
 
-For a real maintenance event -- say a dark fiber provider taking down a
-dozen cables in one window -- POST the whole set at once and read the
+For a real maintenance event, POST the whole set at once and read the
 combined impact from a single response:
 
 ```bash
@@ -459,5 +372,5 @@ curl -s -X POST -H "Authorization: Token $TOKEN" \
 ```
 
 `results` is the deduplicated circuit list for the notification;
-`by_reference` tells you which input cable drives which impact, and
-which cables in the window carry nothing.
+`by_reference` tells you which input cable drives which impact, and which
+cables in the window carry nothing.

@@ -6,16 +6,30 @@ points, and the runtime side effects of installing the plugin.
 
 ## Plugin settings
 
-The current release ships with no required entries in `PLUGINS_CONFIG`:
+No entry in `PLUGINS_CONFIG` is required. The path analysis settings below
+all have defaults:
 
 ```python
 PLUGINS_CONFIG = {
-    "netbox_fms": {},
+    "netbox_fms": {
+        "path_analysis_window_seconds": 30,
+        "path_reconcile_interval_minutes": 1440,
+        "reroute_window_ratio": 0.2,
+        "analysis_username": "netbox-fms",
+    },
 }
 ```
 
-`PluginConfig.default_settings` is intentionally empty. Future releases that
-introduce configurable behavior will document any new keys here.
+| Setting                           | Default | Meaning                                                                                                                                                |
+| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `path_analysis_window_seconds`    | `30`    | Batching window: the first plant change schedules the `Fiber path analysis` job this many seconds later; changes inside the window join the same run. |
+| `path_reconcile_interval_minutes` | `1440`  | How often the `Fiber path reconcile` system job rebuilds every fiber path from the plant (default: daily). Read when the worker starts.                |
+| `reroute_window_ratio`            | `0.2`   | Reserved for the future re-route search (the share of a route's spans it may change). Nothing reads it yet.                                            |
+| `analysis_username`               | `"netbox-fms"` | Username of the service user the analysis jobs and `reconcile_fiber_paths` log their changes as (broken assignments, `is_broken` flips) when the job has no user of its own. Created on first use as an inactive user with no usable password; a job run by a user is logged as that user. |
+
+The plugin also reads the port label and port name template settings
+described in [Port Label Templates](../user-guide/port-label-templates.md)
+and [Port Naming](../user-guide/port-naming.md).
 
 ## What `ready()` does at startup
 
@@ -86,9 +100,21 @@ or anyone responsible for validating splice designs before they are applied.
 | `netbox_fms.{view,add,change,delete}_fibercircuit`        | Manage fiber circuits                    |
 | `netbox_fms.{view,add,change,delete}_fibercircuitpath`    | Manage individual fiber circuit paths    |
 
-`FiberCircuitNode` is a relational index used internally by the trace engine
-and circuit-protection checks. It does not have its own UI, but the standard
-Django auto-generated permissions exist if needed.
+Assigning fibers (the "Assign fibers" action, the circuit wizard and the
+`assign` API action) needs `change_fibercircuit` on the circuit plus
+`add_fibercircuitpath`; acknowledging a route needs `change_fibercircuit`
+plus `change_fibercircuitpath`. Object-permission constraints are honored on
+both the circuit and the assignments. Assignments are created only this way,
+never by a plain add form or POST.
+
+### Path analysis
+
+| Permission                                                                      | Description                                         |
+| ------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `netbox_fms.view_fiberstrandpath`, `view_pathanomaly`, `view_pathanalysisqueue` | Read-only analysis results: paths, anomalies, queue |
+
+These objects are written only by the analysis jobs; no add, change or
+delete permission applies to them.
 
 ### Operational metadata
 

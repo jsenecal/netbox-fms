@@ -1,0 +1,37 @@
+{% load helpers %}
+{% load i18n %}
+{% comment %}
+    The groups of the fiber path picker. With `radio` set, each group is a radio option
+    (selected_group) inside the caller's form; otherwise each group posts its own assign form.
+{% endcomment %}
+<div class="list-group mb-3">
+    {% for group in groups %}
+    {% if radio %}<label class="list-group-item list-group-item-action">{% else %}<div class="list-group-item">{% endif %}
+        <div class="d-flex align-items-start gap-3">
+            {% if radio %}
+            <input type="radio" name="selected_group" value="{{ forloop.counter0 }}" class="form-check-input mt-1" {% if forloop.first %}checked{% endif %}>
+            {% endif %}
+            <div class="flex-grow-1">
+                <strong>{% trans "Route" %} {{ forloop.counter }}</strong> --
+                {{ group.hop_count }} {% trans "hop(s)" %}{% if group.is_contiguous %}, <span class="badge bg-success">{% trans "contiguous" %}</span>{% endif %}
+                <ul class="list-unstyled mb-0 small">
+                    {% for path in group.paths %}
+                    <li>
+                        {% include 'netbox_fms/inc/path_line.html' %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% if not radio %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="assign">
+                <input type="hidden" name="strand_paths" value="{{ group.path_ids_csv }}">
+                {% if allow_incomplete %}<input type="hidden" name="allow_incomplete" value="on">{% endif %}
+                <button type="submit" class="btn btn-sm btn-primary">{% trans "Assign" %}</button>
+            </form>
+            {% endif %}
+        </div>
+    {% if radio %}</label>{% else %}</div>{% endif %}
+    {% endfor %}
+</div>

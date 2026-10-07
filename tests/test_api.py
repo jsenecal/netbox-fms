@@ -13,11 +13,17 @@ from rest_framework.test import APIClient
 
 from netbox_fms.models import (
     FiberCircuit,
-    FiberCircuitPath,
     SplicePlan,
     SplicePlanEntry,
 )
-from tests.conftest import connect_front_ports, make_closure_with_tray, make_front_port, make_infra
+from tests.conftest import (
+    assign_strand_path,
+    connect_front_ports,
+    make_closure_with_tray,
+    make_front_port,
+    make_infra,
+    make_strand_path,
+)
 
 
 def _make_authed_client():
@@ -155,33 +161,6 @@ class TestQuickAddAPI(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# FiberCircuit retrace action
-# ---------------------------------------------------------------------------
-
-
-class TestFiberCircuitRetraceAPI(TestCase):
-    """POST /api/plugins/fms/fiber-circuits/{pk}/retrace/ should return 200."""
-
-    @classmethod
-    def setUpTestData(cls):
-        site, mfr, dt, role = make_infra("retrace")
-        cls.device = Device.objects.create(name="Dev-Retrace", site=site, device_type=dt, role=role)
-        cls.fp = FrontPort.objects.create(device=cls.device, name="FP-Origin", type="lc")
-        cls.circuit = FiberCircuit.objects.create(name="FC-Retrace", strand_count=1, status="planned")
-        cls.path = FiberCircuitPath.objects.create(circuit=cls.circuit, position=1, origin=cls.fp)
-
-    def setUp(self):
-        self.client = _make_authed_client()
-
-    def test_retrace_returns_200(self):
-        url = f"/api/plugins/fms/fiber-circuits/{self.circuit.pk}/retrace/"
-        resp = self.client.post(url, format="json")
-        assert resp.status_code == 200, resp.content
-        data = resp.json()
-        assert data["name"] == "FC-Retrace"
-
-
-# ---------------------------------------------------------------------------
 # FiberCircuitPath trace action
 # ---------------------------------------------------------------------------
 
@@ -195,7 +174,7 @@ class TestFiberCircuitPathTraceAPI(TestCase):
         cls.device = Device.objects.create(name="Dev-Trace", site=site, device_type=dt, role=role)
         cls.fp = FrontPort.objects.create(device=cls.device, name="FP-Trace", type="lc")
         cls.circuit = FiberCircuit.objects.create(name="FC-Trace", strand_count=1, status="planned")
-        cls.path = FiberCircuitPath.objects.create(circuit=cls.circuit, position=1, origin=cls.fp)
+        cls.path = assign_strand_path(cls.circuit, make_strand_path(end_a=cls.fp))
 
     def setUp(self):
         self.client = _make_authed_client()
@@ -414,9 +393,20 @@ class TestCoreListEndpoints(TestCase):
         resp = self.client.get("/api/plugins/fms/fiber-circuit-paths/")
         assert resp.status_code == 200, resp.content
 
-    def test_fiber_circuit_nodes_list(self):
-        resp = self.client.get("/api/plugins/fms/fiber-circuit-nodes/")
-        assert resp.status_code == 200, resp.content
+
+class TestNestedPathSerializers:
+    """Serializers nested under a NetBox serializer take NetBox's ``nested`` contract.
+
+    NetBox 4.5 plans list prefetches by reading ``.nested`` on every nested
+    serializer; a plain DRF serializer there made the fiber-circuit-paths list
+    and trace endpoints answer 500 on 4.5 only.
+    """
+
+    def test_strand_path_serializers_accept_nested(self):
+        from netbox_fms.api.serializers import FiberStrandPathHopSerializer, FiberStrandPathSerializer
+
+        for serializer in (FiberStrandPathSerializer, FiberStrandPathHopSerializer):
+            assert serializer(nested=True).nested is True
 
 
 # ---------------------------------------------------------------------------

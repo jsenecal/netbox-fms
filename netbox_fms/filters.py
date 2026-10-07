@@ -3,7 +3,7 @@ from circuits.models import Circuit, Provider
 from dcim.models import Cable, Device, Location, Manufacturer, Module, Site
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from netbox.filtersets import NetBoxModelFilterSet
+from netbox.filtersets import BaseFilterSet, NetBoxModelFilterSet
 from tenancy.models import Tenant
 
 from .choices import (
@@ -13,6 +13,9 @@ from .choices import (
     FiberCircuitStatusChoices,
     FiberColorSchemeChoices,
     FireRatingChoices,
+    PathAnalysisReasonChoices,
+    PathAnomalyKindChoices,
+    PathCompletenessChoices,
     SheathMaterialChoices,
     SplicePlanStatusChoices,
     StorageMethodChoices,
@@ -30,6 +33,9 @@ from .models import (
     FiberCircuit,
     FiberCircuitPath,
     FiberStrand,
+    FiberStrandPath,
+    PathAnalysisQueue,
+    PathAnomaly,
     Ribbon,
     RibbonTemplate,
     SlackLoop,
@@ -39,6 +45,7 @@ from .models import (
     TrayProfile,
     TubeAssignment,
 )
+from .path_analysis import path_ids_through_devices
 
 
 class SearchFieldsMixin:
@@ -464,25 +471,90 @@ class FiberCircuitFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         label=_("Provider circuit (ID)"),
     )
 
+    is_broken = django_filters.BooleanFilter()
+
     search_fields = ("name__icontains", "cid__icontains", "description__icontains")
 
     class Meta:
         model = FiberCircuit
-        fields = ("id", "name", "cid", "status", "strand_count", "tenant")
+        fields = ("id", "name", "cid", "status", "strand_count", "tenant", "is_broken")
 
 
 class FiberCircuitPathFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
-    """FilterSet for FiberCircuitPath model."""
+    """FilterSet for FiberCircuitPath (the assignment)."""
 
     circuit_id = django_filters.ModelMultipleChoiceFilter(
-        queryset=FiberCircuit.objects.all(),
-        field_name="circuit",
-        label=_("Circuit (ID)"),
+        queryset=FiberCircuit.objects.all(), field_name="circuit", label=_("Circuit (ID)")
     )
-    is_complete = django_filters.BooleanFilter()
+    strand_path_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=FiberStrandPath.objects.all(), field_name="strand_path", label=_("Fiber path (ID)")
+    )
+    completeness = django_filters.MultipleChoiceFilter(
+        choices=PathCompletenessChoices, field_name="strand_path__completeness"
+    )
+    active = django_filters.BooleanFilter()
+    is_broken = django_filters.BooleanFilter()
+    delivered_incomplete = django_filters.BooleanFilter()
 
     search_fields = ("circuit__name__icontains", "circuit__cid__icontains")
 
     class Meta:
         model = FiberCircuitPath
-        fields = ("id", "circuit", "position", "is_complete", "wavelength_nm")
+        fields = ("id", "circuit", "position", "active", "is_broken", "delivered_incomplete", "wavelength_nm")
+
+
+class FiberStrandPathFilterSet(BaseFilterSet):
+    """FilterSet for the analysis-derived fiber paths (read-only)."""
+
+    completeness = django_filters.MultipleChoiceFilter(choices=PathCompletenessChoices)
+    end_a_port_id = django_filters.NumberFilter(field_name="end_a_port")
+    end_b_port_id = django_filters.NumberFilter(field_name="end_b_port")
+    strand_id = django_filters.NumberFilter(field_name="hops__strand", distinct=True, label=_("Strand (ID)"))
+    cable_id = django_filters.NumberFilter(method="filter_cable", label=_("Cable (ID)"))
+    device_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(), method="filter_device", label=_("Device (ID)")
+    )
+    assigned = django_filters.BooleanFilter(method="filter_assigned", label=_("Has an active assignment"))
+
+    class Meta:
+        model = FiberStrandPath
+        fields = ("id", "route_key", "is_proposed", "is_defective")
+
+    def filter_cable(self, queryset, name, value):
+        """Paths over this cable, as a plain cable hop or as the cable of a fiber cable's strand hop."""
+        return queryset.filter(
+            models.Q(hops__cable=value) | models.Q(hops__strand__fiber_cable__cable=value)
+        ).distinct()
+
+    def filter_device(self, queryset, name, value):
+        """Paths with a hop or an end on any of these devices."""
+        if not value:
+            return queryset
+        return queryset.filter(pk__in=path_ids_through_devices(device.pk for device in value))
+
+    def filter_assigned(self, queryset, name, value):
+        assigned = queryset.filter(assignments__active=True).distinct()
+        return assigned if value else queryset.exclude(pk__in=assigned.values("pk"))
+
+
+class PathAnomalyFilterSet(BaseFilterSet):
+    """FilterSet for the plant shapes the analysis refused to trace."""
+
+    kind = django_filters.MultipleChoiceFilter(choices=PathAnomalyKindChoices)
+    strand_id = django_filters.NumberFilter(field_name="strand")
+    front_port_id = django_filters.NumberFilter(field_name="front_port")
+
+    class Meta:
+        model = PathAnomaly
+        fields = ("id",)
+
+
+class PathAnalysisQueueFilterSet(BaseFilterSet):
+    """FilterSet for the devices waiting for path analysis."""
+
+    device_id = django_filters.ModelMultipleChoiceFilter(queryset=Device.objects.all(), field_name="device")
+    reason = django_filters.MultipleChoiceFilter(choices=PathAnalysisReasonChoices)
+
+    class Meta:
+        model = PathAnalysisQueue
+        fields = ("id",)

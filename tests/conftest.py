@@ -1,12 +1,27 @@
 from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import pytest
 from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import RequestFactory
 from rest_framework.test import APIClient
+
+
+@pytest.fixture(autouse=True)
+def no_analysis_job_enqueue():
+    """Keep every test off Redis: receivers committing in a TransactionTestCase would enqueue for real.
+
+    A test that checks scheduling inspects ``PathAnalysisJob.enqueue`` (the patched mock).
+    """
+    from netbox_fms.jobs import PathAnalysisJob
+
+    with patch.object(PathAnalysisJob, "enqueue"):
+        yield
+
 
 # Port name templates the name-template tests configure; the rear guard keeps
 # tubeless constructions renderable.
@@ -205,7 +220,7 @@ def connect_tube_cable(cable, tube_pairs):
 
     ``tube_pairs`` lists ``(a_rear_port, b_rear_port)`` per tube in tube
     order; the n-th pair gets connector ``n`` on both ends, which is how the
-    trace engine and the circuit wizard tell tubes of one cable apart.
+    analysis loader tells tubes of one cable apart.
     """
     from dcim.models import CableTermination, RearPort
     from django.contrib.contenttypes.models import ContentType
@@ -331,6 +346,38 @@ def make_authed_client(username="api-test"):
     return client
 
 
+def user_with(username, grants):
+    """A user whose permissions are ``grants``: (model, actions, constraints) triples."""
+    from django.contrib.contenttypes.models import ContentType
+    from users.models import ObjectPermission
+
+    user = get_user_model().objects.create_user(username=username, password="x")  # noqa: S106
+    for index, (model, actions, constraints) in enumerate(grants):
+        perm = ObjectPermission.objects.create(
+            name=f"{username}-{index}", enabled=True, actions=actions, constraints=constraints
+        )
+        perm.object_types.set([ContentType.objects.get_for_model(model)])
+        perm.users.add(user)
+    # Re-fetch so no stale permission cache rides along on the user instance
+    return get_user_model().objects.get(pk=user.pk)
+
+
+def client_with(username, grants):
+    """API client whose permissions are ``grants``: (model, actions, constraints) triples."""
+    client = APIClient()
+    client.force_authenticate(user=user_with(username, grants))
+    return client
+
+
+def ui_client_with(username, grants):
+    """Session-logged-in Django client whose permissions are ``grants`` (for the UI views)."""
+    from django.test import Client
+
+    client = Client()
+    client.force_login(user_with(username, grants))
+    return client
+
+
 def make_provider_circuit(prefix):
     """Provider + type + circuit with A and Z terminations, uncabled."""
     from circuits.models import Circuit, CircuitTermination, CircuitType, Provider
@@ -408,3 +455,48 @@ def make_mapped_rear_ports(device, rear_names, front_name, positions=12):
             )
             front_ports.append(fp)
     return rear_ports, front_ports
+
+
+def make_strand_path(*hops, end_a=None, end_b=None, end_a_kind=None, end_b_kind=None, **fields):
+    """An analysis-shaped FiberStrandPath with these hops, for tests that need one without walking.
+
+    ``hops`` are FiberStrand, dcim.Cable or circuits.Circuit instances in
+    order. Ends default to terminated when a port is given, open otherwise.
+    """
+    from django.utils import timezone
+
+    from netbox_fms.choices import PathCompletenessChoices, PathEndKindChoices
+    from netbox_fms.models import FiberStrand, FiberStrandPath, FiberStrandPathHop
+    from netbox_fms.path_graph import route_key_for
+
+    kind_a = end_a_kind or (PathEndKindChoices.TERMINATED if end_a else PathEndKindChoices.OPEN)
+    kind_b = end_b_kind or (PathEndKindChoices.TERMINATED if end_b else PathEndKindChoices.OPEN)
+    cable_ids = [
+        hop.fiber_cable.cable_id if isinstance(hop, FiberStrand) else hop.pk
+        for hop in hops
+        if hop._meta.model_name != "circuit"
+    ]
+    path = FiberStrandPath.objects.create(
+        end_a_port=end_a,
+        end_b_port=end_b,
+        end_a_kind=kind_a,
+        end_b_kind=kind_b,
+        completeness=PathCompletenessChoices.from_end_kinds(kind_a, kind_b),
+        route_key=route_key_for(cable_ids),
+        computed_at=timezone.now(),
+        **fields,
+    )
+    field_for = {"fiberstrand": "strand", "cable": "cable", "circuit": "provider_circuit"}
+    for position, hop in enumerate(hops, start=1):
+        FiberStrandPathHop.objects.create(path=path, position=position, **{field_for[hop._meta.model_name]: hop})
+    return path
+
+
+def assign_strand_path(circuit, strand_path, position=None, **fields):
+    """Assign a path to a circuit the way assign_paths does, without the picker checks."""
+    from netbox_fms.models import FiberCircuitPath, hops_snapshot
+
+    if position is None:
+        position = (circuit.paths.order_by("-position").values_list("position", flat=True).first() or 0) + 1
+    fields.setdefault("assigned_hops", hops_snapshot(strand_path))
+    return FiberCircuitPath.objects.create(circuit=circuit, strand_path=strand_path, position=position, **fields)

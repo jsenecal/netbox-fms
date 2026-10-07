@@ -1,0 +1,4 @@
+{% load helpers %}{% load i18n %}{% if path.end_a_port %}{{ path.end_a_port|linkify }}{% else %}&mdash;{% endif %}
+{% trans "to" %}
+{% if path.end_b_port %}{{ path.end_b_port|linkify }}{% else %}&mdash;{% endif %}
+({{ path.get_completeness_display }})

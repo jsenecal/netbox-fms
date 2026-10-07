@@ -1,0 +1,1 @@
+{% load helpers %}{% load i18n %}{% if ref %}{{ ref|linkify }}{% elif hidden %}<span class="text-muted">{% trans "Hidden" %}</span>{% else %}&mdash;{% endif %}

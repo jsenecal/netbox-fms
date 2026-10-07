@@ -4,6 +4,7 @@ import contextvars
 import logging
 
 from django.core.exceptions import ValidationError
+from django.db.models import ProtectedError
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 
 from . import naming
@@ -22,6 +23,20 @@ class fms_portmapping_bypass:  # noqa: N801
 
     def __exit__(self, *args):
         _fms_bypass.reset(self._token)
+
+
+_protection_bypass = contextvars.ContextVar("fms_protection_bypass", default=False)
+
+
+class fms_protection_bypass:  # noqa: N801
+    """Let plugin code delete plant an active assignment runs over, after authorizing the route change."""
+
+    def __enter__(self):
+        self._token = _protection_bypass.set(True)
+        return self
+
+    def __exit__(self, *args):
+        _protection_bypass.reset(self._token)
 
 
 def _front_port_is_fms_managed(front_port_id):
@@ -116,6 +131,9 @@ def _portmapping_pre_delete(sender, instance, origin=None, **kwargs):
     """
     if _deletion_originates_from_device(origin):
         return
+    # The mapping cascades from its front port, and this receiver fires before the port's own: refuse
+    # on the assignment first so the caller learns which circuits hold the port.
+    _refuse_if_assigned("front_port", instance.front_port_id, f"front port {instance.front_port_id}")
     _block_external_portmapping_change(instance)
 
 
@@ -326,36 +344,115 @@ def _relabel_ports_for_cable(cable):
         _write_label_changes(staged)
 
 
+def _cable_device_ids(cable_id):
+    """Devices on either end of a cable, from the terminations' cached device column."""
+    from dcim.models import CableTermination
+
+    return set(
+        CableTermination.objects.filter(cable_id=cable_id, _device_id__isnull=False).values_list(
+            "_device_id", flat=True
+        )
+    )
+
+
+def _enqueue_cable(cable, reason):
+    """Queue a cable's devices; a splice jumper is a splice change on its one closure."""
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
+    from .services import is_intra_closure_jumper
+
+    if is_intra_closure_jumper(cable):
+        reason = PathAnalysisReasonChoices.SPLICE_CHANGED
+    enqueue_devices(_cable_device_ids(cable.pk), reason)
+
+
 def _cable_post_save(sender, instance, **kwargs):
-    """Invalidate splice plan diff cache and re-render port labels on cable save.
+    """Invalidate splice plan diffs, re-render port labels and queue the cable's ends for analysis.
 
     Port NAMES are deliberately not touched: they are write-once pk-based
     identifiers, so nothing about a cable save can require a rename. Only
     the labels -- the mutable display layer -- follow the cable.
     """
+    from .choices import PathAnalysisReasonChoices
+
     _invalidate_plans_for_cable(instance)
     _relabel_ports_for_cable(instance)
+    _enqueue_cable(instance, PathAnalysisReasonChoices.CABLE_CHANGED)
 
 
 def _cable_pre_delete(sender, instance, **kwargs):
-    """Invalidate splice plan diff cache before a cable is deleted."""
+    """Invalidate splice plan diffs and queue the ends while the terminations still exist."""
+    from .choices import PathAnalysisReasonChoices
+
     _invalidate_plans_for_cable(instance)
+    _enqueue_cable(instance, PathAnalysisReasonChoices.CABLE_DELETED)
+
+
+def _cable_termination_changed(sender, instance, **kwargs):
+    """Queue the device a termination lands on (circuit terminations carry none)."""
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
+
+    enqueue_devices([instance._device_id], PathAnalysisReasonChoices.CABLE_CHANGED)
+
+
+def _portmapping_changed(sender, instance, **kwargs):
+    """Queue the device whose front-to-rear mapping changed."""
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
+
+    enqueue_devices([instance.device_id], PathAnalysisReasonChoices.PORT_MAPPING_CHANGED)
 
 
 def _fibercable_post_save(sender, instance, **kwargs):
-    """Re-render port labels when a FiberCable is linked to a Cable."""
+    """Re-render port labels and queue the cable's ends when a FiberCable is linked or changed."""
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
+
     if instance.cable_id:
         _relabel_ports_for_cable(instance.cable)
+        enqueue_devices(_cable_device_ids(instance.cable_id), PathAnalysisReasonChoices.CABLE_CHANGED)
+
+
+def _fibercable_post_delete(sender, instance, **kwargs):
+    """Queue the ends of the cable that stays behind without its fiber record."""
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
+
+    enqueue_devices(_cable_device_ids(instance.cable_id), PathAnalysisReasonChoices.CABLE_CHANGED)
+
+
+def _fiberstrand_post_save(sender, instance, **kwargs):
+    """Queue the devices a strand's front ports sit on."""
+    from dcim.models import FrontPort
+
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
+
+    port_ids = [pk for pk in (instance.front_port_a_id, instance.front_port_b_id) if pk is not None]
+    devices = FrontPort.objects.filter(pk__in=port_ids).values_list("device_id", flat=True)
+    enqueue_devices(devices, PathAnalysisReasonChoices.STRAND_CHANGED)
+
+
+def _closure_cable_entry_post_save(sender, instance, **kwargs):
+    """Queue the closure when a cable entry is added or changed."""
+    from .choices import PathAnalysisReasonChoices
+    from .path_queue import enqueue_devices
+
+    enqueue_devices([instance.closure_id], PathAnalysisReasonChoices.CLOSURE_ENTRY_CHANGED)
 
 
 def _closure_cable_entry_post_delete(sender, instance, **kwargs):
-    """Clean up TubeAssignments when a ClosureCableEntry is deleted."""
+    """Clean up TubeAssignments and queue the closure when a ClosureCableEntry is deleted."""
+    from .choices import PathAnalysisReasonChoices
     from .models import TubeAssignment
+    from .path_queue import enqueue_devices
 
     TubeAssignment.objects.filter(
         closure_id=instance.closure_id,
         buffer_tube__fiber_cable_id=instance.fiber_cable_id,
     ).delete()
+    enqueue_devices([instance.closure_id], PathAnalysisReasonChoices.CLOSURE_ENTRY_CHANGED)
 
 
 def _tube_assignment_pre_save(sender, instance, **kwargs):
@@ -416,14 +513,49 @@ def _tube_assignment_post_delete(sender, instance, **kwargs):
 def _fiber_circuit_path_post_delete(sender, instance, **kwargs):
     """Resync the owning circuit's provider-circuit projection.
 
-    Deleting a path CASCADEs its node rows away, which would otherwise
-    leave the stored projection stale.
+    The projection is derived from the hops of the circuit's active
+    assignments; unassigning a path would otherwise leave it stale.
     """
     from .models import FiberCircuit
 
     circuit = FiberCircuit.objects.filter(pk=instance.circuit_id).first()
     if circuit is not None:
         circuit.sync_provider_circuits()
+
+
+def _refuse_if_assigned(reference, pk, subject):
+    """Raise ProtectedError when an active assignment runs over the referenced object.
+
+    One indexed query; every active assignment counts regardless of user.
+    """
+    if _protection_bypass.get():
+        return
+    from .services import protecting_assignments
+
+    protecting = protecting_assignments(reference, [pk])
+    if protecting.exists():
+        raise ProtectedError(
+            f"Cannot delete {subject}: it carries active fiber circuit assignment(s).",
+            set(protecting.select_related("circuit")),
+        )
+
+
+def _protect_assigned(reference):
+    """Build a pre_delete receiver refusing to delete plant that an active assignment runs over.
+
+    ``reference`` names the lookups in services.ASSIGNMENT_REFERENCE_LOOKUPS.
+    """
+
+    def receiver(sender, instance, **kwargs):
+        _refuse_if_assigned(reference, instance.pk, instance)
+
+    return receiver
+
+
+_protect_strand = _protect_assigned("fiber_strand")
+_protect_cable = _protect_assigned("cable")
+_protect_provider_circuit = _protect_assigned("provider_circuit")
+_protect_front_port = _protect_assigned("front_port")
 
 
 def connect_signals():
@@ -436,14 +568,31 @@ def connect_signals():
     from .models import FiberCable
 
     post_save.connect(_fibercable_post_save, sender=FiberCable, dispatch_uid="fms_fibercable_post_save")
+    post_delete.connect(_fibercable_post_delete, sender=FiberCable, dispatch_uid="fms_fibercable_post_delete")
+
+    from dcim.models import CableTermination
+
+    post_save.connect(
+        _cable_termination_changed, sender=CableTermination, dispatch_uid="fms_cable_termination_post_save"
+    )
+    post_delete.connect(
+        _cable_termination_changed, sender=CableTermination, dispatch_uid="fms_cable_termination_post_delete"
+    )
 
     from dcim.models import PortMapping
 
     pre_save.connect(_portmapping_pre_save, sender=PortMapping, dispatch_uid="fms_portmapping_pre_save")
     pre_delete.connect(_portmapping_pre_delete, sender=PortMapping, dispatch_uid="fms_portmapping_pre_delete")
+    post_save.connect(_portmapping_changed, sender=PortMapping, dispatch_uid="fms_portmapping_post_save")
+    post_delete.connect(_portmapping_changed, sender=PortMapping, dispatch_uid="fms_portmapping_post_delete")
 
     from .models import ClosureCableEntry
 
+    post_save.connect(
+        _closure_cable_entry_post_save,
+        sender=ClosureCableEntry,
+        dispatch_uid="fms_closure_cable_entry_post_save",
+    )
     post_delete.connect(
         _closure_cable_entry_post_delete,
         sender=ClosureCableEntry,
@@ -457,6 +606,17 @@ def connect_signals():
     post_delete.connect(
         _tube_assignment_post_delete, sender=TubeAssignment, dispatch_uid="fms_tube_assignment_post_delete"
     )
+
+    from circuits.models import Circuit
+    from dcim.models import FrontPort
+
+    from .models import FiberStrand
+
+    pre_delete.connect(_protect_strand, sender=FiberStrand, dispatch_uid="fms_protect_strand")
+    post_save.connect(_fiberstrand_post_save, sender=FiberStrand, dispatch_uid="fms_fiberstrand_post_save")
+    pre_delete.connect(_protect_cable, sender=Cable, dispatch_uid="fms_protect_cable")
+    pre_delete.connect(_protect_provider_circuit, sender=Circuit, dispatch_uid="fms_protect_provider_circuit")
+    pre_delete.connect(_protect_front_port, sender=FrontPort, dispatch_uid="fms_protect_front_port")
 
     from .models import FiberCircuitPath
 

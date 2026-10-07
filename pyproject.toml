@@ -34,7 +34,9 @@ classifiers = [
     'Programming Language :: Python :: 3.14',
 ]
 
-dependencies = []
+dependencies = [
+    "networkx>=3.2",
+]
 
 [project.optional-dependencies]
 dev = [

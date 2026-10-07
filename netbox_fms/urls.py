@@ -230,14 +230,12 @@ urlpatterns = [
     path("fiber-circuits/import/", views.FiberCircuitBulkImportView.as_view(), name="fibercircuit_import"),
     path("fiber-circuits/edit/", views.FiberCircuitBulkEditView.as_view(), name="fibercircuit_bulk_edit"),
     path("fiber-circuits/delete/", views.FiberCircuitBulkDeleteView.as_view(), name="fibercircuit_bulk_delete"),
-    path("fiber-circuits/wizard/", views.CircuitWizardView.as_view(), name="fibercircuit_wizard"),
     path("fiber-circuits/<int:pk>/", include(get_model_urls("netbox_fms", "fibercircuit"))),
     path("fiber-circuits/<int:pk>/", views.FiberCircuitView.as_view(), name="fibercircuit"),
     path("fiber-circuits/<int:pk>/edit/", views.FiberCircuitEditView.as_view(), name="fibercircuit_edit"),
     path("fiber-circuits/<int:pk>/delete/", views.FiberCircuitDeleteView.as_view(), name="fibercircuit_delete"),
     # FiberCircuitPath
     path("fiber-circuit-paths/", views.FiberCircuitPathListView.as_view(), name="fibercircuitpath_list"),
-    path("fiber-circuit-paths/add/", views.FiberCircuitPathEditView.as_view(), name="fibercircuitpath_add"),
     path("fiber-circuit-paths/<int:pk>/", include(get_model_urls("netbox_fms", "fibercircuitpath"))),
     path("fiber-circuit-paths/<int:pk>/", views.FiberCircuitPathView.as_view(), name="fibercircuitpath"),
     path("fiber-circuit-paths/<int:pk>/edit/", views.FiberCircuitPathEditView.as_view(), name="fibercircuitpath_edit"),
@@ -246,6 +244,19 @@ urlpatterns = [
         views.FiberCircuitPathDeleteView.as_view(),
         name="fibercircuitpath_delete",
     ),
+    # Assign fibers and the circuit wizard
+    path("fiber-circuits/wizard/", views.CircuitWizardView.as_view(), name="fibercircuit_wizard"),
+    path("fiber-circuits/<int:pk>/assign/", views.FiberCircuitAssignView.as_view(), name="fibercircuit_assign"),
+    path(
+        "fiber-circuits/<int:pk>/acknowledge-route/",
+        views.FiberCircuitAcknowledgeRouteView.as_view(),
+        name="fibercircuit_acknowledge_route",
+    ),
+    # Path analysis (read-only)
+    path("fiber-paths/", views.FiberStrandPathListView.as_view(), name="fiberstrandpath_list"),
+    path("fiber-paths/<int:pk>/", views.FiberStrandPathView.as_view(), name="fiberstrandpath"),
+    path("path-anomalies/", views.PathAnomalyListView.as_view(), name="pathanomaly_list"),
+    path("path-analysis-queue/", views.PathAnalysisQueueListView.as_view(), name="pathanalysisqueue_list"),
     # Fiber Overview HTMX actions
     path(
         "fiber-overview/<int:pk>/update-gland/",

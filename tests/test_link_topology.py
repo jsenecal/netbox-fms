@@ -7,7 +7,7 @@ from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.db import connection
 
-from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, FiberCircuitPath, RibbonTemplate
+from netbox_fms.models import BufferTubeTemplate, FiberCable, FiberCableType, RibbonTemplate
 from tests.conftest import (
     make_central_core_type,
     make_closure,
@@ -15,6 +15,7 @@ from tests.conftest import (
     make_mapped_rear_ports,
     make_ribbon_in_tube_type,
 )
+from tests.test_path_walker import chain_from
 
 
 def _closure_with_cable(prefix):
@@ -510,10 +511,7 @@ class TestLinkCableTopologyAdoptConnectors:
         the cable. Connectors must follow strand order on both ends."""
         _cable, fps_a, fps_b = _odf_pair_linked_by_adoption()
 
-        result = FiberCircuitPath.from_origin(fps_a[0])
-
-        assert result.is_complete is True
-        assert result.destination == fps_b[12]
+        assert chain_from(fps_a[0]).end_b.port_id == fps_b[12].pk
 
     def test_backfill_migration_repairs_connectorless_cable(self):
         """Issue #191: cables adopted before the fix carry NULL connectors; the
@@ -523,7 +521,7 @@ class TestLinkCableTopologyAdoptConnectors:
 
         _run_connector_backfill()
 
-        assert FiberCircuitPath.from_origin(fps_a[0]).destination == fps_b[12]
+        assert chain_from(fps_a[0]).end_b.port_id == fps_b[12].pk
 
     def test_backfill_migration_leaves_numbered_end_alone(self):
         """An end that already carries connectors keeps them, even out of strand order."""

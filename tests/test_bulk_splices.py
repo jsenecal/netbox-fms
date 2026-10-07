@@ -1,14 +1,16 @@
 """Bulk splice creation: same stored rows as the per-object path, in two modes."""
 
+from unittest.mock import patch
+
 from dcim.models import Cable, CableTermination, Device, FrontPort
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from netbox_fms.bulk import SpliceSpec, create_splices
-from netbox_fms.models import BufferTubeTemplate, FiberCableType, SplicePlan
+from netbox_fms.jobs import PathAnalysisJob
+from netbox_fms.models import BufferTubeTemplate, FiberCableType, PathAnalysisQueue, SplicePlan
 from netbox_fms.services import create_closure_cable, front_port_splice_pairs
-from netbox_fms.trace import trace_fiber_path
 from tests.conftest import (
     changes_logged,
     is_indexed,
@@ -18,6 +20,7 @@ from tests.conftest import (
     saves_seen,
     stored_columns,
 )
+from tests.test_path_walker import chain_from
 
 
 def reference_splices(pairs):
@@ -114,9 +117,9 @@ class TestReadBack(BulkSpliceCase):
         create_splices(self.closure, self.specs(), notify=False)
         port_ids = [p for pair in self.pairs for p in pair]
         assert {frozenset(p) for p in front_port_splice_pairs(port_ids)} == {frozenset(p) for p in self.pairs}
-        result = trace_fiber_path(self.strands_a[5].front_port_a)
-        assert result["is_complete"] is True
-        assert result["destination"].pk == self.strands_b[5].front_port_b_id
+        chain = chain_from(self.strands_a[5].front_port_a)
+        assert chain.end_b.port_id == self.strands_b[5].front_port_b_id
+        assert chain.hops == [("strand", self.strands_a[5].pk), ("strand", self.strands_b[5].pk)]
 
 
 class TestAttributes(BulkSpliceCase):
@@ -185,6 +188,12 @@ class TestQuietReplacements(BulkSpliceCase):
         plan.refresh_from_db()
         assert plan.diff_stale is True
         assert is_indexed(cable, "BSP-JUMPER")
+
+    def test_quiet_mode_queues_the_closure_for_analysis(self):
+        with patch.object(PathAnalysisJob, "enqueue"), self.captureOnCommitCallbacks(execute=True):
+            create_splices(self.closure, self.specs(self.pairs[:1]), notify=False)
+        queued = set(PathAnalysisQueue.objects.values_list("device_id", "reason"))
+        assert queued == {(self.closure.pk, "bulk_operation")}
 
 
 class TestChangeLog(BulkSpliceCase):

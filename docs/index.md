@@ -23,8 +23,9 @@ The plugin focuses on four problems:
 - **Splice planning with review.** Plan splice work in `draft`, route it
   through a review gate (`pending_approval` -> `approved`), and apply
   approved plans atomically per closure.
-- **Fiber circuit provisioning.** Discover candidate paths between two devices
-  via DAG-based pathfinding and create end-to-end circuits with traceable hops.
+- **Fiber path analysis and circuit assignment.** A background analysis derives
+  every fiber path from the plant; circuits assign those paths and are marked
+  broken when the plant changes under them.
 - **Operational metadata.** Slack loops, gland labels, tube-to-tray
   assignments, and a per-device fiber overview tab.
 

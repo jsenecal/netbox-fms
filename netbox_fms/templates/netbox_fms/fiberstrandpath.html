@@ -1,0 +1,87 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Fiber Path" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "End A" %}</th>
+                    <td>{% include 'netbox_fms/inc/path_end.html' with port=end_a_port device=end_a_device device_hidden=end_a_device_hidden hidden=end_a_hidden kind=object.get_end_a_kind_display reason=object.end_a_reason reason_display=object.get_end_a_reason_display %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "End B" %}</th>
+                    <td>{% include 'netbox_fms/inc/path_end.html' with port=end_b_port device=end_b_device device_hidden=end_b_device_hidden hidden=end_b_hidden kind=object.get_end_b_kind_display reason=object.end_b_reason reason_display=object.get_end_b_reason_display %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Completeness" %}</th>
+                    <td>{{ object.get_completeness_display }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Route key" %}</th>
+                    <td><code>{{ object.route_key }}</code></td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Proposed" %}</th>
+                    <td>{% checkmark object.is_proposed %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Defective" %}</th>
+                    <td>{% checkmark object.is_defective %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Computed" %}</th>
+                    <td>{{ object.computed_at|isodatetime }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Assignments" %}</h5>
+            <table class="table table-hover attr-table">
+                {% for assignment in assignments %}
+                <tr>
+                    <th scope="row">{{ assignment.circuit|linkify }}</th>
+                    <td>{{ assignment|linkify }} {% include "netbox_fms/inc/assignment_status_badge.html" with assignment=assignment %}</td>
+                </tr>
+                {% empty %}
+                <tr><td class="text-muted">{% trans "Not assigned." %}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Hops" %}</h5>
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>{% trans "Position" %}</th>
+                        <th>{% trans "Strand" %}</th>
+                        <th>{% trans "Cable" %}</th>
+                        <th>{% trans "Provider circuit" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for hop in hop_rows %}
+                    <tr>
+                        <td>{{ hop.position }}</td>
+                        <td>{% include 'netbox_fms/inc/hop_ref.html' with ref=hop.strand hidden=hop.strand_hidden %}</td>
+                        <td>{% include 'netbox_fms/inc/hop_ref.html' with ref=hop.cable hidden=hop.cable_hidden %}</td>
+                        <td>{% include 'netbox_fms/inc/hop_ref.html' with ref=hop.provider_circuit hidden=hop.provider_circuit_hidden %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-muted">{% trans "No hops." %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

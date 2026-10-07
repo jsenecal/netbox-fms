@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Fiber path analysis (#196): a background analysis derives every fiber path
+  from the plant (cable terminations, port mappings, strand landings, splice
+  jumpers) into `FiberStrandPath` / `FiberStrandPathHop`, with end
+  classification (terminated, or open with a reason), completeness, a
+  `route_key` shared by paths following the same cables, and `is_proposed`
+  for planned plant. `is_defective` is stored but always false until fault
+  data exists (#198). Quarantined shapes (more than two fiber connections,
+  loops, dangling strand references) are recorded as `PathAnomaly` rows
+  instead of being traced.
+- Change queue: plant changes queue their devices (`PathAnalysisQueue`) and
+  the `Fiber path analysis` job re-analyzes them one batching window later
+  (one run per window); the `Fiber path reconcile` system job rebuilds every
+  path from the whole plant daily. Settings `path_analysis_window_seconds`
+  (30) and `path_reconcile_interval_minutes` (1440); `reroute_window_ratio`
+  (0.2) is reserved for the future re-route search and not read yet. The
+  `reconcile_fiber_paths` management command runs a reconcile now. The jobs
+  and the command run as a NetBox request, so the assignments they break and
+  the `is_broken` flips are change-logged and fire event rules; writes are
+  attributed to the job's user or, for the scheduled runs, to an inactive
+  service user named by the `analysis_username` setting (`netbox-fms`).
+- Assignments: circuits assign analyzed paths. The "Assign fibers" action,
+  the rebuilt circuit wizard and `POST
+  /api/plugins/fms/fiber-circuits/{id}/assign/` share one picker (groups of
+  paths on one route, filtered by ends, pass-through devices and avoid lists,
+  ranked by tube contiguity, hop count and strand position), with an
+  "Allow incomplete paths" option. Assigning needs change on the circuit
+  plus add on fiber circuit paths and honors object-permission constraints;
+  acknowledging needs change on the circuit and on the broken assignments.
+- Broken circuits: an assignment whose path hops differ from what was
+  assigned is marked broken (`FiberCircuitPath.is_broken`, `broken_reason`)
+  and the circuit's new `is_broken` field flips with one change-log entry.
+  The Acknowledge route action and `POST .../fiber-circuits/{id}/acknowledge-route/`
+  accept the new route. A `RouteChangeAuthorization` lets the analysis accept
+  a re-route automatically when the end strands are unchanged; today only
+  slack-loop insertion writes one, and it clears the circuits riding the cut
+  cable only when their assigned path also crosses other cables (a path made
+  of the cut cable alone becomes `path_lost` and needs acknowledging).
+- Read-only Fiber Paths, Path Anomalies and Analysis Queue pages under
+  FMS > Path Analysis, and read-only `fiber-strand-paths`, `path-anomalies`
+  and `path-analysis-queue` API endpoints.
+- Deletion protection now comes from `pre_delete` guards: a strand, cable,
+  provider circuit or front port on an active assignment cannot be deleted.
 - `netbox_fms.bulk`: `create_splices(closure, splices, notify=True)` and
   `assign_tubes(closure, assignments, notify=True)` write many splices or
   tube assignments with a few bulk statements and store exactly what the
@@ -21,9 +63,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `notify=False` the ports of a cable end are provisioned without
   per-object signals and the device's port counters and the search cache
   are brought up to date in bulk.
+- `networkx` is a new runtime dependency.
+
+### Removed
+
+- The route planner `netbox_fms.provisioning.find_fiber_paths` and
+  `FiberCircuit.find_paths`: nothing called them once paths were derived by
+  the analysis and assigned from the picker, which carries the contiguity
+  rule as `assignment.is_contiguous`.
 
 ### Changed
 
+- The trace view reads the stored path instead of re-walking the plant per
+  hop. An unspliced `splice` port is no longer a complete path end.
+- Calculated loss, provider-circuit tracking, strands-in-use and the cable
+  "Fiber Circuits" tab now derive from the hops of active assignments.
+- The `protecting` endpoint keeps all six reference types; `rear_port` and
+  `splice_entry` now resolve through the assigned front ports.
 - A cable's ports, port mappings and strand links are provisioned with
   four bulk statements per cable end instead of a save per object.
 - Applying a splice plan and auto-assigning tubes write through the bulk
@@ -32,6 +88,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plans stale, and a plan whose additions name a port twice is refused
   with a validation error that rolls the whole apply back instead of
   failing on a database constraint. Auto-assign is all-or-nothing.
+
+### Removed
+
+- **Breaking.** `FiberCircuitNode` and the `fiber-circuit-nodes` endpoint.
+  `FiberCircuitPath` loses `origin`, `destination`, `path` and `is_complete`
+  and gains `strand_path`, `active`, `assigned_hops`, `delivered_incomplete`,
+  `is_broken` and `broken_reason`. Assignments are created only through
+  `assign`: no POST on `fiber-circuit-paths`, no add form. The `retrace`
+  action, `FiberCircuitPath.from_origin`, `rebuild_nodes`,
+  `trace_fiber_path` and `create_circuit_from_proposal` are gone. The
+  plugin's GraphQL schema is not registered with NetBox, so no GraphQL
+  change is usable.
+- **Upgrade note.** Migration 0039 deletes every existing fiber circuit path
+  and clears the provider-circuit projection; circuits keep their metadata.
+  After upgrading, run `python manage.py reconcile_fiber_paths` (or wait for
+  the reconcile job, which runs when the worker starts) and re-assign each
+  circuit's paths through "Assign fibers" or the `assign` API action. Until
+  a circuit is re-assigned its cables are not deletion-protected.
 
 ### Fixed
 
