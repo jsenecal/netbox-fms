@@ -263,6 +263,22 @@ message) and the requesting user must hold both `change_spliceplan` and
 `approve_spliceplan` (HTTP 403 otherwise). On success the response reports
 the number of splices added and removed, and the plan is archived.
 
+### NetBox cable paths
+
+Both apply paths rebuild NetBox's own cable paths through the spliced
+ports, so an interface patched to a fiber end shows the far-end interface
+in its Connection panel, `/trace/` and the API's connected endpoints.
+
+Plans applied with earlier releases left those paths ending at the
+closure. Repair them once with:
+
+```
+python manage.py repair_cable_paths [--dry-run]
+```
+
+It retraces every incomplete path that stops at a front port which has
+since been cabled; `--dry-run` only counts them.
+
 ---
 
 ## Diff Computation
