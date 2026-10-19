@@ -369,6 +369,15 @@ def client_with(username, grants):
     return client
 
 
+def superuser_client(username):
+    """Session-logged-in Django client for a new superuser (for the UI and GraphQL views)."""
+    from django.test import Client
+
+    client = Client()
+    client.force_login(get_user_model().objects.create_superuser(username, f"{username}@example.com", "pw"))
+    return client
+
+
 def ui_client_with(username, grants):
     """Session-logged-in Django client whose permissions are ``grants`` (for the UI views)."""
     from django.test import Client
