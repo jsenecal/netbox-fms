@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-19
+
 ### Added
 
 - Fiber path analysis (#196): a background analysis derives every fiber path
@@ -71,13 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `id`, tag, custom-field and change-log filters. Buffer tube, ribbon, fiber
   strand and cable element lists are filterable too.
 
-### Removed
-
-- The route planner `netbox_fms.provisioning.find_fiber_paths` and
-  `FiberCircuit.find_paths`: nothing called them once paths were derived by
-  the analysis and assigned from the picker, which carries the contiguity
-  rule as `assignment.is_contiguous`.
-
 ### Changed
 
 - The trace view reads the stored path instead of re-walking the plant per
@@ -115,6 +110,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the reconcile job, which runs when the worker starts) and re-assign each
   circuit's paths through "Assign fibers" or the `assign` API action. Until
   a circuit is re-assigned its cables are not deletion-protected.
+- The route planner `netbox_fms.provisioning.find_fiber_paths` and
+  `FiberCircuit.find_paths`: nothing called them once paths were derived by
+  the analysis and assigned from the picker, which carries the contiguity
+  rule as `assignment.is_contiguous`.
 
 ### Fixed
 
