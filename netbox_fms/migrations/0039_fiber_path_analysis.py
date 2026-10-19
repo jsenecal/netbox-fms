@@ -96,12 +96,17 @@ class Migration(migrations.Migration):
         # Paths are derived by analysis from here on: the hand-made rows, their
         # node index and the provider-circuit projection go. Circuits keep their
         # identity and are re-assigned after the upgrade. Table names are the
-        # 0038 state's db_table values.
+        # 0038 state's db_table values. Django's foreign keys are DEFERRABLE
+        # INITIALLY DEFERRED, so these deletes would queue trigger events that
+        # make the ALTER TABLE on fibercircuitpath below fail on any database
+        # holding rows; checking them immediately leaves nothing pending.
         migrations.RunSQL(
             [
+                "SET CONSTRAINTS ALL IMMEDIATE",
                 "DELETE FROM netbox_fms_fibercircuitnode",
                 "DELETE FROM netbox_fms_fibercircuitpath",
                 "DELETE FROM netbox_fms_fibercircuit_provider_circuits",
+                "SET CONSTRAINTS ALL DEFERRED",
             ],
             reverse_sql=migrations.RunSQL.noop,
         ),
