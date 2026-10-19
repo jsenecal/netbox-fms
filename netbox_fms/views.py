@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
-from netbox.object_actions import BulkDelete, BulkEdit, DeleteObject, EditObject
+from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, DeleteObject, EditObject
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
@@ -466,6 +466,7 @@ class BufferTubeTemplateListView(generic.ObjectListView):
 
     queryset = BufferTubeTemplate.objects.select_related("fiber_cable_type")
     table = BufferTubeTemplateTable
+    actions = (AddObject, BulkExport, BulkEdit, BulkDelete)
     filterset = BufferTubeTemplateFilterSet
 
 
@@ -498,6 +499,7 @@ class CableElementTemplateListView(generic.ObjectListView):
 
     queryset = CableElementTemplate.objects.all()
     table = CableElementTemplateTable
+    actions = (AddObject, BulkExport, BulkEdit, BulkDelete)
     filterset = CableElementTemplateFilterSet
 
 
@@ -530,6 +532,7 @@ class RibbonTemplateListView(generic.ObjectListView):
 
     queryset = RibbonTemplate.objects.select_related("fiber_cable_type", "buffer_tube_template")
     table = RibbonTemplateTable
+    actions = (AddObject, BulkExport, BulkEdit, BulkDelete)
     filterset = RibbonTemplateFilterSet
 
 
@@ -1123,6 +1126,7 @@ class ClosureCableEntryListView(generic.ObjectListView):
 
     queryset = ClosureCableEntry.objects.select_related("closure", "fiber_cable")
     table = ClosureCableEntryTable
+    actions = (AddObject, BulkExport, BulkDelete)
     filterset = ClosureCableEntryFilterSet
     filterset_form = ClosureCableEntryFilterForm
 
@@ -1179,6 +1183,7 @@ class SplicePlanEntryListView(generic.ObjectListView):
         "fiber_b__fiber_strands_b__fiber_cable__cable",
     )
     table = SplicePlanEntryTable
+    actions = (AddObject, BulkExport, BulkDelete)
     filterset = SplicePlanEntryFilterSet
     filterset_form = SplicePlanEntryFilterForm
 
@@ -1220,6 +1225,7 @@ class SpliceProjectListView(generic.ObjectListView):
 
     queryset = SpliceProject.objects.prefetch_related("tags").annotate(plan_count=models.Count("plans"))
     table = SpliceProjectTable
+    actions = (AddObject, BulkExport, BulkDelete)
     filterset = SpliceProjectFilterSet
     filterset_form = SpliceProjectFilterForm
 
@@ -1637,6 +1643,7 @@ class FiberCircuitPathListView(generic.ObjectListView):
 
     queryset = FiberCircuitPath.objects.select_related("circuit", "strand_path")
     table = FiberCircuitPathTable
+    actions = (BulkExport,)
     filterset = FiberCircuitPathFilterSet
     filterset_form = FiberCircuitPathFilterForm
 

@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- List-page buttons no longer link to `.../None` (#191). Every Import button
+  pointed at a route name NetBox does not resolve; the import routes are now
+  named `<model>_bulk_import`. Lists whose model has no import or bulk-edit
+  view stop offering those buttons, and the Fiber Circuit Paths list offers
+  only Export: assignments are made from a circuit's "Assign fibers" action.
 - The GraphQL schema is now registered with NetBox (#202). It never was, so
   no netbox-fms model was queryable at `/graphql/`; every model now is, with
   color fields typed as strings.
