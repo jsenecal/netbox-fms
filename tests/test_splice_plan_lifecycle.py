@@ -2,7 +2,7 @@ from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer,
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from users.models import ObjectPermission
@@ -14,16 +14,17 @@ from tests.conftest import make_infra
 User = get_user_model()
 
 
-class TestSplicePlanFSM(TransactionTestCase):
+class TestSplicePlanFSM(TestCase):
     """Test splice plan status transition validation."""
 
-    def setUp(self):
+    @classmethod
+    def setUpTestData(cls):
         site = Site.objects.create(name="FSM Site", slug="fsm-site")
         mfr = Manufacturer.objects.create(name="FSM Mfr", slug="fsm-mfr")
         dt = DeviceType.objects.create(manufacturer=mfr, model="FSM Closure", slug="fsm-closure")
         role = DeviceRole.objects.create(name="FSM Role", slug="fsm-role")
-        self.closure = Device.objects.create(name="FSM-Closure", site=site, device_type=dt, role=role)
-        self.user = User.objects.create_user(username="fsm-user", password="test")
+        cls.closure = Device.objects.create(name="FSM-Closure", site=site, device_type=dt, role=role)
+        cls.user = User.objects.create_user(username="fsm-user", password="test")
 
     def _make_plan(self, status=SplicePlanStatusChoices.DRAFT):
         return SplicePlan.objects.create(
@@ -107,16 +108,19 @@ class TestSplicePlanFSM(TransactionTestCase):
         plan.full_clean()
 
 
-class TestBulkUpdateStatusEnforcement(TransactionTestCase):
+class TestBulkUpdateStatusEnforcement(TestCase):
     """Test that bulk_update_entries rejects changes on non-draft plans."""
 
-    def setUp(self):
+    @classmethod
+    def setUpTestData(cls):
         site = Site.objects.create(name="API Site", slug="api-site")
         mfr = Manufacturer.objects.create(name="API Mfr", slug="api-mfr")
         dt = DeviceType.objects.create(manufacturer=mfr, model="API Closure", slug="api-closure")
         role = DeviceRole.objects.create(name="API Role", slug="api-role")
-        self.closure = Device.objects.create(name="API-Closure", site=site, device_type=dt, role=role)
-        self.user = User.objects.create_superuser(username="api-user", password="test")
+        cls.closure = Device.objects.create(name="API-Closure", site=site, device_type=dt, role=role)
+        cls.user = User.objects.create_superuser(username="api-user", password="test")
+
+    def setUp(self):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
@@ -162,26 +166,28 @@ class TestBulkUpdateStatusEnforcement(TransactionTestCase):
         assert resp.status_code == 200
 
 
-class TestSplicePlanDeletion(TransactionTestCase):
+class TestSplicePlanDeletion(TestCase):
     """Test deletion permission rules based on plan status."""
 
-    def setUp(self):
+    @classmethod
+    def setUpTestData(cls):
         site = Site.objects.create(name="Del Site", slug="del-site")
         mfr = Manufacturer.objects.create(name="Del Mfr", slug="del-mfr")
         dt = DeviceType.objects.create(manufacturer=mfr, model="Del Closure", slug="del-closure")
         role = DeviceRole.objects.create(name="Del Role", slug="del-role")
-        self.closure = Device.objects.create(name="Del-Closure", site=site, device_type=dt, role=role)
+        cls.closure = Device.objects.create(name="Del-Closure", site=site, device_type=dt, role=role)
 
         # User with change+delete+view+add but NOT approve
-        self.user = User.objects.create_user(username="del-user", password="test")
+        cls.user = User.objects.create_user(username="del-user", password="test")
         ct = ContentType.objects.get_for_model(SplicePlan)
         obj_perm = ObjectPermission.objects.create(
             name="SplicePlan CRUD",
             actions=["view", "add", "change", "delete"],
         )
         obj_perm.object_types.add(ct)
-        obj_perm.users.add(self.user)
+        obj_perm.users.add(cls.user)
 
+    def setUp(self):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
@@ -215,25 +221,26 @@ class TestSplicePlanDeletion(TransactionTestCase):
         assert resp.status_code == 204
 
 
-class TestFiberExclusivity(TransactionTestCase):
+class TestFiberExclusivity(TestCase):
     """Test that fibers can't be claimed by multiple non-archived plans."""
 
-    def setUp(self):
+    @classmethod
+    def setUpTestData(cls):
         site = Site.objects.create(name="FE Site", slug="fe-site")
         mfr = Manufacturer.objects.create(name="FE Mfr", slug="fe-mfr")
         dt = DeviceType.objects.create(manufacturer=mfr, model="FE Closure", slug="fe-closure")
         role = DeviceRole.objects.create(name="FE Role", slug="fe-role")
-        self.closure = Device.objects.create(name="FE-Closure", site=site, device_type=dt, role=role)
+        cls.closure = Device.objects.create(name="FE-Closure", site=site, device_type=dt, role=role)
 
         mt = ModuleType.objects.create(manufacturer=mfr, model="FE Tray")
-        bay = ModuleBay.objects.create(device=self.closure, name="Bay 1")
-        self.tray = Module.objects.create(device=self.closure, module_bay=bay, module_type=mt)
+        bay = ModuleBay.objects.create(device=cls.closure, name="Bay 1")
+        cls.tray = Module.objects.create(device=cls.closure, module_bay=bay, module_type=mt)
 
         # Create FrontPorts on the closure, assigned to the tray module
-        self.fp1 = FrontPort.objects.create(device=self.closure, module=self.tray, name="F1", type="splice")
-        self.fp2 = FrontPort.objects.create(device=self.closure, module=self.tray, name="F2", type="splice")
-        self.fp3 = FrontPort.objects.create(device=self.closure, module=self.tray, name="F3", type="splice")
-        self.fp4 = FrontPort.objects.create(device=self.closure, module=self.tray, name="F4", type="splice")
+        cls.fp1 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="F1", type="splice")
+        cls.fp2 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="F2", type="splice")
+        cls.fp3 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="F3", type="splice")
+        cls.fp4 = FrontPort.objects.create(device=cls.closure, module=cls.tray, name="F4", type="splice")
 
     def test_same_plan_allows_same_closure(self):
         """Entries within the same plan don't conflict with each other."""
