@@ -64,6 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-object signals and the device's port counters and the search cache
   are brought up to date in bulk.
 - `networkx` is a new runtime dependency.
+- GraphQL list fields take a `filters` argument (#210), with NetBox's lookups
+  (`exact`, `i_contains`, `in_list`, ...; numbers via `filter_lookup`,
+  `range_lookup` or `comparison_lookup`), enum values for choice fields, and
+  nested filters or `*_id` for related objects, plus the standard NetBox
+  `id`, tag, custom-field and change-log filters. Buffer tube, ribbon, fiber
+  strand and cable element lists are filterable too.
 
 ### Removed
 

@@ -31,6 +31,28 @@ from ..models import (
     TrayProfile,
     TubeAssignment,
 )
+from .filters import (
+    BufferTubeFilter,
+    BufferTubeTemplateFilter,
+    CableElementFilter,
+    CableElementTemplateFilter,
+    ClosureCableEntryFilter,
+    FiberAttenuationSpecFilter,
+    FiberCableFilter,
+    FiberCableTypeFilter,
+    FiberCircuitFilter,
+    FiberCircuitPathFilter,
+    FiberStrandFilter,
+    FiberStrandPathFilter,
+    RibbonFilter,
+    RibbonTemplateFilter,
+    SlackLoopFilter,
+    SplicePlanEntryFilter,
+    SplicePlanFilter,
+    SpliceProjectFilter,
+    TrayProfileFilter,
+    TubeAssignmentFilter,
+)
 
 __all__ = (
     "FiberCableTypeType",
@@ -57,7 +79,7 @@ __all__ = (
 )
 
 
-@strawberry_django.type(FiberCableType, fields="__all__")
+@strawberry_django.type(FiberCableType, fields="__all__", filters=FiberCableTypeFilter)
 class FiberCableTypeType(NetBoxObjectType):
     """GraphQL type for FiberCableType."""
 
@@ -74,12 +96,12 @@ class FiberCableTypeType(NetBoxObjectType):
     instances: list[Annotated["FiberCableInstanceType", strawberry.lazy(".types")]]
 
 
-@strawberry_django.type(FiberAttenuationSpec, fields="__all__")
+@strawberry_django.type(FiberAttenuationSpec, fields="__all__", filters=FiberAttenuationSpecFilter)
 class FiberAttenuationSpecType(NetBoxObjectType):
     """GraphQL type for FiberAttenuationSpec."""
 
 
-@strawberry_django.type(BufferTubeTemplate, fields="__all__")
+@strawberry_django.type(BufferTubeTemplate, fields="__all__", filters=BufferTubeTemplateFilter)
 class BufferTubeTemplateType(NetBoxObjectType):
     """GraphQL type for BufferTubeTemplate."""
 
@@ -90,7 +112,7 @@ class BufferTubeTemplateType(NetBoxObjectType):
     ribbon_templates: list[Annotated["RibbonTemplateType", strawberry.lazy(".types")]]
 
 
-@strawberry_django.type(RibbonTemplate, fields="__all__")
+@strawberry_django.type(RibbonTemplate, fields="__all__", filters=RibbonTemplateFilter)
 class RibbonTemplateType(NetBoxObjectType):
     """GraphQL type for RibbonTemplate."""
 
@@ -99,12 +121,12 @@ class RibbonTemplateType(NetBoxObjectType):
     strand_marker_color: str
 
 
-@strawberry_django.type(CableElementTemplate, fields="__all__")
+@strawberry_django.type(CableElementTemplate, fields="__all__", filters=CableElementTemplateFilter)
 class CableElementTemplateType(NetBoxObjectType):
     """GraphQL type for CableElementTemplate."""
 
 
-@strawberry_django.type(FiberCable, fields="__all__")
+@strawberry_django.type(FiberCable, fields="__all__", filters=FiberCableFilter)
 class FiberCableInstanceType(NetBoxObjectType):
     """GraphQL type for FiberCable."""
 
@@ -119,7 +141,7 @@ class FiberCableInstanceType(NetBoxObjectType):
         return self.glass_length
 
 
-@strawberry_django.type(BufferTube, fields="__all__")
+@strawberry_django.type(BufferTube, fields="__all__", filters=BufferTubeFilter)
 class BufferTubeType(NetBoxObjectType):
     """GraphQL type for BufferTube."""
 
@@ -130,7 +152,7 @@ class BufferTubeType(NetBoxObjectType):
     fiber_strands: list[Annotated["FiberStrandType", strawberry.lazy(".types")]]
 
 
-@strawberry_django.type(Ribbon, fields="__all__")
+@strawberry_django.type(Ribbon, fields="__all__", filters=RibbonFilter)
 class RibbonType(NetBoxObjectType):
     """GraphQL type for Ribbon."""
 
@@ -140,7 +162,7 @@ class RibbonType(NetBoxObjectType):
     fiber_strands: list[Annotated["FiberStrandType", strawberry.lazy(".types")]]
 
 
-@strawberry_django.type(FiberStrand, fields="__all__")
+@strawberry_django.type(FiberStrand, fields="__all__", filters=FiberStrandFilter)
 class FiberStrandType(NetBoxObjectType):
     """GraphQL type for FiberStrand."""
 
@@ -148,41 +170,41 @@ class FiberStrandType(NetBoxObjectType):
     marker_color: str
 
 
-@strawberry_django.type(CableElement, fields="__all__")
+@strawberry_django.type(CableElement, fields="__all__", filters=CableElementFilter)
 class CableElementType(NetBoxObjectType):
     """GraphQL type for CableElement."""
 
 
-@strawberry_django.type(SplicePlan, fields="__all__")
+@strawberry_django.type(SplicePlan, fields="__all__", filters=SplicePlanFilter)
 class SplicePlanType(NetBoxObjectType):
     """GraphQL type for SplicePlan."""
 
     entries: list[Annotated["SplicePlanEntryType", strawberry.lazy(".types")]]
 
 
-@strawberry_django.type(SplicePlanEntry, fields="__all__")
+@strawberry_django.type(SplicePlanEntry, fields="__all__", filters=SplicePlanEntryFilter)
 class SplicePlanEntryType(NetBoxObjectType):
     """GraphQL type for SplicePlanEntry."""
 
 
-@strawberry_django.type(SpliceProject, fields="__all__")
+@strawberry_django.type(SpliceProject, fields="__all__", filters=SpliceProjectFilter)
 class SpliceProjectType(NetBoxObjectType):
     """GraphQL type for SpliceProject."""
 
 
-@strawberry_django.type(ClosureCableEntry, fields="__all__")
+@strawberry_django.type(ClosureCableEntry, fields="__all__", filters=ClosureCableEntryFilter)
 class ClosureCableEntryType(NetBoxObjectType):
     """GraphQL type for ClosureCableEntry."""
 
 
-@strawberry_django.type(FiberCircuit, fields="__all__")
+@strawberry_django.type(FiberCircuit, fields="__all__", filters=FiberCircuitFilter)
 class FiberCircuitType(NetBoxObjectType):
     """GraphQL type for FiberCircuit."""
 
     paths: list[Annotated["FiberCircuitPathType", strawberry.lazy(".types")]]
 
 
-@strawberry_django.type(FiberCircuitPath, fields="__all__")
+@strawberry_django.type(FiberCircuitPath, fields="__all__", filters=FiberCircuitPathFilter)
 class FiberCircuitPathType(NetBoxObjectType):
     """GraphQL type for FiberCircuitPath."""
 
@@ -195,7 +217,7 @@ class FiberStrandPathHopType(BaseObjectType):
     """GraphQL type for one hop of an analyzed fiber path."""
 
 
-@strawberry_django.type(FiberStrandPath, fields="__all__")
+@strawberry_django.type(FiberStrandPath, fields="__all__", filters=FiberStrandPathFilter)
 class FiberStrandPathType(BaseObjectType):
     """GraphQL type for an analyzed fiber path (read-only)."""
 
@@ -203,19 +225,19 @@ class FiberStrandPathType(BaseObjectType):
     assignments: list[Annotated["FiberCircuitPathType", strawberry.lazy(".types")]]
 
 
-@strawberry_django.type(SlackLoop, fields="__all__")
+@strawberry_django.type(SlackLoop, fields="__all__", filters=SlackLoopFilter)
 class SlackLoopType(NetBoxObjectType):
     """GraphQL type for SlackLoop."""
 
 
-@strawberry_django.type(TrayProfile, fields="__all__")
+@strawberry_django.type(TrayProfile, fields="__all__", filters=TrayProfileFilter)
 class TrayProfileType(NetBoxObjectType):
     """GraphQL type for TrayProfile."""
 
     module_type: Annotated["ModuleTypeType", strawberry.lazy("dcim.graphql.types")] | None  # noqa: F821
 
 
-@strawberry_django.type(TubeAssignment, fields="__all__")
+@strawberry_django.type(TubeAssignment, fields="__all__", filters=TubeAssignmentFilter)
 class TubeAssignmentType(NetBoxObjectType):
     """GraphQL type for TubeAssignment."""
 

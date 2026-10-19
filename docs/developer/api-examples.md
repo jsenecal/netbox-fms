@@ -598,3 +598,59 @@ for ref_type, groups in impact["by_reference"].items():
 appears once. Every input ID appears in `by_reference`, so an empty list
 positively confirms a reference carries no protected circuit. Unknown
 reference types, non-list values, and non-integer IDs return HTTP 400.
+
+---
+
+## 11. GraphQL Filters
+
+Every netbox-fms list field in `/graphql/` takes a `filters` argument built
+like NetBox's own: string fields take lookups (`exact`, `i_contains`,
+`in_list`, ...), number fields wrap theirs the way NetBox does
+(`{strand_count: {comparison_lookup: {gte: 144}}}`), choice fields take enum
+values, and related objects take a nested filter or an `*_id`. The NetBox filters (`id`,
+`tags`, custom fields, `created`, `last_updated`) apply as well. Filters
+combine with `AND`, `OR` and `NOT`.
+
+This query lists the strands of one tube in the cables of one cable type:
+
+```graphql
+{
+  fiber_strand_list(
+    filters: {
+      fiber_cable: {fiber_cable_type: {model: {exact: "ADSS-144"}}}
+      buffer_tube: {name: {exact: "T3"}}
+    }
+  ) {
+    id
+    name
+    position
+    color
+  }
+}
+```
+
+**Python**
+
+```python
+import requests
+
+query = """
+{
+  fiber_circuit_list(filters: {status: {exact: ACTIVE}, is_broken: {exact: true}}) {
+    name
+    cid
+  }
+}
+"""
+response = requests.post(
+    f"{NETBOX_URL}/graphql/",
+    headers={"Authorization": f"Token {TOKEN}"},
+    json={"query": query},
+)
+for circuit in response.json()["data"]["fiber_circuit_list"]:
+    print(circuit["name"], circuit["cid"])
+```
+
+Choice values are the upper-case form of the stored value (`ACTIVE`,
+`PENDING_APPROVAL`, `RIBBON_IN_TUBE`). `fire_rating` is the exception: it
+filters as a string (`{fire_rating: {exact: "ofnr"}}`).
