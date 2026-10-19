@@ -18,7 +18,7 @@ menu = PluginMenu(
                             permissions=["netbox_fms.add_fibercabletype"],
                         ),
                         PluginMenuButton(
-                            link="plugins:netbox_fms:fibercabletype_import",
+                            link="plugins:netbox_fms:fibercabletype_bulk_import",
                             title="Import",
                             icon_class="mdi mdi-upload",
                             permissions=["netbox_fms.add_fibercabletype"],
@@ -76,7 +76,7 @@ menu = PluginMenu(
                             permissions=["netbox_fms.add_fiberattenuationspec"],
                         ),
                         PluginMenuButton(
-                            link="plugins:netbox_fms:fiberattenuationspec_import",
+                            link="plugins:netbox_fms:fiberattenuationspec_bulk_import",
                             title="Import",
                             icon_class="mdi mdi-upload",
                             permissions=["netbox_fms.add_fiberattenuationspec"],
@@ -100,7 +100,7 @@ menu = PluginMenu(
                             permissions=["netbox_fms.add_fibercable"],
                         ),
                         PluginMenuButton(
-                            link="plugins:netbox_fms:fibercable_import",
+                            link="plugins:netbox_fms:fibercable_bulk_import",
                             title="Import",
                             icon_class="mdi mdi-upload",
                             permissions=["netbox_fms.add_fibercable"],
@@ -124,7 +124,7 @@ menu = PluginMenu(
                             permissions=["netbox_fms.add_slackloop"],
                         ),
                         PluginMenuButton(
-                            link="plugins:netbox_fms:slackloop_import",
+                            link="plugins:netbox_fms:slackloop_bulk_import",
                             title="Import",
                             icon_class="mdi mdi-upload",
                             permissions=["netbox_fms.add_slackloop"],
@@ -148,7 +148,7 @@ menu = PluginMenu(
                             permissions=["netbox_fms.add_fibercircuit"],
                         ),
                         PluginMenuButton(
-                            link="plugins:netbox_fms:fibercircuit_import",
+                            link="plugins:netbox_fms:fibercircuit_bulk_import",
                             title="Import",
                             icon_class="mdi mdi-upload",
                             permissions=["netbox_fms.add_fibercircuit"],

@@ -7,7 +7,7 @@ urlpatterns = [
     # FiberCableType
     path("cable-types/", views.FiberCableTypeListView.as_view(), name="fibercabletype_list"),
     path("cable-types/add/", views.FiberCableTypeEditView.as_view(), name="fibercabletype_add"),
-    path("cable-types/import/", views.FiberCableTypeBulkImportView.as_view(), name="fibercabletype_import"),
+    path("cable-types/import/", views.FiberCableTypeBulkImportView.as_view(), name="fibercabletype_bulk_import"),
     path("cable-types/edit/", views.FiberCableTypeBulkEditView.as_view(), name="fibercabletype_bulk_edit"),
     path("cable-types/delete/", views.FiberCableTypeBulkDeleteView.as_view(), name="fibercabletype_bulk_delete"),
     path("cable-types/<int:pk>/", include(get_model_urls("netbox_fms", "fibercabletype"))),
@@ -20,7 +20,7 @@ urlpatterns = [
     path(
         "attenuation-specs/import/",
         views.FiberAttenuationSpecBulkImportView.as_view(),
-        name="fiberattenuationspec_import",
+        name="fiberattenuationspec_bulk_import",
     ),
     path(
         "attenuation-specs/edit/",
@@ -106,7 +106,7 @@ urlpatterns = [
     # FiberCable (instance)
     path("fiber-cables/", views.FiberCableListView.as_view(), name="fibercable_list"),
     path("fiber-cables/add/", views.FiberCableEditView.as_view(), name="fibercable_add"),
-    path("fiber-cables/import/", views.FiberCableBulkImportView.as_view(), name="fibercable_import"),
+    path("fiber-cables/import/", views.FiberCableBulkImportView.as_view(), name="fibercable_bulk_import"),
     path("fiber-cables/edit/", views.FiberCableBulkEditView.as_view(), name="fibercable_bulk_edit"),
     path("fiber-cables/delete/", views.FiberCableBulkDeleteView.as_view(), name="fibercable_bulk_delete"),
     path("fiber-cables/<int:pk>/", include(get_model_urls("netbox_fms", "fibercable"))),
@@ -123,7 +123,7 @@ urlpatterns = [
         name="spliceplan_quick_add_form",
     ),
     path("splice-plans/add/", views.SplicePlanEditView.as_view(), name="spliceplan_add"),
-    path("splice-plans/import/", views.SplicePlanBulkImportView.as_view(), name="spliceplan_import"),
+    path("splice-plans/import/", views.SplicePlanBulkImportView.as_view(), name="spliceplan_bulk_import"),
     path("splice-plans/edit/", views.SplicePlanBulkEditView.as_view(), name="spliceplan_bulk_edit"),
     path("splice-plans/delete/", views.SplicePlanBulkDeleteView.as_view(), name="spliceplan_bulk_delete"),
     path("splice-plans/<int:pk>/", include(get_model_urls("netbox_fms", "spliceplan"))),
@@ -196,7 +196,7 @@ urlpatterns = [
     # TrayProfile
     path("tray-profiles/", views.TrayProfileListView.as_view(), name="trayprofile_list"),
     path("tray-profiles/add/", views.TrayProfileEditView.as_view(), name="trayprofile_add"),
-    path("tray-profiles/import/", views.TrayProfileBulkImportView.as_view(), name="trayprofile_import"),
+    path("tray-profiles/import/", views.TrayProfileBulkImportView.as_view(), name="trayprofile_bulk_import"),
     path("tray-profiles/edit/", views.TrayProfileBulkEditView.as_view(), name="trayprofile_bulk_edit"),
     path("tray-profiles/delete/", views.TrayProfileBulkDeleteView.as_view(), name="trayprofile_bulk_delete"),
     path("tray-profiles/<int:pk>/", include(get_model_urls("netbox_fms", "trayprofile"))),
@@ -206,7 +206,7 @@ urlpatterns = [
     # TubeAssignment
     path("tube-assignments/", views.TubeAssignmentListView.as_view(), name="tubeassignment_list"),
     path("tube-assignments/add/", views.TubeAssignmentEditView.as_view(), name="tubeassignment_add"),
-    path("tube-assignments/import/", views.TubeAssignmentBulkImportView.as_view(), name="tubeassignment_import"),
+    path("tube-assignments/import/", views.TubeAssignmentBulkImportView.as_view(), name="tubeassignment_bulk_import"),
     path("tube-assignments/edit/", views.TubeAssignmentBulkEditView.as_view(), name="tubeassignment_bulk_edit"),
     path("tube-assignments/delete/", views.TubeAssignmentBulkDeleteView.as_view(), name="tubeassignment_bulk_delete"),
     path("tube-assignments/<int:pk>/", include(get_model_urls("netbox_fms", "tubeassignment"))),
@@ -216,7 +216,7 @@ urlpatterns = [
     # SlackLoop
     path("slack-loops/", views.SlackLoopListView.as_view(), name="slackloop_list"),
     path("slack-loops/add/", views.SlackLoopEditView.as_view(), name="slackloop_add"),
-    path("slack-loops/import/", views.SlackLoopBulkImportView.as_view(), name="slackloop_import"),
+    path("slack-loops/import/", views.SlackLoopBulkImportView.as_view(), name="slackloop_bulk_import"),
     path("slack-loops/edit/", views.SlackLoopBulkEditView.as_view(), name="slackloop_bulk_edit"),
     path("slack-loops/delete/", views.SlackLoopBulkDeleteView.as_view(), name="slackloop_bulk_delete"),
     path("slack-loops/<int:pk>/", include(get_model_urls("netbox_fms", "slackloop"))),
@@ -227,7 +227,7 @@ urlpatterns = [
     # FiberCircuit
     path("fiber-circuits/", views.FiberCircuitListView.as_view(), name="fibercircuit_list"),
     path("fiber-circuits/add/", views.FiberCircuitEditView.as_view(), name="fibercircuit_add"),
-    path("fiber-circuits/import/", views.FiberCircuitBulkImportView.as_view(), name="fibercircuit_import"),
+    path("fiber-circuits/import/", views.FiberCircuitBulkImportView.as_view(), name="fibercircuit_bulk_import"),
     path("fiber-circuits/edit/", views.FiberCircuitBulkEditView.as_view(), name="fibercircuit_bulk_edit"),
     path("fiber-circuits/delete/", views.FiberCircuitBulkDeleteView.as_view(), name="fibercircuit_bulk_delete"),
     path("fiber-circuits/<int:pk>/", include(get_model_urls("netbox_fms", "fibercircuit"))),
