@@ -112,6 +112,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   named `<model>_bulk_import`. Lists whose model has no import or bulk-edit
   view stop offering those buttons, and the Fiber Circuit Paths list offers
   only Export: assignments are made from a circuit's "Assign fibers" action.
+- Migration `0039_fiber_path_analysis` no longer fails with "cannot ALTER
+  TABLE ... because it has pending trigger events" on databases that hold
+  fiber circuit paths.
 - The GraphQL schema is now registered with NetBox (#202). It never was, so
   no netbox-fms model was queryable at `/graphql/`; every model now is, with
   color fields typed as strings.
