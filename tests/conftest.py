@@ -338,6 +338,20 @@ def make_central_core_type(mfr, model, ribbons, fibers=12):
     return fct
 
 
+class AuthedAPIClientMixin:
+    """TestCase mixin: ``self.client`` is a DRF APIClient authenticated as ``cls.user``.
+
+    Set ``cls.user`` in setUpTestData; Django builds a fresh ``self.client``
+    from ``client_class`` before every test, so it cannot live there itself.
+    """
+
+    client_class = APIClient
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_authenticate(user=self.user)
+
+
 def make_authed_client(username="api-test"):
     """Create a superuser and return a DRF APIClient authenticated as them."""
     user = get_user_model().objects.create_superuser(username=username, password="test")

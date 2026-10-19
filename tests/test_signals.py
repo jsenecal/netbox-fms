@@ -11,12 +11,12 @@ from dcim.models import (
 )
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.test import TransactionTestCase
+from django.test import TestCase
 
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import FiberCable, FiberCableType, SplicePlan, SplicePlanEntry
 from netbox_fms.signals import fms_portmapping_bypass
-from tests.conftest import connect_front_ports, make_closure_with_tray, make_infra
+from tests.conftest import connect_front_ports, make_closure, make_closure_with_tray
 
 
 def make_mapping(device, front_port, rear_port, rear_port_position=1):
@@ -30,11 +30,12 @@ def make_mapping(device, front_port, rear_port, rear_port_position=1):
     )
 
 
-class TestDiffCacheInvalidation(TransactionTestCase):
-    def setUp(self):
+class TestDiffCacheInvalidation(TestCase):
+    @classmethod
+    def setUpTestData(cls):
         rig = make_closure_with_tray("Sig")
-        self.closure = rig.closure
-        self.fp1, self.fp2 = rig.ports
+        cls.closure = rig.closure
+        cls.fp1, cls.fp2 = rig.ports
 
     def test_cable_create_invalidates_cache(self):
         plan = SplicePlan.objects.create(closure=self.closure, name="Plan")
@@ -75,26 +76,27 @@ class TestDiffCacheInvalidation(TransactionTestCase):
         assert plan.diff_stale is False
 
 
-class TestPortMappingProtection(TransactionTestCase):
+class TestPortMappingProtection(TestCase):
     """FMS-managed port pairs are protected; unrelated pairs are not."""
 
-    def setUp(self):
-        site, mfr, dt, role = make_infra("PM")
-        self.device = Device.objects.create(name="PM-Device", site=site, device_type=dt, role=role)
+    @classmethod
+    def setUpTestData(cls):
+        rig = make_closure("PM")
+        cls.device = rig.closure
 
-        self.fct = FiberCableType.objects.create(model="PM-FCT", manufacturer=mfr, strand_count=2)
+        cls.fct = FiberCableType.objects.create(model="PM-FCT", manufacturer=rig.mfr, strand_count=2)
         cable = Cable.objects.create(label="PM Cable")
-        self.fc = FiberCable.objects.create(cable=cable, fiber_cable_type=self.fct)
+        cls.fc = FiberCable.objects.create(cable=cable, fiber_cable_type=cls.fct)
 
-        self.rp_ct = ContentType.objects.get_for_model(RearPort)
-        self.rp = RearPort.objects.create(device=self.device, name="PM Cable", type="splice", positions=2)
+        cls.rp_ct = ContentType.objects.get_for_model(RearPort)
+        cls.rp = RearPort.objects.create(device=cls.device, name="PM Cable", type="splice", positions=2)
         CableTermination.objects.create(
-            cable=cable, cable_end="A", termination_type=self.rp_ct, termination_id=self.rp.pk
+            cable=cable, cable_end="A", termination_type=cls.rp_ct, termination_id=cls.rp.pk
         )
-        self.fp = FrontPort.objects.create(device=self.device, name="PM:F1", type="splice")
+        cls.fp = FrontPort.objects.create(device=cls.device, name="PM:F1", type="splice")
         # Land the first strand on the front port, as provisioning/adoption
         # would: the strand FK is what marks the port pair FMS-managed.
-        self.fc.fiber_strands.filter(position=1).update(front_port_a=self.fp)
+        cls.fc.fiber_strands.filter(position=1).update(front_port_a=cls.fp)
 
     def _create_mapping(self):
         """Create the fixture PortMapping under the FMS bypass."""
@@ -247,25 +249,25 @@ class TestPortMappingProtection(TransactionTestCase):
         assert _rear_port_is_fms_managed(None) is False
 
     def test_non_fms_device_unprotected(self):
-        site, _mfr, dt, role = make_infra("NF")
-        device2 = Device.objects.create(name="NF-Device", site=site, device_type=dt, role=role)
+        device2 = make_closure("NF").closure
         rp2 = RearPort.objects.create(device=device2, name="NF-RP", type="8p8c", positions=1)
         fp2 = FrontPort.objects.create(device=device2, name="NF-FP", type="8p8c")
         pm = make_mapping(device2, fp2, rp2)
         assert pm.pk is not None
 
 
-class TestPlanPortProtection(TransactionTestCase):
+class TestPlanPortProtection(TestCase):
     """Front ports spliced in a live plan are protected without a strand."""
 
-    def setUp(self):
+    @classmethod
+    def setUpTestData(cls):
         rig = make_closure_with_tray("PP")
-        self.closure = rig.closure
-        self.pigtail, fiber_b = rig.ports
-        self.plan = SplicePlan.objects.create(closure=self.closure, name="PP Plan")
-        SplicePlanEntry.objects.create(plan=self.plan, tray=rig.tray, fiber_a=self.pigtail, fiber_b=fiber_b)
+        cls.closure = rig.closure
+        cls.pigtail, fiber_b = rig.ports
+        cls.plan = SplicePlan.objects.create(closure=cls.closure, name="PP Plan")
+        SplicePlanEntry.objects.create(plan=cls.plan, tray=rig.tray, fiber_a=cls.pigtail, fiber_b=fiber_b)
 
-        self.rp = RearPort.objects.create(device=self.closure, name="PP-RP", type="lc", positions=1)
+        cls.rp = RearPort.objects.create(device=cls.closure, name="PP-RP", type="lc", positions=1)
 
     def _create_pigtail_mapping(self):
         return make_mapping(self.closure, self.pigtail, self.rp)
@@ -284,12 +286,13 @@ class TestPlanPortProtection(TransactionTestCase):
         assert pm.pk is not None
 
 
-class TestPortNaming(TransactionTestCase):
+class TestPortNaming(TestCase):
     """FMS-provisioned ports carry pk-based, absolute-number names."""
 
-    def setUp(self):
-        site, self.mfr, dt, role = make_infra("PN")
-        self.device = Device.objects.create(name="PN-Device", site=site, device_type=dt, role=role)
+    @classmethod
+    def setUpTestData(cls):
+        rig = make_closure("PN")
+        cls.mfr, cls.device = rig.mfr, rig.closure
 
     def test_tubed_provisioning_uses_pk_and_absolute_numbers(self):
         from netbox_fms.models import BufferTubeTemplate, FiberCableType
@@ -337,12 +340,13 @@ class TestPortNaming(TransactionTestCase):
         assert rp.name == str(cable.pk), f"Got: {rp.name}"
 
 
-class TestPortNamesWriteOnce(TransactionTestCase):
+class TestPortNamesWriteOnce(TestCase):
     """pk-based names are write-once: a cable relabel never renames ports."""
 
-    def setUp(self):
-        site, self.mfr, dt, role = make_infra("NS")
-        self.device = Device.objects.create(name="NS-Device", site=site, device_type=dt, role=role)
+    @classmethod
+    def setUpTestData(cls):
+        rig = make_closure("NS")
+        cls.mfr, cls.device = rig.mfr, rig.closure
 
     def test_cable_relabel_changes_labels_not_names(self):
         from netbox_fms.models import BufferTubeTemplate, FiberCableType

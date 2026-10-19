@@ -11,15 +11,33 @@ import re
 
 import pytest
 from django.core.management import call_command
+from django.test import TestCase
 
 from netbox_fms.models import FiberCircuit, FiberStrand, SlackLoop, SplicePlanEntry
 
 
-@pytest.mark.django_db
-class TestCreateSampleData:
-    def test_simple_mode_completes_and_slack_loops_are_valid(self):
-        call_command("create_sample_data", "--simple")
+class TestSimpleSampleData(TestCase):
+    """Assertions on one ``create_sample_data --simple`` build.
 
+    The build takes about a minute, so every test that only reads its
+    result shares the one made in setUpTestData.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.db import connection
+
+        cls.analyzes = []
+
+        def record(execute, sql, params, many, context):
+            if sql.lstrip().upper().startswith("ANALYZE"):
+                cls.analyzes.append(sql)
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(record):
+            call_command("create_sample_data", "--simple")
+
+    def test_simple_mode_completes_and_slack_loops_are_valid(self):
         loops = SlackLoop.objects.all()
         assert loops.exists()
         # Slack loops are bulk_create'd (no clean()); they must still validate
@@ -39,9 +57,6 @@ class TestCreateSampleData:
         # the demo plans actually carry entries under the pk-based names.
         assert SplicePlanEntry.objects.exists()
 
-
-@pytest.mark.django_db
-class TestSampleDataRetracesSplicedCorePaths:
     def test_simple_mode_core_path_reaches_far_end_after_splicing(self):
         """Issue #96 follow-up: _create_splice_cables bulk-creates the
         FP-to-FP splice jumpers with hand-built CableTerminations, bypassing
@@ -52,8 +67,6 @@ class TestSampleDataRetracesSplicedCorePaths:
         spliced path.
         """
         from dcim.models import CablePath, Device, FrontPort, Interface
-
-        call_command("create_sample_data", "--simple")
 
         co = Device.objects.get(name="CO-Main")
         router = Device.objects.get(name="CO-Main-Router")
@@ -87,6 +100,31 @@ class TestSampleDataRetracesSplicedCorePaths:
         assert len(destinations) == 1
         assert isinstance(destinations[0], Interface)
         assert destinations[0].device_id == hub_switch.pk
+
+    def test_simple_mode_circuit_rides_the_leased_span(self):
+        """Issue #135: the simple dataset leases CL-03 -> Hub-East from a
+        provider, so the sample circuit crosses a provider circuit and its
+        derived provider_circuits projection is populated."""
+        from circuits.models import Circuit
+
+        span = Circuit.objects.get(cid="DF-EAST-01")
+        assert span.provider.name == "Metro Carrier"
+        circuit = FiberCircuit.objects.get(cid="SIMPLE-001")
+        assert list(circuit.provider_circuits.all()) == [span]
+        assignments = list(circuit.paths.select_related("strand_path"))
+        assert len(assignments) == circuit.strand_count
+        for assignment in assignments:
+            assert assignment.strand_path.completeness == "terminated_terminated"
+            assert ("provider_circuit", span.pk) in assignment.strand_path.hop_refs()
+
+    def test_simple_mode_refreshes_planner_statistics_between_phases(self):
+        """The build runs in one transaction, so statistics gathered outside
+        it never see the new rows: without in-transaction ANALYZE calls the
+        planner keeps treating the tables as empty and picks seq-scan nested
+        loops once they hold 100k+ rows."""
+        # one refresh after each phase that bulk-inserts rows the later
+        # phases query: backbone, spur, edge devices
+        assert len(self.analyzes) >= 3
 
 
 @pytest.mark.django_db
@@ -143,49 +181,7 @@ class TestSampleDataFiberCircuits:
 
 
 @pytest.mark.django_db
-class TestSampleDataProviderSpan:
-    def test_simple_mode_circuit_rides_the_leased_span(self):
-        """Issue #135: the simple dataset leases CL-03 -> Hub-East from a
-        provider, so the sample circuit crosses a provider circuit and its
-        derived provider_circuits projection is populated."""
-        from circuits.models import Circuit
-
-        call_command("create_sample_data", "--simple")
-
-        span = Circuit.objects.get(cid="DF-EAST-01")
-        assert span.provider.name == "Metro Carrier"
-        circuit = FiberCircuit.objects.get(cid="SIMPLE-001")
-        assert list(circuit.provider_circuits.all()) == [span]
-        assignments = list(circuit.paths.select_related("strand_path"))
-        assert len(assignments) == circuit.strand_count
-        for assignment in assignments:
-            assert assignment.strand_path.completeness == "terminated_terminated"
-            assert ("provider_circuit", span.pk) in assignment.strand_path.hop_refs()
-
-
-@pytest.mark.django_db
 class TestSampleDataPlannerStatistics:
-    def test_simple_mode_refreshes_planner_statistics_between_phases(self):
-        """The build runs in one transaction, so statistics gathered outside
-        it never see the new rows: without in-transaction ANALYZE calls the
-        planner keeps treating the tables as empty and picks seq-scan nested
-        loops once they hold 100k+ rows."""
-        from django.db import connection
-
-        analyzes = []
-
-        def record(execute, sql, params, many, context):
-            if sql.lstrip().upper().startswith("ANALYZE"):
-                analyzes.append(sql)
-            return execute(sql, params, many, context)
-
-        with connection.execute_wrapper(record):
-            call_command("create_sample_data", "--simple")
-
-        # one refresh after each phase that bulk-inserts rows the later
-        # phases query: backbone, spur, edge devices
-        assert len(analyzes) >= 3
-
     def test_full_mode_refreshes_after_each_bulk_phase(self, monkeypatch):
         """Full mode is not built in tests; exercise its orchestration with the
         heavy builders stubbed so the phase-boundary refreshes are asserted."""
