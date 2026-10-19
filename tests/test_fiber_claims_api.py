@@ -1,48 +1,24 @@
 """Tests for the fiber-claims API endpoint."""
 
-from dcim.models import Device, DeviceRole, DeviceType, FrontPort, Manufacturer, Module, ModuleBay, ModuleType, Site
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import SplicePlan, SplicePlanEntry, SpliceProject
+from tests.conftest import AuthedAPIClientMixin, make_closure_with_tray
 
 User = get_user_model()
 
 
-class TestFiberClaimsAPIView(TestCase):
+class TestFiberClaimsAPIView(AuthedAPIClientMixin, TestCase):
     """Test GET /api/plugins/fms/closures/{device_id}/fiber-claims/"""
 
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="Claims Site", slug="claims-site")
-        mfr = Manufacturer.objects.create(name="Claims Mfr", slug="claims-mfr")
-        dt = DeviceType.objects.create(manufacturer=mfr, model="Claims Closure", slug="claims-closure")
-        role = DeviceRole.objects.create(name="Claims Role", slug="claims-role")
-        cls.closure = Device.objects.create(name="Claims-Closure", site=site, device_type=dt, role=role)
-
-        # Create a module type and module bay to host front ports
-        mt = ModuleType.objects.create(manufacturer=mfr, model="Claims Tray")
-        mb = ModuleBay.objects.create(device=cls.closure, name="Bay 1", position="1")
-        cls.tray = Module.objects.create(device=cls.closure, module_bay=mb, module_type=mt)
-
-        # Create 4 front ports on the tray
-        cls.ports = []
-        for i in range(1, 5):
-            fp = FrontPort.objects.create(
-                device=cls.closure,
-                module=cls.tray,
-                name=f"Port {i}",
-                type="lc",
-            )
-            cls.ports.append(fp)
-
+        rig = make_closure_with_tray("Claims", port_count=4, port_type="lc")
+        cls.closure, cls.tray, cls.ports = rig.closure, rig.tray, rig.ports
         cls.user = User.objects.create_superuser(username="claims-user", password="test")
-
-    def setUp(self):
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
 
     def _url(self, device_id=None, exclude_plan=None):
         did = device_id if device_id is not None else self.closure.pk

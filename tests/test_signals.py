@@ -16,7 +16,7 @@ from django.test import TestCase
 from netbox_fms.choices import SplicePlanStatusChoices
 from netbox_fms.models import FiberCable, FiberCableType, SplicePlan, SplicePlanEntry
 from netbox_fms.signals import fms_portmapping_bypass
-from tests.conftest import connect_front_ports, make_closure_with_tray, make_infra
+from tests.conftest import connect_front_ports, make_closure, make_closure_with_tray
 
 
 def make_mapping(device, front_port, rear_port, rear_port_position=1):
@@ -81,10 +81,10 @@ class TestPortMappingProtection(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, mfr, dt, role = make_infra("PM")
-        cls.device = Device.objects.create(name="PM-Device", site=site, device_type=dt, role=role)
+        rig = make_closure("PM")
+        cls.device = rig.closure
 
-        cls.fct = FiberCableType.objects.create(model="PM-FCT", manufacturer=mfr, strand_count=2)
+        cls.fct = FiberCableType.objects.create(model="PM-FCT", manufacturer=rig.mfr, strand_count=2)
         cable = Cable.objects.create(label="PM Cable")
         cls.fc = FiberCable.objects.create(cable=cable, fiber_cable_type=cls.fct)
 
@@ -249,8 +249,7 @@ class TestPortMappingProtection(TestCase):
         assert _rear_port_is_fms_managed(None) is False
 
     def test_non_fms_device_unprotected(self):
-        site, _mfr, dt, role = make_infra("NF")
-        device2 = Device.objects.create(name="NF-Device", site=site, device_type=dt, role=role)
+        device2 = make_closure("NF").closure
         rp2 = RearPort.objects.create(device=device2, name="NF-RP", type="8p8c", positions=1)
         fp2 = FrontPort.objects.create(device=device2, name="NF-FP", type="8p8c")
         pm = make_mapping(device2, fp2, rp2)
@@ -292,8 +291,8 @@ class TestPortNaming(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, cls.mfr, dt, role = make_infra("PN")
-        cls.device = Device.objects.create(name="PN-Device", site=site, device_type=dt, role=role)
+        rig = make_closure("PN")
+        cls.mfr, cls.device = rig.mfr, rig.closure
 
     def test_tubed_provisioning_uses_pk_and_absolute_numbers(self):
         from netbox_fms.models import BufferTubeTemplate, FiberCableType
@@ -346,8 +345,8 @@ class TestPortNamesWriteOnce(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site, cls.mfr, dt, role = make_infra("NS")
-        cls.device = Device.objects.create(name="NS-Device", site=site, device_type=dt, role=role)
+        rig = make_closure("NS")
+        cls.mfr, cls.device = rig.mfr, rig.closure
 
     def test_cable_relabel_changes_labels_not_names(self):
         from netbox_fms.models import BufferTubeTemplate, FiberCableType
