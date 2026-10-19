@@ -5,6 +5,7 @@ from typing import Annotated
 
 import strawberry
 import strawberry_django
+from netbox.graphql.scalars import BigInt
 from netbox.graphql.types import BaseObjectType, NetBoxObjectType
 
 from ..models import (
@@ -60,6 +61,12 @@ __all__ = (
 class FiberCableTypeType(NetBoxObjectType):
     """GraphQL type for FiberCableType."""
 
+    jacket_color: str
+    strand_marker_color: str
+    buffer_tube_template_count: BigInt
+    ribbon_template_count: BigInt
+    cable_element_template_count: BigInt
+
     buffer_tube_templates: list[Annotated["BufferTubeTemplateType", strawberry.lazy(".types")]]
     ribbon_templates: list[Annotated["RibbonTemplateType", strawberry.lazy(".types")]]
     cable_element_templates: list[Annotated["CableElementTemplateType", strawberry.lazy(".types")]]
@@ -76,12 +83,20 @@ class FiberAttenuationSpecType(NetBoxObjectType):
 class BufferTubeTemplateType(NetBoxObjectType):
     """GraphQL type for BufferTubeTemplate."""
 
+    color: str
+    marker_color: str
+    strand_marker_color: str
+
     ribbon_templates: list[Annotated["RibbonTemplateType", strawberry.lazy(".types")]]
 
 
 @strawberry_django.type(RibbonTemplate, fields="__all__")
 class RibbonTemplateType(NetBoxObjectType):
     """GraphQL type for RibbonTemplate."""
+
+    color: str
+    marker_color: str
+    strand_marker_color: str
 
 
 @strawberry_django.type(CableElementTemplate, fields="__all__")
@@ -108,6 +123,9 @@ class FiberCableInstanceType(NetBoxObjectType):
 class BufferTubeType(NetBoxObjectType):
     """GraphQL type for BufferTube."""
 
+    color: str
+    marker_color: str
+
     ribbons: list[Annotated["RibbonType", strawberry.lazy(".types")]]
     fiber_strands: list[Annotated["FiberStrandType", strawberry.lazy(".types")]]
 
@@ -116,12 +134,18 @@ class BufferTubeType(NetBoxObjectType):
 class RibbonType(NetBoxObjectType):
     """GraphQL type for Ribbon."""
 
+    color: str
+    marker_color: str
+
     fiber_strands: list[Annotated["FiberStrandType", strawberry.lazy(".types")]]
 
 
 @strawberry_django.type(FiberStrand, fields="__all__")
 class FiberStrandType(NetBoxObjectType):
     """GraphQL type for FiberStrand."""
+
+    color: str
+    marker_color: str
 
 
 @strawberry_django.type(CableElement, fields="__all__")

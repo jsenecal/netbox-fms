@@ -97,9 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `is_broken` and `broken_reason`. Assignments are created only through
   `assign`: no POST on `fiber-circuit-paths`, no add form. The `retrace`
   action, `FiberCircuitPath.from_origin`, `rebuild_nodes`,
-  `trace_fiber_path` and `create_circuit_from_proposal` are gone. The
-  plugin's GraphQL schema is not registered with NetBox, so no GraphQL
-  change is usable.
+  `trace_fiber_path` and `create_circuit_from_proposal` are gone.
 - **Upgrade note.** Migration 0039 deletes every existing fiber circuit path
   and clears the provider-circuit projection; circuits keep their metadata.
   After upgrading, run `python manage.py reconcile_fiber_paths` (or wait for
@@ -109,6 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The GraphQL schema is now registered with NetBox (#202). It never was, so
+  no netbox-fms model was queryable at `/graphql/`; every model now is, with
+  color fields typed as strings.
 - Applying a splice plan now completes NetBox's own interface paths through
   the new splices. NetBox retraces cable paths only when a cable is saved,
   and splice-plan apply wrote its splice jumpers without that save, so an

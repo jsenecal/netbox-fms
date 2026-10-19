@@ -16,6 +16,7 @@ class NetBoxFMSConfig(PluginConfig):
     author_email = "contact@jonathansenecal.com"
     base_url = "fms"
     min_version = "4.5.0"
+    graphql_schema = "graphql.schema.schema"
     default_settings = {
         # Fixed batching window: the first plant change schedules the analysis
         # this many seconds out; later changes inside the window ride along.

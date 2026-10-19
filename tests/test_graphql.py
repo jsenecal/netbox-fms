@@ -346,3 +346,44 @@ class TestGraphQLFilterInstantiation:
             id=None, fiber_cable_id=None, site_id=None, location_id=None, storage_method=None, length_unit=None
         )
         assert f.storage_method is None
+
+
+@pytest.mark.django_db
+class TestRegisteredSchema:
+    """The plugin's query fields are part of NetBox's assembled GraphQL schema (#202)."""
+
+    @staticmethod
+    def _query(client, query):
+        body = client.post("/graphql/", {"query": query}, content_type="application/json").json()
+        assert "errors" not in body, (query, body["errors"])
+        return body["data"]
+
+    def test_every_list_field_resolves(self):
+        from netbox_fms.graphql.schema import NetBoxFMSQuery
+        from tests.conftest import superuser_client
+
+        client = superuser_client("gql")
+        list_fields = [f.name for f in NetBoxFMSQuery.__strawberry_definition__.fields if f.name.endswith("_list")]
+        for field in list_fields:
+            assert self._query(client, f"{{ {field} {{ id }} }}") == {field: []}
+
+    def test_strand_path_assignments_respect_object_permissions(self):
+        from netbox_fms.choices import FiberCircuitStatusChoices
+        from netbox_fms.models import FiberCircuit, FiberCircuitPath, FiberStrandPath
+        from tests.conftest import assign_strand_path, make_strand_path, ui_client_with
+
+        path = make_strand_path()
+        visible, hidden = (
+            FiberCircuit.objects.create(name=name, status=FiberCircuitStatusChoices.ACTIVE, strand_count=1)
+            for name in ("GQL-visible", "GQL-hidden")
+        )
+        shown = assign_strand_path(visible, path)
+        assign_strand_path(hidden, path, active=False)
+        client = ui_client_with(
+            "gql-constrained",
+            [(FiberStrandPath, ["view"], None), (FiberCircuitPath, ["view"], {"circuit__name": "GQL-visible"})],
+        )
+
+        data = self._query(client, "{ fiber_strand_path_list { assignments { id } } }")
+
+        assert data == {"fiber_strand_path_list": [{"assignments": [{"id": str(shown.pk)}]}]}
