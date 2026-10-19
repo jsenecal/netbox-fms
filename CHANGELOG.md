@@ -88,6 +88,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plans stale, and a plan whose additions name a port twice is refused
   with a validation error that rolls the whole apply back instead of
   failing on a database constraint. Auto-assign is all-or-nothing.
+- Every model view is registered with `register_model_view` and mounted by
+  `get_model_urls` (#213), so route names always match the names NetBox's
+  buttons reverse. URL paths and names are unchanged; the detail routes that
+  were declared twice are gone, and cable elements gain their changelog and
+  journal pages.
 
 ### Removed
 

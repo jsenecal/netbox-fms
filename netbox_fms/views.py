@@ -191,6 +191,7 @@ from .tables import (
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(FiberCableType, "list", path="", detail=False)
 class FiberCableTypeListView(generic.ObjectListView):
     """List all fiber cable types."""
 
@@ -207,6 +208,8 @@ class FiberCableTypeView(generic.ObjectView):
     queryset = FiberCableType.objects.all()
 
 
+@register_model_view(FiberCableType, "add", detail=False)
+@register_model_view(FiberCableType, "edit")
 class FiberCableTypeEditView(generic.ObjectEditView):
     """Handle fiber cable type creation and editing."""
 
@@ -214,12 +217,14 @@ class FiberCableTypeEditView(generic.ObjectEditView):
     form = FiberCableTypeForm
 
 
+@register_model_view(FiberCableType, "delete")
 class FiberCableTypeDeleteView(generic.ObjectDeleteView):
     """Delete a fiber cable type."""
 
     queryset = FiberCableType.objects.all()
 
 
+@register_model_view(FiberCableType, "bulk_import", path="import", detail=False)
 class FiberCableTypeBulkImportView(generic.BulkImportView):
     """Bulk import fiber cable types from CSV."""
 
@@ -227,6 +232,7 @@ class FiberCableTypeBulkImportView(generic.BulkImportView):
     model_form = FiberCableTypeImportForm
 
 
+@register_model_view(FiberCableType, "bulk_edit", path="edit", detail=False)
 class FiberCableTypeBulkEditView(generic.BulkEditView):
     """Bulk edit fiber cable types."""
 
@@ -236,6 +242,7 @@ class FiberCableTypeBulkEditView(generic.BulkEditView):
     form = FiberCableTypeBulkEditForm
 
 
+@register_model_view(FiberCableType, "bulk_delete", path="delete", detail=False)
 class FiberCableTypeBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete fiber cable types."""
 
@@ -249,6 +256,7 @@ class FiberCableTypeBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(FiberAttenuationSpec, "list", path="", detail=False)
 class FiberAttenuationSpecListView(generic.ObjectListView):
     """List per-wavelength attenuation specs."""
 
@@ -265,6 +273,8 @@ class FiberAttenuationSpecView(generic.ObjectView):
     queryset = FiberAttenuationSpec.objects.all()
 
 
+@register_model_view(FiberAttenuationSpec, "add", detail=False)
+@register_model_view(FiberAttenuationSpec, "edit")
 class FiberAttenuationSpecEditView(generic.ObjectEditView):
     """Create or edit an attenuation spec."""
 
@@ -272,12 +282,14 @@ class FiberAttenuationSpecEditView(generic.ObjectEditView):
     form = FiberAttenuationSpecForm
 
 
+@register_model_view(FiberAttenuationSpec, "delete")
 class FiberAttenuationSpecDeleteView(generic.ObjectDeleteView):
     """Delete an attenuation spec."""
 
     queryset = FiberAttenuationSpec.objects.all()
 
 
+@register_model_view(FiberAttenuationSpec, "bulk_import", path="import", detail=False)
 class FiberAttenuationSpecBulkImportView(generic.BulkImportView):
     """Bulk-import attenuation specs from CSV."""
 
@@ -285,6 +297,7 @@ class FiberAttenuationSpecBulkImportView(generic.BulkImportView):
     model_form = FiberAttenuationSpecImportForm
 
 
+@register_model_view(FiberAttenuationSpec, "bulk_edit", path="edit", detail=False)
 class FiberAttenuationSpecBulkEditView(generic.BulkEditView):
     """Bulk edit attenuation specs."""
 
@@ -294,6 +307,7 @@ class FiberAttenuationSpecBulkEditView(generic.BulkEditView):
     form = FiberAttenuationSpecBulkEditForm
 
 
+@register_model_view(FiberAttenuationSpec, "bulk_delete", path="delete", detail=False)
 class FiberAttenuationSpecBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete attenuation specs."""
 
@@ -405,6 +419,7 @@ class FiberCableTypeInstancesView(generic.ObjectChildrenView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(BufferTubeTemplate, "bulk_edit", path="edit", detail=False)
 class BufferTubeTemplateBulkEditView(generic.BulkEditView):
     """Bulk edit buffer tube templates."""
 
@@ -414,6 +429,7 @@ class BufferTubeTemplateBulkEditView(generic.BulkEditView):
     form = BufferTubeTemplateBulkEditForm
 
 
+@register_model_view(BufferTubeTemplate, "bulk_delete", path="delete", detail=False)
 class BufferTubeTemplateBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete buffer tube templates."""
 
@@ -422,6 +438,7 @@ class BufferTubeTemplateBulkDeleteView(generic.BulkDeleteView):
     table = BufferTubeTemplateTable
 
 
+@register_model_view(RibbonTemplate, "bulk_edit", path="edit", detail=False)
 class RibbonTemplateBulkEditView(generic.BulkEditView):
     """Bulk edit ribbon templates."""
 
@@ -431,6 +448,7 @@ class RibbonTemplateBulkEditView(generic.BulkEditView):
     form = RibbonTemplateBulkEditForm
 
 
+@register_model_view(RibbonTemplate, "bulk_delete", path="delete", detail=False)
 class RibbonTemplateBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete ribbon templates."""
 
@@ -439,6 +457,7 @@ class RibbonTemplateBulkDeleteView(generic.BulkDeleteView):
     table = RibbonTemplateTable
 
 
+@register_model_view(CableElementTemplate, "bulk_edit", path="edit", detail=False)
 class CableElementTemplateBulkEditView(generic.BulkEditView):
     """Bulk edit cable element templates."""
 
@@ -448,6 +467,7 @@ class CableElementTemplateBulkEditView(generic.BulkEditView):
     form = CableElementTemplateBulkEditForm
 
 
+@register_model_view(CableElementTemplate, "bulk_delete", path="delete", detail=False)
 class CableElementTemplateBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete cable element templates."""
 
@@ -461,6 +481,7 @@ class CableElementTemplateBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(BufferTubeTemplate, "list", path="", detail=False)
 class BufferTubeTemplateListView(generic.ObjectListView):
     """List all buffer tube templates."""
 
@@ -470,12 +491,15 @@ class BufferTubeTemplateListView(generic.ObjectListView):
     filterset = BufferTubeTemplateFilterSet
 
 
+@register_model_view(BufferTubeTemplate)
 class BufferTubeTemplateView(generic.ObjectView):
     """Display a single buffer tube template."""
 
     queryset = BufferTubeTemplate.objects.all()
 
 
+@register_model_view(BufferTubeTemplate, "add", detail=False)
+@register_model_view(BufferTubeTemplate, "edit")
 class BufferTubeTemplateEditView(generic.ObjectEditView):
     """Handle buffer tube template creation and editing."""
 
@@ -483,6 +507,7 @@ class BufferTubeTemplateEditView(generic.ObjectEditView):
     form = BufferTubeTemplateForm
 
 
+@register_model_view(BufferTubeTemplate, "delete")
 class BufferTubeTemplateDeleteView(generic.ObjectDeleteView):
     """Delete a buffer tube template."""
 
@@ -494,6 +519,7 @@ class BufferTubeTemplateDeleteView(generic.ObjectDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(CableElementTemplate, "list", path="", detail=False)
 class CableElementTemplateListView(generic.ObjectListView):
     """List all cable element templates."""
 
@@ -503,12 +529,15 @@ class CableElementTemplateListView(generic.ObjectListView):
     filterset = CableElementTemplateFilterSet
 
 
+@register_model_view(CableElementTemplate)
 class CableElementTemplateView(generic.ObjectView):
     """Display a single cable element template."""
 
     queryset = CableElementTemplate.objects.all()
 
 
+@register_model_view(CableElementTemplate, "add", detail=False)
+@register_model_view(CableElementTemplate, "edit")
 class CableElementTemplateEditView(generic.ObjectEditView):
     """Handle cable element template creation and editing."""
 
@@ -516,6 +545,7 @@ class CableElementTemplateEditView(generic.ObjectEditView):
     form = CableElementTemplateForm
 
 
+@register_model_view(CableElementTemplate, "delete")
 class CableElementTemplateDeleteView(generic.ObjectDeleteView):
     """Delete a cable element template."""
 
@@ -527,6 +557,7 @@ class CableElementTemplateDeleteView(generic.ObjectDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(RibbonTemplate, "list", path="", detail=False)
 class RibbonTemplateListView(generic.ObjectListView):
     """List all ribbon templates."""
 
@@ -536,12 +567,15 @@ class RibbonTemplateListView(generic.ObjectListView):
     filterset = RibbonTemplateFilterSet
 
 
+@register_model_view(RibbonTemplate)
 class RibbonTemplateView(generic.ObjectView):
     """Display a single ribbon template."""
 
     queryset = RibbonTemplate.objects.all()
 
 
+@register_model_view(RibbonTemplate, "add", detail=False)
+@register_model_view(RibbonTemplate, "edit")
 class RibbonTemplateEditView(generic.ObjectEditView):
     """Handle ribbon template creation and editing."""
 
@@ -549,6 +583,7 @@ class RibbonTemplateEditView(generic.ObjectEditView):
     form = RibbonTemplateForm
 
 
+@register_model_view(RibbonTemplate, "delete")
 class RibbonTemplateDeleteView(generic.ObjectDeleteView):
     """Delete a ribbon template."""
 
@@ -560,6 +595,7 @@ class RibbonTemplateDeleteView(generic.ObjectDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(FiberCable, "list", path="", detail=False)
 class FiberCableListView(generic.ObjectListView):
     """List all fiber cables."""
 
@@ -590,6 +626,8 @@ class FiberCableView(generic.ObjectView):
         }
 
 
+@register_model_view(FiberCable, "add", detail=False)
+@register_model_view(FiberCable, "edit")
 class FiberCableEditView(generic.ObjectEditView):
     """Handle fiber cable creation and editing."""
 
@@ -597,12 +635,14 @@ class FiberCableEditView(generic.ObjectEditView):
     form = FiberCableForm
 
 
+@register_model_view(FiberCable, "delete")
 class FiberCableDeleteView(generic.ObjectDeleteView):
     """Delete a fiber cable."""
 
     queryset = FiberCable.objects.all()
 
 
+@register_model_view(FiberCable, "bulk_import", path="import", detail=False)
 class FiberCableBulkImportView(generic.BulkImportView):
     """Bulk import fiber cables from CSV."""
 
@@ -610,6 +650,7 @@ class FiberCableBulkImportView(generic.BulkImportView):
     model_form = FiberCableImportForm
 
 
+@register_model_view(FiberCable, "bulk_edit", path="edit", detail=False)
 class FiberCableBulkEditView(generic.BulkEditView):
     """Bulk edit fiber cables."""
 
@@ -619,6 +660,7 @@ class FiberCableBulkEditView(generic.BulkEditView):
     form = FiberCableBulkEditForm
 
 
+@register_model_view(FiberCable, "bulk_delete", path="delete", detail=False)
 class FiberCableBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete fiber cables."""
 
@@ -716,6 +758,7 @@ class FiberCableCableElementsView(FiberCableComponentsView):
     )
 
 
+@register_model_view(CableElement)
 class CableElementView(generic.ObjectView):
     """Detail view for a single CableElement."""
 
@@ -755,6 +798,7 @@ class CableFiberCircuitsView(generic.ObjectChildrenView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(SplicePlan, "list", path="", detail=False)
 class SplicePlanListView(generic.ObjectListView):
     """List all splice plans."""
 
@@ -764,6 +808,7 @@ class SplicePlanListView(generic.ObjectListView):
     filterset_form = SplicePlanFilterForm
 
 
+@register_model_view(SplicePlan)
 class SplicePlanView(generic.ObjectView):
     """Display a single splice plan with its entries."""
 
@@ -784,6 +829,8 @@ class SplicePlanView(generic.ObjectView):
         }
 
 
+@register_model_view(SplicePlan, "add", detail=False)
+@register_model_view(SplicePlan, "edit")
 class SplicePlanEditView(generic.ObjectEditView):
     """Handle splice plan creation and editing."""
 
@@ -791,12 +838,14 @@ class SplicePlanEditView(generic.ObjectEditView):
     form = SplicePlanForm
 
 
+@register_model_view(SplicePlan, "delete")
 class SplicePlanDeleteView(generic.ObjectDeleteView):
     """Delete a splice plan."""
 
     queryset = SplicePlan.objects.all()
 
 
+@register_model_view(SplicePlan, "bulk_import", path="import", detail=False)
 class SplicePlanBulkImportView(generic.BulkImportView):
     """Bulk import splice plans from CSV."""
 
@@ -804,6 +853,7 @@ class SplicePlanBulkImportView(generic.BulkImportView):
     model_form = SplicePlanImportForm
 
 
+@register_model_view(SplicePlan, "bulk_edit", path="edit", detail=False)
 class SplicePlanBulkEditView(generic.BulkEditView):
     """Bulk edit splice plans."""
 
@@ -813,6 +863,7 @@ class SplicePlanBulkEditView(generic.BulkEditView):
     form = SplicePlanBulkEditForm
 
 
+@register_model_view(SplicePlan, "bulk_delete", path="delete", detail=False)
 class SplicePlanBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete splice plans."""
 
@@ -821,6 +872,7 @@ class SplicePlanBulkDeleteView(generic.BulkDeleteView):
     table = SplicePlanTable
 
 
+@register_model_view(SplicePlan, "quick_add_form", path="quick-add-form", detail=False)
 class SplicePlanQuickAddFormView(LoginRequiredMixin, View):
     """Return the rendered quick-add form fragment for the splice editor modal."""
 
@@ -839,6 +891,7 @@ class SplicePlanQuickAddFormView(LoginRequiredMixin, View):
         return HttpResponse(html)
 
 
+@register_model_view(SplicePlan, "import_device", path="import")
 class SplicePlanImportFromDeviceView(LoginRequiredMixin, View):
     """Import current live connections into a splice plan."""
 
@@ -1005,6 +1058,7 @@ class SplicePlanApplyView(generic.ObjectView):
         }
 
 
+@register_model_view(SplicePlan, "export")
 class SplicePlanExportDrawioView(LoginRequiredMixin, View):
     """Export splice plan as draw.io XML."""
 
@@ -1017,6 +1071,7 @@ class SplicePlanExportDrawioView(LoginRequiredMixin, View):
         return response
 
 
+@register_model_view(SplicePlan, "transition")
 class SplicePlanTransitionView(LoginRequiredMixin, View):
     """Handle splice plan status transitions via POST."""
 
@@ -1121,6 +1176,7 @@ class SplicePlanTransitionView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(ClosureCableEntry, "list", path="", detail=False)
 class ClosureCableEntryListView(generic.ObjectListView):
     """List all closure cable entries."""
 
@@ -1131,6 +1187,7 @@ class ClosureCableEntryListView(generic.ObjectListView):
     filterset_form = ClosureCableEntryFilterForm
 
 
+@register_model_view(ClosureCableEntry)
 class ClosureCableEntryView(generic.ObjectView):
     """Display a single closure cable entry with strand linkage info."""
 
@@ -1147,6 +1204,8 @@ class ClosureCableEntryView(generic.ObjectView):
         return {"strand_info": strand_info}
 
 
+@register_model_view(ClosureCableEntry, "add", detail=False)
+@register_model_view(ClosureCableEntry, "edit")
 class ClosureCableEntryEditView(generic.ObjectEditView):
     """Handle closure cable entry creation and editing."""
 
@@ -1154,12 +1213,14 @@ class ClosureCableEntryEditView(generic.ObjectEditView):
     form = ClosureCableEntryForm
 
 
+@register_model_view(ClosureCableEntry, "delete")
 class ClosureCableEntryDeleteView(generic.ObjectDeleteView):
     """Delete a closure cable entry."""
 
     queryset = ClosureCableEntry.objects.all()
 
 
+@register_model_view(ClosureCableEntry, "bulk_delete", path="delete", detail=False)
 class ClosureCableEntryBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete closure cable entries."""
 
@@ -1173,6 +1234,7 @@ class ClosureCableEntryBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(SplicePlanEntry, "list", path="", detail=False)
 class SplicePlanEntryListView(generic.ObjectListView):
     """List all splice plan entries."""
 
@@ -1188,12 +1250,15 @@ class SplicePlanEntryListView(generic.ObjectListView):
     filterset_form = SplicePlanEntryFilterForm
 
 
+@register_model_view(SplicePlanEntry)
 class SplicePlanEntryView(generic.ObjectView):
     """Display a single splice plan entry."""
 
     queryset = SplicePlanEntry.objects.all()
 
 
+@register_model_view(SplicePlanEntry, "add", detail=False)
+@register_model_view(SplicePlanEntry, "edit")
 class SplicePlanEntryEditView(generic.ObjectEditView):
     """Handle splice plan entry creation and editing."""
 
@@ -1201,12 +1266,14 @@ class SplicePlanEntryEditView(generic.ObjectEditView):
     form = SplicePlanEntryForm
 
 
+@register_model_view(SplicePlanEntry, "delete")
 class SplicePlanEntryDeleteView(generic.ObjectDeleteView):
     """Delete a splice plan entry."""
 
     queryset = SplicePlanEntry.objects.all()
 
 
+@register_model_view(SplicePlanEntry, "bulk_delete", path="delete", detail=False)
 class SplicePlanEntryBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete splice plan entries."""
 
@@ -1220,6 +1287,7 @@ class SplicePlanEntryBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(SpliceProject, "list", path="", detail=False)
 class SpliceProjectListView(generic.ObjectListView):
     """List all splice projects."""
 
@@ -1230,6 +1298,7 @@ class SpliceProjectListView(generic.ObjectListView):
     filterset_form = SpliceProjectFilterForm
 
 
+@register_model_view(SpliceProject)
 class SpliceProjectView(generic.ObjectView):
     """Display a single splice project with its plans."""
 
@@ -1241,6 +1310,8 @@ class SpliceProjectView(generic.ObjectView):
         return {"plans_table": plans_table}
 
 
+@register_model_view(SpliceProject, "add", detail=False)
+@register_model_view(SpliceProject, "edit")
 class SpliceProjectEditView(generic.ObjectEditView):
     """Handle splice project creation and editing."""
 
@@ -1248,12 +1319,14 @@ class SpliceProjectEditView(generic.ObjectEditView):
     form = SpliceProjectForm
 
 
+@register_model_view(SpliceProject, "delete")
 class SpliceProjectDeleteView(generic.ObjectDeleteView):
     """Delete a splice project."""
 
     queryset = SpliceProject.objects.all()
 
 
+@register_model_view(SpliceProject, "bulk_delete", path="delete", detail=False)
 class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete splice projects."""
 
@@ -1267,6 +1340,7 @@ class SpliceProjectBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(TrayProfile, "list", path="", detail=False)
 class TrayProfileListView(generic.ObjectListView):
     """List all tray profiles."""
 
@@ -1283,6 +1357,8 @@ class TrayProfileView(generic.ObjectView):
     queryset = TrayProfile.objects.select_related("module_type")
 
 
+@register_model_view(TrayProfile, "add", detail=False)
+@register_model_view(TrayProfile, "edit")
 class TrayProfileEditView(generic.ObjectEditView):
     """Handle tray profile creation and editing."""
 
@@ -1290,12 +1366,14 @@ class TrayProfileEditView(generic.ObjectEditView):
     form = TrayProfileForm
 
 
+@register_model_view(TrayProfile, "delete")
 class TrayProfileDeleteView(generic.ObjectDeleteView):
     """Handle tray profile deletion."""
 
     queryset = TrayProfile.objects.all()
 
 
+@register_model_view(TrayProfile, "bulk_import", path="import", detail=False)
 class TrayProfileBulkImportView(generic.BulkImportView):
     """Handle bulk import of tray profiles."""
 
@@ -1303,6 +1381,7 @@ class TrayProfileBulkImportView(generic.BulkImportView):
     model_form = TrayProfileImportForm
 
 
+@register_model_view(TrayProfile, "bulk_edit", path="edit", detail=False)
 class TrayProfileBulkEditView(generic.BulkEditView):
     """Handle bulk editing of tray profiles."""
 
@@ -1312,6 +1391,7 @@ class TrayProfileBulkEditView(generic.BulkEditView):
     form = TrayProfileBulkEditForm
 
 
+@register_model_view(TrayProfile, "bulk_delete", path="delete", detail=False)
 class TrayProfileBulkDeleteView(generic.BulkDeleteView):
     """Handle bulk deletion of tray profiles."""
 
@@ -1325,6 +1405,7 @@ class TrayProfileBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(TubeAssignment, "list", path="", detail=False)
 class TubeAssignmentListView(generic.ObjectListView):
     """List all tube assignments."""
 
@@ -1344,6 +1425,8 @@ class TubeAssignmentView(generic.ObjectView):
         return {"tray_util": tray_utilization(instance.closure).get(instance.tray_id)}
 
 
+@register_model_view(TubeAssignment, "add", detail=False)
+@register_model_view(TubeAssignment, "edit")
 class TubeAssignmentEditView(generic.ObjectEditView):
     """Handle tube assignment creation and editing."""
 
@@ -1351,12 +1434,14 @@ class TubeAssignmentEditView(generic.ObjectEditView):
     form = TubeAssignmentForm
 
 
+@register_model_view(TubeAssignment, "delete")
 class TubeAssignmentDeleteView(generic.ObjectDeleteView):
     """Handle tube assignment deletion."""
 
     queryset = TubeAssignment.objects.all()
 
 
+@register_model_view(TubeAssignment, "bulk_import", path="import", detail=False)
 class TubeAssignmentBulkImportView(generic.BulkImportView):
     """Handle bulk import of tube assignments."""
 
@@ -1364,6 +1449,7 @@ class TubeAssignmentBulkImportView(generic.BulkImportView):
     model_form = TubeAssignmentImportForm
 
 
+@register_model_view(TubeAssignment, "bulk_edit", path="edit", detail=False)
 class TubeAssignmentBulkEditView(generic.BulkEditView):
     """Handle bulk editing of tube assignments."""
 
@@ -1373,6 +1459,7 @@ class TubeAssignmentBulkEditView(generic.BulkEditView):
     form = TubeAssignmentBulkEditForm
 
 
+@register_model_view(TubeAssignment, "bulk_delete", path="delete", detail=False)
 class TubeAssignmentBulkDeleteView(generic.BulkDeleteView):
     """Handle bulk deletion of tube assignments."""
 
@@ -1386,6 +1473,7 @@ class TubeAssignmentBulkDeleteView(generic.BulkDeleteView):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(SlackLoop, "list", path="", detail=False)
 class SlackLoopListView(generic.ObjectListView):
     """List all slack loops."""
 
@@ -1402,6 +1490,8 @@ class SlackLoopView(generic.ObjectView):
     queryset = SlackLoop.objects.all()
 
 
+@register_model_view(SlackLoop, "add", detail=False)
+@register_model_view(SlackLoop, "edit")
 class SlackLoopEditView(generic.ObjectEditView):
     """Handle slack loop creation and editing."""
 
@@ -1409,12 +1499,14 @@ class SlackLoopEditView(generic.ObjectEditView):
     form = SlackLoopForm
 
 
+@register_model_view(SlackLoop, "delete")
 class SlackLoopDeleteView(generic.ObjectDeleteView):
     """Delete a slack loop."""
 
     queryset = SlackLoop.objects.all()
 
 
+@register_model_view(SlackLoop, "bulk_import", path="import", detail=False)
 class SlackLoopBulkImportView(generic.BulkImportView):
     """Bulk import slack loops from CSV."""
 
@@ -1422,6 +1514,7 @@ class SlackLoopBulkImportView(generic.BulkImportView):
     model_form = SlackLoopImportForm
 
 
+@register_model_view(SlackLoop, "bulk_edit", path="edit", detail=False)
 class SlackLoopBulkEditView(generic.BulkEditView):
     """Bulk edit slack loops."""
 
@@ -1431,6 +1524,7 @@ class SlackLoopBulkEditView(generic.BulkEditView):
     form = SlackLoopBulkEditForm
 
 
+@register_model_view(SlackLoop, "bulk_delete", path="delete", detail=False)
 class SlackLoopBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete slack loops."""
 
@@ -1539,6 +1633,7 @@ def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_sid
     return cable_a, cable_b, fc_a, fc_b, plan
 
 
+@register_model_view(SlackLoop, "insert")
 class SlackLoopInsertView(LoginRequiredMixin, View):
     """Insert a slack loop into a splice closure by splitting the cable."""
 
@@ -1573,6 +1668,7 @@ class SlackLoopInsertView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 
+@register_model_view(FiberCircuit, "list", path="", detail=False)
 class FiberCircuitListView(generic.ObjectListView):
     """List all fiber circuits."""
 
@@ -1585,6 +1681,7 @@ class FiberCircuitListView(generic.ObjectListView):
     template_name = "netbox_fms/fibercircuit_list.html"
 
 
+@register_model_view(FiberCircuit)
 class FiberCircuitView(generic.ObjectView):
     """Display a single fiber circuit with its paths."""
 
@@ -1601,6 +1698,8 @@ class FiberCircuitView(generic.ObjectView):
         return {"paths": paths}
 
 
+@register_model_view(FiberCircuit, "add", detail=False)
+@register_model_view(FiberCircuit, "edit")
 class FiberCircuitEditView(generic.ObjectEditView):
     """Handle fiber circuit creation and editing."""
 
@@ -1608,12 +1707,14 @@ class FiberCircuitEditView(generic.ObjectEditView):
     form = FiberCircuitForm
 
 
+@register_model_view(FiberCircuit, "delete")
 class FiberCircuitDeleteView(generic.ObjectDeleteView):
     """Delete a fiber circuit."""
 
     queryset = FiberCircuit.objects.all()
 
 
+@register_model_view(FiberCircuit, "bulk_import", path="import", detail=False)
 class FiberCircuitBulkImportView(generic.BulkImportView):
     """Bulk import fiber circuits from CSV."""
 
@@ -1621,6 +1722,7 @@ class FiberCircuitBulkImportView(generic.BulkImportView):
     model_form = FiberCircuitImportForm
 
 
+@register_model_view(FiberCircuit, "bulk_edit", path="edit", detail=False)
 class FiberCircuitBulkEditView(generic.BulkEditView):
     """Bulk edit fiber circuits."""
 
@@ -1630,6 +1732,7 @@ class FiberCircuitBulkEditView(generic.BulkEditView):
     form = FiberCircuitBulkEditForm
 
 
+@register_model_view(FiberCircuit, "bulk_delete", path="delete", detail=False)
 class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete fiber circuits."""
 
@@ -1638,6 +1741,7 @@ class FiberCircuitBulkDeleteView(generic.BulkDeleteView):
     table = FiberCircuitTable
 
 
+@register_model_view(FiberCircuitPath, "list", path="", detail=False)
 class FiberCircuitPathListView(generic.ObjectListView):
     """List all fiber circuit paths."""
 
@@ -1648,12 +1752,14 @@ class FiberCircuitPathListView(generic.ObjectListView):
     filterset_form = FiberCircuitPathFilterForm
 
 
+@register_model_view(FiberCircuitPath)
 class FiberCircuitPathView(generic.ObjectView):
     """Display a single assignment."""
 
     queryset = FiberCircuitPath.objects.select_related("circuit", "strand_path")
 
 
+@register_model_view(FiberCircuitPath, "edit")
 class FiberCircuitPathEditView(generic.ObjectEditView):
     """Edit the measured optical parameters of an assignment."""
 
@@ -1661,12 +1767,14 @@ class FiberCircuitPathEditView(generic.ObjectEditView):
     form = FiberCircuitPathForm
 
 
+@register_model_view(FiberCircuitPath, "delete")
 class FiberCircuitPathDeleteView(generic.ObjectDeleteView):
     """Delete an assignment, releasing its fiber path."""
 
     queryset = FiberCircuitPath.objects.all()
 
 
+@register_model_view(FiberStrandPath, "list", path="", detail=False)
 class FiberStrandPathListView(generic.ObjectListView):
     """Analyzed fiber paths (read-only: the analysis job is the only writer)."""
 
@@ -1736,6 +1844,7 @@ def _end_cells(user, path):
     return cells
 
 
+@register_model_view(FiberStrandPath)
 class FiberStrandPathView(generic.ObjectView):
     """One analyzed fiber path with its hops and assignments."""
 
@@ -1758,6 +1867,7 @@ class FiberStrandPathView(generic.ObjectView):
         }
 
 
+@register_model_view(PathAnomaly, "list", path="", detail=False)
 class PathAnomalyListView(generic.ObjectListView):
     """Plant shapes the analysis refused to trace (read-only)."""
 
@@ -1768,6 +1878,7 @@ class PathAnomalyListView(generic.ObjectListView):
     actions = ()
 
 
+@register_model_view(PathAnalysisQueue, "list", path="", detail=False)
 class PathAnalysisQueueListView(generic.ObjectListView):
     """Devices waiting for the next analysis run (read-only)."""
 
@@ -1809,6 +1920,7 @@ def _rows_from_state(user, state_groups):
     return [_group_row(group, [by_pk[pk] for pk in group["path_ids"] if pk in by_pk]) for group in state_groups]
 
 
+@register_model_view(FiberCircuit, "assign")
 class FiberCircuitAssignView(LoginRequiredMixin, View):
     """Assign fibers to an existing circuit through the shared picker."""
 
@@ -1863,6 +1975,7 @@ class FiberCircuitAssignView(LoginRequiredMixin, View):
         return redirect(reverse("plugins:netbox_fms:fibercircuit_assign", args=[circuit.pk]))
 
 
+@register_model_view(FiberCircuit, "acknowledge_route", path="acknowledge-route")
 class FiberCircuitAcknowledgeRouteView(LoginRequiredMixin, View):
     """Accept the current hops of a circuit's broken assignments."""
 
@@ -1873,6 +1986,7 @@ class FiberCircuitAcknowledgeRouteView(LoginRequiredMixin, View):
         return redirect(circuit.get_absolute_url())
 
 
+@register_model_view(FiberCircuit, "wizard", detail=False)
 class CircuitWizardView(LoginRequiredMixin, View):
     """Four-step htmx wizard: basics, picker filters, pick a route group, create and assign in one transaction."""
 

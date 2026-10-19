@@ -1,4 +1,6 @@
-"""Tests for the action buttons the plugin's list and child views declare."""
+"""Tests for the plugin's URL table and the action buttons its list and child views declare."""
+
+from collections import Counter
 
 from django.urls import URLResolver
 from netbox.views.generic import ObjectChildrenView, ObjectListView
@@ -11,12 +13,24 @@ from netbox_fms.urls import urlpatterns
 _LINKED_ACTIONS = {"add", "bulk_import", "bulk_edit", "bulk_delete"}
 
 
-def _iter_view_classes(patterns):
+def _iter_patterns(patterns, prefix=""):
+    """Every leaf URL pattern with its full route, in match order."""
     for pattern in patterns:
+        route = prefix + str(pattern.pattern)
         if isinstance(pattern, URLResolver):
-            yield from _iter_view_classes(pattern.url_patterns)
-        elif view_class := getattr(pattern.callback, "view_class", None):
-            yield view_class
+            yield from _iter_patterns(pattern.url_patterns, route)
+        else:
+            yield route, pattern
+
+
+def test_no_route_is_declared_twice():
+    """A second pattern on the same route is dead: the first one always matches.
+
+    Regression test for issue #213: detail views registered with
+    register_model_view were also hand-declared on the same path.
+    """
+    counts = Counter(route for route, _ in _iter_patterns(urlpatterns))
+    assert sorted(route for route, count in counts.items() if count > 1) == []
 
 
 def test_table_view_actions_resolve_to_a_route():
@@ -27,7 +41,8 @@ def test_table_view_actions_resolve_to_a_route():
     linked to <model>_import while NetBox resolves <model>_bulk_import.
     """
     broken = set()
-    for view in set(_iter_view_classes(urlpatterns)):
+    views = {getattr(pattern.callback, "view_class", None) for _, pattern in _iter_patterns(urlpatterns)}
+    for view in views - {None}:
         # A child tab's single-object actions are the parent's own buttons;
         # only its multi-select actions act on the child table.
         if issubclass(view, ObjectChildrenView):
