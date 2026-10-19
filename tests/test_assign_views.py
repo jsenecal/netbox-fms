@@ -9,9 +9,8 @@ from unittest.mock import patch
 
 from circuits.models import Circuit
 from dcim.models import Cable, Device, FrontPort
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import Client, TestCase
+from django.test import TestCase
 from django.urls import reverse
 
 from netbox_fms.choices import FiberCircuitStatusChoices
@@ -32,15 +31,10 @@ from tests.conftest import (
     make_closure_pair,
     make_provider_circuit,
     make_strand_path,
+    superuser_client,
     ui_client_with,
     user_with,
 )
-
-
-def _superuser_client(username):
-    client = Client()
-    client.force_login(get_user_model().objects.create_superuser(username, f"{username}@example.com", "pw"))
-    return client
 
 
 class _PlantMixin:
@@ -116,7 +110,7 @@ class TestAssignAction(_PlantMixin, TestCase):
 
     def test_assign_action_assigns_the_selected_paths(self):
         circuit = self.make_circuit("AVA-C")
-        client = _superuser_client("ava-admin")
+        client = superuser_client("ava-admin")
         response = client.post(self.assign_url(circuit), {"action": "assign", "strand_paths": self.ids_csv})
         assert response.status_code == 302
         assert list(circuit.paths.order_by("position").values_list("strand_path_id", flat=True)) == [
@@ -178,7 +172,7 @@ class TestAssignAction(_PlantMixin, TestCase):
 
     def test_assignment_errors_are_reported_without_assigning(self):
         circuit = self.make_circuit("AVA-ERR", strand_count=1)
-        client = _superuser_client("ava-err")
+        client = superuser_client("ava-err")
         response = client.post(
             self.assign_url(circuit), {"action": "assign", "strand_paths": self.ids_csv}, follow=True
         )
@@ -187,7 +181,7 @@ class TestAssignAction(_PlantMixin, TestCase):
 
     def test_malformed_selection_goes_back_to_the_picker_with_the_error(self):
         circuit = self.make_circuit("AVA-BAD")
-        response = _superuser_client("ava-bad").post(
+        response = superuser_client("ava-bad").post(
             self.assign_url(circuit), {"action": "assign", "strand_paths": "x"}, follow=True
         )
         assert response.redirect_chain[-1][0] == self.assign_url(circuit)
@@ -258,7 +252,7 @@ class TestCircuitWizard(_PlantMixin, TestCase):
         return url
 
     def test_wizard_creates_the_circuit_and_its_assignments_together(self):
-        client = _superuser_client("avw-wiz")
+        client = superuser_client("avw-wiz")
         url = self._walk(client, "AVW-W")
         response = client.post(url, {"confirm": "1"})
         circuit = FiberCircuit.objects.get(name="AVW-W")
@@ -267,7 +261,7 @@ class TestCircuitWizard(_PlantMixin, TestCase):
         assert FiberCircuitPath.objects.filter(circuit=circuit).count() == 2
 
     def test_wizard_rolls_the_circuit_back_when_assignment_fails(self):
-        client = _superuser_client("avw-fail")
+        client = superuser_client("avw-fail")
         url = self._walk(client, "AVW-F")
         with patch("netbox_fms.assignment.assign_paths", side_effect=ValidationError("taken")):
             response = client.post(url, {"confirm": "1"})
@@ -334,7 +328,7 @@ class TestCircuitWizard(_PlantMixin, TestCase):
         assert not FiberCircuit.objects.filter(name="AVW-V").exists()
 
     def test_back_restart_and_bad_input_keep_the_wizard_state(self):
-        client = _superuser_client("avw-nav")
+        client = superuser_client("avw-nav")
         url = reverse("plugins:netbox_fms:fibercircuit_wizard")
         assert client.post(url, {"name": ""}).status_code == 200  # invalid basics stay on step 1
         client.post(url, {"name": "AVW-NAV", "strand_count": 2, "status": FiberCircuitStatusChoices.PLANNED})
@@ -350,14 +344,14 @@ class TestCircuitWizard(_PlantMixin, TestCase):
         assert client.get(url).context["current_step"] == 1
 
     def test_stale_wizard_state_is_dropped(self):
-        client = _superuser_client("avw-ttl")
+        client = superuser_client("avw-ttl")
         url = reverse("plugins:netbox_fms:fibercircuit_wizard")
         client.post(url, {"name": "AVW-TTL", "strand_count": 2, "status": FiberCircuitStatusChoices.PLANNED})
         with patch.object(CircuitWizardView, "SESSION_TTL", -1):
             assert client.get(url).context["current_step"] == 1
 
     def test_htmx_requests_render_the_step_fragment_only(self):
-        client = _superuser_client("avw-hx")
+        client = superuser_client("avw-hx")
         url = reverse("plugins:netbox_fms:fibercircuit_wizard")
         response = client.get(url, HTTP_HX_REQUEST="true")
         assert response.status_code == 200
@@ -396,7 +390,7 @@ class TestPathAnalysisPages(_PlantMixin, TestCase):
         circuit = self.make_circuit("AVP-C")
         assign_strand_path(circuit, self.paths[0])
         url = reverse("plugins:netbox_fms:fiberstrandpath_list")
-        admin = _superuser_client("avp-list").get(url)
+        admin = superuser_client("avp-list").get(url)
         table = admin.context["table"]
         rows = {row.record.pk: row for row in table.rows}
         assert rows[self.paths[0].pk].get_cell("hop_count") == 1
@@ -409,7 +403,7 @@ class TestPathAnalysisPages(_PlantMixin, TestCase):
 
     def test_list_filters_narrow_the_results(self):
         assign_strand_path(self.make_circuit("AVP-F"), self.paths[0])
-        client = _superuser_client("avp-filter")
+        client = superuser_client("avp-filter")
         response = client.get(reverse("plugins:netbox_fms:fiberstrandpath_list"), {"assigned": "False"})
         assert [row.record.pk for row in response.context["table"].rows] == [self.paths[1].pk]
         loop = PathAnomaly.objects.create(kind="loop")
