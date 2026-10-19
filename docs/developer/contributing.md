@@ -42,8 +42,11 @@ When adding a model, update **all** of the following files:
 3. `forms.py` -- Form, ImportForm, BulkEditForm, FilterForm
 4. `filters.py` -- FilterSet
 5. `tables.py` -- Table class
-6. `views.py` -- List, Detail, Edit, Delete, Bulk views
-7. `urls.py` -- URL patterns
+6. `views.py` -- List, Detail, Edit, Delete, Bulk views, each registered with
+   `@register_model_view` (`detail=False` for list, add, `bulk_import` with
+   `path="import"`, `bulk_edit` with `path="edit"`, `bulk_delete` with
+   `path="delete"`)
+7. `urls.py` -- add the model's URL prefix to `MODEL_PREFIXES`
 8. `api/serializers.py` -- Serializer
 9. `api/views.py` -- ViewSet
 10. `api/urls.py` -- Router registration
@@ -61,6 +64,12 @@ All URL names follow this pattern:
 - Add: `plugins:netbox_fms:<modelname_lowercase>_add`
 - Edit: `plugins:netbox_fms:<modelname_lowercase>_edit`
 - Delete: `plugins:netbox_fms:<modelname_lowercase>_delete`
+- Import, bulk edit, bulk delete: `plugins:netbox_fms:<modelname_lowercase>_bulk_import`,
+  `_bulk_edit`, `_bulk_delete`
+
+`get_model_urls` builds each name from the model name and the
+`register_model_view` action name, so these are the names NetBox's own buttons
+reverse.
 
 ## Running Tests
 
