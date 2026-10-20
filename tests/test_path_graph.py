@@ -3,7 +3,16 @@
 from types import SimpleNamespace
 
 from netbox_fms.choices import PathCompletenessChoices, PathEndKindChoices
-from netbox_fms.path_graph import OPEN_CABLE_END, Chain, ChainEnd, fp_node, route_key_for, rp_node
+from netbox_fms.path_graph import (
+    OPEN_CABLE_END,
+    Chain,
+    ChainEnd,
+    PlantGraph,
+    _is_defective,
+    fp_node,
+    route_key_for,
+    rp_node,
+)
 from netbox_fms.trace import pair_far_rear_port_termination, paired_rear_port_terminations
 
 TERMINATED = ChainEnd(1, PathEndKindChoices.TERMINATED, "")
@@ -13,6 +22,15 @@ def test_route_key_is_stable_and_order_sensitive():
     assert route_key_for([3, 7, 9]) == route_key_for([3, 7, 9])
     assert route_key_for([3, 7, 9]) != route_key_for([9, 7, 3])
     assert len(route_key_for([3])) == 64
+
+
+def test_fault_matches_hops_by_kind_not_by_bare_id():
+    """A provider circuit pk equal to a faulted dcim cable pk is not a faulted hop (#198)."""
+    plant = PlantGraph(faulted_cables={5}, faulted_strands={9})
+    assert not _is_defective(plant, [("provider_circuit", 5), ("provider_circuit", 9)])
+    assert _is_defective(plant, [("cable", 5)])
+    assert _is_defective(plant, [("strand", 9)])
+    assert not _is_defective(plant, [("cable", 9), ("strand", 5)])
 
 
 def test_completeness_follows_the_end_kinds():

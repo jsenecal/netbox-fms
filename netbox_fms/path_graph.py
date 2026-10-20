@@ -526,7 +526,10 @@ def _open_reason(plant, fp):
 
 def _is_defective(plant, hops):
     """Whether any hop is a strand under an open fault or an unlanded position on a faulted cable."""
-    return any(ref_id in (plant.faulted_strands if kind == "strand" else plant.faulted_cables) for kind, ref_id in hops)
+    return any(
+        (kind == "strand" and ref_id in plant.faulted_strands) or (kind == "cable" and ref_id in plant.faulted_cables)
+        for kind, ref_id in hops
+    )
 
 
 def _is_proposed(plant, cable_ids, end_nodes):

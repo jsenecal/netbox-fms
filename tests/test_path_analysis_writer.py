@@ -79,6 +79,10 @@ class TestWriteOutcomes(WriterCase):
         path.refresh_from_db()
         assert stats.paths_updated == 1
         assert path.is_defective is True
+        stats = write_results([strand_chain(self.s1, self.s2)], self.stored(), computed_at=self.now)
+        path.refresh_from_db()
+        assert stats.paths_updated == 1
+        assert path.is_defective is False
 
     def test_reversed_chain_is_oriented_to_the_stored_path_and_not_rewritten(self):
         path = self.store(strand_chain(self.s1, self.s2, self.s3))
