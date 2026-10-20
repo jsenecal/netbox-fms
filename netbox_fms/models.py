@@ -1239,14 +1239,14 @@ class FiberFault(NetBoxModel):
     def clean(self):
         """Validate the location mark against the cable's sheath marks and the resolution date."""
         super().clean()
-        cable = self.fiber_cable
-        if self.location_mark is not None and cable.start_mark is not None and cable.end_mark is not None:
+        cable = self.fiber_cable if self.fiber_cable_id else None
+        if self.location_mark is not None and cable and cable.start_mark is not None and cable.end_mark is not None:
             low, high = sorted((cable.start_mark, cable.end_mark))
             if not low <= self.location_mark <= high:
                 raise ValidationError(
                     {"location_mark": _("Location mark must lie between the cable's start and end marks.")}
                 )
-        if self.resolved_at is not None and self.resolved_at < self.reported_at:
+        if self.resolved_at and self.reported_at and self.resolved_at < self.reported_at:
             raise ValidationError({"resolved_at": _("Resolved time cannot precede the reported time.")})
 
     def save(self, *args, **kwargs):

@@ -45,6 +45,16 @@ class TestFiberFault(TestCase):
     def test_location_mark_between_descending_marks_is_accepted(self):
         self._fault(location_mark=Decimal("40")).full_clean()
 
+    def test_location_mark_equal_to_a_sheath_mark_is_accepted(self):
+        self._fault(location_mark=Decimal("100")).full_clean()
+
+    def test_unset_cable_and_date_give_field_errors_not_a_crash(self):
+        """#198: clean() runs even when the required fields failed validation."""
+        fault = FiberFault(location_mark=Decimal("5"), resolved_at=timezone.now(), reported_at=None)
+        with self.assertRaises(ValidationError) as ctx:
+            fault.full_clean()
+        self.assertIn("fiber_cable", ctx.exception.message_dict)
+
     def test_resolving_stamps_resolved_at_and_reopening_clears_it(self):
         fault = self._fault()
         fault.save()
