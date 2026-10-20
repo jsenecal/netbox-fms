@@ -1231,6 +1231,10 @@ class FiberFault(NetBoxModel):
         """Return the detail URL."""
         return reverse("plugins:netbox_fms:fiberfault", args=[self.pk])
 
+    def get_status_color(self):
+        """Return the badge color of the current status."""
+        return FiberFaultStatusChoices.colors.get(self.status)
+
     @property
     def is_whole_cable(self):
         """True when the fault names no strands."""

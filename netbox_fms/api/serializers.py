@@ -522,8 +522,9 @@ class FiberFaultSerializer(NetBoxModelSerializer):
     def validate(self, data):
         """Refuse strands that sit on a different cable than the fault."""
         data = super().validate(data)
-        if "strands" in data:
-            validate_fault_strands(data.get("fiber_cable") or self.instance.fiber_cable, data["strands"])
+        if "fiber_cable" in data or "strands" in data:
+            cable = data.get("fiber_cable") or self.instance.fiber_cable
+            validate_fault_strands(cable, data.get("strands", self.instance.strands.all() if self.instance else []))
         return data
 
 

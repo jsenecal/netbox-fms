@@ -155,6 +155,19 @@ class TestFaultValidationSurfaces(FaultWorld, AuthedAPIClientMixin, TestCase):
         resp = self.client.patch(f"/api/plugins/fms/fiber-faults/{fault.pk}/", {"strands": [own.pk]}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
 
+    def test_patch_moving_the_fault_rechecks_its_existing_strands(self):
+        fault = FiberFault.objects.create(fiber_cable=self.cable_1)
+        fault.strands.add(self.cable_1.fiber_strands.first())
+        resp = self.client.patch(
+            f"/api/plugins/fms/fiber-faults/{fault.pk}/", {"fiber_cable": self.cable_2.pk}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("strands", resp.json())
+
+    def test_whole_cable_fault_can_be_created_without_strands(self):
+        resp = self.client.post("/api/plugins/fms/fiber-faults/", {"fiber_cable": self.cable_1.pk}, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+
     def test_patch_without_strands_skips_the_cable_check(self):
         fault = FiberFault.objects.create(fiber_cable=self.cable_1)
         resp = self.client.patch(
@@ -208,6 +221,7 @@ class TestFaultPages(FaultWorld, TestCase):
     def test_list_renders_zero_strands_as_whole_cable(self):
         content = self.client.get(reverse("plugins:netbox_fms:fiberfault_list")).content.decode()
         self.assertIn("Whole cable", content)
+        self.assertRegex(content, r"<td[^>]*>\s*2\s*</td>")
 
     def test_cable_panel_lists_only_open_faults_with_report_button(self):
         content = self.client.get(self.cable_1.get_absolute_url()).content.decode()
@@ -222,7 +236,22 @@ class TestFaultPages(FaultWorld, TestCase):
         self.assertIn(self.whole.get_absolute_url(), content)
         self.assertNotIn(reverse("plugins:netbox_fms:fiberfault_add"), content)
 
-    def test_detail_page_names_the_faulted_strands(self):
-        content = self.client.get(self.partial.get_absolute_url()).content.decode()
-        for strand in self.partial.strands.all():
-            self.assertIn(strand.name, content)
+    def test_cable_panel_hides_faults_the_user_may_not_view(self):
+        client = ui_client_with("fault-blind", [(FiberCable, ["view"], None)])
+        content = client.get(self.cable_1.get_absolute_url()).content.decode()
+        self.assertNotIn(self.whole.get_absolute_url(), content)
+        self.assertNotIn(self.partial.get_absolute_url(), content)
+
+    def test_cable_panel_hides_strands_the_user_may_not_view(self):
+        hidden, shown = self.partial.strands.order_by("position")
+        client = ui_client_with(
+            "fault-strand-blind",
+            [
+                (FiberCable, ["view"], None),
+                (FiberFault, ["view"], None),
+                (FiberStrand, ["view"], {"pk": shown.pk}),
+            ],
+        )
+        content = client.get(self.cable_1.get_absolute_url()).content.decode()
+        self.assertIn(self.partial.get_absolute_url(), content)
+        self.assertIn(f"<td>{shown.name}</td>", content)

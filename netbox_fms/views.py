@@ -623,7 +623,9 @@ class FiberCableView(generic.ObjectView):
         active_strands = instance.fiber_strands.filter(path_hops__path__assignments__active=True).distinct().count()
         available_strands = total_strands - active_strands
         return {
-            "open_faults": instance.faults.filter(status=FiberFaultStatusChoices.OPEN).prefetch_related("strands"),
+            "open_faults": instance.faults.restrict(request.user, "view")
+            .filter(status=FiberFaultStatusChoices.OPEN)
+            .prefetch_related(Prefetch("strands", queryset=FiberStrand.objects.restrict(request.user, "view"))),
             "strand_stats": {
                 "total": total_strands,
                 "active": active_strands,
@@ -1542,11 +1544,6 @@ class SlackLoopBulkDeleteView(generic.BulkDeleteView):
 
 
 # ---------------------------------------------------------------------------
-# Insert Slack Loop into Closure
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # FiberFault
 # ---------------------------------------------------------------------------
 
@@ -1614,6 +1611,11 @@ class FiberFaultBulkDeleteView(generic.BulkDeleteView):
     queryset = FIBER_FAULT_QUERYSET
     filterset = FiberFaultFilterSet
     table = FiberFaultTable
+
+
+# ---------------------------------------------------------------------------
+# Insert Slack Loop into Closure
+# ---------------------------------------------------------------------------
 
 
 def insert_slack_loop_into_closure(slack_loop, closure, a_side_rear_ports, b_side_rear_ports, express_strand_positions):

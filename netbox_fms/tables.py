@@ -227,50 +227,6 @@ class CableElementTemplateTable(NetBoxTable):
 # ---------------------------------------------------------------------------
 
 
-class FiberFaultTable(NetBoxTable):
-    """Table for displaying FiberFault objects.
-
-    Needs the ``strand_count`` annotation (the view querysets add it) to tell whole-cable faults apart.
-    """
-
-    pk = columns.ToggleColumn()
-    id = tables.Column(linkify=True, verbose_name=_("ID"))
-    fiber_cable = tables.Column(linkify=True, verbose_name=_("Fiber Cable"))
-    status = columns.ChoiceFieldColumn(verbose_name=_("Status"))
-    strand_count = tables.Column(verbose_name=_("Strands"))
-    reported_at = tables.DateTimeColumn(verbose_name=_("Reported at"))
-    location_mark = tables.Column(verbose_name=_("Location mark"))
-    description = tables.Column(verbose_name=_("Description"))
-    actions = columns.ActionsColumn()
-
-    def render_strand_count(self, value):
-        return value or _("Whole cable")
-
-    class Meta(NetBoxTable.Meta):
-        model = FiberFault
-        fields = (
-            "pk",
-            "id",
-            "fiber_cable",
-            "status",
-            "strand_count",
-            "reported_at",
-            "location_mark",
-            "description",
-            "actions",
-        )
-        default_columns = (
-            "pk",
-            "id",
-            "fiber_cable",
-            "status",
-            "strand_count",
-            "reported_at",
-            "location_mark",
-            "description",
-        )
-
-
 class FiberCableTable(NetBoxTable):
     """Table for displaying FiberCable objects."""
 
@@ -627,6 +583,55 @@ class SlackLoopTable(NetBoxTable):
             "loop_length",
             "mark_unit",
             "actions",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fiber Faults
+# ---------------------------------------------------------------------------
+
+
+class FiberFaultTable(NetBoxTable):
+    """Table for displaying FiberFault objects.
+
+    Needs the ``strand_count`` annotation (the view querysets add it) to tell whole-cable faults apart.
+    """
+
+    pk = columns.ToggleColumn()
+    id = tables.Column(linkify=True, verbose_name=_("ID"))
+    fiber_cable = tables.Column(linkify=True, verbose_name=_("Fiber Cable"))
+    status = columns.ChoiceFieldColumn(verbose_name=_("Status"))
+    strand_count = tables.Column(verbose_name=_("Strands"))
+    reported_at = tables.DateTimeColumn(verbose_name=_("Reported at"))
+    location_mark = tables.Column(verbose_name=_("Location mark"))
+    description = tables.Column(verbose_name=_("Description"))
+    actions = columns.ActionsColumn()
+
+    def render_strand_count(self, value):
+        return value or _("Whole cable")
+
+    class Meta(NetBoxTable.Meta):
+        model = FiberFault
+        fields = (
+            "pk",
+            "id",
+            "fiber_cable",
+            "status",
+            "strand_count",
+            "reported_at",
+            "location_mark",
+            "description",
+            "actions",
+        )
+        default_columns = (
+            "pk",
+            "id",
+            "fiber_cable",
+            "status",
+            "strand_count",
+            "reported_at",
+            "location_mark",
+            "description",
         )
 
 

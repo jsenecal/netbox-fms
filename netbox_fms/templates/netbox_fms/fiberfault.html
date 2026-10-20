@@ -15,13 +15,7 @@
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Status" %}</th>
-                    <td>
-                        {% if object.status == 'open' %}
-                            <span class="badge text-bg-danger">{{ object.get_status_display }}</span>
-                        {% else %}
-                            <span class="badge text-bg-success">{{ object.get_status_display }}</span>
-                        {% endif %}
-                    </td>
+                    <td>{% badge object.get_status_display bg_color=object.get_status_color %}</td>
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Description" %}</th>
