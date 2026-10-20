@@ -36,6 +36,10 @@ class TriggerCase(TestCase):
             fn()
         return set(PathAnalysisQueue.objects.values_list("device_id", "reason"))
 
+    def cable_ends(self, reason):
+        """The rows that queue both ends of fc_ab for this reason."""
+        return {(self.dev_a.pk, reason), (self.dev_b.pk, reason)}
+
 
 class TestTriggers(TriggerCase):
     def test_trunk_cable_save_queues_both_ends(self):
@@ -96,17 +100,17 @@ class TestTriggers(TriggerCase):
 class TestFaultTriggers(TriggerCase):
     def test_reporting_a_fault_queues_the_cable_ends_as_fault_changed(self):
         rows = self.queued(lambda: FiberFault.objects.create(fiber_cable=self.fc_ab))
-        assert rows == {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+        assert rows == self.cable_ends(Reason.FAULT_CHANGED)
 
     def test_changing_and_deleting_a_fault_queue_the_cable_ends(self):
         fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
-        expected = {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+        expected = self.cable_ends(Reason.FAULT_CHANGED)
         assert self.queued(fault.save) == expected
         assert self.queued(fault.delete) == expected
 
     def test_adding_a_strand_to_a_fault_queues_the_cable_ends(self):
         fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
-        expected = {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+        expected = self.cable_ends(Reason.FAULT_CHANGED)
         assert self.queued(lambda: fault.strands.add(self.s1)) == expected
         assert self.queued(lambda: fault.strands.remove(self.s1)) == expected
         assert self.queued(fault.strands.clear) == expected
@@ -114,9 +118,9 @@ class TestFaultTriggers(TriggerCase):
     def test_adding_a_fault_from_the_strand_side_queues_the_cable_ends(self):
         fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
         rows = self.queued(lambda: self.s1.faults.add(fault))
-        assert rows == {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+        assert rows == self.cable_ends(Reason.FAULT_CHANGED)
 
-    def test_pre_m2m_actions_queue_nothing(self):
+    def test_a_strand_add_enqueues_once_on_post_add_only(self):
         fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
         with patch("netbox_fms.path_queue.enqueue_devices") as enqueue:
             fault.strands.add(self.s1)
@@ -126,4 +130,5 @@ class TestFaultTriggers(TriggerCase):
         FiberFault.objects.create(fiber_cable=self.fc_bc)
         rows = self.queued(self.fc_bc.delete)
         assert {(self.dev_b.pk, Reason.CABLE_CHANGED), (self.dev_c.pk, Reason.CABLE_CHANGED)} <= rows
+        assert {(self.dev_b.pk, Reason.FAULT_CHANGED), (self.dev_c.pk, Reason.FAULT_CHANGED)} <= rows
         assert not FiberFault.objects.filter(fiber_cable_id=self.fc_bc.pk).exists()

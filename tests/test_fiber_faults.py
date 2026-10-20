@@ -63,7 +63,6 @@ class TestFiberFault(TestCase):
     def test_resolving_stamps_resolved_at_and_reopening_clears_it(self):
         fault = self._fault()
         fault.save()
-        self.assertTrue(fault.is_whole_cable)
         fault.status = FiberFaultStatusChoices.RESOLVED
         fault.save()
         self.assertIsNotNone(fault.resolved_at)
@@ -254,4 +253,5 @@ class TestFaultPages(FaultWorld, TestCase):
         )
         content = client.get(self.cable_1.get_absolute_url()).content.decode()
         self.assertIn(self.partial.get_absolute_url(), content)
+        self.assertNotIn(hidden.name, content)
         self.assertIn(f"<td>{shown.name}</td>", content)

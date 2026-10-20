@@ -1235,11 +1235,6 @@ class FiberFault(NetBoxModel):
         """Return the badge color of the current status."""
         return FiberFaultStatusChoices.colors.get(self.status)
 
-    @property
-    def is_whole_cable(self):
-        """True when the fault names no strands."""
-        return not self.strands.exists()
-
     def clean(self):
         """Validate the location mark against the cable's sheath marks and the resolution date."""
         super().clean()

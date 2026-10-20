@@ -121,6 +121,16 @@ class TestFaulted(EvaluationCase):
         assert seen[0].assignments_broken == 0
         assert ("fibercircuitpath", "update") not in logged
 
+    def test_a_faulted_path_that_is_lost_reads_path_lost(self):
+        """Replacing the whole faulted cable cascades the fault away: the kept path is no longer defective (#198)."""
+        assignment, path = self.assigned(self.s1, self.s2)
+        self.analyze(chain(self.s1, self.s2, defective=True))
+        self.analyze()
+        assignment.refresh_from_db()
+        path.refresh_from_db()
+        assert path.is_defective is False
+        assert (assignment.is_broken, assignment.broken_reason) == (True, AssignmentBrokenReasonChoices.PATH_LOST)
+
     def test_fault_does_not_consume_a_route_change_authorization(self):
         self.assigned(self.s1, self.s3)
         authorize_route_change(self.circuit, self.circuit)

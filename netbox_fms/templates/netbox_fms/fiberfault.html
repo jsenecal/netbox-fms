@@ -31,7 +31,7 @@
                 </tr>
                 <tr>
                     <th scope="row">{% trans "Location mark" %}</th>
-                    <td>{{ object.location_mark|placeholder }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}</td>
+                    <td>{% if object.location_mark is not None %}{{ object.location_mark }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}{% else %}{{ ''|placeholder }}{% endif %}</td>
                 </tr>
             </table>
         </div>
@@ -51,12 +51,7 @@
 </div>
 <div class="row mb-3">
     <div class="col col-md-12">
-        {% if object.comments %}
-        <div class="card">
-            <h5 class="card-header">{% trans "Comments" %}</h5>
-            <div class="card-body">{{ object.comments|markdown }}</div>
-        </div>
-        {% endif %}
+        {% include 'inc/panels/comments.html' %}
     </div>
 </div>
 {% plugin_full_width_page object %}

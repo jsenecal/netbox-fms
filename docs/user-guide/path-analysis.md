@@ -104,14 +104,15 @@ Plant changes queue the devices they touch (`PathAnalysisQueue`). The
 `Fiber path analysis` job re-analyzes the queued devices after a short window,
 once per window no matter how many changes arrive.
 
-| Change                                                              | Devices queued                     |
-| ------------------------------------------------------------------- | ---------------------------------- |
-| Cable created, changed or deleted                                   | Devices of its terminations        |
-| Splice jumper created, changed or deleted                           | The closure                        |
-| Cable termination, port mapping or FiberCable changed               | The device concerned               |
-| Strand saved                                                        | Devices of the ports it lands on   |
-| Closure cable entry changed                                         | The closure                        |
-| Bulk import or provisioning that bypasses per-object signals        | The devices written                |
+| Change                                                              | Devices queued                      |
+| ------------------------------------------------------------------- | ----------------------------------- |
+| Cable created, changed or deleted                                   | Devices of its terminations         |
+| Splice jumper created, changed or deleted                           | The closure                         |
+| Cable termination, port mapping or FiberCable changed               | The device concerned                |
+| Strand saved                                                        | Devices of the ports it lands on    |
+| Closure cable entry changed                                         | The closure                         |
+| Fault created, changed, strands changed or deleted                  | Devices of the cable's terminations |
+| Bulk import or provisioning that bypasses per-object signals        | The devices written                 |
 
 Only devices with a FiberCable connected, or that appear on a stored path,
 are queued. A device's last cable being removed still queues it.

@@ -226,11 +226,16 @@ def write_results(chains, stored_paths, *, computed_at):
 
 
 def _drop_lost(lost):
-    """Delete lost paths nothing references; keep assigned ones as hop-less rows. Returns (deleted, kept)."""
+    """Delete lost paths nothing references; keep assigned ones as hop-less rows. Returns (deleted, kept).
+
+    A kept row crosses no fiber, so it crosses no fault either: its defect flag is cleared and its
+    assignment reads as lost rather than faulted.
+    """
     referenced = set(FiberCircuitPath.objects.filter(strand_path__in=lost).values_list("strand_path_id", flat=True))
     kept = [path for path in lost if path.pk in referenced]
     FiberStrandPath.objects.filter(pk__in=[path.pk for path in lost if path.pk not in referenced]).delete()
     FiberStrandPathHop.objects.filter(path__in=kept).delete()
+    FiberStrandPath.objects.filter(pk__in=[path.pk for path in kept]).update(is_defective=False)
     return len(lost) - len(kept), kept
 
 

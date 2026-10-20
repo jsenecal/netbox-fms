@@ -81,7 +81,7 @@ def assign_paths(circuit, strand_paths, *, allow_incomplete=False):
 
 
 def acknowledgeable_assignments(circuit):
-    """The broken assignments of the circuit that acknowledging accepts: those whose path still has hops.
+    """The broken assignments of the circuit that acknowledging accepts: those whose path still has hops and is not defective.
 
     A path that crosses a fault is never accepted; it heals when the fault is resolved.
 
