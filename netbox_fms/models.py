@@ -3,6 +3,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from netbox.models import NetBoxModel
 from utilities.fields import ColorField, CounterCacheField
@@ -17,6 +18,7 @@ from .choices import (
     DeploymentChoices,
     FiberCircuitStatusChoices,
     FiberColorSchemeChoices,
+    FiberFaultStatusChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     PathAnalysisReasonChoices,
@@ -41,6 +43,7 @@ __all__ = (
     "BufferTube",
     "Ribbon",
     "FiberStrand",
+    "FiberFault",
     "CableElement",
     "SpliceProject",
     "SplicePlan",
@@ -1152,6 +1155,108 @@ class FiberStrand(NetBoxModel):
     def get_absolute_url(self):
         """Return the detail URL for the parent fiber cable."""
         return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
+
+
+def validate_fault_strands(fiber_cable, strands):
+    """Refuse strands that do not belong to ``fiber_cable``.
+
+    FiberFault.clean() cannot see an unsaved many-to-many, so forms and serializers call this.
+    """
+    foreign = [strand.name for strand in strands if strand.fiber_cable_id != fiber_cable.pk]
+    if foreign:
+        raise ValidationError({"strands": _("Strands not on this cable: %(names)s.") % {"names": ", ".join(foreign)}})
+
+
+class FiberFault(NetBoxModel):
+    """
+    A reported fault on a FiberCable, either on the whole cable or on specific strands.
+
+    An empty ``strands`` set means the whole cable is affected.
+    """
+
+    fiber_cable = models.ForeignKey(
+        to="netbox_fms.FiberCable",
+        on_delete=models.CASCADE,
+        related_name="faults",
+    )
+    strands = models.ManyToManyField(
+        to="netbox_fms.FiberStrand",
+        related_name="faults",
+        blank=True,
+        help_text=_("Affected strands. Leave empty when the whole cable is affected."),
+    )
+    status = models.CharField(
+        verbose_name=_("status"),
+        max_length=30,
+        choices=FiberFaultStatusChoices,
+        default=FiberFaultStatusChoices.OPEN,
+    )
+    reported_at = models.DateTimeField(
+        verbose_name=_("reported at"),
+        default=timezone.now,
+    )
+    resolved_at = models.DateTimeField(
+        verbose_name=_("resolved at"),
+        blank=True,
+        null=True,
+    )
+    location_mark = models.DecimalField(
+        verbose_name=_("location mark"),
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text=_("Approximate sheath mark of the fault, in the cable type's mark_unit."),
+    )
+    description = models.CharField(
+        verbose_name=_("description"),
+        max_length=200,
+        blank=True,
+    )
+    comments = models.TextField(
+        verbose_name=_("comments"),
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ("-reported_at", "pk")
+        verbose_name = _("fiber fault")
+        verbose_name_plural = _("fiber faults")
+
+    def __str__(self):
+        """Return the cable and the report date."""
+        return f"Fault on {self.fiber_cable.cable} ({self.reported_at:%Y-%m-%d})"
+
+    def get_absolute_url(self):
+        """Return the detail URL."""
+        return reverse("plugins:netbox_fms:fiberfault", args=[self.pk])
+
+    @property
+    def is_whole_cable(self):
+        """True when the fault names no strands."""
+        return not self.strands.exists()
+
+    def clean(self):
+        """Validate the location mark against the cable's sheath marks and the resolution date."""
+        super().clean()
+        cable = self.fiber_cable
+        if self.location_mark is not None and cable.start_mark is not None and cable.end_mark is not None:
+            low, high = sorted((cable.start_mark, cable.end_mark))
+            if not low <= self.location_mark <= high:
+                raise ValidationError(
+                    {"location_mark": _("Location mark must lie between the cable's start and end marks.")}
+                )
+        if self.resolved_at is not None and self.resolved_at < self.reported_at:
+            raise ValidationError({"resolved_at": _("Resolved time cannot precede the reported time.")})
+
+    def save(self, *args, **kwargs):
+        """Keep resolved_at consistent with the status."""
+        if self.status == FiberFaultStatusChoices.RESOLVED:
+            if self.resolved_at is None:
+                self.resolved_at = timezone.now()
+        else:
+            self.resolved_at = None
+        super().save(*args, **kwargs)
 
 
 class CableElement(NetBoxModel):
