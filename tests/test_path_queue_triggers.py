@@ -7,7 +7,7 @@ from django.test import TestCase
 
 from netbox_fms.choices import PathAnalysisReasonChoices as Reason
 from netbox_fms.jobs import PathAnalysisJob
-from netbox_fms.models import ClosureCableEntry, FiberCableType, PathAnalysisQueue
+from netbox_fms.models import ClosureCableEntry, FiberCableType, FiberFault, PathAnalysisQueue
 from netbox_fms.path_analysis import run_reconcile
 from netbox_fms.services import create_closure_cable
 from netbox_fms.signals import fms_portmapping_bypass
@@ -91,3 +91,39 @@ class TestTriggers(TriggerCase):
         rp = RearPort.objects.create(device=lonely, name="TRG-RP", type="lc", positions=1)
         rows = self.queued(lambda: CableTermination.objects.create(cable=plain, cable_end="A", termination=rp))
         assert rows == set()
+
+
+class TestFaultTriggers(TriggerCase):
+    def test_reporting_a_fault_queues_the_cable_ends_as_fault_changed(self):
+        rows = self.queued(lambda: FiberFault.objects.create(fiber_cable=self.fc_ab))
+        assert rows == {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+
+    def test_changing_and_deleting_a_fault_queue_the_cable_ends(self):
+        fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
+        expected = {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+        assert self.queued(fault.save) == expected
+        assert self.queued(fault.delete) == expected
+
+    def test_adding_a_strand_to_a_fault_queues_the_cable_ends(self):
+        fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
+        expected = {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+        assert self.queued(lambda: fault.strands.add(self.s1)) == expected
+        assert self.queued(lambda: fault.strands.remove(self.s1)) == expected
+        assert self.queued(fault.strands.clear) == expected
+
+    def test_adding_a_fault_from_the_strand_side_queues_the_cable_ends(self):
+        fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
+        rows = self.queued(lambda: self.s1.faults.add(fault))
+        assert rows == {(self.dev_a.pk, Reason.FAULT_CHANGED), (self.dev_b.pk, Reason.FAULT_CHANGED)}
+
+    def test_pre_m2m_actions_queue_nothing(self):
+        fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
+        with patch("netbox_fms.path_queue.enqueue_devices") as enqueue:
+            fault.strands.add(self.s1)
+        assert enqueue.call_count == 1
+
+    def test_deleting_a_fiber_cable_with_faults_does_not_raise(self):
+        FiberFault.objects.create(fiber_cable=self.fc_bc)
+        rows = self.queued(self.fc_bc.delete)
+        assert {(self.dev_b.pk, Reason.CABLE_CHANGED), (self.dev_c.pk, Reason.CABLE_CHANGED)} <= rows
+        assert not FiberFault.objects.filter(fiber_cable_id=self.fc_bc.pk).exists()

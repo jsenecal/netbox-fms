@@ -5,7 +5,7 @@ import logging
 
 from django.core.exceptions import ValidationError
 from django.db.models import ProtectedError
-from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
+from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete, pre_save
 
 from . import naming
 
@@ -422,6 +422,25 @@ def _fibercable_post_delete(sender, instance, **kwargs):
     enqueue_devices(_cable_device_ids(instance.cable_id), PathAnalysisReasonChoices.CABLE_CHANGED)
 
 
+def _fiberfault_changed(sender, instance, **kwargs):
+    """Queue the ends of a faulted cable so defective flags and broken circuits follow the fault.
+
+    Serves the fault's save and delete and its strand set. The strand set is
+    reached from either side (``fault.strands`` or ``strand.faults``); a
+    strand always belongs to its fault's cable, so ``instance`` names the same
+    cable either way. A cascade from the cable may have removed the FiberCable
+    by now, in which case there is nothing left to look up.
+    """
+    from .choices import PathAnalysisReasonChoices
+    from .models import FiberCable
+    from .path_queue import enqueue_devices
+
+    if kwargs.get("action", "post_add") not in ("post_add", "post_remove", "post_clear"):
+        return
+    cable_id = FiberCable.objects.filter(pk=instance.fiber_cable_id).values_list("cable_id", flat=True).first()
+    enqueue_devices(_cable_device_ids(cable_id), PathAnalysisReasonChoices.FAULT_CHANGED)
+
+
 def _fiberstrand_post_save(sender, instance, **kwargs):
     """Queue the devices a strand's front ports sit on."""
     from dcim.models import FrontPort
@@ -624,4 +643,12 @@ def connect_signals():
         _fiber_circuit_path_post_delete,
         sender=FiberCircuitPath,
         dispatch_uid="fms_fiber_circuit_path_post_delete",
+    )
+
+    from .models import FiberFault
+
+    post_save.connect(_fiberfault_changed, sender=FiberFault, dispatch_uid="fms_fiberfault_post_save")
+    post_delete.connect(_fiberfault_changed, sender=FiberFault, dispatch_uid="fms_fiberfault_post_delete")
+    m2m_changed.connect(
+        _fiberfault_changed, sender=FiberFault.strands.through, dispatch_uid="fms_fiberfault_strands_changed"
     )
