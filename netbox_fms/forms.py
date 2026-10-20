@@ -40,6 +40,7 @@ from utilities.forms.fields import (
 )
 from utilities.forms.rendering import FieldSet
 from utilities.forms.utils import add_blank_choice
+from utilities.forms.widgets import DateTimePicker
 
 from .choices import (
     CableElementTypeChoices,
@@ -47,6 +48,7 @@ from .choices import (
     DeploymentChoices,
     FiberCircuitStatusChoices,
     FiberColorSchemeChoices,
+    FiberFaultStatusChoices,
     FireRatingChoices,
     MarkerTypeChoices,
     PathAnalysisReasonChoices,
@@ -68,6 +70,8 @@ from .models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberFault,
+    FiberStrand,
     FiberStrandPath,
     PathAnalysisQueue,
     PathAnomaly,
@@ -78,6 +82,7 @@ from .models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
+    validate_fault_strands,
 )
 from .services import import_live_state
 
@@ -976,6 +981,103 @@ class SlackLoopFilterForm(NetBoxModelFilterSetForm):
         FieldSet("q", "filter_id", "tag"),
         FieldSet("fiber_cable_id", "site_id", "location_id", name=_("Location")),
         FieldSet("storage_method", name=_("Attributes")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# FiberFault
+# ---------------------------------------------------------------------------
+
+
+class FiberFaultForm(NetBoxModelForm):
+    """Form for reporting/editing a FiberFault."""
+
+    fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
+    strands = DynamicModelMultipleChoiceField(
+        queryset=FiberStrand.objects.all(),
+        required=False,
+        label=_("Faulted strands"),
+        help_text=_("Leave empty when the whole cable is faulted."),
+        query_params={"fiber_cable_id": "$fiber_cable"},
+    )
+    comments = CommentField()
+
+    fieldsets = (
+        FieldSet("fiber_cable", "strands", "status", "description", name=_("Fault")),
+        FieldSet("reported_at", "resolved_at", "location_mark", name=_("Timing and location")),
+        FieldSet("tags", name=_("Additional")),
+    )
+
+    class Meta:
+        model = FiberFault
+        fields = (
+            "fiber_cable",
+            "strands",
+            "status",
+            "reported_at",
+            "resolved_at",
+            "location_mark",
+            "description",
+            "comments",
+            "tags",
+        )
+        widgets = {"reported_at": DateTimePicker(), "resolved_at": DateTimePicker()}
+
+    def clean(self):
+        """Refuse strands that sit on a different cable than the fault."""
+        super().clean()
+        cable = self.cleaned_data.get("fiber_cable")
+        if cable:
+            validate_fault_strands(cable, self.cleaned_data.get("strands") or [])
+        return self.cleaned_data
+
+
+class FiberFaultImportForm(NetBoxModelImportForm):
+    """Import form for FiberFault; imports whole-cable faults only."""
+
+    fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all())
+    status = CSVChoiceField(choices=FiberFaultStatusChoices, required=False)
+
+    class Meta:
+        model = FiberFault
+        fields = (
+            "fiber_cable",
+            "status",
+            "reported_at",
+            "resolved_at",
+            "location_mark",
+            "description",
+            "comments",
+        )
+
+
+class FiberFaultBulkEditForm(NetBoxModelBulkEditForm):
+    """Bulk edit form for FiberFault."""
+
+    model = FiberFault
+
+    status = forms.ChoiceField(choices=add_blank_choice(FiberFaultStatusChoices), required=False)
+    description = forms.CharField(max_length=200, required=False)
+
+    fieldsets = (FieldSet("status", "description"),)
+    nullable_fields = ("description",)
+
+
+class FiberFaultFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for FiberFault."""
+
+    model = FiberFault
+
+    fiber_cable_id = DynamicModelMultipleChoiceField(
+        queryset=FiberCable.objects.all(),
+        required=False,
+        label=_("Fiber Cable"),
+    )
+    status = forms.MultipleChoiceField(choices=FiberFaultStatusChoices, required=False)
+
+    fieldsets = (
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("fiber_cable_id", "status", name=_("Fault")),
     )
 
 

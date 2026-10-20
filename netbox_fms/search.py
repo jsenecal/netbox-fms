@@ -4,6 +4,7 @@ from .models import (
     FiberCable,
     FiberCableType,
     FiberCircuit,
+    FiberFault,
     SlackLoop,
     SplicePlan,
     SpliceProject,
@@ -80,6 +81,18 @@ class SlackLoopIndex(SearchIndex):
     model = SlackLoop
     fields = (("notes", 5000),)
     display_attrs = ("fiber_cable", "site", "start_mark", "end_mark", "mark_unit")
+
+
+@register_search
+class FiberFaultIndex(SearchIndex):
+    """Search index for FiberFault."""
+
+    model = FiberFault
+    fields = (
+        ("description", 100),
+        ("comments", 5000),
+    )
+    display_attrs = ("fiber_cable", "status", "reported_at")
 
 
 @register_search

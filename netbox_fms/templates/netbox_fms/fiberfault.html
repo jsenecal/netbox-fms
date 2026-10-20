@@ -1,0 +1,69 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+{% load i18n %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Fiber Fault" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Fiber Cable" %}</th>
+                    <td>{{ object.fiber_cable|linkify }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Status" %}</th>
+                    <td>
+                        {% if object.status == 'open' %}
+                            <span class="badge text-bg-danger">{{ object.get_status_display }}</span>
+                        {% else %}
+                            <span class="badge text-bg-success">{{ object.get_status_display }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Description" %}</th>
+                    <td>{{ object.description|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Reported at" %}</th>
+                    <td>{{ object.reported_at|isodatetime }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Resolved at" %}</th>
+                    <td>{{ object.resolved_at|isodatetime|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Location mark" %}</th>
+                    <td>{{ object.location_mark|placeholder }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Faulted Strands" %}</h5>
+            <ul class="list-group list-group-flush">
+                {% for strand in object.strands.all %}
+                <li class="list-group-item">{{ strand|linkify }}</li>
+                {% empty %}
+                <li class="list-group-item text-muted">{% trans "Whole cable" %}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col col-md-12">
+        {% if object.comments %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Comments" %}</h5>
+            <div class="card-body">{{ object.comments|markdown }}</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% plugin_full_width_page object %}
+{% endblock %}

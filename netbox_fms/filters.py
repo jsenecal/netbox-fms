@@ -2,6 +2,7 @@ import django_filters
 from circuits.models import Circuit, Provider
 from dcim.models import Cable, Device, Location, Manufacturer, Module, Site
 from django.db import models
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from netbox.filtersets import BaseFilterSet, NetBoxModelFilterSet
 from tenancy.models import Tenant
@@ -12,6 +13,7 @@ from .choices import (
     DeploymentChoices,
     FiberCircuitStatusChoices,
     FiberColorSchemeChoices,
+    FiberFaultStatusChoices,
     FireRatingChoices,
     PathAnalysisReasonChoices,
     PathAnomalyKindChoices,
@@ -32,6 +34,7 @@ from .models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberFault,
     FiberStrand,
     FiberStrandPath,
     PathAnalysisQueue,
@@ -178,6 +181,10 @@ class CableElementTemplateFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         fields = ("id", "fiber_cable_type_id", "name", "element_type")
 
 
+def _open_faults():
+    return FiberFault.objects.filter(status=FiberFaultStatusChoices.OPEN)
+
+
 class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for FiberCable model."""
 
@@ -202,6 +209,7 @@ class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         label=_("Terminated at device (ID)"),
         distinct=True,
     )
+    is_faulted = django_filters.BooleanFilter(method="filter_is_faulted", label=_("Has an open fault"))
 
     search_fields = (
         "serial_number__icontains",
@@ -221,6 +229,11 @@ class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
             "installed_by_id",
             "terminated_device_id",
         )
+
+    def filter_is_faulted(self, queryset, name, value):
+        """Cables with any open fault, whole-cable or strand-level (``False`` for the complement)."""
+        faulted = Q(pk__in=_open_faults().values("fiber_cable"))
+        return queryset.filter(faulted) if value else queryset.exclude(faulted)
 
 
 class BufferTubeFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
@@ -296,12 +309,21 @@ class FiberStrandFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         exclude=True,
         label=_("Has front port B"),
     )
+    is_faulted = django_filters.BooleanFilter(method="filter_is_faulted", label=_("Covered by an open fault"))
 
     search_fields = ("name__icontains",)
 
     class Meta:
         model = FiberStrand
         fields = ("id", "fiber_cable_id", "buffer_tube_id", "ribbon_id", "name", "position")
+
+    def filter_is_faulted(self, queryset, name, value):
+        """Strands named by an open fault, or on a cable with an open whole-cable fault."""
+        open_faults = _open_faults()
+        faulted = Q(pk__in=FiberStrand.objects.filter(faults__in=open_faults).values("pk")) | Q(
+            fiber_cable__in=open_faults.filter(strands__isnull=True).values("fiber_cable")
+        )
+        return queryset.filter(faulted) if value else queryset.exclude(faulted)
 
 
 class CableElementFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
@@ -447,6 +469,28 @@ class SlackLoopFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     class Meta:
         model = SlackLoop
         fields = ("id", "fiber_cable_id", "site_id", "location_id", "storage_method")
+
+
+class FiberFaultFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
+    """FilterSet for FiberFault model."""
+
+    status = django_filters.MultipleChoiceFilter(choices=FiberFaultStatusChoices)
+    fiber_cable_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=FiberCable.objects.all(),
+        field_name="fiber_cable",
+        label=_("Fiber Cable (ID)"),
+    )
+    strand_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=FiberStrand.objects.all(),
+        field_name="strands",
+        label=_("Strand (ID)"),
+    )
+
+    search_fields = ("description__icontains", "comments__icontains")
+
+    class Meta:
+        model = FiberFault
+        fields = ("id", "fiber_cable_id", "strand_id", "status", "reported_at")
 
 
 class FiberCircuitFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
