@@ -114,7 +114,7 @@ def _path_fields(chain, computed_at):
         "completeness": chain.completeness,
         "route_key": chain.route_key,
         "is_proposed": chain.is_proposed,
-        "is_defective": False,
+        "is_defective": chain.is_defective,
         "computed_at": computed_at,
     }
 

@@ -11,12 +11,13 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
 from netbox_fms.choices import (
+    FiberFaultStatusChoices,
     PathAnomalyKindChoices,
     PathCompletenessChoices,
     PathEndKindChoices,
     PathEndReasonChoices,
 )
-from netbox_fms.models import FiberCable, FiberCableType, FiberStrand
+from netbox_fms.models import FiberCable, FiberCableType, FiberFault, FiberStrand
 from netbox_fms.path_graph import (
     OPEN_CABLE_END,
     Anomaly,
@@ -277,6 +278,58 @@ class TestWalkStrandHops(TestCase):
         chains = walk_from(load_plant([self.dev_a.pk]), rp_node(mapping.rear_port_id, mapping.rear_port_position))
         assert [chain.hops for chain in chains] == [[("cable", self.fc_ab.cable_id)]]
         assert chains[0].completeness == PathCompletenessChoices.OPEN_OPEN
+
+
+class TestFaultedPaths(TestCase):
+    """Open faults mark the paths crossing them defective without changing the hops (#198)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        pair = make_closure_pair("WFP")
+        cls.dev_a, cls.dev_b = pair.dev_a, pair.dev_b
+        cls.dev_c = make_closure_pair("WFP2").dev_b
+        cls.fct = FiberCableType.objects.create(
+            manufacturer=pair.mfr, model="WFP-3", strand_count=3, construction="tight_buffer"
+        )
+        cls.fc_ab, _ = create_closure_cable(device_a=cls.dev_a, device_b=cls.dev_b, fiber_cable_type=cls.fct)
+        cls.fc_bc, _ = create_closure_cable(device_a=cls.dev_b, device_b=cls.dev_c, fiber_cable_type=cls.fct)
+        cls.s1, cls.s2, cls.s3 = list(cls.fc_ab.fiber_strands.order_by("position"))
+        cls.t1, cls.t2, cls.t3 = list(cls.fc_bc.fiber_strands.order_by("position"))
+        connect_front_ports(cls.s1.front_port_b, cls.t1.front_port_a)
+
+    def walk(self):
+        return {tuple(chain.hops): chain for chain in walk_all(load_plant(None))}
+
+    def test_strand_fault_marks_only_that_strands_path(self):
+        before = self.walk()
+        fault = FiberFault.objects.create(fiber_cable=self.fc_ab)
+        fault.strands.add(self.s2)
+        after = self.walk()
+        assert set(after) == set(before)
+        assert [hops for hops, chain in after.items() if chain.is_defective] == [(("strand", self.s2.pk),)]
+
+    def test_whole_cable_fault_marks_every_path_on_the_cable(self):
+        FiberFault.objects.create(fiber_cable=self.fc_ab)
+        chains = self.walk()
+        defective = {hops for hops, chain in chains.items() if chain.is_defective}
+        assert defective == {
+            (("strand", self.s1.pk), ("strand", self.t1.pk)),
+            (("strand", self.s2.pk),),
+            (("strand", self.s3.pk),),
+        }
+        assert not chains[(("strand", self.t2.pk),)].is_defective
+
+    def test_resolved_fault_marks_nothing(self):
+        FiberFault.objects.create(fiber_cable=self.fc_ab, status=FiberFaultStatusChoices.RESOLVED)
+        assert not any(chain.is_defective for chain in self.walk().values())
+
+    def test_whole_cable_fault_marks_an_unlanded_position_on_that_cable(self):
+        mapping = PortMapping.objects.get(front_port=self.s2.front_port_a)
+        with fms_portmapping_bypass():
+            PortMapping.objects.filter(front_port__in=[self.s2.front_port_a, self.s2.front_port_b]).delete()
+        FiberFault.objects.create(fiber_cable=self.fc_ab)
+        chains = walk_from(load_plant([self.dev_a.pk]), rp_node(mapping.rear_port_id, mapping.rear_port_position))
+        assert [(chain.hops, chain.is_defective) for chain in chains] == [([("cable", self.fc_ab.cable_id)], True)]
 
 
 class TestRegionBoundary(TestCase):

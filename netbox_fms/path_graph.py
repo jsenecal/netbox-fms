@@ -20,8 +20,14 @@ from circuits.models import CircuitTermination
 from dcim.choices import DeviceStatusChoices, LinkStatusChoices, PortTypeChoices
 from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
 
-from .choices import PathAnomalyKindChoices, PathCompletenessChoices, PathEndKindChoices, PathEndReasonChoices
-from .models import FiberCable, FiberStrand
+from .choices import (
+    FiberFaultStatusChoices,
+    PathAnomalyKindChoices,
+    PathCompletenessChoices,
+    PathEndKindChoices,
+    PathEndReasonChoices,
+)
+from .models import FiberCable, FiberFault, FiberStrand
 from .trace import paired_rear_port_terminations
 
 NODE_FP = "fp"
@@ -63,6 +69,7 @@ class Chain:
     end_b: ChainEnd
     cable_ids: list[int]
     is_proposed: bool = False
+    is_defective: bool = False
 
     @property
     def completeness(self):
@@ -78,7 +85,12 @@ class Chain:
 
     def reversed(self):
         return Chain(
-            list(reversed(self.hops)), self.end_b, self.end_a, list(reversed(self.cable_ids)), self.is_proposed
+            list(reversed(self.hops)),
+            self.end_b,
+            self.end_a,
+            list(reversed(self.cable_ids)),
+            self.is_proposed,
+            self.is_defective,
         )
 
 
@@ -126,6 +138,8 @@ class PlantGraph:
     anomalies: list[Anomaly] = field(default_factory=list)
     quarantined_nodes: set = field(default_factory=set)
     quarantined_strands: set[int] = field(default_factory=set)
+    faulted_strands: set[int] = field(default_factory=set)
+    faulted_cables: set[int] = field(default_factory=set)
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +160,7 @@ def load_plant(seed_device_ids=None):
     _load_ports(plant)
     terms_by_cable, ct_cable = _load_cables(plant, cable_ids)
     _load_strands(plant, cable_ids)
+    _load_faults(plant, cable_ids)
     _add_cable_edges(plant, terms_by_cable, ct_cable)
     _quarantine(plant)
     return plant
@@ -305,6 +320,20 @@ def _load_strands(plant, cable_ids):
             if device_id not in plant.cable_devices.get(cable_id, ()):
                 # The strand says it lands here, but its cable never reaches this device.
                 _quarantine_strand(plant, pk, PathAnomalyKindChoices.DANGLING_REFERENCE)
+
+
+def _load_faults(plant, cable_ids):
+    """Record the strands and cables covered by an open fault, whole-cable faults included."""
+    open_faults = FiberFault.objects.filter(status=FiberFaultStatusChoices.OPEN, fiber_cable__cable_id__in=cable_ids)
+    plant.faulted_cables = set(open_faults.filter(strands__isnull=True).values_list("fiber_cable__cable_id", flat=True))
+    plant.faulted_strands = {
+        strand_id for strand_id, cable_id in plant.strand_cable.items() if cable_id in plant.faulted_cables
+    }
+    plant.faulted_strands |= set(
+        FiberStrand.objects.filter(
+            faults__status=FiberFaultStatusChoices.OPEN, faults__fiber_cable__cable_id__in=cable_ids
+        ).values_list("pk", flat=True)
+    )
 
 
 def _quarantine_strand(plant, strand_id, kind):
@@ -495,6 +524,11 @@ def _open_reason(plant, fp):
     return PathEndReasonChoices.CABLE_END
 
 
+def _is_defective(plant, hops):
+    """Whether any hop is a strand under an open fault or an unlanded position on a faulted cable."""
+    return any(ref_id in (plant.faulted_strands if kind == "strand" else plant.faulted_cables) for kind, ref_id in hops)
+
+
 def _is_proposed(plant, cable_ids, end_nodes):
     if any(cable_id in plant.planned_cables for cable_id in cable_ids):
         return True
@@ -518,7 +552,16 @@ def walk_from(plant, node):
         forward = data["near"] == u
         hops.extend(data["hops"] if forward else reversed(data["hops"]))
         cables.extend(data["cables"] if forward else reversed(data["cables"]))
-    return [Chain(hops, classify_end(plant, a), classify_end(plant, b), cables, _is_proposed(plant, cables, (a, b)))]
+    return [
+        Chain(
+            hops,
+            classify_end(plant, a),
+            classify_end(plant, b),
+            cables,
+            _is_proposed(plant, cables, (a, b)),
+            _is_defective(plant, hops),
+        )
+    ]
 
 
 def _half_landed_chains(plant, component):
@@ -536,6 +579,7 @@ def _half_landed_chains(plant, component):
                 OPEN_CABLE_END,
                 [cable_id],
                 _is_proposed(plant, [cable_id], (node,)),
+                _is_defective(plant, [("strand", strand_id)]),
             )
         )
     return chains
@@ -550,6 +594,7 @@ def orphan_chains(plant):
             OPEN_CABLE_END,
             [plant.strand_cable[strand_id]],
             plant.strand_cable[strand_id] in plant.planned_cables,
+            _is_defective(plant, [("strand", strand_id)]),
         )
         for strand_id, (fp_a, fp_b) in sorted(plant.strand_ports.items())
         if fp_a is None and fp_b is None

@@ -70,6 +70,16 @@ class TestWriteOutcomes(WriterCase):
         assert path.computed_at == self.now
         assert list(path.hops.values_list("pk", flat=True)) == hop_pks
 
+    def test_defective_flip_rewrites_the_path(self):
+        """A fault opening or resolving on an unchanged route must rewrite the path (#198)."""
+        path = self.store(strand_chain(self.s1, self.s2))
+        chain = strand_chain(self.s1, self.s2)
+        chain.is_defective = True
+        stats = write_results([chain], self.stored(), computed_at=self.now)
+        path.refresh_from_db()
+        assert stats.paths_updated == 1
+        assert path.is_defective is True
+
     def test_reversed_chain_is_oriented_to_the_stored_path_and_not_rewritten(self):
         path = self.store(strand_chain(self.s1, self.s2, self.s3))
         hop_pks = list(path.hops.values_list("pk", flat=True))
