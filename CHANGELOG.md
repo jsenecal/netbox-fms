@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fiber faults (#198): `FiberFault` records a fault event on a fiber cable,
+  on the whole cable (no strands) or on specific strands, with status
+  (open/resolved, `resolved_at` stamped automatically), `reported_at`,
+  `location_mark` (validated against the cable's marks), description and
+  comments. Adds a Faults menu group, a detail page, an open-faults panel
+  with a "Report fault" button on the fiber cable page, the `fiber-faults`
+  REST endpoint, GraphQL `fiber_fault` / `fiber_fault_list`, and an
+  `is_faulted` filter on fiber strands and fiber cables.
+
+### Changed
+
+- Path analysis flags paths crossing an open fault as `is_defective`
+  (hops unchanged). Defective paths are refused by circuit assignment, and an
+  active assignment on one breaks with reason "Fiber faulted"; resolving the
+  fault heals it automatically (fault changes queue re-analysis with reason
+  "Fault changed").
+
 ## [0.6.0] - 2026-10-19
 
 ### Added
