@@ -41,6 +41,8 @@ def _assignment_errors(circuit, paths, allow_incomplete):
     for path in paths:
         if path.pk in taken:
             errors.append(f"{path} is already assigned to a circuit.")
+        if path.is_defective:
+            errors.append(f"{path} crosses a faulted strand or cable.")
         if path.completeness != PathCompletenessChoices.TERMINATED_TERMINATED and not allow_incomplete:
             errors.append(f"{path} is not terminated at both ends; allow incomplete paths to assign it.")
     return errors
@@ -81,11 +83,15 @@ def assign_paths(circuit, strand_paths, *, allow_incomplete=False):
 def acknowledgeable_assignments(circuit):
     """The broken assignments of the circuit that acknowledging accepts: those whose path still has hops.
 
+    A path that crosses a fault is never accepted; it heals when the fault is resolved.
+
     A path that lost every hop offers nothing to accept; taking its empty hop
     list would leave the assignment healthy with no fiber under it. Such a
     ``path_lost`` assignment stays broken until it is unassigned.
     """
-    return circuit.paths.filter(active=True, is_broken=True).exclude(strand_path__hops__isnull=True)
+    return circuit.paths.filter(active=True, is_broken=True, strand_path__is_defective=False).exclude(
+        strand_path__hops__isnull=True
+    )
 
 
 def acknowledge_route(circuit):
