@@ -149,12 +149,16 @@ or replaced, complete path or not -- marks the assignment broken:
 | --------------- | -------------------------------------------------------- |
 | `hops_changed`  | The path still exists but follows different hops         |
 | `path_lost`     | The path has no hops left (its strands or cables are gone) |
+| `faulted`       | The path crosses a fiber with an open [fault](fiber-faults.md) |
 
 `FiberCircuit.is_broken` is true while any active assignment is broken. It is
 a real field on the circuit, saved with a change-log entry only when it
 flips, so NetBox event rules and webhooks can notify on the transition.
 (Banners and notification screens beyond the field and the change log are
 separate work.)
+
+A `faulted` assignment is not cleared by acknowledging the route. Resolving
+the fault heals it automatically on the next analysis.
 
 ### Authorized changes
 

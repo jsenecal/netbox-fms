@@ -30,7 +30,7 @@ from .assignment import (
     viewable_groups,
     visible_paths,
 )
-from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
+from .choices import FiberCircuitStatusChoices, FiberFaultStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
     BufferTubeFilterSet,
@@ -43,6 +43,7 @@ from .filters import (
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
     FiberCircuitPathFilterSet,
+    FiberFaultFilterSet,
     FiberStrandFilterSet,
     FiberStrandPathFilterSet,
     PathAnalysisQueueFilterSet,
@@ -86,6 +87,10 @@ from .forms import (
     FiberCircuitImportForm,
     FiberCircuitPathFilterForm,
     FiberCircuitPathForm,
+    FiberFaultBulkEditForm,
+    FiberFaultFilterForm,
+    FiberFaultForm,
+    FiberFaultImportForm,
     FiberStrandPathFilterForm,
     InsertSlackLoopForm,
     LinkTopologyForm,
@@ -128,6 +133,7 @@ from .models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberFault,
     FiberStrand,
     FiberStrandPath,
     PathAnalysisQueue,
@@ -172,6 +178,7 @@ from .tables import (
     FiberCableTypeTable,
     FiberCircuitPathTable,
     FiberCircuitTable,
+    FiberFaultTable,
     FiberStrandPathTable,
     FiberStrandTable,
     PathAnalysisQueueTable,
@@ -616,13 +623,16 @@ class FiberCableView(generic.ObjectView):
         active_strands = instance.fiber_strands.filter(path_hops__path__assignments__active=True).distinct().count()
         available_strands = total_strands - active_strands
         return {
+            "open_faults": instance.faults.restrict(request.user, "view")
+            .filter(status=FiberFaultStatusChoices.OPEN)
+            .prefetch_related(Prefetch("strands", queryset=FiberStrand.objects.restrict(request.user, "view"))),
             "strand_stats": {
                 "total": total_strands,
                 "active": active_strands,
                 "available": available_strands,
                 "active_pct": round(active_strands / total_strands * 100) if total_strands else 0,
                 "available_pct": round(available_strands / total_strands * 100) if total_strands else 0,
-            }
+            },
         }
 
 
@@ -1531,6 +1541,76 @@ class SlackLoopBulkDeleteView(generic.BulkDeleteView):
     queryset = SlackLoop.objects.all()
     filterset = SlackLoopFilterSet
     table = SlackLoopTable
+
+
+# ---------------------------------------------------------------------------
+# FiberFault
+# ---------------------------------------------------------------------------
+
+# strand_count tells whole-cable faults (0) apart from strand-level ones in FiberFaultTable.
+FIBER_FAULT_QUERYSET = FiberFault.objects.prefetch_related("fiber_cable", "tags").annotate(
+    strand_count=Count("strands", distinct=True)
+)
+
+
+@register_model_view(FiberFault, "list", path="", detail=False)
+class FiberFaultListView(generic.ObjectListView):
+    """List all fiber faults."""
+
+    queryset = FIBER_FAULT_QUERYSET
+    table = FiberFaultTable
+    filterset = FiberFaultFilterSet
+    filterset_form = FiberFaultFilterForm
+
+
+@register_model_view(FiberFault)
+class FiberFaultView(generic.ObjectView):
+    """Display a single fiber fault."""
+
+    queryset = FiberFault.objects.all()
+
+
+@register_model_view(FiberFault, "add", detail=False)
+@register_model_view(FiberFault, "edit")
+class FiberFaultEditView(generic.ObjectEditView):
+    """Handle fiber fault creation and editing."""
+
+    queryset = FiberFault.objects.all()
+    form = FiberFaultForm
+
+
+@register_model_view(FiberFault, "delete")
+class FiberFaultDeleteView(generic.ObjectDeleteView):
+    """Delete a fiber fault."""
+
+    queryset = FiberFault.objects.all()
+
+
+@register_model_view(FiberFault, "bulk_import", path="import", detail=False)
+class FiberFaultBulkImportView(generic.BulkImportView):
+    """Bulk import whole-cable fiber faults from CSV."""
+
+    queryset = FiberFault.objects.all()
+    model_form = FiberFaultImportForm
+
+
+@register_model_view(FiberFault, "bulk_edit", path="edit", detail=False)
+class FiberFaultBulkEditView(generic.BulkEditView):
+    """Bulk edit fiber faults."""
+
+    queryset = FIBER_FAULT_QUERYSET
+    filterset = FiberFaultFilterSet
+    table = FiberFaultTable
+    form = FiberFaultBulkEditForm
+
+
+@register_model_view(FiberFault, "bulk_delete", path="delete", detail=False)
+class FiberFaultBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete fiber faults."""
+
+    queryset = FIBER_FAULT_QUERYSET
+    filterset = FiberFaultFilterSet
+    table = FiberFaultTable
 
 
 # ---------------------------------------------------------------------------

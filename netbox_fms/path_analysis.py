@@ -114,7 +114,7 @@ def _path_fields(chain, computed_at):
         "completeness": chain.completeness,
         "route_key": chain.route_key,
         "is_proposed": chain.is_proposed,
-        "is_defective": False,
+        "is_defective": chain.is_defective,
         "computed_at": computed_at,
     }
 
@@ -226,11 +226,16 @@ def write_results(chains, stored_paths, *, computed_at):
 
 
 def _drop_lost(lost):
-    """Delete lost paths nothing references; keep assigned ones as hop-less rows. Returns (deleted, kept)."""
+    """Delete lost paths nothing references; keep assigned ones as hop-less rows. Returns (deleted, kept).
+
+    A kept row crosses no fiber, so it crosses no fault either: its defect flag is cleared and its
+    assignment reads as lost rather than faulted.
+    """
     referenced = set(FiberCircuitPath.objects.filter(strand_path__in=lost).values_list("strand_path_id", flat=True))
     kept = [path for path in lost if path.pk in referenced]
     FiberStrandPath.objects.filter(pk__in=[path.pk for path in lost if path.pk not in referenced]).delete()
     FiberStrandPathHop.objects.filter(path__in=kept).delete()
+    FiberStrandPath.objects.filter(pk__in=[path.pk for path in kept]).update(is_defective=False)
     return len(lost) - len(kept), kept
 
 
@@ -258,14 +263,30 @@ def _end_strands(refs):
     return (strands[0], strands[-1]) if strands else None
 
 
+def _break(assignment, reason, stats):
+    """Mark the assignment broken for this reason; False when it was already reported (nothing to save)."""
+    if assignment.is_broken and assignment.broken_reason == reason:
+        return False  # a lost or faulted path is re-evaluated on every run
+    assignment.snapshot()
+    assignment.is_broken, assignment.broken_reason = True, reason
+    stats.assignments_broken += 1
+    return True
+
+
 def evaluate_assignments(paths, stats):
     """Compare every active assignment on these paths with its snapshot.
 
-    Equal hops heal a broken assignment. Changed hops are accepted when the
-    circuit holds a route-change authorization and the first and last
-    strand hops are the same (the ends sit on the same devices); otherwise
-    the assignment is broken. One authorization covers every assignment of
-    the circuit in this run and is then consumed.
+    Checked in this order:
+
+    1. A path that crosses a fault breaks its assignment as faulted, whatever
+       its hops are, and consumes no authorization. A fault that was already
+       reported is not logged again.
+    2. Equal hops on a healthy path heal a broken assignment.
+    3. Changed hops are accepted when the circuit holds a route-change
+       authorization and the first and last strand hops are the same (the
+       ends sit on the same devices); otherwise the assignment is broken.
+       One authorization covers every assignment of the circuit in this run
+       and is then consumed.
     """
     assignments = list(
         FiberCircuitPath.objects.filter(strand_path__in=paths, active=True)
@@ -280,7 +301,10 @@ def evaluate_assignments(paths, stats):
     for assignment in assignments:
         current = assignment.strand_path.hop_refs()
         assigned = refs_from_json(assignment.assigned_hops)
-        if current == assigned:
+        if assignment.strand_path.is_defective:
+            if not _break(assignment, AssignmentBrokenReasonChoices.FAULTED, stats):
+                continue
+        elif current == assigned:
             if not assignment.is_broken:
                 continue
             accept_current_hops(assignment)
@@ -290,11 +314,8 @@ def evaluate_assignments(paths, stats):
             stats.assignments_authorized += 1
         else:
             reason = AssignmentBrokenReasonChoices.HOPS_CHANGED if current else AssignmentBrokenReasonChoices.PATH_LOST
-            if assignment.is_broken and assignment.broken_reason == reason:
-                continue  # already reported; a lost path is re-evaluated on every run
-            assignment.snapshot()
-            assignment.is_broken, assignment.broken_reason = True, reason
-            stats.assignments_broken += 1
+            if not _break(assignment, reason, stats):
+                continue
         assignment.save()
     RouteChangeAuthorization.objects.filter(circuit_id__in=consumed).delete()
     for circuit in circuits.values():

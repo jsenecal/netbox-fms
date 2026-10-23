@@ -58,6 +58,12 @@ class TestAssignPaths(AssignCase):
             assign_paths(self.circuit, [self.complete[0]])
         assert "already assigned" in str(ctx.exception)
 
+    def test_assign_paths_refuses_a_defective_path(self):
+        defective = make_strand_path(self.s4, end_a=self.fp_a, end_b=self.fp_b, is_defective=True)
+        with self.assertRaises(ValidationError) as ctx:
+            assign_paths(self.circuit, [defective])
+        assert "faulted" in str(ctx.exception)
+
     def test_incomplete_paths_need_explicit_permission(self):
         with self.assertRaises(ValidationError) as ctx:
             assign_paths(self.circuit, [self.incomplete])
@@ -134,6 +140,15 @@ class TestAcknowledgeAndAuthorize(AssignCase):
         self.circuit.refresh_from_db()
         assert (lost.is_broken, lost.broken_reason, lost.assigned_hops) == (True, "path_lost", lost_hops)
         assert self.circuit.is_broken is True
+
+    def test_faulted_assignment_is_not_acknowledgeable(self):
+        defective = make_strand_path(self.s4, end_a=self.fp_a, end_b=self.fp_b, is_defective=True)
+        assignment = assign_strand_path(
+            self.circuit, defective, is_broken=True, broken_reason=AssignmentBrokenReasonChoices.FAULTED
+        )
+        assert acknowledge_route(self.circuit) == 0
+        assignment.refresh_from_db()
+        assert assignment.is_broken is True
 
     def test_acknowledge_is_a_no_op_without_broken_assignments(self):
         assign_strand_path(self.circuit, self.complete[0])

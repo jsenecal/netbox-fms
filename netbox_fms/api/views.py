@@ -33,6 +33,7 @@ from ..filters import (
     FiberCableTypeFilterSet,
     FiberCircuitFilterSet,
     FiberCircuitPathFilterSet,
+    FiberFaultFilterSet,
     FiberStrandFilterSet,
     FiberStrandPathFilterSet,
     PathAnalysisQueueFilterSet,
@@ -57,6 +58,7 @@ from ..models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberFault,
     FiberStrand,
     FiberStrandPath,
     PathAnalysisQueue,
@@ -94,6 +96,7 @@ from .serializers import (
     FiberCableTypeSerializer,
     FiberCircuitPathSerializer,
     FiberCircuitSerializer,
+    FiberFaultSerializer,
     FiberStrandPathSerializer,
     FiberStrandSerializer,
     PathAnalysisQueueSerializer,
@@ -197,6 +200,14 @@ class SlackLoopViewSet(NetBoxModelViewSet):
     queryset = SlackLoop.objects.prefetch_related("fiber_cable", "site", "location", "tags")
     serializer_class = SlackLoopSerializer
     filterset_class = SlackLoopFilterSet
+
+
+class FiberFaultViewSet(NetBoxModelViewSet):
+    """Manage fault records for fiber cables and strands."""
+
+    queryset = FiberFault.objects.prefetch_related("fiber_cable", "strands", "tags")
+    serializer_class = FiberFaultSerializer
+    filterset_class = FiberFaultFilterSet
 
 
 class SplicePlanEntryViewSet(NetBoxModelViewSet):

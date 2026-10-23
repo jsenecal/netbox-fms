@@ -21,7 +21,7 @@ def test_completeness_is_derived_from_the_two_end_kinds():
 def test_end_reason_and_anomaly_values():
     assert PathEndReasonChoices.values() == ["unspliced", "cable_end"]
     assert PathAnomalyKindChoices.values() == ["too_many_connections", "loop", "dangling_reference"]
-    assert AssignmentBrokenReasonChoices.values() == ["hops_changed", "path_lost"]
+    assert AssignmentBrokenReasonChoices.values() == ["hops_changed", "path_lost", "faulted"]
 
 
 def test_analysis_reasons_cover_every_trigger():

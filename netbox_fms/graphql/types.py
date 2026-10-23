@@ -19,6 +19,7 @@ from ..models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberFault,
     FiberStrand,
     FiberStrandPath,
     FiberStrandPathHop,
@@ -42,6 +43,7 @@ from .filters import (
     FiberCableTypeFilter,
     FiberCircuitFilter,
     FiberCircuitPathFilter,
+    FiberFaultFilter,
     FiberStrandFilter,
     FiberStrandPathFilter,
     RibbonFilter,
@@ -73,6 +75,7 @@ __all__ = (
     "FiberCircuitPathType",
     "FiberStrandPathType",
     "FiberStrandPathHopType",
+    "FiberFaultType",
     "SlackLoopType",
     "TrayProfileType",
     "TubeAssignmentType",
@@ -223,6 +226,11 @@ class FiberStrandPathType(BaseObjectType):
 
     hops: list[Annotated["FiberStrandPathHopType", strawberry.lazy(".types")]]
     assignments: list[Annotated["FiberCircuitPathType", strawberry.lazy(".types")]]
+
+
+@strawberry_django.type(FiberFault, fields="__all__", filters=FiberFaultFilter)
+class FiberFaultType(NetBoxObjectType):
+    """GraphQL type for FiberFault."""
 
 
 @strawberry_django.type(SlackLoop, fields="__all__", filters=SlackLoopFilter)

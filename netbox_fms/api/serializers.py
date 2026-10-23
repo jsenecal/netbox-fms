@@ -24,6 +24,7 @@ from ..models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberFault,
     FiberStrand,
     FiberStrandPath,
     FiberStrandPathHop,
@@ -37,6 +38,7 @@ from ..models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
+    validate_fault_strands,
 )
 from ..services import import_live_state
 
@@ -491,6 +493,39 @@ class SlackLoopSerializer(NetBoxModelSerializer):
             "last_updated",
         )
         brief_fields = ("id", "url", "display", "fiber_cable", "start_mark", "end_mark")
+
+
+class FiberFaultSerializer(NetBoxModelSerializer):
+    """Serializer for FiberFault model."""
+
+    class Meta:
+        model = FiberFault
+        fields = (
+            "id",
+            "url",
+            "display",
+            "fiber_cable",
+            "strands",
+            "status",
+            "reported_at",
+            "resolved_at",
+            "location_mark",
+            "description",
+            "comments",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
+        )
+        brief_fields = ("id", "url", "display", "fiber_cable", "status")
+
+    def validate(self, data):
+        """Refuse strands that sit on a different cable than the fault."""
+        data = super().validate(data)
+        if "fiber_cable" in data or "strands" in data:
+            cable = data.get("fiber_cable") or self.instance.fiber_cable
+            validate_fault_strands(cable, data.get("strands", self.instance.strands.all() if self.instance else []))
+        return data
 
 
 class TrayProfileSerializer(NetBoxModelSerializer):

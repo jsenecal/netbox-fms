@@ -20,6 +20,7 @@ MODEL_PREFIXES = (
     ("tray-profiles", "trayprofile"),
     ("tube-assignments", "tubeassignment"),
     ("slack-loops", "slackloop"),
+    ("faults", "fiberfault"),
     ("fiber-circuits", "fibercircuit"),
     ("fiber-circuit-paths", "fibercircuitpath"),
     ("fiber-paths", "fiberstrandpath"),

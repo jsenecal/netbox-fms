@@ -215,6 +215,18 @@ class MarkerTypeChoices(ChoiceSet):
 #
 
 
+class FiberFaultStatusChoices(ChoiceSet):
+    """Choice set for the lifecycle status of a fiber fault."""
+
+    OPEN = "open"
+    RESOLVED = "resolved"
+
+    CHOICES = (
+        (OPEN, "Open", "red"),
+        (RESOLVED, "Resolved", "green"),
+    )
+
+
 class FiberCircuitStatusChoices(ChoiceSet):
     """Choice set for fiber circuit lifecycle status."""
 
@@ -345,10 +357,12 @@ class AssignmentBrokenReasonChoices(ChoiceSet):
 
     HOPS_CHANGED = "hops_changed"
     PATH_LOST = "path_lost"
+    FAULTED = "faulted"
 
     CHOICES = (
         (HOPS_CHANGED, _("Hops changed")),
         (PATH_LOST, _("Path lost")),
+        (FAULTED, _("Fiber faulted")),
     )
 
 

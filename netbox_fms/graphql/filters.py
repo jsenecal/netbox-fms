@@ -24,6 +24,7 @@ from ..models import (
     FiberCableType,
     FiberCircuit,
     FiberCircuitPath,
+    FiberFault,
     FiberStrand,
     FiberStrandPath,
     Ribbon,
@@ -43,6 +44,7 @@ from .enums import (
     DeploymentEnum,
     FiberCircuitStatusEnum,
     FiberColorSchemeEnum,
+    FiberFaultStatusEnum,
     MarkerTypeEnum,
     PathCompletenessEnum,
     PathEndKindEnum,
@@ -64,6 +66,7 @@ __all__ = (
     "FiberCableTypeFilter",
     "FiberCircuitFilter",
     "FiberCircuitPathFilter",
+    "FiberFaultFilter",
     "FiberStrandFilter",
     "FiberStrandPathFilter",
     "RibbonFilter",
@@ -359,6 +362,17 @@ class SlackLoopFilter(FiberCableChildFilterMixin, NetBoxModelFilter):
     end_mark: FloatLookup | None = strawberry_django.filter_field()
     storage_method: BaseFilterLookup[StorageMethodEnum] | None = strawberry_django.filter_field()
     notes: StrFilterLookup | None = strawberry_django.filter_field()
+
+
+@strawberry_django.filter_type(FiberFault, lookups=True)
+class FiberFaultFilter(FiberCableChildFilterMixin, NetBoxModelFilter):
+    """GraphQL filter for FiberFault."""
+
+    status: BaseFilterLookup[FiberFaultStatusEnum] | None = strawberry_django.filter_field()
+    reported_at: DatetimeFilterLookup[datetime] | None = strawberry_django.filter_field()
+    resolved_at: DatetimeFilterLookup[datetime] | None = strawberry_django.filter_field()
+    location_mark: FloatLookup | None = strawberry_django.filter_field()
+    description: StrFilterLookup | None = strawberry_django.filter_field()
 
 
 #

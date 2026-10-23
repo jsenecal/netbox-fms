@@ -13,9 +13,13 @@ from netbox_fms.path_graph import OPEN_CABLE_END, Chain
 from tests.conftest import assign_strand_path, changes_logged, make_infra, make_strand_path
 
 
-def chain(*strands):
+def chain(*strands, defective=False):
     return Chain(
-        [("strand", s.pk) for s in strands], OPEN_CABLE_END, OPEN_CABLE_END, [s.fiber_cable.cable_id for s in strands]
+        [("strand", s.pk) for s in strands],
+        OPEN_CABLE_END,
+        OPEN_CABLE_END,
+        [s.fiber_cable.cable_id for s in strands],
+        is_defective=defective,
     )
 
 
@@ -88,6 +92,51 @@ class TestBroken(EvaluationCase):
         assignment.refresh_from_db()
         self.circuit.refresh_from_db()
         assert (assignment.is_broken, self.circuit.is_broken) == (False, False)
+
+
+class TestFaulted(EvaluationCase):
+    def test_defective_path_breaks_the_assignment_as_faulted(self):
+        assignment, _path = self.assigned(self.s1, self.s2)
+        stats = self.analyze(chain(self.s1, self.s2, defective=True))
+        assignment.refresh_from_db()
+        self.circuit.refresh_from_db()
+        assert (assignment.is_broken, assignment.broken_reason) == (True, AssignmentBrokenReasonChoices.FAULTED)
+        assert self.circuit.is_broken is True
+        assert stats.assignments_broken == 1
+
+    def test_resolving_the_fault_heals_the_assignment(self):
+        assignment, _path = self.assigned(self.s1, self.s2)
+        self.analyze(chain(self.s1, self.s2, defective=True))
+        self.analyze(chain(self.s1, self.s2))
+        assignment.refresh_from_db()
+        self.circuit.refresh_from_db()
+        assert (assignment.is_broken, assignment.broken_reason, self.circuit.is_broken) == (False, "", False)
+
+    def test_a_faulted_assignment_is_not_reported_again(self):
+        """The path is rewritten (its hops grew) while the fault persists: the assignment stays as it was."""
+        self.assigned(self.s1, self.s2)
+        self.analyze(chain(self.s1, self.s2, defective=True))
+        seen = []
+        logged = changes_logged(lambda: seen.append(self.analyze(chain(self.s1, self.s2, self.s3, defective=True))))
+        assert seen[0].assignments_broken == 0
+        assert ("fibercircuitpath", "update") not in logged
+
+    def test_a_faulted_path_that_is_lost_reads_path_lost(self):
+        """Replacing the whole faulted cable cascades the fault away: the kept path is no longer defective (#198)."""
+        assignment, path = self.assigned(self.s1, self.s2)
+        self.analyze(chain(self.s1, self.s2, defective=True))
+        self.analyze()
+        assignment.refresh_from_db()
+        path.refresh_from_db()
+        assert path.is_defective is False
+        assert (assignment.is_broken, assignment.broken_reason) == (True, AssignmentBrokenReasonChoices.PATH_LOST)
+
+    def test_fault_does_not_consume_a_route_change_authorization(self):
+        self.assigned(self.s1, self.s3)
+        authorize_route_change(self.circuit, self.circuit)
+        stats = self.analyze(chain(self.s1, self.s2, self.s3, defective=True))
+        assert RouteChangeAuthorization.objects.filter(circuit=self.circuit).exists()
+        assert stats.assignments_authorized == 0
 
 
 class TestAuthorization(EvaluationCase):

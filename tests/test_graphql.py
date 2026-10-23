@@ -64,6 +64,7 @@ def _filter_world():
         FiberCable,
         FiberCableType,
         FiberCircuit,
+        FiberFault,
         FiberStrand,
         RibbonTemplate,
         SlackLoop,
@@ -132,6 +133,8 @@ def _filter_world():
         for m, s in ((0, "coil"), (100, "figure_8"))
     )
 
+    w.fault_a, w.fault_b = (FiberFault.objects.create(fiber_cable=w.fc_a, status=s) for s in ("open", "resolved"))
+
     w.path_a = make_strand_path(w.strand_a)
     w.path_b = make_strand_path(w.strand_b, is_proposed=True)
     w.circuit_a = FiberCircuit.objects.create(name="GQLF-CA", status="active", strand_count=1)
@@ -161,6 +164,7 @@ FILTER_CASES = [
     ("fiber_circuit_list", "{status: {exact: PLANNED}}", "circuit_b", "circuit_a"),
     ("fiber_circuit_path_list", "{circuit_id: $circuit_b}", "fcp_b", "fcp_a"),
     ("fiber_strand_path_list", "{is_proposed: {exact: true}}", "path_b", "path_a"),
+    ("fiber_fault_list", "{status: {exact: RESOLVED}}", "fault_b", "fault_a"),
     ("slack_loop_list", "{storage_method: {exact: FIGURE_8}}", "slack_b", "slack_a"),
     ("tray_profile_list", "{tray_role: {exact: EXPRESS_BASKET}}", "profile_express", "profile_splice"),
     ("tube_assignment_list", "{tray_id: $tray_b}", "ta_b", "ta_a"),

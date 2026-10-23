@@ -10,6 +10,7 @@ from ..choices import (
     DeploymentChoices,
     FiberCircuitStatusChoices,
     FiberColorSchemeChoices,
+    FiberFaultStatusChoices,
     MarkerTypeChoices,
     PathCompletenessChoices,
     PathEndKindChoices,
@@ -28,6 +29,7 @@ __all__ = (
     "DeploymentEnum",
     "FiberCircuitStatusEnum",
     "FiberColorSchemeEnum",
+    "FiberFaultStatusEnum",
     "MarkerTypeEnum",
     "PathCompletenessEnum",
     "PathEndKindEnum",
@@ -47,6 +49,7 @@ ConstructionEnum = strawberry.enum(ConstructionChoices.as_enum())
 DeploymentEnum = strawberry.enum(DeploymentChoices.as_enum())
 FiberCircuitStatusEnum = strawberry.enum(FiberCircuitStatusChoices.as_enum())
 FiberColorSchemeEnum = strawberry.enum(FiberColorSchemeChoices.as_enum())
+FiberFaultStatusEnum = strawberry.enum(FiberFaultStatusChoices.as_enum())
 MarkerTypeEnum = strawberry.enum(MarkerTypeChoices.as_enum())
 PathCompletenessEnum = strawberry.enum(PathCompletenessChoices.as_enum())
 PathEndKindEnum = strawberry.enum(PathEndKindChoices.as_enum())

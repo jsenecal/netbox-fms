@@ -90,9 +90,11 @@ key, so the strands of one circuit end up on one route.
 - **Proposed** (`is_proposed`) -- the path touches `planned` plant (a planned
   cable, or an end device that is `planned`). The picker offers proposed paths
   only to circuits whose status is `planned`.
-- **Defective** (`is_defective`) -- reserved for fault data. Fault inputs are
-  not built yet, so this is always `False` today; the picker already skips
-  defective paths so that fault support needs no change there.
+- **Defective** (`is_defective`) -- the path crosses a faulted strand, or an
+  unlanded position on a cable with an open whole-cable
+  [fault](fiber-faults.md). Its hops are unchanged so the break stays visible.
+  The picker never offers defective paths, and circuits already riding one
+  break with reason "Fiber faulted" until the fault is resolved.
 
 ---
 
@@ -102,14 +104,15 @@ Plant changes queue the devices they touch (`PathAnalysisQueue`). The
 `Fiber path analysis` job re-analyzes the queued devices after a short window,
 once per window no matter how many changes arrive.
 
-| Change                                                              | Devices queued                     |
-| ------------------------------------------------------------------- | ---------------------------------- |
-| Cable created, changed or deleted                                   | Devices of its terminations        |
-| Splice jumper created, changed or deleted                           | The closure                        |
-| Cable termination, port mapping or FiberCable changed               | The device concerned               |
-| Strand saved                                                        | Devices of the ports it lands on   |
-| Closure cable entry changed                                         | The closure                        |
-| Bulk import or provisioning that bypasses per-object signals        | The devices written                |
+| Change                                                              | Devices queued                      |
+| ------------------------------------------------------------------- | ----------------------------------- |
+| Cable created, changed or deleted                                   | Devices of its terminations         |
+| Splice jumper created, changed or deleted                           | The closure                         |
+| Cable termination, port mapping or FiberCable changed               | The device concerned                |
+| Strand saved                                                        | Devices of the ports it lands on    |
+| Closure cable entry changed                                         | The closure                         |
+| Fault created, changed, strands changed or deleted                  | Devices of the cable's terminations |
+| Bulk import or provisioning that bypasses per-object signals        | The devices written                 |
 
 Only devices with a FiberCable connected, or that appear on a stored path,
 are queued. A device's last cable being removed still queues it.
