@@ -369,8 +369,8 @@ class FiberFaultFilter(FiberCableChildFilterMixin, NetBoxModelFilter):
     """GraphQL filter for FiberFault."""
 
     status: BaseFilterLookup[FiberFaultStatusEnum] | None = strawberry_django.filter_field()
-    reported_at: DatetimeFilterLookup | None = strawberry_django.filter_field()
-    resolved_at: DatetimeFilterLookup | None = strawberry_django.filter_field()
+    reported_at: DatetimeFilterLookup[datetime] | None = strawberry_django.filter_field()
+    resolved_at: DatetimeFilterLookup[datetime] | None = strawberry_django.filter_field()
     location_mark: FloatLookup | None = strawberry_django.filter_field()
     description: StrFilterLookup | None = strawberry_django.filter_field()
 
