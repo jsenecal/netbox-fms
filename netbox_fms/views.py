@@ -20,6 +20,7 @@ from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, D
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
+from . import pathways_compat
 from .assignment import (
     acknowledge_route_for,
     assign_paths_for,
@@ -1568,6 +1569,14 @@ class FiberFaultView(generic.ObjectView):
     """Display a single fiber fault."""
 
     queryset = FiberFault.objects.all()
+
+    def get_extra_context(self, request, instance):
+        """Add the route segment behind the location and whether the location went stale."""
+        return {
+            "route_segment": instance.route_segment(),
+            "located_at_is_stale": instance.located_at_is_stale,
+            "pathways_installed": pathways_compat.pathways_installed(),
+        }
 
 
 @register_model_view(FiberFault, "add", detail=False)

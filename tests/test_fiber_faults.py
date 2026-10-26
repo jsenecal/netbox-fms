@@ -12,7 +12,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from netbox_fms.choices import ConstructionChoices, FiberFaultStatusChoices
+from netbox_fms.choices import ConstructionChoices, FiberFaultLocatedAtStatusChoices, FiberFaultStatusChoices
 from netbox_fms.filters import FiberCableFilterSet, FiberStrandFilterSet
 from netbox_fms.forms import FiberFaultForm
 from netbox_fms.models import FiberCable, FiberCableType, FiberFault, FiberStrand, validate_fault_strands
@@ -288,9 +288,11 @@ class TestFaultPages(FaultWorld, TestCase):
         self.assertIn(f"<td>{shown.name}</td>", content)
 
 
-class TestFaultLocationValidation(TestCase):
+class RoutedFaultWorld:
+    """A cable between two devices, routed through two pathways."""
+
     @classmethod
-    def setUpTestData(cls):
+    def build(cls):
         site, mfr, dt, role = make_infra("FaultLoc")
         cls.end_device = Device.objects.create(name="FaultLoc-A", site=site, device_type=dt, role=role)
         cls.other_device = Device.objects.create(name="FaultLoc-B", site=site, device_type=dt, role=role)
@@ -306,6 +308,12 @@ class TestFaultLocationValidation(TestCase):
         cls.segments = make_route(cable, [100.0, 200.0])
         cls.pathway_ct = ContentType.objects.get_by_natural_key("netbox_pathways", "pathway")
         cls.device_ct = ContentType.objects.get_for_model(Device)
+
+
+class TestFaultLocationValidation(RoutedFaultWorld, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.build()
 
     def _fault(self, **fields):
         return FiberFault(fiber_cable=self.fc, **fields)
@@ -381,3 +389,128 @@ class TestFaultLocationValidation(TestCase):
         fault.located_at_type, fault.located_at_id = self.device_ct, self.end_device.pk
         self.assertEqual(fault.located_at_device, self.end_device)
         self.assertIsNone(fault.located_at_pathway_pk)
+
+
+class TestFaultLocationSurfaces(RoutedFaultWorld, AuthedAPIClientMixin, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.build()
+        cls.user = get_user_model().objects.create_superuser("fault-loc-api", password="x")
+
+    def _form(self, fault=None, **data):
+        base = {"fiber_cable": self.fc.pk, "status": FiberFaultStatusChoices.OPEN, "reported_at": "2026-10-01 12:00"}
+        return FiberFaultForm(instance=fault, data=base | data)
+
+    def _estimated(self, **fields):
+        return FiberFault.objects.create(
+            fiber_cable=self.fc,
+            located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED,
+            located_at_type=self.pathway_ct,
+            located_at_id=self.segments[1].pathway_id,
+            estimate_note="old guess",
+            **fields,
+        )
+
+    def test_form_pick_segment_confirms(self):
+        """#198: picking a route segment in the form confirms the location and drops the estimate note."""
+        fault = self._estimated()
+        pathway_pk = self.segments[0].pathway_id
+        form = self._form(fault, located_at_type=self.pathway_ct.pk, located_at=pathway_pk)
+        self.assertTrue(form.is_valid(), form.errors)
+        fault = form.save()
+        self.assertEqual((fault.located_at_status, fault.estimate_note), ("confirmed", ""))
+        self.assertEqual(fault.located_at_pathway_pk, pathway_pk)
+
+    def test_form_clearing_confirmed_located_at_resets(self):
+        fault = FiberFault.objects.create(
+            fiber_cable=self.fc,
+            located_at_status=FiberFaultLocatedAtStatusChoices.CONFIRMED,
+            located_at_type=self.device_ct,
+            located_at_id=self.end_device.pk,
+        )
+        form = self._form(fault, located_at_type="", located_at="")
+        self.assertTrue(form.is_valid(), form.errors)
+        fault = form.save()
+        self.assertEqual((fault.located_at_status, fault.located_at_type, fault.located_at_id), ("none", None, None))
+
+    def test_form_device_off_the_cable_errors_on_the_picker(self):
+        form = self._form(located_at_type=self.device_ct.pk, located_at=self.other_device.pk)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["located_at"], ["The device does not terminate this cable."])
+
+    def test_form_without_pathways_offers_device_only(self):
+        with patch("netbox_fms.pathways_compat.pathways_installed", return_value=False):
+            form = FiberFaultForm()
+        self.assertEqual(list(form.fields["located_at_type"].queryset), [self.device_ct])
+
+    def test_serializer_device_confirms_and_status_is_read_only(self):
+        """#198: an API-picked closure is confirmed; the status itself cannot be written."""
+        fault = self._estimated()
+        url = f"/api/plugins/fms/fiber-faults/{fault.pk}/"
+        resp = self.client.patch(
+            url, {"located_at_type": "dcim.device", "located_at_id": self.end_device.pk}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual((body["located_at_status"], body["estimate_note"]), ("confirmed", ""))
+        self.assertEqual(body["located_at"]["id"], self.end_device.pk)
+        resp = self.client.patch(url, {"located_at_status": "none"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_status, "confirmed")
+
+    def test_serializer_resending_an_estimated_link_keeps_it_estimated(self):
+        fault = self._estimated()
+        resp = self.client.patch(
+            f"/api/plugins/fms/fiber-faults/{fault.pk}/",
+            {"located_at_type": "netbox_pathways.pathway", "located_at_id": fault.located_at_id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        fault.refresh_from_db()
+        self.assertEqual((fault.located_at_status, fault.estimate_note), ("estimated", "old guess"))
+
+
+class TestFaultLocationPage(RoutedFaultWorld, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.build()
+
+    def setUp(self):
+        self.client = superuser_client("fault-loc-page")
+
+    def _page(self, **fields):
+        fault = FiberFault.objects.create(fiber_cable=self.fc, **fields)
+        resp = self.client.get(fault.get_absolute_url())
+        self.assertEqual(resp.status_code, 200)
+        return resp.content.decode()
+
+    def test_detail_links_segment_on_cable_map(self):
+        segment = self.segments[1]
+        content = self._page(
+            located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED,
+            located_at_type=self.pathway_ct,
+            located_at_id=segment.pathway_id,
+            estimate_note="from the jacket mark",
+        )
+        self.assertIn(f"route-map/?segment={segment.pk}", content)
+        self.assertIn("Estimated", content)
+        self.assertIn("from the jacket mark", content)
+        self.assertNotIn("no longer on the cable's route", content)
+
+    def test_detail_marks_stale_location(self):
+        other = Cable.objects.create(
+            a_terminations=[make_front_port(self.end_device, "S-A")],
+            b_terminations=[make_front_port(self.far_device, "S-B")],
+        )
+        stray = make_route(other, [30.0])[0].pathway_id
+        content = self._page(located_at_type=self.pathway_ct, located_at_id=stray)
+        self.assertIn("no longer on the cable's route", content)
+
+    def test_detail_without_pathways_renders(self):
+        fields = {"located_at_type": self.device_ct, "located_at_id": self.end_device.pk}
+        self.assertIn(f"/plugins/pathways/map/#site={self.end_device.site_id}", self._page(**fields))
+        with patch("netbox_fms.pathways_compat.pathways_installed", return_value=False):
+            content = self._page(**fields)
+        self.assertIn(self.end_device.get_absolute_url(), content)
+        self.assertNotIn("/plugins/pathways/map/#site=", content)
