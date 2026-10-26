@@ -74,7 +74,19 @@ def test_beyond_and_no_route():
     assert _locate(_legs(), 10, slack=slack).note == NOTE_BEYOND
 
 
-def test_slack_at_route_start_is_skipped():
+def test_slack_coil_at_route_start_offsets_distance():
     slack = [SlackPoint(nodes=frozenset({_node(1)}), length_m=30.0)]
     assert _locate(_legs(), 20, cable=330.0, slack=slack).pathway_pk == 201
     assert _locate(_legs(), 140, cable=330.0, slack=slack).pathway_pk == 202
+
+
+def test_far_end_coil_lands_on_last_leg():
+    slack = [SlackPoint(nodes=frozenset({_node(4)}), length_m=50.0)]
+    assert _locate(_legs(), 320, cable=350.0, slack=slack).pathway_pk == 203
+    assert _locate(_legs(), 360, cable=350.0, slack=slack).note == NOTE_BEYOND
+
+
+def test_far_end_coil_from_b_end():
+    slack = [SlackPoint(nodes=frozenset({_node(1)}), length_m=50.0)]
+    assert _locate(_legs(), 320, cable=350.0, slack=slack, from_end="B").pathway_pk == 201
+    assert _locate(_legs(), 360, cable=350.0, slack=slack, from_end="B").note == NOTE_BEYOND

@@ -69,7 +69,7 @@ def locate_on_route(legs, *, cable_length_m, distance_m, slack, from_end):
     """Return the pathway holding the point `distance_m` along the cable, measured from `from_end`.
 
     The drawn route lengths are scaled so they add up to the cable's real length once placed slack
-    is taken out. A distance inside a placed slack coil lands on the leg before it.
+    is taken out. A distance inside a placed slack coil lands on the leg before it, or on the last leg for a far-end coil.
     """
     if not legs:
         return Estimate(None, NOTE_NO_ROUTE)
@@ -92,4 +92,6 @@ def locate_on_route(legs, *, cable_length_m, distance_m, slack, from_end):
         if remaining <= scaled:
             return Estimate(leg.pathway_pk, "")
         remaining -= scaled
+    if remaining <= placed.get(len(legs), 0.0):
+        return Estimate(legs[-1].pathway_pk, "")
     return Estimate(None, NOTE_BEYOND)
