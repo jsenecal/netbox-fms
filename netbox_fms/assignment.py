@@ -201,24 +201,31 @@ def _candidate_paths(circuit_status, allow_incomplete):
     )
 
 
-def _device_sequence(path):
-    """The devices a path visits from end A to end B, consecutive duplicates collapsed."""
-    devices = [path.end_a_port.device_id] if path.end_a_port_id else []
-    previous = devices[-1] if devices else None
+def path_hop_ends(path):
+    """Each hop of a path with its end devices ordered from end A to end B; a provider circuit has none."""
+    previous = path.end_a_port.device_id if path.end_a_port_id else None
     for hop in path.hops.all():
         if hop.strand_id:
             ends = [fp.device_id for fp in (hop.strand.front_port_a, hop.strand.front_port_b) if fp is not None]
         elif hop.cable_id:
             ends = [term._device_id for term in hop.cable.terminations.all() if term._device_id is not None]
         else:
+            yield hop, []
             continue
         if len(ends) == 2 and ends[1] == previous:
             ends.reverse()
+        if ends:
+            previous = ends[-1]
+        yield hop, ends
+
+
+def _device_sequence(path):
+    """The devices a path visits from end A to end B, consecutive duplicates collapsed."""
+    devices = [path.end_a_port.device_id] if path.end_a_port_id else []
+    for _hop, ends in path_hop_ends(path):
         for device_id in ends:
             if not devices or devices[-1] != device_id:
                 devices.append(device_id)
-        if devices:
-            previous = devices[-1]
     if path.end_b_port_id and (not devices or devices[-1] != path.end_b_port.device_id):
         devices.append(path.end_b_port.device_id)
     return devices

@@ -1405,12 +1405,17 @@ class FiberFault(NetBoxModel):
             raise ValidationError({"resolved_at": _("Resolved time cannot precede the reported time.")})
 
     def save(self, *args, **kwargs):
-        """Keep resolved_at consistent with the status."""
+        """Keep resolved_at consistent with the status, and re-estimate the location when its evidence changed."""
+        from .fault_location import apply_estimate
+
         if self.status == FiberFaultStatusChoices.RESOLVED:
             if self.resolved_at is None:
                 self.resolved_at = timezone.now()
         else:
             self.resolved_at = None
+        stored = FiberFault.objects.filter(pk=self.pk).values(*self.EVIDENCE_FIELDS).first() if self.pk else None
+        if stored is None or any(stored[name] != getattr(self, name) for name in self.EVIDENCE_FIELDS):
+            apply_estimate(self)
         super().save(*args, **kwargs)
 
 
