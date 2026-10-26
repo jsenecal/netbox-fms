@@ -11,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -33,6 +33,7 @@ from .assignment import (
 )
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
+from .fault_map import fault_segment_features, parse_bbox
 from .filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -1577,6 +1578,19 @@ class FiberFaultView(generic.ObjectView):
             "located_at_is_stale": instance.located_at_is_stale,
             "pathways_installed": pathways_compat.pathways_installed(),
         }
+
+
+class FiberFaultMapSegmentsView(LoginRequiredMixin, View):
+    """GeoJSON of located fault segments for the netbox-pathways map layers."""
+
+    def get(self, request):
+        return JsonResponse(
+            fault_segment_features(
+                request.user,
+                located_at_status=request.GET.get("located_at_status", ""),
+                bbox=parse_bbox(request.GET.get("bbox")),
+            )
+        )
 
 
 @register_model_view(FiberFault, "add", detail=False)

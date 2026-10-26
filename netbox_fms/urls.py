@@ -31,6 +31,7 @@ MODEL_PREFIXES = (
 urlpatterns = [
     # Splice Closure wizard
     path("splice-closures/add/", views.SpliceClosureCreateView.as_view(), name="spliceclosure_add"),
+    path("faults/map-segments/", views.FiberFaultMapSegmentsView.as_view(), name="fiberfault_map_segments"),
     # Fiber Overview HTMX actions
     path(
         "fiber-overview/<int:pk>/update-gland/",
