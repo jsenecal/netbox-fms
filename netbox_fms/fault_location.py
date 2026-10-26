@@ -8,12 +8,14 @@ inside them, behind ``pathways_installed()``.
 from dataclasses import dataclass, replace
 from itertools import pairwise
 
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import get_object_or_404
 from utilities.conversion import to_meters
 
 from . import pathways_compat
 from .assignment import path_hop_ends
 from .choices import FiberFaultLocatedAtStatusChoices
-from .models import FiberStrandPath
+from .models import FiberFault, FiberStrandPath
 
 NOTE_NO_PATHWAYS = "netbox-pathways is not installed."
 NOTE_NO_ROUTE = "The cable has no recorded route."
@@ -311,3 +313,33 @@ def apply_estimate(fault):
     else:
         fault.set_located_at_pathway(estimate.pathway_pk)
         fault.located_at_status = FiberFaultLocatedAtStatusChoices.ESTIMATED
+
+
+def fault_to_change(user, pk):
+    """The fault, if the user may see it (404) and change it (403)."""
+    fault = get_object_or_404(FiberFault.objects.restrict(user, "view"), pk=pk)
+    if not user.has_perm("netbox_fms.change_fiberfault", fault):
+        raise PermissionDenied("Changing a fault requires change_fiberfault.")
+    return fault
+
+
+def confirm_estimate(fault):
+    """Confirm an estimated location and save; False (nothing changed) when there is no estimate to confirm."""
+    if fault.located_at_status != FiberFaultLocatedAtStatusChoices.ESTIMATED:
+        return False
+    fault.confirm_located_at()
+    fault.save()
+    return True
+
+
+def reestimate(fault):
+    """Run the estimator again and save; False (nothing changed) while the location is confirmed.
+
+    ``FiberFault.save()`` recomputes only when the evidence changed, so a changed route is picked up here
+    by calling the estimator directly.
+    """
+    if fault.located_at_status == FiberFaultLocatedAtStatusChoices.CONFIRMED:
+        return False
+    apply_estimate(fault)
+    fault.save()
+    return True

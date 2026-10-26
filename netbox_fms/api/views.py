@@ -22,6 +22,7 @@ from ..assignment import (
     visible_paths,
 )
 from ..choices import PathCompletenessChoices, SplicePlanStatusChoices
+from ..fault_location import confirm_estimate, fault_to_change, reestimate
 from ..filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -202,12 +203,36 @@ class SlackLoopViewSet(NetBoxModelViewSet):
     filterset_class = SlackLoopFilterSet
 
 
+class CircuitActionPermissions(TokenPermissions):
+    """Detail actions edit the object: POST needs the change permission, not add."""
+
+    perms_map = {**TokenPermissions.perms_map, "POST": TokenPermissions.perms_map["PUT"]}
+
+
 class FiberFaultViewSet(NetBoxModelViewSet):
     """Manage fault records for fiber cables and strands."""
 
     queryset = FiberFault.objects.prefetch_related("fiber_cable", "strands", "tags")
     serializer_class = FiberFaultSerializer
     filterset_class = FiberFaultFilterSet
+
+    def _location_action(self, request, pk, change):
+        fault = fault_to_change(request.user, pk)
+        if not change(fault):
+            return Response(
+                {"detail": "The fault's location status does not allow this."}, status=status.HTTP_409_CONFLICT
+            )
+        return Response(FiberFaultSerializer(fault, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="confirm-location", permission_classes=[CircuitActionPermissions])
+    def confirm_location(self, request, pk=None):
+        """Confirm the estimated location; 409 when there is no estimate."""
+        return self._location_action(request, pk, confirm_estimate)
+
+    @action(detail=True, methods=["post"], url_path="re-estimate", permission_classes=[CircuitActionPermissions])
+    def re_estimate(self, request, pk=None):
+        """Estimate the location again from the evidence and the current route; 409 while confirmed."""
+        return self._location_action(request, pk, reestimate)
 
 
 class SplicePlanEntryViewSet(NetBoxModelViewSet):
@@ -527,12 +552,6 @@ class SplicePlanViewSet(NetBoxModelViewSet):
 # ---------------------------------------------------------------------------
 # Fiber Circuit API views
 # ---------------------------------------------------------------------------
-
-
-class CircuitActionPermissions(TokenPermissions):
-    """The circuit actions edit the circuit: POST needs change_fibercircuit, not add."""
-
-    perms_map = {**TokenPermissions.perms_map, "POST": TokenPermissions.perms_map["PUT"]}
 
 
 class FiberCircuitViewSet(NetBoxModelViewSet):

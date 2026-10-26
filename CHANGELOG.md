@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fault location (Refs #198): a fault can be located on a route segment of its
+  cable or at a device, picked by hand (confirmed) or estimated from a jacket
+  mark or an OTDR shot (estimated, with a stated note when the estimate
+  cannot be computed). Adds "Confirm location" and "Re-estimate" actions on the
+  fault page and as `confirm-location` and `re-estimate` API actions, a "Fiber
+  Faults" group of layers on the netbox-pathways map, and a "crosses a damaged
+  cable" ranking and badge in the circuit picker.
+
 ## [0.7.0] - 2026-10-23
 
 ### Added

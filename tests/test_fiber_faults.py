@@ -540,3 +540,136 @@ class TestFaultLocationPage(RoutedFaultWorld, TestCase):
             content = self._page(**fields)
         self.assertIn(self.end_device.get_absolute_url(), content)
         self.assertNotIn("/plugins/pathways/map/#site=", content)
+
+
+class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase):
+    """Confirm and re-estimate (#198)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.build()
+        cls.user = get_user_model().objects.create_superuser("fault-loc-actions", password="x")
+        cls.marked_type = FiberCableType.objects.create(
+            manufacturer=cls.fc.fiber_cable_type.manufacturer,
+            model="FaultLoc-Marked",
+            construction=ConstructionChoices.TIGHT_BUFFER,
+            strand_count=2,
+            mark_unit="m",
+        )
+
+    def _routed_fault(self):
+        cable = Cable.objects.create(
+            a_terminations=[make_front_port(self.end_device, "M-A")],
+            b_terminations=[make_front_port(self.far_device, "M-B")],
+            length=300,
+            length_unit="m",
+        )
+        fc = FiberCable.objects.create(cable=cable, fiber_cable_type=self.marked_type, start_mark=0, end_mark=300)
+        segments = make_route(cable, [100.0, 200.0])
+        return FiberFault.objects.create(fiber_cable=fc, location_mark=Decimal("200")), cable, segments
+
+    @staticmethod
+    def _reshape_route(segments):
+        """Lengthen the first pathway and shorten the second, so the same mark now falls on the first."""
+        for segment, length in zip(segments, (250.0, 50.0), strict=True):
+            segment.pathway.length = length
+            segment.pathway.save()
+        return segments
+
+    def _url(self, fault, action):
+        return reverse(f"plugins-api:netbox_fms-api:fiberfault-{action}", kwargs={"pk": fault.pk})
+
+    def test_confirm_estimated_location(self):
+        fault, _cable, segments = self._routed_fault()
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.ESTIMATED)
+        resp = superuser_client("fault-confirm-ui").post(
+            reverse("plugins:netbox_fms:fiberfault_confirm_location", args=[fault.pk])
+        )
+        self.assertEqual(resp.status_code, 302)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.CONFIRMED)
+        self.assertEqual(fault.located_at_pathway_pk, segments[1].pathway_id)
+        self.assertEqual(fault.estimate_note, "")
+
+    def test_confirm_refused_without_estimate(self):
+        fault = create_fault_with_location(fiber_cable=self.fc)
+        resp = self.client.post(self._url(fault, "confirm-location"))
+        self.assertEqual(resp.status_code, 409)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.NONE)
+
+    def test_confirm_via_api_returns_the_fault(self):
+        fault, _cable, _segments = self._routed_fault()
+        resp = self.client.post(self._url(fault, "confirm-location"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["id"], fault.pk)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.CONFIRMED)
+
+    def test_reestimate_picks_up_new_route(self):
+        fault, _cable, segments = self._routed_fault()
+        new_segments = self._reshape_route(segments)
+        resp = self.client.post(self._url(fault, "re-estimate"))
+        self.assertEqual(resp.status_code, 200)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_pathway_pk, new_segments[0].pathway_id)
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.ESTIMATED)
+
+    def test_reestimate_from_the_page(self):
+        fault, _cable, segments = self._routed_fault()
+        new_segments = self._reshape_route(segments)
+        resp = superuser_client("fault-reest-ui").post(
+            reverse("plugins:netbox_fms:fiberfault_reestimate", args=[fault.pk])
+        )
+        self.assertEqual(resp.status_code, 302)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_pathway_pk, new_segments[0].pathway_id)
+
+    def test_reestimate_refused_when_confirmed(self):
+        fault, _cable, segments = self._routed_fault()
+        fault.confirm_located_at()
+        fault.save()
+        resp = self.client.post(self._url(fault, "re-estimate"))
+        self.assertEqual(resp.status_code, 409)
+        resp = superuser_client("fault-reest-refused").post(
+            reverse("plugins:netbox_fms:fiberfault_reestimate", args=[fault.pk])
+        )
+        self.assertEqual(resp.status_code, 302)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.CONFIRMED)
+        self.assertEqual(fault.located_at_pathway_pk, segments[1].pathway_id)
+
+    def test_confirm_from_the_page_refused_without_estimate(self):
+        fault = create_fault_with_location(fiber_cable=self.fc)
+        resp = superuser_client("fault-confirm-none").post(
+            reverse("plugins:netbox_fms:fiberfault_confirm_location", args=[fault.pk])
+        )
+        self.assertEqual(resp.status_code, 302)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.NONE)
+
+    def test_actions_need_change_permission(self):
+        fault, _cable, _segments = self._routed_fault()
+        view_only = [(FiberFault, ["view"], None)]
+        client = ui_client_with("fault-view-only", view_only)
+        for name in ("fiberfault_confirm_location", "fiberfault_reestimate"):
+            resp = client.post(reverse(f"plugins:netbox_fms:{name}", args=[fault.pk]))
+            self.assertEqual(resp.status_code, 403)
+        from tests.conftest import make_authed_client, user_with
+
+        api = make_authed_client("fault-view-api")
+        api.force_authenticate(user_with("fault-view-only-api", view_only))
+        for action in ("confirm-location", "re-estimate"):
+            self.assertEqual(api.post(self._url(fault, action)).status_code, 403)
+
+    def test_buttons_follow_the_location_status(self):
+        fault, _cable, _segments = self._routed_fault()
+        client = superuser_client("fault-buttons")
+        page = client.get(fault.get_absolute_url()).content.decode()
+        self.assertIn("confirm-location/", page)
+        self.assertIn("re-estimate/", page)
+        fault.confirm_located_at()
+        fault.save()
+        page = client.get(fault.get_absolute_url()).content.decode()
+        self.assertNotIn("confirm-location/", page)
+        self.assertNotIn("re-estimate/", page)

@@ -33,6 +33,7 @@ from .assignment import (
 )
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
+from .fault_location import confirm_estimate, fault_to_change, reestimate
 from .fault_map import fault_segment_features, parse_bbox
 from .filters import (
     BufferTubeFilterSet,
@@ -1591,6 +1592,32 @@ class FiberFaultMapSegmentsView(LoginRequiredMixin, View):
                 bbox=parse_bbox(request.GET.get("bbox")),
             )
         )
+
+
+@register_model_view(FiberFault, "confirm_location", path="confirm-location")
+class FiberFaultConfirmLocationView(LoginRequiredMixin, View):
+    """Confirm the estimated location of a fault."""
+
+    def post(self, request, pk):
+        fault = fault_to_change(request.user, pk)
+        if confirm_estimate(fault):
+            messages.success(request, _("Confirmed the fault location."))
+        else:
+            messages.error(request, _("There is no estimated location to confirm."))
+        return redirect(fault.get_absolute_url())
+
+
+@register_model_view(FiberFault, "reestimate", path="re-estimate")
+class FiberFaultReestimateView(LoginRequiredMixin, View):
+    """Estimate the location of a fault again from its evidence and the cable's current route."""
+
+    def post(self, request, pk):
+        fault = fault_to_change(request.user, pk)
+        if reestimate(fault):
+            messages.success(request, _("Re-estimated the fault location."))
+        else:
+            messages.error(request, _("A confirmed location is not re-estimated; clear it first."))
+        return redirect(fault.get_absolute_url())
 
 
 @register_model_view(FiberFault, "add", detail=False)

@@ -115,8 +115,10 @@ needs (the strand count), all on one route. Filters:
   assignments are flagged `delivered_incomplete`.
 
 Groups are ranked by contiguity first (adjacent strands in the same buffer
-tube on every cable of the route), then fewer hops, then lowest strand
-position. Defective paths are never offered; proposed paths only when the
+tube on every cable of the route), then clean before damaged (a group crossing
+a cable with an open [fault](fiber-faults.md) carries a "crosses a damaged
+cable" badge), then fewer hops, then lowest strand position. Defective paths
+are never offered; proposed paths only when the
 circuit's status is `planned`. Paths already assigned are not offered.
 
 ### Rules
