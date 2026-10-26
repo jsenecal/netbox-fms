@@ -18,6 +18,7 @@ from netbox_fms.forms import FiberFaultForm
 from netbox_fms.models import FiberCable, FiberCableType, FiberFault, FiberStrand, validate_fault_strands
 from tests.conftest import (
     AuthedAPIClientMixin,
+    create_fault_with_location,
     make_front_port,
     make_infra,
     make_route,
@@ -402,7 +403,7 @@ class TestFaultLocationSurfaces(RoutedFaultWorld, AuthedAPIClientMixin, TestCase
         return FiberFaultForm(instance=fault, data=base | data)
 
     def _estimated(self, **fields):
-        return FiberFault.objects.create(
+        return create_fault_with_location(
             fiber_cable=self.fc,
             located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED,
             located_at_type=self.pathway_ct,
@@ -505,7 +506,7 @@ class TestFaultLocationPage(RoutedFaultWorld, TestCase):
         self.client = superuser_client("fault-loc-page")
 
     def _page(self, **fields):
-        fault = FiberFault.objects.create(fiber_cable=self.fc, **fields)
+        fault = create_fault_with_location(fiber_cable=self.fc, **fields)
         resp = self.client.get(fault.get_absolute_url())
         self.assertEqual(resp.status_code, 200)
         return resp.content.decode()

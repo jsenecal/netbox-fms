@@ -14,7 +14,14 @@ from netbox_pathways.registry import registry
 from netbox_fms.choices import ConstructionChoices, FiberFaultLocatedAtStatusChoices, FiberFaultStatusChoices
 from netbox_fms.fault_map import fault_segment_features, parse_bbox
 from netbox_fms.models import FiberCable, FiberCableType, FiberFault
-from tests.conftest import make_front_port, make_infra, make_route, superuser_client, user_with
+from tests.conftest import (
+    create_fault_with_location,
+    make_front_port,
+    make_infra,
+    make_route,
+    superuser_client,
+    user_with,
+)
 
 CONFIRMED = FiberFaultLocatedAtStatusChoices.CONFIRMED
 ESTIMATED = FiberFaultLocatedAtStatusChoices.ESTIMATED
@@ -42,7 +49,7 @@ class TestFaultMap(TestCase):
 
         def fault(cable, located_at_status=FiberFaultLocatedAtStatusChoices.NONE, located_at=None, **fields):
             ct = None if located_at is None else (device_ct if isinstance(located_at, Device) else pathway_ct)
-            return FiberFault.objects.create(
+            return create_fault_with_location(
                 fiber_cable=cable,
                 located_at_status=located_at_status,
                 located_at_type=ct,

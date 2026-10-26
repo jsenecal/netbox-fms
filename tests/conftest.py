@@ -550,3 +550,20 @@ def make_route(cable, lengths, *, set_length=True):
         segments.append(CableSegment.objects.create(cable=cable, pathway=pathway, sequence=seq))
         start, x = end, x + length
     return segments
+
+
+def create_fault_with_location(**fields):
+    """Create a FiberFault, then write its located_at state straight to the row.
+
+    FiberFault.save() re-estimates from evidence and wipes a location that has none, so a test
+    that needs an estimated or stale link seeds it the way an estimator result would land.
+    """
+    from netbox_fms.models import FiberFault
+
+    keys = ("located_at_status", "located_at_type", "located_at_id", "estimate_note")
+    location = {key: fields.pop(key) for key in keys if key in fields}
+    fault = FiberFault.objects.create(**fields)
+    if location:
+        FiberFault.objects.filter(pk=fault.pk).update(**location)
+        fault.refresh_from_db()
+    return fault
