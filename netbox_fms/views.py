@@ -11,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -20,6 +20,7 @@ from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, D
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
+from . import pathways_compat
 from .assignment import (
     acknowledge_route_for,
     assign_paths_for,
@@ -32,6 +33,7 @@ from .assignment import (
 )
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
+from .fault_map import fault_segment_features, parse_bbox
 from .filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -1568,6 +1570,27 @@ class FiberFaultView(generic.ObjectView):
     """Display a single fiber fault."""
 
     queryset = FiberFault.objects.all()
+
+    def get_extra_context(self, request, instance):
+        """Add the route segment behind the location and whether the location went stale."""
+        return {
+            "route_segment": instance.route_segment(),
+            "located_at_is_stale": instance.located_at_is_stale,
+            "pathways_installed": pathways_compat.pathways_installed(),
+        }
+
+
+class FiberFaultMapSegmentsView(LoginRequiredMixin, View):
+    """GeoJSON of located fault segments for the netbox-pathways map layers."""
+
+    def get(self, request):
+        return JsonResponse(
+            fault_segment_features(
+                request.user,
+                located_at_status=request.GET.get("located_at_status", ""),
+                bbox=parse_bbox(request.GET.get("bbox")),
+            )
+        )
 
 
 @register_model_view(FiberFault, "add", detail=False)

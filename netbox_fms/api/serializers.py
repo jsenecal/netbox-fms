@@ -7,10 +7,14 @@ from dcim.api.serializers import (
     ModuleSerializer,
     ModuleTypeSerializer,
 )
+from django.contrib.contenttypes.models import ContentType
+from drf_spectacular.utils import extend_schema_field
+from netbox.api.fields import ContentTypeField
 from netbox.api.serializers import BaseModelSerializer, NetBoxModelSerializer
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from tenancy.api.serializers import TenantSerializer
+from utilities.api import get_serializer_for_model
 
 from ..choices import SplicePlanStatusChoices
 from ..models import (
@@ -38,6 +42,7 @@ from ..models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
+    apply_user_located_at,
     validate_fault_strands,
 )
 from ..services import import_live_state
@@ -496,7 +501,20 @@ class SlackLoopSerializer(NetBoxModelSerializer):
 
 
 class FiberFaultSerializer(NetBoxModelSerializer):
-    """Serializer for FiberFault model."""
+    """Serializer for FiberFault model.
+
+    The located_at link follows NetBox's scoped serializer pattern: a writable type and id, and the linked
+    object nested read-only.
+    """
+
+    located_at_type = ContentTypeField(
+        queryset=ContentType.objects.filter(FiberFault._meta.get_field("located_at_type").get_limit_choices_to()),
+        required=False,
+        allow_null=True,
+    )
+    located_at_id = serializers.IntegerField(required=False, allow_null=True)
+    located_at = serializers.SerializerMethodField(read_only=True)
+    otdr_origin = DeviceSerializer(nested=True, required=False, allow_null=True)
 
     class Meta:
         model = FiberFault
@@ -510,6 +528,14 @@ class FiberFaultSerializer(NetBoxModelSerializer):
             "reported_at",
             "resolved_at",
             "location_mark",
+            "located_at_status",
+            "located_at_type",
+            "located_at_id",
+            "located_at",
+            "estimate_note",
+            "otdr_origin",
+            "otdr_distance",
+            "otdr_strand",
             "description",
             "comments",
             "tags",
@@ -517,14 +543,30 @@ class FiberFaultSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
         )
+        read_only_fields = ("located_at_status", "estimate_note")
         brief_fields = ("id", "url", "display", "fiber_cable", "status")
 
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_located_at(self, obj):
+        """The linked device or pathway, nested; None when unset, gone, or its plugin is not installed."""
+        model = obj.located_at_type.model_class() if obj.located_at_type_id else None
+        target = model and obj.located_at
+        if target is None:
+            return None
+        return get_serializer_for_model(model)(target, nested=True, context=self.context).data
+
     def validate(self, data):
-        """Refuse strands that sit on a different cable than the fault."""
+        """Refuse strands of another cable, and apply the located_at status rule to a changed link."""
+        fault = self.instance or FiberFault()
+        before = (fault.located_at_type_id, fault.located_at_id)
         data = super().validate(data)
         if "fiber_cable" in data or "strands" in data:
             cable = data.get("fiber_cable") or self.instance.fiber_cable
             validate_fault_strands(cable, data.get("strands", self.instance.strands.all() if self.instance else []))
+        fault.located_at_type = data.get("located_at_type", fault.located_at_type)
+        fault.located_at_id = data.get("located_at_id", fault.located_at_id)
+        apply_user_located_at(fault, (fault.located_at_type_id, fault.located_at_id) != before)
+        data["located_at_status"], data["estimate_note"] = fault.located_at_status, fault.estimate_note
         return data
 
 

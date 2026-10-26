@@ -20,7 +20,10 @@ from dcim.models import (
     Site,
 )
 from django import forms
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.db.models import Q
+from django.utils.text import capfirst
 from django.utils.translation import gettext_lazy as _
 from netbox.forms import (
     NetBoxModelBulkEditForm,
@@ -33,15 +36,17 @@ from utilities.choices import unpack_grouped_choices
 from utilities.forms.fields import (
     ColorField,
     CommentField,
+    ContentTypeChoiceField,
     CSVChoiceField,
     CSVModelChoiceField,
     DynamicModelChoiceField,
     DynamicModelMultipleChoiceField,
 )
 from utilities.forms.rendering import FieldSet
-from utilities.forms.utils import add_blank_choice
-from utilities.forms.widgets import DateTimePicker
+from utilities.forms.utils import add_blank_choice, get_field_value
+from utilities.forms.widgets import DateTimePicker, HTMXSelect
 
+from . import pathways_compat
 from .choices import (
     CableElementTypeChoices,
     ConstructionChoices,
@@ -82,6 +87,7 @@ from .models import (
     SpliceProject,
     TrayProfile,
     TubeAssignment,
+    apply_user_located_at,
     validate_fault_strands,
 )
 from .services import import_live_state
@@ -990,7 +996,11 @@ class SlackLoopFilterForm(NetBoxModelFilterSetForm):
 
 
 class FiberFaultForm(NetBoxModelForm):
-    """Form for reporting/editing a FiberFault."""
+    """Form for reporting/editing a FiberFault.
+
+    The located_at picker follows NetBox's scope pattern: choosing a type re-renders the form and points the
+    object picker at that type's objects.
+    """
 
     fiber_cable = DynamicModelChoiceField(queryset=FiberCable.objects.all(), label=_("Fiber Cable"))
     strands = DynamicModelMultipleChoiceField(
@@ -1000,11 +1010,38 @@ class FiberFaultForm(NetBoxModelForm):
         help_text=_("Leave empty when the whole cable is faulted."),
         query_params={"fiber_cable_id": "$fiber_cable"},
     )
+    located_at_type = ContentTypeChoiceField(
+        queryset=ContentType.objects.none(),
+        required=False,
+        widget=HTMXSelect(),
+        label=_("Location type"),
+        help_text=_("A closure (device) on the cable, or a pathway on its route."),
+    )
+    located_at = DynamicModelChoiceField(
+        queryset=Device.objects.none(),
+        required=False,
+        disabled=True,
+        label=_("Located at"),
+    )
+    otdr_origin = DynamicModelChoiceField(
+        queryset=Device.objects.all(),
+        required=False,
+        label=_("OTDR origin"),
+        help_text=_("Device the OTDR trace was shot from."),
+    )
+    otdr_strand = DynamicModelChoiceField(
+        queryset=FiberStrand.objects.all(),
+        required=False,
+        label=_("OTDR strand"),
+        help_text=_("Strand the OTDR trace was shot on."),
+    )
     comments = CommentField()
 
     fieldsets = (
         FieldSet("fiber_cable", "strands", "status", "description", name=_("Fault")),
-        FieldSet("reported_at", "resolved_at", "location_mark", name=_("Timing and location")),
+        FieldSet("reported_at", "resolved_at", name=_("Timing")),
+        FieldSet("location_mark", "located_at_type", "located_at", name=_("Location")),
+        FieldSet("otdr_origin", "otdr_distance", "otdr_strand", name=_("OTDR shot")),
         FieldSet("tags", name=_("Additional")),
     )
 
@@ -1017,19 +1054,52 @@ class FiberFaultForm(NetBoxModelForm):
             "reported_at",
             "resolved_at",
             "location_mark",
+            "located_at_type",
+            "otdr_origin",
+            "otdr_distance",
+            "otdr_strand",
             "description",
             "comments",
             "tags",
         )
         widgets = {"reported_at": DateTimePicker(), "resolved_at": DateTimePicker()}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        types = Q(app_label="dcim", model="device")
+        if pathways_compat.pathways_installed():
+            types |= Q(app_label="netbox_pathways", model="pathway")
+        type_field = self.fields["located_at_type"]
+        type_field.queryset = ContentType.objects.filter(types)
+        type_id = get_field_value(self, "located_at_type")
+        located_at_type = type_field.queryset.filter(pk=type_id).first() if type_id else None
+        # Keep the stored pick only while the chosen type still matches it.
+        keep = located_at_type is not None and located_at_type.pk == self.instance.located_at_type_id
+        self.initial["located_at"] = self.instance.located_at_id if keep else None
+        if located_at_type is not None:
+            model = located_at_type.model_class()
+            field = self.fields["located_at"]
+            field.queryset = model.objects.all()
+            field.disabled = False
+            field.label = capfirst(model._meta.verbose_name)
+
     def clean(self):
-        """Refuse strands that sit on a different cable than the fault."""
+        """Refuse strands of another cable, and apply the located_at pick with its status rule."""
         super().clean()
         cable = self.cleaned_data.get("fiber_cable")
         if cable:
             validate_fault_strands(cable, self.cleaned_data.get("strands") or [])
+        fault = self.instance
+        before = (fault.located_at_type_id, fault.located_at_id)
+        fault.located_at = self.cleaned_data.get("located_at")
+        apply_user_located_at(fault, (fault.located_at_type_id, fault.located_at_id) != before)
         return self.cleaned_data
+
+    def _update_errors(self, errors):
+        """Show model errors about the linked object's id on the located_at picker."""
+        if "located_at_id" in getattr(errors, "error_dict", {}):
+            errors.error_dict["located_at"] = errors.error_dict.pop("located_at_id")
+        super()._update_errors(errors)
 
 
 class FiberFaultImportForm(NetBoxModelImportForm):

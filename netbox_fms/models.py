@@ -1314,6 +1314,10 @@ class FiberFault(NetBoxModel):
         """Return the badge color of the current status."""
         return FiberFaultStatusChoices.colors.get(self.status)
 
+    def get_located_at_status_color(self):
+        """Return the badge color of the location status."""
+        return FiberFaultLocatedAtStatusChoices.colors.get(self.located_at_status)
+
     @property
     def _located_at_key(self):
         """(app_label, model) of the located_at link's type, or None when unset."""
@@ -1417,6 +1421,21 @@ class FiberFault(NetBoxModel):
         if stored is None or any(stored[name] != getattr(self, name) for name in self.EVIDENCE_FIELDS):
             apply_estimate(self)
         super().save(*args, **kwargs)
+
+
+def apply_user_located_at(fault, changed):
+    """Set the location status after a user edits the located_at link (does not save).
+
+    A link the user sets is confirmed. Clearing a link resets the location, whatever its status. An unchanged
+    link keeps its status, so re-saving an estimated location does not confirm it. Forms and serializers share
+    this rule.
+    """
+    if not changed:
+        return
+    if fault.located_at_id is not None:
+        fault.confirm_located_at()
+    else:
+        fault.clear_located_at()
 
 
 class CableElement(NetBoxModel):

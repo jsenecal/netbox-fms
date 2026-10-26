@@ -232,6 +232,8 @@ class FiberStrandPathType(BaseObjectType):
 class FiberFaultType(NetBoxObjectType):
     """GraphQL type for FiberFault."""
 
+    located_at_type: Annotated["ContentTypeType", strawberry.lazy("netbox.graphql.types")] | None  # noqa: F821
+
 
 @strawberry_django.type(SlackLoop, fields="__all__", filters=SlackLoopFilter)
 class SlackLoopType(NetBoxObjectType):
