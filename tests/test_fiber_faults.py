@@ -203,6 +203,28 @@ class TestIsFaultedFilters(FaultWorld, TestCase):
         self.assertEqual(set(qs), {self.cable_3})
 
 
+class TestFaultQuerySets(FaultWorld, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.build()
+        cls.open_fault = FiberFault.objects.create(fiber_cable=cls.cable_1)
+        cls.resolved = FiberFault.objects.create(fiber_cable=cls.cable_2, status=FiberFaultStatusChoices.RESOLVED)
+        cls.strand_fault = FiberFault.objects.create(fiber_cable=cls.cable_2)
+        cls.s1, cls.s2 = cls.cable_2.fiber_strands.order_by("position")[:2]
+        cls.strand_fault.strands.add(cls.s1)
+        cls.resolved.strands.add(cls.s2)
+
+    def test_open_excludes_resolved(self):
+        self.assertEqual(set(FiberFault.objects.open()), {self.open_fault, self.strand_fault})
+
+    def test_whole_cable_excludes_strand_faults(self):
+        self.assertEqual(set(FiberFault.objects.open().whole_cable()), {self.open_fault})
+
+    def test_faulted_strands(self):
+        expected = {self.s1} | set(self.cable_1.fiber_strands.all())
+        self.assertEqual(set(FiberStrand.objects.faulted()), expected)
+
+
 class TestFaultPages(FaultWorld, TestCase):
     @classmethod
     def setUpTestData(cls):

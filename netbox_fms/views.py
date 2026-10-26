@@ -30,7 +30,7 @@ from .assignment import (
     viewable_groups,
     visible_paths,
 )
-from .choices import FiberCircuitStatusChoices, FiberFaultStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
 from .filters import (
     BufferTubeFilterSet,
@@ -624,7 +624,7 @@ class FiberCableView(generic.ObjectView):
         available_strands = total_strands - active_strands
         return {
             "open_faults": instance.faults.restrict(request.user, "view")
-            .filter(status=FiberFaultStatusChoices.OPEN)
+            .open()
             .prefetch_related(Prefetch("strands", queryset=FiberStrand.objects.restrict(request.user, "view"))),
             "strand_stats": {
                 "total": total_strands,

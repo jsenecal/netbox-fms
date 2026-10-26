@@ -1069,6 +1069,17 @@ class FiberStrandQuerySet(RestrictedQuerySet):
         """
         return self.filter(models.Q(front_port_a_id__in=front_port_ids) | models.Q(front_port_b_id__in=front_port_ids))
 
+    def faulted(self):
+        """Strands named by an open fault, or on a cable with an open whole-cable fault.
+
+        Built on FiberFaultQuerySet, the single definition of an open fault.
+        """
+        open_faults = FiberFault.objects.open()
+        return self.filter(
+            models.Q(pk__in=FiberStrand.objects.filter(faults__in=open_faults).values("pk"))
+            | models.Q(fiber_cable__in=open_faults.whole_cable().values("fiber_cable"))
+        )
+
 
 class FiberStrand(NetBoxModel):
     """
@@ -1167,6 +1178,16 @@ def validate_fault_strands(fiber_cable, strands):
         raise ValidationError({"strands": _("Strands not on this cable: %(names)s.") % {"names": ", ".join(foreign)}})
 
 
+class FiberFaultQuerySet(RestrictedQuerySet):
+    def open(self):
+        """Faults still open. The single definition of "open" shared by filters, views and path analysis."""
+        return self.filter(status=FiberFaultStatusChoices.OPEN)
+
+    def whole_cable(self):
+        """Faults naming no strands, which affect every strand on the cable."""
+        return self.filter(strands__isnull=True)
+
+
 class FiberFault(NetBoxModel):
     """
     A reported fault on a FiberCable, either on the whole cable or on specific strands.
@@ -1217,6 +1238,8 @@ class FiberFault(NetBoxModel):
         verbose_name=_("comments"),
         blank=True,
     )
+
+    objects = FiberFaultQuerySet.as_manager()
 
     class Meta:
         ordering = ("-reported_at", "pk")
