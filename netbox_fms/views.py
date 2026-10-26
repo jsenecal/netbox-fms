@@ -11,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, Count, IntegerField, Prefetch, Q, Value, When
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -20,6 +20,7 @@ from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, D
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
+from . import pathways_compat
 from .assignment import (
     acknowledge_route_for,
     assign_paths_for,
@@ -30,8 +31,10 @@ from .assignment import (
     viewable_groups,
     visible_paths,
 )
-from .choices import FiberCircuitStatusChoices, FiberFaultStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
+from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
+from .fault_location import confirm_estimate, fault_to_change, reestimate
+from .fault_map import fault_segment_features, parse_bbox
 from .filters import (
     BufferTubeFilterSet,
     BufferTubeTemplateFilterSet,
@@ -624,7 +627,7 @@ class FiberCableView(generic.ObjectView):
         available_strands = total_strands - active_strands
         return {
             "open_faults": instance.faults.restrict(request.user, "view")
-            .filter(status=FiberFaultStatusChoices.OPEN)
+            .open()
             .prefetch_related(Prefetch("strands", queryset=FiberStrand.objects.restrict(request.user, "view"))),
             "strand_stats": {
                 "total": total_strands,
@@ -1569,6 +1572,53 @@ class FiberFaultView(generic.ObjectView):
 
     queryset = FiberFault.objects.all()
 
+    def get_extra_context(self, request, instance):
+        """Add the route segment behind the location and whether the location went stale."""
+        return {
+            "route_segment": instance.route_segment(),
+            "located_at_is_stale": instance.located_at_is_stale,
+            "pathways_installed": pathways_compat.pathways_installed(),
+        }
+
+
+class FiberFaultMapSegmentsView(LoginRequiredMixin, View):
+    """GeoJSON of located fault segments for the netbox-pathways map layers."""
+
+    def get(self, request):
+        return JsonResponse(
+            fault_segment_features(
+                request.user,
+                located_at_status=request.GET.get("located_at_status", ""),
+                bbox=parse_bbox(request.GET.get("bbox")),
+            )
+        )
+
+
+@register_model_view(FiberFault, "confirm_location", path="confirm-location")
+class FiberFaultConfirmLocationView(LoginRequiredMixin, View):
+    """Confirm the estimated location of a fault."""
+
+    def post(self, request, pk):
+        fault = fault_to_change(request.user, pk)
+        if confirm_estimate(fault):
+            messages.success(request, _("Confirmed the fault location."))
+        else:
+            messages.error(request, _("There is no estimated location to confirm."))
+        return redirect(fault.get_absolute_url())
+
+
+@register_model_view(FiberFault, "reestimate", path="re-estimate")
+class FiberFaultReestimateView(LoginRequiredMixin, View):
+    """Estimate the location of a fault again from its evidence and the cable's current route."""
+
+    def post(self, request, pk):
+        fault = fault_to_change(request.user, pk)
+        if reestimate(fault):
+            messages.success(request, _("Re-estimated the fault location."))
+        else:
+            messages.error(request, _("A confirmed location is not re-estimated; clear it first."))
+        return redirect(fault.get_absolute_url())
+
 
 @register_model_view(FiberFault, "add", detail=False)
 @register_model_view(FiberFault, "edit")
@@ -1980,6 +2030,7 @@ def group_state(group):
         "route_key": group.route_key,
         "path_ids": group.path_ids,
         "is_contiguous": group.is_contiguous,
+        "crosses_damaged_cable": group.crosses_damaged_cable,
         "hop_count": group.hop_count,
         "lowest_position": group.lowest_position,
     }

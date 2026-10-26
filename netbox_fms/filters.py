@@ -181,10 +181,6 @@ class CableElementTemplateFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
         fields = ("id", "fiber_cable_type_id", "name", "element_type")
 
 
-def _open_faults():
-    return FiberFault.objects.filter(status=FiberFaultStatusChoices.OPEN)
-
-
 class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
     """FilterSet for FiberCable model."""
 
@@ -232,7 +228,7 @@ class FiberCableFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
 
     def filter_is_faulted(self, queryset, name, value):
         """Cables with any open fault, whole-cable or strand-level (``False`` for the complement)."""
-        faulted = Q(pk__in=_open_faults().values("fiber_cable"))
+        faulted = Q(pk__in=FiberFault.objects.open().values("fiber_cable"))
         return queryset.filter(faulted) if value else queryset.exclude(faulted)
 
 
@@ -319,10 +315,7 @@ class FiberStrandFilterSet(SearchFieldsMixin, NetBoxModelFilterSet):
 
     def filter_is_faulted(self, queryset, name, value):
         """Strands named by an open fault, or on a cable with an open whole-cable fault."""
-        open_faults = _open_faults()
-        faulted = Q(pk__in=FiberStrand.objects.filter(faults__in=open_faults).values("pk")) | Q(
-            fiber_cable__in=open_faults.filter(strands__isnull=True).values("fiber_cable")
-        )
+        faulted = Q(pk__in=FiberStrand.objects.faulted().values("pk"))
         return queryset.filter(faulted) if value else queryset.exclude(faulted)
 
 

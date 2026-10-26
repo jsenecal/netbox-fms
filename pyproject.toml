@@ -39,6 +39,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pathways = ["netbox-pathways>=0.3.0"]
 dev = [
     "bump-my-version",
     "pre-commit>=4.0.0",

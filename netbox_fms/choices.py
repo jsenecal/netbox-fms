@@ -227,6 +227,20 @@ class FiberFaultStatusChoices(ChoiceSet):
     )
 
 
+class FiberFaultLocatedAtStatusChoices(ChoiceSet):
+    """Choice set for how firmly a fault's located_at link is established."""
+
+    NONE = "none"
+    ESTIMATED = "estimated"
+    CONFIRMED = "confirmed"
+
+    CHOICES = (
+        (NONE, "None", "gray"),
+        (ESTIMATED, "Estimated", "orange"),
+        (CONFIRMED, "Confirmed", "green"),
+    )
+
+
 class FiberCircuitStatusChoices(ChoiceSet):
     """Choice set for fiber circuit lifecycle status."""
 

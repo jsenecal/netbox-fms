@@ -13,7 +13,7 @@
             {% endif %}
             <div class="flex-grow-1">
                 <strong>{% trans "Route" %} {{ forloop.counter }}</strong> --
-                {{ group.hop_count }} {% trans "hop(s)" %}{% if group.is_contiguous %}, <span class="badge bg-success">{% trans "contiguous" %}</span>{% endif %}
+                {{ group.hop_count }} {% trans "hop(s)" %}{% if group.is_contiguous %}, <span class="badge bg-success">{% trans "contiguous" %}</span>{% endif %}{% if group.crosses_damaged_cable %} <span class="badge bg-warning text-dark">{% trans "crosses a damaged cable" %}</span>{% endif %}
                 <ul class="list-unstyled mb-0 small">
                     {% for path in group.paths %}
                     <li>

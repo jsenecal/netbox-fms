@@ -65,6 +65,118 @@ assignments recover with no user action.
 
 ---
 
+## Locating a fault
+
+A fault can record where on the ground the damage is. The location is a route
+segment (the stretch between two structures on the cable's route) or a device
+where the cable terminates, such as a closure. It is what the map highlights
+and what you look at when planning a replacement.
+
+### Three sources
+
+- **Picked.** You choose the route segment or the device in the fault form (or
+  set `located_at` through the API). A location you pick is **confirmed**.
+- **Estimated from a jacket mark.** Read the mark printed on the jacket at the
+  damage and enter it as `location_mark`. The plugin finds the route segment
+  that mark falls in.
+- **Estimated from an OTDR shot.** Enter the `otdr_origin` (the closure or
+  patch-panel device the shot was taken from), the `otdr_distance` in meters
+  and, when the origin is not an end of the faulted cable, the `otdr_strand`
+  that was shot. The plugin finds the route segment the distance lands in.
+
+If both a jacket mark and OTDR evidence are present, the jacket mark drives
+the estimate: a reading taken at the damage beats a distance measured from
+elsewhere. The OTDR evidence is kept as corroboration.
+
+Without netbox-pathways, you can still pick a device and the estimate stops
+with a note; the segment picker is hidden.
+
+### Estimated and confirmed
+
+- **Estimated** means the plugin worked the location out from evidence. It is
+  labelled as an estimate everywhere it appears, and drawn dashed on the map.
+- **Confirmed** means a person picked it or accepted the estimate. Editing the
+  evidence afterwards does not change a confirmed location.
+
+On the fault page, **Confirm location** turns an estimate into a confirmed
+location; a stale estimate cannot be confirmed, re-estimate it instead.
+**Re-estimate** runs the estimate again against the cable's current
+route and lengths (an estimate is otherwise recomputed only when its evidence
+is saved). Re-estimate is not offered once the location is confirmed; clear the
+location first to estimate again. Both actions need the `change` permission on
+fiber faults. The REST API has the same two actions,
+`POST /api/plugins/fms/fiber-faults/<id>/confirm-location/` and
+`.../re-estimate/`, which answer 409 when refused.
+
+### How the OTDR estimate walks
+
+1. Start at the origin device and follow the shot strand's analyzed path. With
+   no strand given and the origin at an end of the faulted cable, only that
+   cable is walked. The walk goes in the direction that reaches the fault's
+   cable.
+2. Subtract each cable's length (converted to meters) from the distance, and
+   stop at the cable where the remaining distance runs out. That cable must be
+   the fault's cable.
+3. Within that cable, walk its route segments in order from the end the walk
+   entered. Recorded slack loops add their length where they sit on the route;
+   the rest of the difference between cable length and route length is spread
+   proportionally along the route. Segment length is the pathway's length, or
+   the length of its geometry. The way a pathway is drawn does not matter: each
+   one is turned to follow the route before slack loops are placed.
+4. The segment the remaining distance lands in becomes the location.
+
+The jacket-mark estimate does the same segment walk, starting from the cable's
+A end at distance `|location_mark - start_mark|`.
+
+### Estimate notes
+
+When an estimate cannot be computed, no location is stored and the fault shows
+one of these notes:
+
+| Note | Meaning |
+|------|---------|
+| netbox-pathways is not installed. | Segments need netbox-pathways. |
+| The cable has no recorded route. | The cable has no route segments. |
+| The route has a gap at segment N. | A segment has no pathway or no length. |
+| The distance runs past the end of the cable. | The distance exceeds the walked length. |
+| Cable X has no length. | A cable on the walk has no length. |
+| The cable has no start mark. | A jacket mark needs the cable's start mark. |
+| The shot lands on cable X, not this fault's cable. | The distance runs out on a different cable. |
+| The shot's origin is not on the shot strand's path. | The origin device is not on that path. |
+| Hop N of the shot's path has no known length. | A plain cable without a length or a provider circuit stops the walk. |
+| The shot strand has no analyzed path. | Path analysis has not produced a path for it. |
+| The shot strand's path does not cross this fault's cable. | The path never reaches the cable. |
+
+A location whose pathway or device is gone, or whose pathway the cable no
+longer runs through, is shown as stale and left off the map. A stale location
+does not block other edits of the fault, such as resolving it; the location is
+checked against the cable only when it is set or changed.
+
+### Map layers
+
+With netbox-pathways installed, the main map has a **Fiber Faults** group of
+layers, off by default:
+
+- **Fault Segments (Confirmed)** -- solid red lines along the located pathway.
+- **Fault Segments (Estimated)** -- dashed red lines.
+- **Faulted Closures** -- points for devices that hold a located fault.
+
+Only open faults you may view appear, and popovers name the fault, its cable
+and its location status. The fault page links the segment to the cable's route
+map.
+
+### Routing penalty
+
+A cable with any open fault, on a strand or on the whole cable, is damaged. In
+the [circuit picker](fiber-circuits.md) a candidate that crosses a damaged
+cable ranks below clean ones and carries a **crosses a damaged cable** badge.
+It is a yes or no, not a score: two damaged cables rank the same as one, and a
+clean route with an extra hop beats a shorter route through a damaged cable.
+Resolved faults do not penalize routing. Strands under an open fault still
+cannot be assigned at all.
+
+---
+
 ## Finding faulted fiber
 
 - `is_faulted` filter on fiber strands: strands with an open fault, or on a

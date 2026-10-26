@@ -523,3 +523,51 @@ def assign_strand_path(circuit, strand_path, position=None, **fields):
         position = (circuit.paths.order_by("-position").values_list("position", flat=True).first() or 0) + 1
     fields.setdefault("assigned_hops", hops_snapshot(strand_path))
     return FiberCircuitPath.objects.create(circuit=circuit, strand_path=strand_path, position=position, **fields)
+
+
+def make_route(cable, lengths, *, set_length=True, reverse=()):
+    """Straight east-running chain of pathways (SRID 3348 meters), one per entry in lengths.
+
+    Pathways join at shared Structures; CableSegments run 1..n from the cable's A end. A pathway whose
+    0-based index is in reverse is drawn west, from its route end back to its route start.
+    """
+    from django.contrib.gis.geos import LineString, Point
+    from netbox_pathways.models import CableSegment, DirectBuried, Structure
+
+    def structure(index, x):
+        return Structure.objects.create(name=f"route-{cable.pk}-{index}", geometry=Point(x, 0, srid=3348))
+
+    x = 0.0
+    start = structure(0, x)
+    segments = []
+    for seq, length in enumerate(lengths, start=1):
+        end = structure(seq, x + length)
+        ends, coords = (start, end), [(x, 0), (x + length, 0)]
+        if seq - 1 in reverse:
+            ends, coords = ends[::-1], coords[::-1]
+        pathway = DirectBuried.objects.create(
+            start_structure=ends[0],
+            end_structure=ends[1],
+            path=LineString(coords, srid=3348),
+            length=length if set_length else None,
+        )
+        segments.append(CableSegment.objects.create(cable=cable, pathway=pathway, sequence=seq))
+        start, x = end, x + length
+    return segments
+
+
+def create_fault_with_location(**fields):
+    """Create a FiberFault, then write its located_at state straight to the row.
+
+    FiberFault.save() re-estimates from evidence and wipes a location that has none, so a test
+    that needs an estimated or stale link seeds it the way an estimator result would land.
+    """
+    from netbox_fms.models import FiberFault
+
+    keys = ("located_at_status", "located_at_type", "located_at_id", "estimate_note")
+    location = {key: fields.pop(key) for key in keys if key in fields}
+    fault = FiberFault.objects.create(**fields)
+    if location:
+        FiberFault.objects.filter(pk=fault.pk).update(**location)
+        fault.refresh_from_db()
+    return fault

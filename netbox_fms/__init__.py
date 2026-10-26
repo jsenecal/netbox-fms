@@ -91,7 +91,7 @@ class NetBoxFMSConfig(PluginConfig):
 
         from dcim.models import Device
 
-        from .models import SlackLoop
+        from .models import FiberFault, SlackLoop
 
         register_map_layer(
             name="fms_splice_closures",
@@ -135,6 +135,49 @@ class NetBoxFMSConfig(PluginConfig):
             ),
             group="Fiber Management",
             sort_order=30,
+        )
+
+        fault_detail = LayerDetail(
+            url_template="/plugins/fms/faults/{id}/",
+            fields=["name", "fiber_cable", "located_at_status"],
+            label_field="name",
+        )
+        for sort_order, (located_at_status, dash) in enumerate((("confirmed", None), ("estimated", "6 6")), start=10):
+            register_map_layer(
+                name=f"fms_fault_segments_{located_at_status}",
+                label=f"Fault Segments ({located_at_status.capitalize()})",
+                geometry_type="LineString",
+                source="url",
+                url=f"/plugins/fms/faults/map-segments/?located_at_status={located_at_status}",
+                popover_fields=["name", "fiber_cable", "located_at_status"],
+                style=LayerStyle(color="#f44336", weight=5, dash=dash),
+                detail=fault_detail,
+                group="Fiber Faults",
+                sort_order=sort_order,
+            )
+
+        register_map_layer(
+            name="fms_fault_closures",
+            label="Faulted Closures",
+            geometry_type="Point",
+            source="reference",
+            queryset=lambda r: Device.objects.filter(
+                pk__in=FiberFault.objects.open()
+                .restrict(r.user, "view")
+                .filter(located_at_type__app_label="dcim", located_at_type__model="device")
+                .values("located_at_id")
+            ).restrict(r.user, "view"),
+            geometry_field="site",
+            feature_fields=["name", "site", "role", "status"],
+            popover_fields=["name", "role"],
+            style=LayerStyle(color="#f44336", icon="mdi-alert-octagon"),
+            detail=LayerDetail(
+                url_template="/dcim/devices/{id}/",
+                fields=["name", "site", "role", "status"],
+                label_field="name",
+            ),
+            group="Fiber Faults",
+            sort_order=20,
         )
 
 

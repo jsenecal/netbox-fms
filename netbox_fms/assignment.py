@@ -18,7 +18,14 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from .choices import FiberCircuitStatusChoices, PathCompletenessChoices
-from .models import FiberCircuit, FiberCircuitPath, FiberStrandPath, RouteChangeAuthorization, hops_snapshot
+from .models import (
+    FiberCircuit,
+    FiberCircuitPath,
+    FiberFault,
+    FiberStrandPath,
+    RouteChangeAuthorization,
+    hops_snapshot,
+)
 from .path_analysis import accept_current_hops, sync_circuit_broken
 
 
@@ -173,6 +180,7 @@ class PathGroup:
     route_key: str
     paths: list[FiberStrandPath]
     is_contiguous: bool
+    crosses_damaged_cable: bool
     hop_count: int
     lowest_position: int
 
@@ -201,24 +209,31 @@ def _candidate_paths(circuit_status, allow_incomplete):
     )
 
 
-def _device_sequence(path):
-    """The devices a path visits from end A to end B, consecutive duplicates collapsed."""
-    devices = [path.end_a_port.device_id] if path.end_a_port_id else []
-    previous = devices[-1] if devices else None
+def path_hop_ends(path):
+    """Each hop of a path with its end devices ordered from end A to end B; a provider circuit has none."""
+    previous = path.end_a_port.device_id if path.end_a_port_id else None
     for hop in path.hops.all():
         if hop.strand_id:
             ends = [fp.device_id for fp in (hop.strand.front_port_a, hop.strand.front_port_b) if fp is not None]
         elif hop.cable_id:
             ends = [term._device_id for term in hop.cable.terminations.all() if term._device_id is not None]
         else:
+            yield hop, []
             continue
         if len(ends) == 2 and ends[1] == previous:
             ends.reverse()
+        if ends:
+            previous = ends[-1]
+        yield hop, ends
+
+
+def _device_sequence(path):
+    """The devices a path visits from end A to end B, consecutive duplicates collapsed."""
+    devices = [path.end_a_port.device_id] if path.end_a_port_id else []
+    for _hop, ends in path_hop_ends(path):
         for device_id in ends:
             if not devices or devices[-1] != device_id:
                 devices.append(device_id)
-        if devices:
-            previous = devices[-1]
     if path.end_b_port_id and (not devices or devices[-1] != path.end_b_port.device_id):
         devices.append(path.end_b_port.device_id)
     return devices
@@ -323,7 +338,8 @@ def find_assignable_path_groups(
     visit in that order; each ``avoid_*`` drops paths touching those
     objects; ``ends_at`` (a device or devices) must each hold an end.
     Ranking: contiguity (adjacent positions in one tube on every cable),
-    then hop count, then lowest strand position -- the wizard's order.
+    then clean routes before routes crossing a cable with an open fault
+    (yes or no, not how many), then hop count, then lowest strand position.
     """
     candidates = _candidate_paths(circuit_status, allow_incomplete)
     sequences = {path.pk: _device_sequence(path) for path in candidates}
@@ -368,6 +384,7 @@ def find_assignable_path_groups(
             "front_port_id", "rear_port_id", "rear_port_position"
         )
     }
+    damaged = set(FiberFault.objects.open().values_list("fiber_cable__cable_id", flat=True))
     groups = []
     for route_key, paths in by_route.items():
         paths.sort(key=lambda p: (_first_strand_position(p), p.pk))
@@ -378,11 +395,12 @@ def find_assignable_path_groups(
                     route_key=route_key,
                     paths=window,
                     is_contiguous=_group_is_contiguous(window, mapping_of),
+                    crosses_damaged_cable=any(_cable_ids(path) & damaged for path in window),
                     hop_count=len(window[0].hop_refs()),
                     lowest_position=_first_strand_position(window[0]),
                 )
             )
-    groups.sort(key=lambda g: (not g.is_contiguous, g.hop_count, g.lowest_position))
+    groups.sort(key=lambda g: (not g.is_contiguous, g.crosses_damaged_cable, g.hop_count, g.lowest_position))
     return groups
 
 

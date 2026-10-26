@@ -21,7 +21,6 @@ from dcim.choices import DeviceStatusChoices, LinkStatusChoices, PortTypeChoices
 from dcim.models import Cable, CableTermination, Device, FrontPort, PortMapping, RearPort
 
 from .choices import (
-    FiberFaultStatusChoices,
     PathAnomalyKindChoices,
     PathCompletenessChoices,
     PathEndKindChoices,
@@ -324,16 +323,12 @@ def _load_strands(plant, cable_ids):
 
 def _load_faults(plant, cable_ids):
     """Record the strands and cables covered by an open fault, whole-cable faults included."""
-    open_faults = FiberFault.objects.filter(status=FiberFaultStatusChoices.OPEN, fiber_cable__cable_id__in=cable_ids)
-    plant.faulted_cables = set(open_faults.filter(strands__isnull=True).values_list("fiber_cable__cable_id", flat=True))
+    open_faults = FiberFault.objects.open().filter(fiber_cable__cable_id__in=cable_ids)
+    plant.faulted_cables = set(open_faults.whole_cable().values_list("fiber_cable__cable_id", flat=True))
     plant.faulted_strands = {
         strand_id for strand_id, cable_id in plant.strand_cable.items() if cable_id in plant.faulted_cables
     }
-    plant.faulted_strands |= set(
-        FiberStrand.objects.filter(
-            faults__status=FiberFaultStatusChoices.OPEN, faults__fiber_cable__cable_id__in=cable_ids
-        ).values_list("pk", flat=True)
-    )
+    plant.faulted_strands |= set(FiberStrand.objects.filter(faults__in=open_faults).values_list("pk", flat=True))
 
 
 def _quarantine_strand(plant, strand_id, kind):

@@ -3,14 +3,16 @@
 import pytest
 from dcim.choices import DeviceStatusChoices
 from dcim.models import Cable, Device, Site
+from django.template.loader import render_to_string
 from django.test import TestCase
 from tenancy.models import Tenant
 
 from netbox_fms.assignment import _device_sequence, _group_is_contiguous, find_assignable_path_groups, is_contiguous
-from netbox_fms.choices import FiberCircuitStatusChoices
-from netbox_fms.models import FiberCableType, FiberCircuit, FiberStrandPath
+from netbox_fms.choices import FiberCircuitStatusChoices, FiberFaultStatusChoices
+from netbox_fms.models import FiberCableType, FiberCircuit, FiberFault, FiberStrandPath
 from netbox_fms.path_analysis import run_reconcile
 from netbox_fms.services import create_closure_cable
+from netbox_fms.views import _group_rows
 from tests.conftest import assign_strand_path, connect_front_ports, make_closure_pair, make_strand_path
 
 ACTIVE, PLANNED = FiberCircuitStatusChoices.ACTIVE, FiberCircuitStatusChoices.PLANNED
@@ -218,3 +220,80 @@ class TestContiguityHoldsOnEveryCable(PickerCase):
         assert plain.route_key == strand_path.route_key
         mapping_of = {self.ab[2].front_port_a_id: (1, 1)}
         assert _group_is_contiguous([strand_path, plain], mapping_of) is False
+
+
+class TestDamagedCablesRankLast(PickerCase):
+    """A route through a cable with an open fault ranks after clean routes of equal contiguity."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # Short route: AB + BC through strands AB-2 and BC-3 (2 hops).
+        connect_front_ports(cls.ab[1].front_port_b, cls.bc[2].front_port_a)
+        # Long route: C - D - E - F over three cables of its own (3 hops).
+        devices = [cls.dev_c] + [
+            Device.objects.create(
+                name=f"PK-{n}", site=cls.dev_a.site, device_type=cls.dev_a.device_type, role=cls.dev_a.role
+            )
+            for n in "DEF"
+        ]
+        cls.long_cables = [
+            create_closure_cable(device_a=a, device_b=b, fiber_cable_type=cls.fct, port_type="lc")[0]
+            for a, b in zip(devices, devices[1:], strict=False)
+        ]
+        for left, right in zip(cls.long_cables, cls.long_cables[1:], strict=False):
+            connect_front_ports(
+                left.fiber_strands.get(position=1).front_port_b, right.fiber_strands.get(position=1).front_port_a
+            )
+        run_reconcile()
+
+    def fault(self, fiber_cable, position=4, **fields):
+        fault = FiberFault.objects.create(fiber_cable=fiber_cable, **fields)
+        fault.strands.add(fiber_cable.fiber_strands.get(position=position))
+        return fault
+
+    def group_of(self, groups, strand):
+        pk = self.path_of(strand).pk
+        return next(g for g in groups if pk in g.path_ids)
+
+    def test_clean_route_beats_shorter_damaged_route(self):
+        self.fault(self.fc_ab)
+        groups = self.groups()
+        short = self.group_of(groups, self.ab[1])
+        long = self.group_of(groups, self.long_cables[0].fiber_strands.get(position=1))
+        assert (short.hop_count, long.hop_count) == (2, 3)
+        assert short.crosses_damaged_cable is True
+        assert long.crosses_damaged_cable is False
+        assert groups.index(long) < groups.index(short)
+
+    def test_resolved_fault_does_not_penalize(self):
+        self.fault(self.fc_ab, status=FiberFaultStatusChoices.RESOLVED)
+        groups = self.groups()
+        short = self.group_of(groups, self.ab[1])
+        long = self.group_of(groups, self.long_cables[0].fiber_strands.get(position=1))
+        assert short.crosses_damaged_cable is False
+        assert groups.index(short) < groups.index(long)
+
+    def test_contiguity_outranks_damage(self):
+        self.fault(self.fc_ab, position=1)  # AB strand 1 is defective; strands 2-4 stay assignable but damaged
+        groups = self.groups(strand_count=2)
+        damaged_contiguous = next(g for g in groups if g.crosses_damaged_cable and g.is_contiguous)
+        clean_split = next(g for g in groups if not g.crosses_damaged_cable and not g.is_contiguous)
+        assert groups.index(damaged_contiguous) < groups.index(clean_split)
+
+    def test_damage_is_yes_or_no(self):
+        self.fault(self.fc_ab)
+        self.fault(self.fc_bc)
+        self.fault(self.long_cables[0])
+        groups = self.groups()
+        two_damaged = self.group_of(groups, self.ab[1])  # AB + BC, both damaged, 2 hops
+        one_damaged = self.group_of(groups, self.long_cables[0].fiber_strands.get(position=1))  # 3 hops
+        assert two_damaged.crosses_damaged_cable and one_damaged.crosses_damaged_cable
+        assert groups.index(two_damaged) < groups.index(one_damaged)
+
+    def test_group_row_shows_damage_badge(self):
+        self.fault(self.fc_ab)
+        rows = _group_rows(self.groups())
+        html = render_to_string("netbox_fms/inc/path_group_list.html", {"groups": rows})
+        damaged = [row for row in rows if row["crosses_damaged_cable"]]
+        assert damaged and html.count("crosses a damaged cable") == len(damaged)

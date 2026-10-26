@@ -1,7 +1,10 @@
 from dcim.choices import CableLengthUnitChoices
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
+from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -10,6 +13,7 @@ from utilities.fields import ColorField, CounterCacheField
 from utilities.querysets import RestrictedQuerySet
 from utilities.tracking import TrackingModelMixin
 
+from . import pathways_compat
 from .choices import (
     ArmorTypeChoices,
     AssignmentBrokenReasonChoices,
@@ -18,6 +22,7 @@ from .choices import (
     DeploymentChoices,
     FiberCircuitStatusChoices,
     FiberColorSchemeChoices,
+    FiberFaultLocatedAtStatusChoices,
     FiberFaultStatusChoices,
     FireRatingChoices,
     MarkerTypeChoices,
@@ -1069,6 +1074,17 @@ class FiberStrandQuerySet(RestrictedQuerySet):
         """
         return self.filter(models.Q(front_port_a_id__in=front_port_ids) | models.Q(front_port_b_id__in=front_port_ids))
 
+    def faulted(self):
+        """Strands named by an open fault, or on a cable with an open whole-cable fault.
+
+        Built on FiberFaultQuerySet, the single definition of an open fault.
+        """
+        open_faults = FiberFault.objects.open()
+        return self.filter(
+            models.Q(pk__in=FiberStrand.objects.filter(faults__in=open_faults).values("pk"))
+            | models.Q(fiber_cable__in=open_faults.whole_cable().values("fiber_cable"))
+        )
+
 
 class FiberStrand(NetBoxModel):
     """
@@ -1167,6 +1183,16 @@ def validate_fault_strands(fiber_cable, strands):
         raise ValidationError({"strands": _("Strands not on this cable: %(names)s.") % {"names": ", ".join(foreign)}})
 
 
+class FiberFaultQuerySet(RestrictedQuerySet):
+    def open(self):
+        """Faults still open. The single definition of "open" shared by filters, views and path analysis."""
+        return self.filter(status=FiberFaultStatusChoices.OPEN)
+
+    def whole_cable(self):
+        """Faults naming no strands, which affect every strand on the cable."""
+        return self.filter(strands__isnull=True)
+
+
 class FiberFault(NetBoxModel):
     """
     A reported fault on a FiberCable, either on the whole cable or on specific strands.
@@ -1208,6 +1234,55 @@ class FiberFault(NetBoxModel):
         null=True,
         help_text=_("Approximate sheath mark of the fault, in the cable type's mark_unit."),
     )
+    located_at_status = models.CharField(
+        verbose_name=_("located at status"),
+        max_length=30,
+        choices=FiberFaultLocatedAtStatusChoices,
+        default=FiberFaultLocatedAtStatusChoices.NONE,
+    )
+    located_at_type = models.ForeignKey(
+        to="contenttypes.ContentType",
+        on_delete=models.PROTECT,
+        related_name="+",
+        blank=True,
+        null=True,
+        limit_choices_to=Q(app_label="dcim", model="device") | Q(app_label="netbox_pathways", model="pathway"),
+    )
+    located_at_id = models.PositiveBigIntegerField(
+        blank=True,
+        null=True,
+    )
+    located_at = GenericForeignKey(ct_field="located_at_type", fk_field="located_at_id")
+    estimate_note = models.CharField(
+        verbose_name=_("estimate note"),
+        max_length=200,
+        blank=True,
+    )
+    otdr_origin = models.ForeignKey(
+        to="dcim.Device",
+        on_delete=models.SET_NULL,
+        related_name="+",
+        blank=True,
+        null=True,
+        help_text=_("Device the OTDR trace was shot from."),
+    )
+    otdr_distance = models.DecimalField(
+        verbose_name=_("OTDR distance"),
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+        blank=True,
+        null=True,
+        help_text=_("Optical distance from the OTDR origin, in meters."),
+    )
+    otdr_strand = models.ForeignKey(
+        to="netbox_fms.FiberStrand",
+        on_delete=models.SET_NULL,
+        related_name="+",
+        blank=True,
+        null=True,
+        help_text=_("Strand the OTDR trace was shot on."),
+    )
     description = models.CharField(
         verbose_name=_("description"),
         max_length=200,
@@ -1217,6 +1292,10 @@ class FiberFault(NetBoxModel):
         verbose_name=_("comments"),
         blank=True,
     )
+
+    EVIDENCE_FIELDS = ("location_mark", "otdr_origin_id", "otdr_distance", "otdr_strand_id")
+
+    objects = FiberFaultQuerySet.as_manager()
 
     class Meta:
         ordering = ("-reported_at", "pk")
@@ -1235,9 +1314,99 @@ class FiberFault(NetBoxModel):
         """Return the badge color of the current status."""
         return FiberFaultStatusChoices.colors.get(self.status)
 
+    def get_located_at_status_color(self):
+        """Return the badge color of the location status."""
+        return FiberFaultLocatedAtStatusChoices.colors.get(self.located_at_status)
+
+    @property
+    def _located_at_key(self):
+        """(app_label, model) of the located_at link's type, or None when unset."""
+        if self.located_at_type_id is None:
+            return None
+        return self.located_at_type.app_label, self.located_at_type.model
+
+    @property
+    def located_at_pathway_pk(self):
+        """Pk of the linked pathway, or None when the link is not a pathway."""
+        return self.located_at_id if self._located_at_key == ("netbox_pathways", "pathway") else None
+
+    @property
+    def located_at_device(self):
+        """The linked Device, or None when the link is not a device (or the device is gone)."""
+        if self._located_at_key != ("dcim", "device"):
+            return None
+        return self.located_at_type.model_class().objects.filter(pk=self.located_at_id).first()
+
+    def route_segment(self):
+        """The cable's route segment through the linked pathway, or None."""
+        if self.located_at_pathway_pk is None:
+            return None
+        return pathways_compat.route_segment_for(self.fiber_cable.cable_id, self.located_at_pathway_pk)
+
+    @property
+    def located_at_is_stale(self):
+        """True when a located_at link is set but its target is gone, or the cable no longer crosses it."""
+        if self.located_at_id is None:
+            return False
+        if self.located_at_pathway_pk is not None:
+            return pathways_compat.pathways_installed() and self.route_segment() is None
+        return not self.located_at_type.model_class().objects.filter(pk=self.located_at_id).exists()
+
+    def set_located_at_pathway(self, pathway_pk):
+        """Link the fault to a pathway; the caller guarantees netbox-pathways is installed."""
+        self.located_at_type = ContentType.objects.get_by_natural_key("netbox_pathways", "pathway")
+        self.located_at_id = pathway_pk
+
+    def confirm_located_at(self):
+        """Mark the located_at link confirmed and drop the estimate note (does not save)."""
+        self.located_at_status = FiberFaultLocatedAtStatusChoices.CONFIRMED
+        self.estimate_note = ""
+
+    def clear_located_at(self):
+        """Remove the located_at link, its status and the note (does not save)."""
+        self.located_at_status = FiberFaultLocatedAtStatusChoices.NONE
+        self.located_at_type = None
+        self.located_at_id = None
+        self.estimate_note = ""
+
+    def _clean_located_at(self):
+        """Field errors for a located_at link that does not fit the cable, keyed by field.
+
+        NetBoxModel.clean() has already paired the type with the id. The link is checked against the route
+        and the terminations only when it is new or changed: a stored link that went stale later must not
+        block other edits, such as resolving the fault.
+        """
+        if not self.fiber_cable_id or self.located_at_id is None:
+            return {}
+        key = self._located_at_key
+        if key == ("netbox_pathways", "pathway") and not pathways_compat.pathways_installed():
+            return {"located_at_type": _("netbox-pathways is not installed.")}
+        stored = FiberFault.objects.filter(
+            pk=self.pk,
+            fiber_cable_id=self.fiber_cable_id,
+            located_at_type_id=self.located_at_type_id,
+            located_at_id=self.located_at_id,
+        )
+        if self.pk and stored.exists():
+            return {}
+        if key == ("netbox_pathways", "pathway"):
+            if self.route_segment() is None:
+                return {"located_at_id": _("The pathway is not on this cable's route.")}
+        elif key == ("dcim", "device"):
+            ends = {t._device_id for t in self.fiber_cable.cable.terminations.all()}
+            if self.located_at_id not in ends:
+                return {"located_at_id": _("The device does not terminate this cable.")}
+        return {}
+
     def clean(self):
-        """Validate the location mark against the cable's sheath marks and the resolution date."""
+        """Validate the location mark, the location link, the OTDR evidence and the resolution date."""
         super().clean()
+        errors = self._clean_located_at()
+        if (self.otdr_origin_id is None) != (self.otdr_distance is None):
+            missing = "otdr_origin" if self.otdr_origin_id is None else "otdr_distance"
+            errors[missing] = _("OTDR origin and distance go together.")
+        if errors:
+            raise ValidationError(errors)
         cable = self.fiber_cable if self.fiber_cable_id else None
         if self.location_mark is not None and cable and cable.start_mark is not None and cable.end_mark is not None:
             low, high = sorted((cable.start_mark, cable.end_mark))
@@ -1249,13 +1418,33 @@ class FiberFault(NetBoxModel):
             raise ValidationError({"resolved_at": _("Resolved time cannot precede the reported time.")})
 
     def save(self, *args, **kwargs):
-        """Keep resolved_at consistent with the status."""
+        """Keep resolved_at consistent with the status, and re-estimate the location when its evidence changed."""
+        from .fault_location import apply_estimate
+
         if self.status == FiberFaultStatusChoices.RESOLVED:
             if self.resolved_at is None:
                 self.resolved_at = timezone.now()
         else:
             self.resolved_at = None
+        stored = FiberFault.objects.filter(pk=self.pk).values(*self.EVIDENCE_FIELDS).first() if self.pk else None
+        if stored is None or any(stored[name] != getattr(self, name) for name in self.EVIDENCE_FIELDS):
+            apply_estimate(self)
         super().save(*args, **kwargs)
+
+
+def apply_user_located_at(fault, changed):
+    """Set the location status after a user edits the located_at link (does not save).
+
+    A link the user sets is confirmed. Clearing a link resets the location, whatever its status. An unchanged
+    link keeps its status, so re-saving an estimated location does not confirm it. Forms and serializers share
+    this rule.
+    """
+    if not changed:
+        return
+    if fault.located_at_id is not None:
+        fault.confirm_located_at()
+    else:
+        fault.clear_located_at()
 
 
 class CableElement(NetBoxModel):

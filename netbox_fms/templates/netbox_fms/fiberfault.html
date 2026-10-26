@@ -3,6 +3,27 @@
 {% load plugins %}
 {% load i18n %}
 
+{% block extra_controls %}
+{% if perms.netbox_fms.change_fiberfault %}
+{% if object.located_at_status == 'estimated' %}
+<form method="post" action="{% url 'plugins:netbox_fms:fiberfault_confirm_location' pk=object.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-success">
+        <i class="mdi mdi-map-marker-check"></i> {% trans "Confirm location" %}
+    </button>
+</form>
+{% endif %}
+{% if object.located_at_status != 'confirmed' %}
+<form method="post" action="{% url 'plugins:netbox_fms:fiberfault_reestimate' pk=object.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-outline-primary">
+        <i class="mdi mdi-crosshairs-gps"></i> {% trans "Re-estimate" %}
+    </button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock extra_controls %}
+
 {% block content %}
 <div class="row mb-3">
     <div class="col col-md-6">
@@ -29,9 +50,66 @@
                     <th scope="row">{% trans "Resolved at" %}</th>
                     <td>{{ object.resolved_at|isodatetime|placeholder }}</td>
                 </tr>
+            </table>
+        </div>
+        <div class="card">
+            <h5 class="card-header">{% trans "Location" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Status" %}</th>
+                    <td>{% badge object.get_located_at_status_display bg_color=object.get_located_at_status_color %}</td>
+                </tr>
+                {% with device=object.located_at_device %}
+                <tr>
+                    <th scope="row">{% trans "Located at" %}</th>
+                    <td>
+                        {% if route_segment %}
+                            {{ route_segment.pathway|linkify }}
+                            <a href="{{ object.fiber_cable.cable.get_absolute_url }}route-map/?segment={{ route_segment.pk }}" class="btn btn-sm btn-outline-primary ms-2">
+                                <i class="mdi mdi-map-marker"></i> {% trans "Show on map" %}
+                            </a>
+                        {% elif device %}
+                            {{ device|linkify }}
+                            {% if pathways_installed and device.site_id %}
+                            <a href="/plugins/pathways/map/#site={{ device.site_id }}" class="btn btn-sm btn-outline-primary ms-2">
+                                <i class="mdi mdi-map-marker"></i> {% trans "Show on map" %}
+                            </a>
+                            {% endif %}
+                        {% else %}
+                            {{ ''|placeholder }}
+                        {% endif %}
+                        {% if located_at_is_stale %}
+                        <div class="text-danger small">{% trans "The linked location is gone or no longer on the cable's route." %}</div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endwith %}
                 <tr>
                     <th scope="row">{% trans "Location mark" %}</th>
                     <td>{% if object.location_mark is not None %}{{ object.location_mark }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}{% else %}{{ ''|placeholder }}{% endif %}</td>
+                </tr>
+                {% if object.estimate_note %}
+                <tr>
+                    <th scope="row">{% trans "Estimate note" %}</th>
+                    <td>{{ object.estimate_note }}</td>
+                </tr>
+                {% endif %}
+            </table>
+        </div>
+        <div class="card">
+            <h5 class="card-header">{% trans "OTDR shot" %}</h5>
+            <table class="table table-hover attr-table">
+                <tr>
+                    <th scope="row">{% trans "Origin" %}</th>
+                    <td>{{ object.otdr_origin|linkify|placeholder }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Distance" %}</th>
+                    <td>{% if object.otdr_distance is not None %}{{ object.otdr_distance }} m{% else %}{{ ''|placeholder }}{% endif %}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{% trans "Strand" %}</th>
+                    <td>{{ object.otdr_strand|linkify|placeholder }}</td>
                 </tr>
             </table>
         </div>
