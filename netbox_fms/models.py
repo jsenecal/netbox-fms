@@ -1367,7 +1367,7 @@ class FiberFault(NetBoxModel):
 
     def _clean_located_at(self):
         """Field errors for an inconsistent located_at link, keyed by field."""
-        if self.located_at_type_id is None and self.located_at_id is None:
+        if not self.fiber_cable_id or (self.located_at_type_id is None and self.located_at_id is None):
             return {}
         if self.located_at_type_id is None:
             return {"located_at_type": _("Set the type of the linked object.")}
@@ -1377,10 +1377,10 @@ class FiberFault(NetBoxModel):
         if key == ("netbox_pathways", "pathway"):
             if not pathways_compat.pathways_installed():
                 return {"located_at_type": _("netbox-pathways is not installed.")}
-            if not self.fiber_cable_id or self.route_segment() is None:
+            if self.route_segment() is None:
                 return {"located_at_id": _("The pathway is not on this cable's route.")}
         elif key == ("dcim", "device"):
-            ends = {t._device_id for t in self.fiber_cable.cable.terminations.all()} if self.fiber_cable_id else set()
+            ends = {t._device_id for t in self.fiber_cable.cable.terminations.all()}
             if self.located_at_id not in ends:
                 return {"located_at_id": _("The device does not terminate this cable.")}
         return {}
