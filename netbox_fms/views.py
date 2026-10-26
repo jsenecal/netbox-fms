@@ -1980,6 +1980,7 @@ def group_state(group):
         "route_key": group.route_key,
         "path_ids": group.path_ids,
         "is_contiguous": group.is_contiguous,
+        "crosses_damaged_cable": group.crosses_damaged_cable,
         "hop_count": group.hop_count,
         "lowest_position": group.lowest_position,
     }
