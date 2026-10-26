@@ -146,7 +146,9 @@ one of these notes:
 | The shot strand's path does not cross this fault's cable. | The path never reaches the cable. |
 
 A location whose pathway or device is gone, or whose pathway the cable no
-longer runs through, is shown as stale and left off the map.
+longer runs through, is shown as stale and left off the map. A stale location
+does not block other edits of the fault, such as resolving it; the location is
+checked against the cable only when it is set or changed.
 
 ### Map layers
 

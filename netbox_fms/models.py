@@ -1370,17 +1370,26 @@ class FiberFault(NetBoxModel):
         self.estimate_note = ""
 
     def _clean_located_at(self):
-        """Field errors for an inconsistent located_at link, keyed by field."""
-        if not self.fiber_cable_id or (self.located_at_type_id is None and self.located_at_id is None):
+        """Field errors for a located_at link that does not fit the cable, keyed by field.
+
+        NetBoxModel.clean() has already paired the type with the id. The link is checked against the route
+        and the terminations only when it is new or changed: a stored link that went stale later must not
+        block other edits, such as resolving the fault.
+        """
+        if not self.fiber_cable_id or self.located_at_id is None:
             return {}
-        if self.located_at_type_id is None:
-            return {"located_at_type": _("Set the type of the linked object.")}
-        if self.located_at_id is None:
-            return {"located_at_id": _("Set the id of the linked object.")}
         key = self._located_at_key
+        if key == ("netbox_pathways", "pathway") and not pathways_compat.pathways_installed():
+            return {"located_at_type": _("netbox-pathways is not installed.")}
+        stored = FiberFault.objects.filter(
+            pk=self.pk,
+            fiber_cable_id=self.fiber_cable_id,
+            located_at_type_id=self.located_at_type_id,
+            located_at_id=self.located_at_id,
+        )
+        if self.pk and stored.exists():
+            return {}
         if key == ("netbox_pathways", "pathway"):
-            if not pathways_compat.pathways_installed():
-                return {"located_at_type": _("netbox-pathways is not installed.")}
             if self.route_segment() is None:
                 return {"located_at_id": _("The pathway is not on this cable's route.")}
         elif key == ("dcim", "device"):

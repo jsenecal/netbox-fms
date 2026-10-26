@@ -329,10 +329,6 @@ class TestFaultLocationValidation(RoutedFaultWorld, TestCase):
         errors = self._errors(self._fault(located_at_type=site_ct, located_at_id=1))
         self.assertIn("located_at_type", errors)
 
-    def test_located_at_type_and_id_go_together(self):
-        self.assertIn("located_at_id", self._errors(self._fault(located_at_type=self.device_ct)))
-        self.assertIn("located_at_type", self._errors(self._fault(located_at_id=self.end_device.pk)))
-
     def test_device_must_terminate_the_cable(self):
         errors = self._errors(self._fault(located_at_type=self.device_ct, located_at_id=self.other_device.pk))
         self.assertIn("located_at_id", errors)
@@ -348,6 +344,27 @@ class TestFaultLocationValidation(RoutedFaultWorld, TestCase):
         self.assertIn("located_at_id", errors)
         on_route = self.segments[0].pathway_id
         self._fault(located_at_type=self.pathway_ct, located_at_id=on_route).full_clean()
+
+    def test_stale_link_does_not_block_other_edits(self):
+        """#198: a fault whose pathway left the route can still be resolved; a new off-route link is refused."""
+        fault = create_fault_with_location(
+            fiber_cable=self.fc,
+            located_at_status=FiberFaultLocatedAtStatusChoices.CONFIRMED,
+            located_at_type=self.pathway_ct,
+            located_at_id=self.segments[1].pathway_id,
+        )
+        self.segments[1].delete()
+
+        fault.status = FiberFaultStatusChoices.RESOLVED
+        fault.full_clean()
+        fault.save()
+
+        other = Cable.objects.create(
+            a_terminations=[make_front_port(self.end_device, "A3")],
+            b_terminations=[make_front_port(self.far_device, "B3")],
+        )
+        fault.located_at_id = make_route(other, [50.0])[0].pathway_id
+        self.assertEqual(self._errors(fault)["located_at_id"], ["The pathway is not on this cable's route."])
 
     def test_pathway_without_pathways_installed(self):
         fault = self._fault(located_at_type=self.pathway_ct, located_at_id=self.segments[0].pathway_id)
