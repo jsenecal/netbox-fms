@@ -149,7 +149,7 @@ class NetBoxFMSConfig(PluginConfig):
                 geometry_type="LineString",
                 source="url",
                 url=f"/plugins/fms/faults/map-segments/?located_at_status={located_at_status}",
-                popover_fields=["name", "fiber_cable"],
+                popover_fields=["name", "fiber_cable", "located_at_status"],
                 style=LayerStyle(color="#f44336", weight=5, dash=dash),
                 detail=fault_detail,
                 group="Fiber Faults",

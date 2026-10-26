@@ -114,7 +114,7 @@ class TestFaultMap(TestCase):
 
     def test_parse_bbox(self):
         self.assertEqual(parse_bbox("-1,2.5,3,4"), (-1.0, 2.5, 3.0, 4.0))
-        for junk in (None, "", "1,2,3", "a,b,c,d"):
+        for junk in (None, "", "1,2,3", "a,b,c,d", "nan,0,1,1", "0,0,inf,1"):
             self.assertIsNone(parse_bbox(junk))
 
     def test_layers_registered(self):
@@ -132,6 +132,8 @@ class TestFaultMap(TestCase):
         estimated = registry.get("fms_fault_segments_estimated")
         self.assertTrue(estimated.url.endswith("?located_at_status=estimated"))
         self.assertEqual(estimated.style.dash, "6 6")
+        for status in ("confirmed", "estimated"):
+            self.assertIn("located_at_status", registry.get(f"fms_fault_segments_{status}").popover_fields)
 
     def test_closure_layer_lists_devices_of_open_faults(self):
         closures = registry.get("fms_fault_closures").queryset(SimpleNamespace(user=self.admin))

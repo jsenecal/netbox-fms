@@ -5,6 +5,8 @@ pathway it is located at, as long as its cable still runs through that pathway;
 a stale location is left off the map rather than drawn somewhere wrong.
 """
 
+import math
+
 from django.db.models import Exists, OuterRef, Subquery
 
 from . import pathways_compat
@@ -14,12 +16,12 @@ __all__ = ("fault_segment_features", "parse_bbox")
 
 
 def parse_bbox(value):
-    """Parse a ``W,S,E,N`` query value into four floats; None when missing or malformed."""
+    """Parse a ``W,S,E,N`` query value into four finite floats; None when missing or malformed."""
     try:
-        west, south, east, north = (float(part) for part in value.split(","))
+        bbox = tuple(float(part) for part in value.split(","))
     except (AttributeError, ValueError):
         return None
-    return west, south, east, north
+    return bbox if len(bbox) == 4 and all(map(math.isfinite, bbox)) else None
 
 
 def fault_segment_features(user, *, located_at_status, bbox):
