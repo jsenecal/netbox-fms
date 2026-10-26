@@ -118,6 +118,34 @@ class TestFaultLocationEstimate(TestCase):
         # 115 m sits inside the coil after segment 1 (100..130 m), not on segment 2 as the plain spread says.
         self._assert_lands_on(self._mark_fault("1115"), self.m_segments[0])
 
+    def test_slack_is_placed_on_pathways_drawn_against_the_route(self):
+        """#198: a coil at the joint after reverse-drawn pathways lands as it does on a forward-drawn route."""
+        fiber_cable = FiberCable.objects.create(
+            cable=_cable("V", self.d0, self.d2, 330),
+            fiber_cable_type=self.m.fiber_cable_type,
+            start_mark=1000,
+            end_mark=1330,
+        )
+        segments = make_route(fiber_cable.cable, [100.0, 100.0, 100.0], reverse={0, 1})
+        location = Location.objects.create(site=self.site, name="FlEst Joint", slug="flest-joint")
+        Structure.objects.filter(pk=segments[2].pathway.start_structure_id).update(location=location)
+        SlackLoop.objects.create(
+            fiber_cable=fiber_cable, site=self.site, location=location, start_mark=500, end_mark=530
+        )
+
+        # 225 m sits inside the coil after segment 2 (200..230 m); spread over the route it falls on segment 3.
+        fault = FiberFault.objects.create(fiber_cable=fiber_cable, location_mark=Decimal("1225"))
+
+        self._assert_lands_on(fault, segments[1])
+
+    def test_route_legs_orient_a_lone_pathway_from_the_a_end(self):
+        segment = make_route(_cable("L", self.d0, self.d2, 100), [100.0], reverse={0})[0]
+        Structure.objects.filter(pk=segment.pathway.end_structure_id).update(site=self.site)
+
+        (leg,) = route_legs(segment.cable_id)
+
+        self.assertEqual(leg.start_nodes, {("structure", segment.pathway.end_structure_id)})
+
     def test_route_legs_measure_path_geometry_and_flag_gaps(self):
         cable = _cable("G", self.d0, self.d2, 300)
         segments = make_route(cable, [100.0, 100.0, 100.0], set_length=False)

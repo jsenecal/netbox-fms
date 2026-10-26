@@ -525,10 +525,11 @@ def assign_strand_path(circuit, strand_path, position=None, **fields):
     return FiberCircuitPath.objects.create(circuit=circuit, strand_path=strand_path, position=position, **fields)
 
 
-def make_route(cable, lengths, *, set_length=True):
+def make_route(cable, lengths, *, set_length=True, reverse=()):
     """Straight east-running chain of pathways (SRID 3348 meters), one per entry in lengths.
 
-    Pathways join at shared Structures; CableSegments run 1..n from the cable's A end.
+    Pathways join at shared Structures; CableSegments run 1..n from the cable's A end. A pathway whose
+    0-based index is in reverse is drawn west, from its route end back to its route start.
     """
     from django.contrib.gis.geos import LineString, Point
     from netbox_pathways.models import CableSegment, DirectBuried, Structure
@@ -541,10 +542,13 @@ def make_route(cable, lengths, *, set_length=True):
     segments = []
     for seq, length in enumerate(lengths, start=1):
         end = structure(seq, x + length)
+        ends, coords = (start, end), [(x, 0), (x + length, 0)]
+        if seq - 1 in reverse:
+            ends, coords = ends[::-1], coords[::-1]
         pathway = DirectBuried.objects.create(
-            start_structure=start,
-            end_structure=end,
-            path=LineString((x, 0), (x + length, 0), srid=3348),
+            start_structure=ends[0],
+            end_structure=ends[1],
+            path=LineString(coords, srid=3348),
             length=length if set_length else None,
         )
         segments.append(CableSegment.objects.create(cable=cable, pathway=pathway, sequence=seq))

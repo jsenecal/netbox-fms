@@ -121,7 +121,8 @@ fiber faults. The REST API has the same two actions,
    entered. Recorded slack loops add their length where they sit on the route;
    the rest of the difference between cable length and route length is spread
    proportionally along the route. Segment length is the pathway's length, or
-   the length of its geometry.
+   the length of its geometry. The way a pathway is drawn does not matter: each
+   one is turned to follow the route before slack loops are placed.
 4. The segment the remaining distance lands in becomes the location.
 
 The jacket-mark estimate does the same segment walk, starting from the cable's

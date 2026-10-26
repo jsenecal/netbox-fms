@@ -120,8 +120,32 @@ def _endpoint_nodes(pathway, side):
     return frozenset(node for node in nodes if node[1] is not None)
 
 
+def _starting_at(leg, nodes):
+    """The leg turned to start at nodes; as drawn unless only its end touches them."""
+    if leg.end_nodes & nodes and not leg.start_nodes & nodes:
+        return _flip(leg)
+    return leg
+
+
+def _oriented(legs, cable_id):
+    """The legs turned so each one starts where the one before it ends, whatever way its pathway is drawn.
+
+    The first leg ends at the joint it shares with the second; a lone leg starts at the cable's A end. A leg
+    that cannot be told apart that way stays as drawn.
+    """
+    from netbox_pathways.anchors import cable_end_nodes
+
+    if len(legs) < 2:
+        return [_starting_at(leg, frozenset(cable_end_nodes(cable_id, "A").nodes)) for leg in legs]
+    joint = legs[1].start_nodes | legs[1].end_nodes
+    oriented = [_flip(_starting_at(_flip(legs[0]), joint))]
+    for leg in legs[1:]:
+        oriented.append(_starting_at(leg, oriented[-1].end_nodes))
+    return oriented
+
+
 def route_legs(cable_id):
-    """The cable's route segments as RouteLegs, in route order from end A.
+    """The cable's route segments as RouteLegs, in route order from end A, each oriented along the route.
 
     A segment that does not join the one before it follows a gap, so its leg gets no length.
     """
@@ -154,7 +178,7 @@ def route_legs(cable_id):
                 end_nodes=_endpoint_nodes(pathway, "end"),
             )
         )
-    return legs
+    return _oriented(legs, cable_id)
 
 
 def slack_points(fiber_cable):
