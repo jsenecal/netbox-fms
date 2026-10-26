@@ -324,9 +324,14 @@ def fault_to_change(user, pk):
 
 
 def confirm_estimate(fault):
-    """Confirm an estimated location and save; False (nothing changed) when there is no estimate to confirm."""
-    if fault.located_at_status != FiberFaultLocatedAtStatusChoices.ESTIMATED:
+    """Confirm an estimated location and save; False (nothing changed) when there is no live estimate to confirm.
+
+    An estimate that went stale is refused, so a guess about a pathway the cable no longer crosses never
+    becomes a confirmed location.
+    """
+    if fault.located_at_status != FiberFaultLocatedAtStatusChoices.ESTIMATED or fault.located_at_is_stale:
         return False
+    fault.snapshot()
     fault.confirm_located_at()
     fault.save()
     return True
@@ -340,6 +345,7 @@ def reestimate(fault):
     """
     if fault.located_at_status == FiberFaultLocatedAtStatusChoices.CONFIRMED:
         return False
+    fault.snapshot()
     apply_estimate(fault)
     fault.save()
     return True

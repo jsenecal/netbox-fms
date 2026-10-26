@@ -99,7 +99,8 @@ with a note; the segment picker is hidden.
   evidence afterwards does not change a confirmed location.
 
 On the fault page, **Confirm location** turns an estimate into a confirmed
-location. **Re-estimate** runs the estimate again against the cable's current
+location; a stale estimate cannot be confirmed, re-estimate it instead.
+**Re-estimate** runs the estimate again against the cable's current
 route and lengths (an estimate is otherwise recomputed only when its evidence
 is saved). Re-estimate is not offered once the location is confirmed; clear the
 location first to estimate again. Both actions need the `change` permission on

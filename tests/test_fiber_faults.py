@@ -4,6 +4,7 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
+from core.models import ObjectChange
 from dcim.models import Cable, Device, Manufacturer, Site
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
@@ -573,6 +574,7 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
             strand_count=2,
             mark_unit="m",
         )
+        cls.fault_ct = ContentType.objects.get_for_model(FiberFault)
 
     def _routed_fault(self):
         cable = Cable.objects.create(
@@ -614,6 +616,32 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
         self.assertEqual(resp.status_code, 409)
         fault.refresh_from_db()
         self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.NONE)
+
+    def test_actions_record_the_location_before_the_change(self):
+        """#198: the changelog entries of confirm and re-estimate carry the pre-change location."""
+        fault, _cable, segments = self._routed_fault()
+        self.client.post(self._url(fault, "confirm-location"))
+        FiberFault.objects.filter(pk=fault.pk).update(located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED)
+        self._reshape_route(segments)
+        self.client.post(self._url(fault, "re-estimate"))
+
+        confirm, reestimate = ObjectChange.objects.filter(
+            changed_object_id=fault.pk, changed_object_type=self.fault_ct
+        ).order_by("pk")
+        self.assertEqual((confirm.prechange_data or {}).get("located_at_status"), "estimated")
+        self.assertEqual((reestimate.prechange_data or {}).get("located_at_status"), "estimated")
+        self.assertEqual(
+            (reestimate.prechange_data["located_at_id"], reestimate.postchange_data["located_at_id"]),
+            (segments[1].pathway_id, segments[0].pathway_id),
+        )
+
+    def test_confirm_refused_for_a_stale_estimate(self):
+        fault, _cable, segments = self._routed_fault()
+        segments[1].delete()
+        resp = self.client.post(self._url(fault, "confirm-location"))
+        self.assertEqual(resp.status_code, 409)
+        fault.refresh_from_db()
+        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.ESTIMATED)
 
     def test_confirm_via_api_returns_the_fault(self):
         fault, _cable, _segments = self._routed_fault()
