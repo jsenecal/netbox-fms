@@ -2,9 +2,11 @@
 
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
-from dcim.models import Cable, Manufacturer
+from dcim.models import Cable, Device, Manufacturer, Site
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
@@ -14,7 +16,14 @@ from netbox_fms.choices import ConstructionChoices, FiberFaultStatusChoices
 from netbox_fms.filters import FiberCableFilterSet, FiberStrandFilterSet
 from netbox_fms.forms import FiberFaultForm
 from netbox_fms.models import FiberCable, FiberCableType, FiberFault, FiberStrand, validate_fault_strands
-from tests.conftest import AuthedAPIClientMixin, superuser_client, ui_client_with
+from tests.conftest import (
+    AuthedAPIClientMixin,
+    make_front_port,
+    make_infra,
+    make_route,
+    superuser_client,
+    ui_client_with,
+)
 
 
 def _make_cable(fct, **fields):
@@ -277,3 +286,98 @@ class TestFaultPages(FaultWorld, TestCase):
         self.assertIn(self.partial.get_absolute_url(), content)
         self.assertNotIn(hidden.name, content)
         self.assertIn(f"<td>{shown.name}</td>", content)
+
+
+class TestFaultLocationValidation(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        site, mfr, dt, role = make_infra("FaultLoc")
+        cls.end_device = Device.objects.create(name="FaultLoc-A", site=site, device_type=dt, role=role)
+        cls.other_device = Device.objects.create(name="FaultLoc-B", site=site, device_type=dt, role=role)
+        cls.far_device = Device.objects.create(name="FaultLoc-C", site=site, device_type=dt, role=role)
+        fct = FiberCableType.objects.create(
+            manufacturer=mfr, model="FaultLoc-TB-4", construction=ConstructionChoices.TIGHT_BUFFER, strand_count=4
+        )
+        cable = Cable.objects.create(
+            a_terminations=[make_front_port(cls.end_device, "A")],
+            b_terminations=[make_front_port(cls.far_device, "B")],
+        )
+        cls.fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
+        cls.segments = make_route(cable, [100.0, 200.0])
+        cls.pathway_ct = ContentType.objects.get_by_natural_key("netbox_pathways", "pathway")
+        cls.device_ct = ContentType.objects.get_for_model(Device)
+
+    def _fault(self, **fields):
+        return FiberFault(fiber_cable=self.fc, **fields)
+
+    def _errors(self, fault):
+        with self.assertRaises(ValidationError) as ctx:
+            fault.full_clean()
+        return ctx.exception.message_dict
+
+    def test_located_at_type_must_be_device_or_pathway(self):
+        site_ct = ContentType.objects.get_for_model(Site)
+        errors = self._errors(self._fault(located_at_type=site_ct, located_at_id=1))
+        self.assertIn("located_at_type", errors)
+
+    def test_located_at_type_and_id_go_together(self):
+        self.assertIn("located_at_id", self._errors(self._fault(located_at_type=self.device_ct)))
+        self.assertIn("located_at_type", self._errors(self._fault(located_at_id=self.end_device.pk)))
+
+    def test_device_must_terminate_the_cable(self):
+        errors = self._errors(self._fault(located_at_type=self.device_ct, located_at_id=self.other_device.pk))
+        self.assertIn("located_at_id", errors)
+        self._fault(located_at_type=self.device_ct, located_at_id=self.end_device.pk).full_clean()
+
+    def test_pathway_must_be_on_the_route(self):
+        other = Cable.objects.create(
+            a_terminations=[make_front_port(self.end_device, "A2")],
+            b_terminations=[make_front_port(self.far_device, "B2")],
+        )
+        stray = make_route(other, [50.0])[0].pathway_id
+        errors = self._errors(self._fault(located_at_type=self.pathway_ct, located_at_id=stray))
+        self.assertIn("located_at_id", errors)
+        on_route = self.segments[0].pathway_id
+        self._fault(located_at_type=self.pathway_ct, located_at_id=on_route).full_clean()
+
+    def test_pathway_without_pathways_installed(self):
+        fault = self._fault(located_at_type=self.pathway_ct, located_at_id=self.segments[0].pathway_id)
+        with patch("netbox_fms.pathways_compat.pathways_installed", return_value=False):
+            errors = self._errors(fault)
+        self.assertEqual(errors["located_at_type"], ["netbox-pathways is not installed."])
+
+    def test_otdr_origin_and_distance_go_together(self):
+        self.assertIn("otdr_distance", self._errors(self._fault(otdr_origin=self.end_device)))
+        self.assertIn("otdr_origin", self._errors(self._fault(otdr_distance=Decimal("10"))))
+
+    def test_located_at_is_stale_after_pathway_leaves_route(self):
+        """#198: a link to a pathway the cable no longer crosses reads as stale; a rebuild heals it."""
+        seg = self.segments[1]
+        fault = self._fault(located_at_type=self.pathway_ct, located_at_id=seg.pathway_id)
+        self.assertFalse(fault.located_at_is_stale)
+        self.assertEqual(fault.route_segment().pk, seg.pk)
+        seg.delete()
+        self.assertTrue(fault.located_at_is_stale)
+        self.assertIsNone(fault.route_segment())
+        rebuilt = type(seg).objects.create(cable=self.fc.cable, pathway=seg.pathway, sequence=2)
+        self.assertEqual(fault.route_segment().pk, rebuilt.pk)
+        self.assertFalse(fault.located_at_is_stale)
+
+    def test_located_at_is_stale_when_device_is_gone(self):
+        fault = self._fault(located_at_type=self.device_ct, located_at_id=999999999)
+        self.assertTrue(fault.located_at_is_stale)
+        self.assertIsNone(self._fault().route_segment())
+        self.assertFalse(self._fault().located_at_is_stale)
+
+    def test_helpers_set_confirm_and_clear(self):
+        fault = self._fault(estimate_note="guess")
+        fault.set_located_at_pathway(self.segments[0].pathway_id)
+        self.assertEqual(fault.located_at_pathway_pk, self.segments[0].pathway_id)
+        self.assertIsNone(fault.located_at_device)
+        fault.confirm_located_at()
+        self.assertEqual((fault.located_at_status, fault.estimate_note), ("confirmed", ""))
+        fault.clear_located_at()
+        self.assertEqual((fault.located_at_status, fault.located_at_type, fault.located_at_id), ("none", None, None))
+        fault.located_at_type, fault.located_at_id = self.device_ct, self.end_device.pk
+        self.assertEqual(fault.located_at_device, self.end_device)
+        self.assertIsNone(fault.located_at_pathway_pk)
