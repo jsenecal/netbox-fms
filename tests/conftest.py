@@ -523,3 +523,30 @@ def assign_strand_path(circuit, strand_path, position=None, **fields):
         position = (circuit.paths.order_by("-position").values_list("position", flat=True).first() or 0) + 1
     fields.setdefault("assigned_hops", hops_snapshot(strand_path))
     return FiberCircuitPath.objects.create(circuit=circuit, strand_path=strand_path, position=position, **fields)
+
+
+def make_route(cable, lengths, *, set_length=True):
+    """Straight east-running chain of pathways (SRID 3348 meters), one per entry in lengths.
+
+    Pathways join at shared Structures; CableSegments run 1..n from the cable's A end.
+    """
+    from django.contrib.gis.geos import LineString, Point
+    from netbox_pathways.models import CableSegment, DirectBuried, Structure
+
+    def structure(index, x):
+        return Structure.objects.create(name=f"route-{cable.pk}-{index}", geometry=Point(x, 0, srid=3348))
+
+    x = 0.0
+    start = structure(0, x)
+    segments = []
+    for seq, length in enumerate(lengths, start=1):
+        end = structure(seq, x + length)
+        pathway = DirectBuried.objects.create(
+            start_structure=start,
+            end_structure=end,
+            path=LineString((x, 0), (x + length, 0), srid=3348),
+            length=length if set_length else None,
+        )
+        segments.append(CableSegment.objects.create(cable=cable, pathway=pathway, sequence=seq))
+        start, x = end, x + length
+    return segments

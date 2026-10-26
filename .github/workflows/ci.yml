@@ -141,15 +141,15 @@ jobs:
 
           SECRET_KEY = "ci-only-secret-key-do-not-use-in-production-aaaaaaaaaaaaaaaaaaaa"
 
-          PLUGINS = ["netbox_fms"]
-          PLUGINS_CONFIG = {"netbox_fms": {}}
+          PLUGINS = ["netbox_fms", "netbox_pathways"]
+          PLUGINS_CONFIG = {"netbox_fms": {}, "netbox_pathways": {"srid": 3348}}
           EOF_CFG
 
       - name: Install plugin and NetBox dependencies
         run: |
           uv venv
           uv pip install -r /opt/netbox/requirements.txt
-          uv pip install -e ".[dev]"
+          uv pip install -e ".[dev,pathways]"
           # Activate the venv for all subsequent steps.
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
