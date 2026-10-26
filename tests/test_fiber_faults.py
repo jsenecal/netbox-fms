@@ -286,8 +286,8 @@ class TestFaultPages(FaultWorld, TestCase):
         )
         content = client.get(self.cable_1.get_absolute_url()).content.decode()
         self.assertIn(self.partial.get_absolute_url(), content)
-        self.assertNotIn(hidden.name, content)
         self.assertIn(f"<td>{shown.name}</td>", content)
+        self.assertNotIn(f"<td>{hidden.name}", content)
 
 
 class RoutedFaultWorld:
