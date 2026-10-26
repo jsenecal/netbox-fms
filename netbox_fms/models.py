@@ -1421,14 +1421,15 @@ class FiberFault(NetBoxModel):
 def apply_user_located_at(fault, changed):
     """Set the location status after a user edits the located_at link (does not save).
 
-    A link the user sets is confirmed. Clearing a confirmed link resets the location. An unchanged link keeps
-    its status, so re-saving an estimated location does not confirm it. Forms and serializers share this rule.
+    A link the user sets is confirmed. Clearing a link resets the location, whatever its status. An unchanged
+    link keeps its status, so re-saving an estimated location does not confirm it. Forms and serializers share
+    this rule.
     """
     if not changed:
         return
     if fault.located_at_id is not None:
         fault.confirm_located_at()
-    elif fault.located_at_status == FiberFaultLocatedAtStatusChoices.CONFIRMED:
+    else:
         fault.clear_located_at()
 
 

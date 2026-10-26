@@ -548,11 +548,12 @@ class FiberFaultSerializer(NetBoxModelSerializer):
 
     @extend_schema_field(serializers.JSONField(allow_null=True))
     def get_located_at(self, obj):
-        """The linked device or pathway, nested; None when unset or gone."""
-        if obj.located_at is None:
+        """The linked device or pathway, nested; None when unset, gone, or its plugin is not installed."""
+        model = obj.located_at_type.model_class() if obj.located_at_type_id else None
+        target = model and obj.located_at
+        if target is None:
             return None
-        serializer = get_serializer_for_model(obj.located_at)
-        return serializer(obj.located_at, nested=True, context=self.context).data
+        return get_serializer_for_model(model)(target, nested=True, context=self.context).data
 
     def validate(self, data):
         """Refuse strands of another cable, and apply the located_at status rule to a changed link."""

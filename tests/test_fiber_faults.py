@@ -433,6 +433,13 @@ class TestFaultLocationSurfaces(RoutedFaultWorld, AuthedAPIClientMixin, TestCase
         fault = form.save()
         self.assertEqual((fault.located_at_status, fault.located_at_type, fault.located_at_id), ("none", None, None))
 
+    def test_form_clearing_estimated_located_at_resets(self):
+        """#198: removing an estimated link leaves no stale "estimated" status behind."""
+        form = self._form(self._estimated(), located_at_type="", located_at="")
+        self.assertTrue(form.is_valid(), form.errors)
+        fault = form.save()
+        self.assertEqual((fault.located_at_status, fault.estimate_note), ("none", ""))
+
     def test_form_device_off_the_cable_errors_on_the_picker(self):
         form = self._form(located_at_type=self.device_ct.pk, located_at=self.other_device.pk)
         self.assertFalse(form.is_valid())
@@ -458,6 +465,24 @@ class TestFaultLocationSurfaces(RoutedFaultWorld, AuthedAPIClientMixin, TestCase
         self.assertEqual(resp.status_code, 200, resp.content)
         fault.refresh_from_db()
         self.assertEqual(fault.located_at_status, "confirmed")
+
+    def test_serializer_clearing_estimated_located_at_resets(self):
+        fault = self._estimated()
+        resp = self.client.patch(
+            f"/api/plugins/fms/fiber-faults/{fault.pk}/",
+            {"located_at_type": None, "located_at_id": None},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual((resp.json()["located_at_status"], resp.json()["located_at"]), ("none", None))
+
+    def test_serializer_tolerates_pathway_link_without_pathways(self):
+        """#198: a pathway link left behind after netbox-pathways is removed serializes as null, not a 500."""
+        fault = self._estimated()
+        with patch.object(ContentType, "model_class", return_value=None):
+            resp = self.client.get(f"/api/plugins/fms/fiber-faults/{fault.pk}/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertIsNone(resp.json()["located_at"])
 
     def test_serializer_resending_an_estimated_link_keeps_it_estimated(self):
         fault = self._estimated()
