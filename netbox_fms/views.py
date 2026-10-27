@@ -33,7 +33,7 @@ from .assignment import (
 )
 from .choices import FiberCircuitStatusChoices, SplicePlanStatusChoices, TrayRoleChoices
 from .export import generate_drawio
-from .fault_location import confirm_estimate, fault_to_change, reestimate
+from .fault_location import confirm_estimate, fault_to_change, place_on_route, reestimate
 from .fault_map import fault_segment_features, parse_bbox
 from .filters import (
     BufferTubeFilterSet,
@@ -1573,11 +1573,15 @@ class FiberFaultView(generic.ObjectView):
     queryset = FiberFault.objects.all()
 
     def get_extra_context(self, request, instance):
-        """Add the route segment behind the location and whether the location went stale."""
+        """Add the route segment holding the fault's distance, or why it cannot be placed."""
+        place = place_on_route(instance)
+        segment = place and place.segment_pk and pathways_compat.cable_segment(place.segment_pk)
+        cable_url = instance.fiber_cable.cable.get_absolute_url()
         return {
-            "route_segment": instance.route_segment(),
-            "located_at_is_stale": instance.located_at_is_stale,
-            "pathways_installed": pathways_compat.pathways_installed(),
+            "route_place": place,
+            "route_segment": segment,
+            "segment_map_url": segment and f"{cable_url}route-map/?segment={segment.pk}",
+            "closure_map_url": instance.located_at and pathways_compat.site_map_url(instance.located_at),
         }
 
 
@@ -2468,15 +2472,7 @@ class DeviceFiberOverviewView(View):
             "strand_linked": sum(r["strand_info"]["linked"] for r in cable_rows if r["strand_info"]),
             "strand_total": sum(r["strand_info"]["total"] for r in cable_rows if r["strand_info"]),
         }
-        # Conditionally provide a "Show on Map" URL if netbox-pathways is installed
-        show_on_map_url = None
-        try:
-            import netbox_pathways  # noqa: F401
-
-            if device.site_id:
-                show_on_map_url = f"/plugins/pathways/map/#site={device.site_id}"
-        except ImportError:
-            pass
+        show_on_map_url = pathways_compat.site_map_url(device)
 
         tray_data = _build_tray_assignment_data(device)
 

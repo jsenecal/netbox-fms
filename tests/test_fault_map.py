@@ -1,10 +1,9 @@
-"""Tests for the fault layers on the netbox-pathways map (#198)."""
+"""Tests for the fault layers on the netbox-pathways map (#198, #228)."""
 
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from dcim.models import Cable, Device
-from django.contrib.contenttypes.models import ContentType
+from dcim.models import Device
 from django.test import TestCase
 from django.urls import reverse
 from netbox_pathways.geo import to_leaflet
@@ -16,7 +15,7 @@ from netbox_fms.fault_map import fault_segment_features, parse_bbox
 from netbox_fms.models import FiberCable, FiberCableType, FiberFault
 from tests.conftest import (
     create_fault_with_location,
-    make_front_port,
+    make_cable_between,
     make_infra,
     make_route,
     superuser_client,
@@ -38,33 +37,21 @@ class TestFaultMap(TestCase):
         )
         cls.cables, cls.pathways = [], []
         for index in range(2):
-            cable = Cable.objects.create(
-                a_terminations=[make_front_port(cls.closure, f"A{index}")],
-                b_terminations=[make_front_port(cls.quiet, f"B{index}")],
-            )
+            cable = make_cable_between(f"FM{index}", cls.closure, cls.quiet, 100)
             cls.cables.append(FiberCable.objects.create(cable=cable, fiber_cable_type=fct))
             cls.pathways.append(make_route(cable, [100.0])[0].pathway)
-        pathway_ct = ContentType.objects.get_by_natural_key("netbox_pathways", "pathway")
-        device_ct = ContentType.objects.get_for_model(Device)
 
-        def fault(cable, located_at_status=FiberFaultLocatedAtStatusChoices.NONE, located_at=None, **fields):
-            ct = None if located_at is None else (device_ct if isinstance(located_at, Device) else pathway_ct)
-            return create_fault_with_location(
-                fiber_cable=cable,
-                located_at_status=located_at_status,
-                located_at_type=ct,
-                located_at_id=getattr(located_at, "pk", None),
-                **fields,
-            )
+        def fault(cable, located_at_status=FiberFaultLocatedAtStatusChoices.NONE, **fields):
+            return create_fault_with_location(fiber_cable=cable, located_at_status=located_at_status, **fields)
 
-        cls.confirmed = fault(cls.cables[0], CONFIRMED, cls.pathways[0])
-        cls.resolved = fault(cls.cables[0], CONFIRMED, cls.pathways[0], status=FiberFaultStatusChoices.RESOLVED)
+        cls.confirmed = fault(cls.cables[0], CONFIRMED, distance_from_a=50)
+        cls.resolved = fault(cls.cables[0], CONFIRMED, distance_from_a=50, status=FiberFaultStatusChoices.RESOLVED)
         cls.unlocated = fault(cls.cables[0])
-        cls.estimated = fault(cls.cables[1], ESTIMATED, cls.pathways[1])
-        cls.other_confirmed = fault(cls.cables[1], CONFIRMED, cls.pathways[1])
-        # Linked to a pathway the cable does not cross: the location went stale.
-        cls.stale = fault(cls.cables[0], CONFIRMED, cls.pathways[1])
-        cls.at_closure = fault(cls.cables[0], CONFIRMED, cls.closure)
+        cls.estimated = fault(cls.cables[1], ESTIMATED, distance_from_a=50)
+        cls.other_confirmed = fault(cls.cables[1], CONFIRMED, distance_from_a=20)
+        # Past the end of its 100 m cable: it cannot be placed on the route.
+        cls.unplaceable = fault(cls.cables[0], CONFIRMED, distance_from_a=150)
+        cls.at_closure = fault(cls.cables[0], CONFIRMED, located_at=cls.closure)
         cls.admin = user_with(
             "faultmap-admin", [(FiberFault, ["view"], None), (Pathway, ["view"], None), (Device, ["view"], None)]
         )
@@ -112,8 +99,8 @@ class TestFaultMap(TestCase):
         self.assertEqual(self._ids(bbox=(west, south, east, north)), {self.confirmed.pk, self.other_confirmed.pk})
         self.assertEqual(self._ids(bbox=(west + 10, south, east + 10, north)), set())
 
-    def test_stale_fault_is_skipped(self):
-        self.assertNotIn(self.stale.pk, self._ids())
+    def test_unplaceable_fault_is_skipped(self):
+        self.assertNotIn(self.unplaceable.pk, self._ids())
 
     def test_no_features_without_pathways(self):
         with patch("netbox_fms.pathways_compat.pathways_installed", return_value=False):
@@ -145,6 +132,12 @@ class TestFaultMap(TestCase):
     def test_closure_layer_lists_devices_of_open_faults(self):
         closures = registry.get("fms_fault_closures").queryset(SimpleNamespace(user=self.admin))
         self.assertEqual(list(closures), [self.closure])
+
+    def test_deleting_the_closure_deletes_its_faults(self):
+        """#228: a fault at a closure goes with the closure."""
+        pk = self.at_closure.pk
+        self.closure.delete()
+        self.assertFalse(FiberFault.objects.filter(pk=pk).exists())
 
     def test_view_returns_feature_collection(self):
         client = superuser_client("faultmap-view")

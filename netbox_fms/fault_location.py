@@ -1,11 +1,14 @@
-"""Locate a fault along a cable route from a jacket mark or an OTDR distance.
+"""Estimate how far along its cable a fault lies, and find that spot on the cable's route.
 
-The route walk (``locate_on_route``) is pure: it takes plain dataclasses and does arithmetic. The adapters
-below read the cable, its route and its slack loops into those dataclasses; netbox-pathways is imported
-inside them, behind ``pathways_installed()``.
+The estimate turns a jacket mark or an OTDR shot into a distance from the cable's A end; it needs no
+netbox-pathways. The route walk (``locate_on_route``) then places a distance on the cable's route for the
+map. It is pure: it takes plain dataclasses and does arithmetic. The adapters below read the cable, its
+route and its slack loops into those dataclasses; netbox-pathways is imported inside them, behind
+``pathways_installed()``, as ``pathways_compat`` describes.
 """
 
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from itertools import pairwise
 
 from django.core.exceptions import PermissionDenied
@@ -28,6 +31,7 @@ NOTE_ORIGIN_OFF_PATH = "The shot's origin is not on the shot strand's path."
 NOTE_UNKNOWN_HOP = "Hop {position} of the shot's path has no known length."
 NOTE_NO_PATH = "The shot strand has no analyzed path."
 NOTE_PATH_MISSES_CABLE = "The shot strand's path does not cross this fault's cable."
+NOTE_NOT_ON_ROUTE = "The pathway is not on this cable's route."
 
 
 @dataclass(frozen=True)
@@ -51,9 +55,24 @@ class SlackPoint:
 
 
 @dataclass(frozen=True)
-class Estimate:
+class RoutePlace:
+    """The route segment a distance falls in, or the reason it cannot be placed."""
+
+    segment_pk: int | None
     pathway_pk: int | None
     note: str
+
+
+@dataclass(frozen=True)
+class Estimate:
+    """A distance from the cable's A end in meters, or the reason it cannot be estimated."""
+
+    distance_m: float | None
+    note: str
+
+    def as_decimal(self):
+        """The distance as stored on a fault: meters, to the centimeter."""
+        return Decimal(f"{self.distance_m:.2f}")
 
 
 def _flip(leg):
@@ -77,36 +96,67 @@ def _placed_slack(legs, slack):
     return placed
 
 
-def locate_on_route(legs, *, cable_length_m, distance_m, slack, from_end):
-    """Return the pathway holding the point `distance_m` along the cable, measured from `from_end`.
-
-    The drawn route lengths are scaled so they add up to the cable's real length once placed slack
-    is taken out. A distance inside a placed slack coil lands on the leg before it, or on the last leg for a far-end coil.
-    """
+def _route_problem(legs):
+    """Why the legs cannot be walked, or "" when they can."""
     if not legs:
-        return Estimate(None, NOTE_NO_ROUTE)
+        return NOTE_NO_ROUTE
     for leg in legs:
         if leg.pathway_pk is None or not leg.length_m or leg.length_m <= 0:
-            return Estimate(None, NOTE_GAP.format(sequence=leg.sequence))
-    if from_end == "B":
-        legs = [_flip(leg) for leg in reversed(legs)]
+            return NOTE_GAP.format(sequence=leg.sequence)
+    return ""
+
+
+def _walk(legs, cable_length_m, slack):
+    """Where each leg starts and ends along the cable, where the far-end coil finishes, and why the legs
+    cannot be walked ("" when they can).
+
+    The drawn route lengths are scaled so they add up to the cable's real length once placed slack is taken out.
+    """
+    problem = _route_problem(legs)
+    if problem:
+        return [], 0.0, problem
     placed = _placed_slack(legs, slack)
     factor = (cable_length_m - sum(placed.values())) / sum(leg.length_m for leg in legs)
     if factor <= 0:
-        return Estimate(None, NOTE_BEYOND)
-    remaining = distance_m
+        return [], 0.0, NOTE_BEYOND
+    spans, position = [], 0.0
     for index, leg in enumerate(legs):
-        coil = placed.get(index, 0.0)
-        if remaining <= coil:
-            return Estimate(legs[max(index - 1, 0)].pathway_pk, "")
-        remaining -= coil
-        scaled = leg.length_m * factor
-        if remaining <= scaled:
-            return Estimate(leg.pathway_pk, "")
-        remaining -= scaled
-    if remaining <= placed.get(len(legs), 0.0):
-        return Estimate(legs[-1].pathway_pk, "")
-    return Estimate(None, NOTE_BEYOND)
+        position += placed.get(index, 0.0)
+        start = position
+        position += leg.length_m * factor
+        spans.append((start, position))
+    return spans, position + placed.get(len(legs), 0.0), ""
+
+
+def _place(leg):
+    return RoutePlace(leg.segment_pk, leg.pathway_pk, "")
+
+
+def locate_on_route(legs, *, cable_length_m, distance_m, slack):
+    """Return the leg holding the point `distance_m` along the cable from its A end.
+
+    A distance inside a placed slack coil lands on the leg before it, or on the last leg for a far-end coil.
+    """
+    spans, total, note = _walk(legs, cable_length_m, slack)
+    if note:
+        return RoutePlace(None, None, note)
+    for index, (start, end) in enumerate(spans):
+        if distance_m <= end:
+            return _place(legs[index - 1] if index and distance_m <= start else legs[index])
+    if distance_m <= total:
+        return _place(legs[-1])
+    return RoutePlace(None, None, NOTE_BEYOND)
+
+
+def pathway_midpoint(legs, *, cable_length_m, slack, pathway_pk):
+    """The distance from the A end to the middle of the cable's first leg through the pathway."""
+    spans, _total, note = _walk(legs, cable_length_m, slack)
+    if note:
+        return Estimate(None, note)
+    for leg, (start, end) in zip(legs, spans, strict=True):
+        if leg.pathway_pk == pathway_pk:
+            return Estimate((start + end) / 2, "")
+    return Estimate(None, NOTE_NOT_ON_ROUTE)
 
 
 def _endpoint_nodes(pathway, side):
@@ -213,20 +263,46 @@ def cable_length_m(fiber_cable):
     return length
 
 
-def _locate_on_cable(fiber_cable, distance_m, from_end, next_hop=None):
-    """Walk the fault's cable route; a distance past its end lands on next_hop's cable when there is one."""
+def _route_inputs(fiber_cable):
+    """The route walk's keyword arguments for the cable, or the reason its length is unknown ("" when known)."""
+    length = cable_length_m(fiber_cable)
+    if length is None:
+        return {}, NOTE_NO_LENGTH.format(cable=fiber_cable.cable)
+    legs = route_legs(fiber_cable.cable_id)
+    return {"legs": legs, "cable_length_m": length, "slack": slack_points(fiber_cable)}, ""
+
+
+def place_on_route(fault):
+    """The route segment holding the fault's distance from the A end; None when the fault has no distance."""
+    if fault.distance_from_a is None:
+        return None
+    if not pathways_compat.pathways_installed():
+        return RoutePlace(None, None, NOTE_NO_PATHWAYS)
+    inputs, note = _route_inputs(fault.fiber_cable)
+    if note:
+        return RoutePlace(None, None, note)
+    return locate_on_route(**inputs, distance_m=float(fault.distance_from_a))
+
+
+def distance_at_pathway(fiber_cable, pathway_pk):
+    """The distance from the A end to the middle of the cable's stretch through the pathway."""
+    inputs, note = _route_inputs(fiber_cable)
+    if note:
+        return Estimate(None, note)
+    return pathway_midpoint(**inputs, pathway_pk=pathway_pk)
+
+
+def _distance_on_cable(fiber_cable, distance_m, from_end, next_hop=None):
+    """The point `distance_m` into the fault's cable from `from_end`, as a distance from its A end.
+
+    A distance past the cable's end lands on next_hop's cable when there is one.
+    """
     length = cable_length_m(fiber_cable)
     if length is None:
         return Estimate(None, NOTE_NO_LENGTH.format(cable=fiber_cable.cable))
-    if next_hop is not None and distance_m > length:
-        return Estimate(None, NOTE_OTHER_CABLE.format(cable=_hop_label(next_hop)))
-    return locate_on_route(
-        route_legs(fiber_cable.cable_id),
-        cable_length_m=length,
-        distance_m=distance_m,
-        slack=slack_points(fiber_cable),
-        from_end=from_end,
-    )
+    if distance_m > length:
+        return Estimate(None, NOTE_OTHER_CABLE.format(cable=_hop_label(next_hop)) if next_hop else NOTE_BEYOND)
+    return Estimate(distance_m if from_end == "A" else length - distance_m, "")
 
 
 def estimate_from_mark(fault):
@@ -235,8 +311,7 @@ def estimate_from_mark(fault):
     unit = fiber_cable.fiber_cable_type.mark_unit
     if fiber_cable.start_mark is None or not unit:
         return Estimate(None, NOTE_NO_START_MARK)
-    distance = float(to_meters(abs(fault.location_mark - fiber_cable.start_mark), unit))
-    return _locate_on_cable(fiber_cable, distance, "A")
+    return Estimate(float(to_meters(abs(fault.location_mark - fiber_cable.start_mark), unit)), "")
 
 
 def _hop_label(hop):
@@ -272,7 +347,7 @@ def _land(fault, distance_m, devices, next_hop=None):
     from_end = _cable_end_at(fault.fiber_cable.cable, devices)
     if from_end is None:
         return Estimate(None, NOTE_ORIGIN_OFF_PATH)
-    return _locate_on_cable(fault.fiber_cable, distance_m, from_end, next_hop)
+    return _distance_on_cable(fault.fiber_cable, distance_m, from_end, next_hop)
 
 
 def estimate_from_otdr(fault):
@@ -319,23 +394,18 @@ def estimate_from_otdr(fault):
 
 
 def apply_estimate(fault):
-    """Re-estimate the fault's location from its evidence; a confirmed location is left alone. Does not save."""
+    """Re-estimate the fault's distance from its evidence; a confirmed location is left alone. Does not save."""
     if fault.located_at_status == FiberFaultLocatedAtStatusChoices.CONFIRMED:
         return
     if fault.location_mark is None and fault.otdr_distance is None:
         fault.clear_located_at()
         return
-    if not pathways_compat.pathways_installed():
-        estimate = Estimate(None, NOTE_NO_PATHWAYS)
-    elif fault.location_mark is not None:
-        estimate = estimate_from_mark(fault)
-    else:
-        estimate = estimate_from_otdr(fault)
+    estimate = estimate_from_mark(fault) if fault.location_mark is not None else estimate_from_otdr(fault)
     fault.clear_located_at()
-    if estimate.pathway_pk is None:
+    if estimate.distance_m is None:
         fault.estimate_note = estimate.note
     else:
-        fault.set_located_at_pathway(estimate.pathway_pk)
+        fault.distance_from_a = estimate.as_decimal()
         fault.located_at_status = FiberFaultLocatedAtStatusChoices.ESTIMATED
 
 
@@ -348,12 +418,8 @@ def fault_to_change(user, pk):
 
 
 def confirm_estimate(fault):
-    """Confirm an estimated location and save; False (nothing changed) when there is no live estimate to confirm.
-
-    An estimate that went stale is refused, so a guess about a pathway the cable no longer crosses never
-    becomes a confirmed location.
-    """
-    if fault.located_at_status != FiberFaultLocatedAtStatusChoices.ESTIMATED or fault.located_at_is_stale:
+    """Confirm an estimated location and save; False (nothing changed) when there is no estimate to confirm."""
+    if fault.located_at_status != FiberFaultLocatedAtStatusChoices.ESTIMATED:
         return False
     fault.snapshot()
     fault.confirm_located_at()
@@ -364,8 +430,8 @@ def confirm_estimate(fault):
 def reestimate(fault):
     """Run the estimator again and save; False (nothing changed) while the location is confirmed.
 
-    ``FiberFault.save()`` recomputes only when the evidence changed, so a changed route is picked up here
-    by calling the estimator directly.
+    ``FiberFault.save()`` recomputes only when the evidence changed, so changed cable lengths are picked up
+    here by calling the estimator directly.
     """
     if fault.located_at_status == FiberFaultLocatedAtStatusChoices.CONFIRMED:
         return False

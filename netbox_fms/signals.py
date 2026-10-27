@@ -344,26 +344,16 @@ def _relabel_ports_for_cable(cable):
         _write_label_changes(staged)
 
 
-def _cable_device_ids(cable_id):
-    """Devices on either end of a cable, from the terminations' cached device column."""
-    from dcim.models import CableTermination
-
-    return set(
-        CableTermination.objects.filter(cable_id=cable_id, _device_id__isnull=False).values_list(
-            "_device_id", flat=True
-        )
-    )
-
-
 def _enqueue_cable(cable, reason):
     """Queue a cable's devices; a splice jumper is a splice change on its one closure."""
     from .choices import PathAnalysisReasonChoices
+    from .models import cable_device_ids
     from .path_queue import enqueue_devices
     from .services import is_intra_closure_jumper
 
     if is_intra_closure_jumper(cable):
         reason = PathAnalysisReasonChoices.SPLICE_CHANGED
-    enqueue_devices(_cable_device_ids(cable.pk), reason)
+    enqueue_devices(cable_device_ids(cable.pk), reason)
 
 
 def _cable_post_save(sender, instance, **kwargs):
@@ -407,19 +397,21 @@ def _portmapping_changed(sender, instance, **kwargs):
 def _fibercable_post_save(sender, instance, **kwargs):
     """Re-render port labels and queue the cable's ends when a FiberCable is linked or changed."""
     from .choices import PathAnalysisReasonChoices
+    from .models import cable_device_ids
     from .path_queue import enqueue_devices
 
     if instance.cable_id:
         _relabel_ports_for_cable(instance.cable)
-        enqueue_devices(_cable_device_ids(instance.cable_id), PathAnalysisReasonChoices.CABLE_CHANGED)
+        enqueue_devices(cable_device_ids(instance.cable_id), PathAnalysisReasonChoices.CABLE_CHANGED)
 
 
 def _fibercable_post_delete(sender, instance, **kwargs):
     """Queue the ends of the cable that stays behind without its fiber record."""
     from .choices import PathAnalysisReasonChoices
+    from .models import cable_device_ids
     from .path_queue import enqueue_devices
 
-    enqueue_devices(_cable_device_ids(instance.cable_id), PathAnalysisReasonChoices.CABLE_CHANGED)
+    enqueue_devices(cable_device_ids(instance.cable_id), PathAnalysisReasonChoices.CABLE_CHANGED)
 
 
 def _fiberfault_changed(sender, instance, **kwargs):
@@ -432,13 +424,13 @@ def _fiberfault_changed(sender, instance, **kwargs):
     by now, in which case there is nothing left to look up.
     """
     from .choices import PathAnalysisReasonChoices
-    from .models import FiberCable
+    from .models import FiberCable, cable_device_ids
     from .path_queue import enqueue_devices
 
     if kwargs.get("action", "post_add") not in ("post_add", "post_remove", "post_clear"):
         return
     cable_id = FiberCable.objects.filter(pk=instance.fiber_cable_id).values_list("cable_id", flat=True).first()
-    enqueue_devices(_cable_device_ids(cable_id), PathAnalysisReasonChoices.FAULT_CHANGED)
+    enqueue_devices(cable_device_ids(cable_id), PathAnalysisReasonChoices.FAULT_CHANGED)
 
 
 def _fiberstrand_post_save(sender, instance, **kwargs):

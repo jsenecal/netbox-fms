@@ -5,7 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from core.models import ObjectChange
-from dcim.models import Cable, Device, Manufacturer, Site
+from dcim.models import Cable, Device, Manufacturer
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
@@ -20,7 +20,7 @@ from netbox_fms.models import FiberCable, FiberCableType, FiberFault, FiberStran
 from tests.conftest import (
     AuthedAPIClientMixin,
     create_fault_with_location,
-    make_front_port,
+    make_cable_between,
     make_infra,
     make_route,
     superuser_client,
@@ -291,7 +291,7 @@ class TestFaultPages(FaultWorld, TestCase):
 
 
 class RoutedFaultWorld:
-    """A cable between two devices, routed through two pathways."""
+    """A 300 m cable between two devices, routed through two pathways of 100 m and 200 m."""
 
     @classmethod
     def build(cls):
@@ -302,14 +302,9 @@ class RoutedFaultWorld:
         fct = FiberCableType.objects.create(
             manufacturer=mfr, model="FaultLoc-TB-4", construction=ConstructionChoices.TIGHT_BUFFER, strand_count=4
         )
-        cable = Cable.objects.create(
-            a_terminations=[make_front_port(cls.end_device, "A")],
-            b_terminations=[make_front_port(cls.far_device, "B")],
-        )
-        cls.fc = FiberCable.objects.create(cable=cable, fiber_cable_type=fct)
-        cls.segments = make_route(cable, [100.0, 200.0])
-        cls.pathway_ct = ContentType.objects.get_by_natural_key("netbox_pathways", "pathway")
-        cls.device_ct = ContentType.objects.get_for_model(Device)
+        cls.cable = make_cable_between("FL", cls.end_device, cls.far_device, 300)
+        cls.fc = FiberCable.objects.create(cable=cls.cable, fiber_cable_type=fct)
+        cls.segments = make_route(cls.cable, [100.0, 200.0])
 
 
 class TestFaultLocationValidation(RoutedFaultWorld, TestCase):
@@ -325,89 +320,48 @@ class TestFaultLocationValidation(RoutedFaultWorld, TestCase):
             fault.full_clean()
         return ctx.exception.message_dict
 
-    def test_located_at_type_must_be_device_or_pathway(self):
-        site_ct = ContentType.objects.get_for_model(Site)
-        errors = self._errors(self._fault(located_at_type=site_ct, located_at_id=1))
-        self.assertIn("located_at_type", errors)
-
     def test_device_must_terminate_the_cable(self):
-        errors = self._errors(self._fault(located_at_type=self.device_ct, located_at_id=self.other_device.pk))
-        self.assertIn("located_at_id", errors)
-        self._fault(located_at_type=self.device_ct, located_at_id=self.end_device.pk).full_clean()
+        errors = self._errors(self._fault(located_at=self.other_device))
+        self.assertEqual(errors["located_at"], ["The device does not terminate this cable."])
+        self._fault(located_at=self.end_device).full_clean()
 
-    def test_pathway_must_be_on_the_route(self):
-        other = Cable.objects.create(
-            a_terminations=[make_front_port(self.end_device, "A2")],
-            b_terminations=[make_front_port(self.far_device, "B2")],
-        )
-        stray = make_route(other, [50.0])[0].pathway_id
-        errors = self._errors(self._fault(located_at_type=self.pathway_ct, located_at_id=stray))
-        self.assertIn("located_at_id", errors)
-        on_route = self.segments[0].pathway_id
-        self._fault(located_at_type=self.pathway_ct, located_at_id=on_route).full_clean()
+    def test_closure_or_distance_not_both(self):
+        errors = self._errors(self._fault(located_at=self.end_device, distance_from_a=Decimal("10")))
+        self.assertIn("distance_from_a", errors)
 
-    def test_stale_link_does_not_block_other_edits(self):
-        """#198: a fault whose pathway left the route can still be resolved; a new off-route link is refused."""
-        fault = create_fault_with_location(
-            fiber_cable=self.fc,
-            located_at_status=FiberFaultLocatedAtStatusChoices.CONFIRMED,
-            located_at_type=self.pathway_ct,
-            located_at_id=self.segments[1].pathway_id,
-        )
-        self.segments[1].delete()
+    def test_distance_must_lie_on_the_cable(self):
+        errors = self._errors(self._fault(distance_from_a=Decimal("300.01")))
+        self.assertEqual(errors["distance_from_a"], ["The distance runs past the end of the cable."])
+        self._fault(distance_from_a=Decimal("300")).full_clean()
 
-        fault.status = FiberFaultStatusChoices.RESOLVED
-        fault.full_clean()
-        fault.save()
+    def test_unchanged_location_does_not_block_other_edits(self):
+        """#228: a cable shortened or re-terminated later must not stop the fault from being resolved."""
+        at_closure = create_fault_with_location(fiber_cable=self.fc, located_at=self.end_device)
+        on_span = create_fault_with_location(fiber_cable=self.fc, distance_from_a=Decimal("250"))
+        Cable.objects.filter(pk=self.cable.pk).update(length=200)
+        self.fc.cable.refresh_from_db()
+        self.fc.cable.terminations.filter(cable_end="A").delete()
 
-        other = Cable.objects.create(
-            a_terminations=[make_front_port(self.end_device, "A3")],
-            b_terminations=[make_front_port(self.far_device, "B3")],
-        )
-        fault.located_at_id = make_route(other, [50.0])[0].pathway_id
-        self.assertEqual(self._errors(fault)["located_at_id"], ["The pathway is not on this cable's route."])
+        for fault in (at_closure, on_span):
+            fault.refresh_from_db()
+            fault.status = FiberFaultStatusChoices.RESOLVED
+            fault.full_clean()
+            fault.save()
 
-    def test_pathway_without_pathways_installed(self):
-        fault = self._fault(located_at_type=self.pathway_ct, located_at_id=self.segments[0].pathway_id)
-        with patch("netbox_fms.pathways_compat.pathways_installed", return_value=False):
-            errors = self._errors(fault)
-        self.assertEqual(errors["located_at_type"], ["netbox-pathways is not installed."])
+        on_span.distance_from_a = Decimal("260")
+        self.assertIn("distance_from_a", self._errors(on_span))
 
     def test_otdr_origin_and_distance_go_together(self):
         self.assertIn("otdr_distance", self._errors(self._fault(otdr_origin=self.end_device)))
         self.assertIn("otdr_origin", self._errors(self._fault(otdr_distance=Decimal("10"))))
 
-    def test_located_at_is_stale_after_pathway_leaves_route(self):
-        """#198: a link to a pathway the cable no longer crosses reads as stale; a rebuild heals it."""
-        seg = self.segments[1]
-        fault = self._fault(located_at_type=self.pathway_ct, located_at_id=seg.pathway_id)
-        self.assertFalse(fault.located_at_is_stale)
-        self.assertEqual(fault.route_segment().pk, seg.pk)
-        seg.delete()
-        self.assertTrue(fault.located_at_is_stale)
-        self.assertIsNone(fault.route_segment())
-        rebuilt = type(seg).objects.create(cable=self.fc.cable, pathway=seg.pathway, sequence=2)
-        self.assertEqual(fault.route_segment().pk, rebuilt.pk)
-        self.assertFalse(fault.located_at_is_stale)
-
-    def test_located_at_is_stale_when_device_is_gone(self):
-        fault = self._fault(located_at_type=self.device_ct, located_at_id=999999999)
-        self.assertTrue(fault.located_at_is_stale)
-        self.assertIsNone(self._fault().route_segment())
-        self.assertFalse(self._fault().located_at_is_stale)
-
-    def test_helpers_set_confirm_and_clear(self):
-        fault = self._fault(estimate_note="guess")
-        fault.set_located_at_pathway(self.segments[0].pathway_id)
-        self.assertEqual(fault.located_at_pathway_pk, self.segments[0].pathway_id)
-        self.assertIsNone(fault.located_at_device)
+    def test_helpers_confirm_and_clear(self):
+        fault = self._fault(estimate_note="guess", distance_from_a=Decimal("10"))
         fault.confirm_located_at()
         self.assertEqual((fault.located_at_status, fault.estimate_note), ("confirmed", ""))
+        fault.located_at = self.end_device
         fault.clear_located_at()
-        self.assertEqual((fault.located_at_status, fault.located_at_type, fault.located_at_id), ("none", None, None))
-        fault.located_at_type, fault.located_at_id = self.device_ct, self.end_device.pk
-        self.assertEqual(fault.located_at_device, self.end_device)
-        self.assertIsNone(fault.located_at_pathway_pk)
+        self.assertEqual((fault.located_at_status, fault.located_at, fault.distance_from_a), ("none", None, None))
 
 
 class TestFaultLocationSurfaces(RoutedFaultWorld, AuthedAPIClientMixin, TestCase):
@@ -421,61 +375,72 @@ class TestFaultLocationSurfaces(RoutedFaultWorld, AuthedAPIClientMixin, TestCase
         return FiberFaultForm(instance=fault, data=base | data)
 
     def _estimated(self, **fields):
+        fields = {"distance_from_a": Decimal("150.00"), "estimate_note": "old guess"} | fields
         return create_fault_with_location(
-            fiber_cable=self.fc,
-            located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED,
-            located_at_type=self.pathway_ct,
-            located_at_id=self.segments[1].pathway_id,
-            estimate_note="old guess",
-            **fields,
+            fiber_cable=self.fc, located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED, **fields
         )
 
-    def test_form_pick_segment_confirms(self):
-        """#198: picking a route segment in the form confirms the location and drops the estimate note."""
-        fault = self._estimated()
-        pathway_pk = self.segments[0].pathway_id
-        form = self._form(fault, located_at_type=self.pathway_ct.pk, located_at=pathway_pk)
+    def test_form_pick_pathway_sets_its_midpoint_confirmed(self):
+        """#228: a picked route pathway places the fault in the middle of the cable's stretch through it."""
+        form = self._form(self._estimated(), route_pathway=self.segments[0].pathway_id)
         self.assertTrue(form.is_valid(), form.errors)
         fault = form.save()
         self.assertEqual((fault.located_at_status, fault.estimate_note), ("confirmed", ""))
-        self.assertEqual(fault.located_at_pathway_pk, pathway_pk)
+        self.assertEqual(fault.distance_from_a, Decimal("50.00"))
 
-    def test_form_clearing_confirmed_located_at_resets(self):
+    def test_form_pathway_off_the_route_errors_on_the_picker(self):
+        other = make_cable_between("FL2", self.end_device, self.far_device)
+        form = self._form(route_pathway=make_route(other, [50.0])[0].pathway_id)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["route_pathway"], ["The pathway is not on this cable's route."])
+
+    def test_form_pathway_on_a_cable_without_length_errors(self):
+        unmeasured = make_cable_between("FL4", self.end_device, self.far_device)
+        fc = FiberCable.objects.create(cable=unmeasured, fiber_cable_type=self.fc.fiber_cable_type)
+        pathway = make_route(unmeasured, [50.0])[0].pathway_id
+        form = self._form(fiber_cable=fc.pk, route_pathway=pathway)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["route_pathway"], [f"Cable {unmeasured} has no length."])
+
+    def test_form_typed_distance_confirms(self):
+        form = self._form(self._estimated(), distance_from_a="120")
+        self.assertTrue(form.is_valid(), form.errors)
+        fault = form.save()
+        self.assertEqual((fault.located_at_status, fault.distance_from_a), ("confirmed", Decimal("120")))
+
+    def test_form_clearing_confirmed_closure_resets(self):
         fault = FiberFault.objects.create(
             fiber_cable=self.fc,
             located_at_status=FiberFaultLocatedAtStatusChoices.CONFIRMED,
-            located_at_type=self.device_ct,
-            located_at_id=self.end_device.pk,
+            located_at=self.end_device,
         )
-        form = self._form(fault, located_at_type="", located_at="")
+        form = self._form(fault, located_at="")
         self.assertTrue(form.is_valid(), form.errors)
         fault = form.save()
-        self.assertEqual((fault.located_at_status, fault.located_at_type, fault.located_at_id), ("none", None, None))
+        self.assertEqual((fault.located_at_status, fault.located_at), ("none", None))
 
-    def test_form_clearing_estimated_located_at_resets(self):
-        """#198: removing an estimated link leaves no stale "estimated" status behind."""
-        form = self._form(self._estimated(), located_at_type="", located_at="")
+    def test_form_clearing_estimated_distance_resets(self):
+        """#198: removing an estimated distance leaves no stale "estimated" status behind."""
+        form = self._form(self._estimated(), distance_from_a="")
         self.assertTrue(form.is_valid(), form.errors)
         fault = form.save()
         self.assertEqual((fault.located_at_status, fault.estimate_note), ("none", ""))
 
     def test_form_device_off_the_cable_errors_on_the_picker(self):
-        form = self._form(located_at_type=self.device_ct.pk, located_at=self.other_device.pk)
+        form = self._form(located_at=self.other_device.pk)
         self.assertFalse(form.is_valid())
         self.assertEqual(form.errors["located_at"], ["The device does not terminate this cable."])
 
-    def test_form_without_pathways_offers_device_only(self):
+    def test_form_without_pathways_has_no_pathway_picker(self):
         with patch("netbox_fms.pathways_compat.pathways_installed", return_value=False):
             form = FiberFaultForm()
-        self.assertEqual(list(form.fields["located_at_type"].queryset), [self.device_ct])
+        self.assertNotIn("route_pathway", form.fields)
 
     def test_serializer_device_confirms_and_status_is_read_only(self):
         """#198: an API-picked closure is confirmed; the status itself cannot be written."""
-        fault = self._estimated()
+        fault = self._estimated(distance_from_a=None)
         url = f"/api/plugins/fms/fiber-faults/{fault.pk}/"
-        resp = self.client.patch(
-            url, {"located_at_type": "dcim.device", "located_at_id": self.end_device.pk}, format="json"
-        )
+        resp = self.client.patch(url, {"located_at": self.end_device.pk}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         body = resp.json()
         self.assertEqual((body["located_at_status"], body["estimate_note"]), ("confirmed", ""))
@@ -485,30 +450,16 @@ class TestFaultLocationSurfaces(RoutedFaultWorld, AuthedAPIClientMixin, TestCase
         fault.refresh_from_db()
         self.assertEqual(fault.located_at_status, "confirmed")
 
-    def test_serializer_clearing_estimated_located_at_resets(self):
+    def test_serializer_clearing_estimated_distance_resets(self):
+        fault = self._estimated()
+        resp = self.client.patch(f"/api/plugins/fms/fiber-faults/{fault.pk}/", {"distance_from_a": None}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual((resp.json()["located_at_status"], resp.json()["distance_from_a"]), ("none", None))
+
+    def test_serializer_resending_an_estimated_distance_keeps_it_estimated(self):
         fault = self._estimated()
         resp = self.client.patch(
-            f"/api/plugins/fms/fiber-faults/{fault.pk}/",
-            {"located_at_type": None, "located_at_id": None},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertEqual((resp.json()["located_at_status"], resp.json()["located_at"]), ("none", None))
-
-    def test_serializer_tolerates_pathway_link_without_pathways(self):
-        """#198: a pathway link left behind after netbox-pathways is removed serializes as null, not a 500."""
-        fault = self._estimated()
-        with patch.object(ContentType, "model_class", return_value=None):
-            resp = self.client.get(f"/api/plugins/fms/fiber-faults/{fault.pk}/")
-        self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertIsNone(resp.json()["located_at"])
-
-    def test_serializer_resending_an_estimated_link_keeps_it_estimated(self):
-        fault = self._estimated()
-        resp = self.client.patch(
-            f"/api/plugins/fms/fiber-faults/{fault.pk}/",
-            {"located_at_type": "netbox_pathways.pathway", "located_at_id": fault.located_at_id},
-            format="json",
+            f"/api/plugins/fms/fiber-faults/{fault.pk}/", {"distance_from_a": "150.00"}, format="json"
         )
         self.assertEqual(resp.status_code, 200, resp.content)
         fault.refresh_from_db()
@@ -530,29 +481,22 @@ class TestFaultLocationPage(RoutedFaultWorld, TestCase):
         return resp.content.decode()
 
     def test_detail_links_segment_on_cable_map(self):
-        segment = self.segments[1]
         content = self._page(
             located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED,
-            located_at_type=self.pathway_ct,
-            located_at_id=segment.pathway_id,
+            distance_from_a=Decimal("150"),
             estimate_note="from the jacket mark",
         )
-        self.assertIn(f"route-map/?segment={segment.pk}", content)
+        self.assertIn(f"route-map/?segment={self.segments[1].pk}", content)
         self.assertIn("Estimated", content)
         self.assertIn("from the jacket mark", content)
-        self.assertNotIn("no longer on the cable's route", content)
 
-    def test_detail_marks_stale_location(self):
-        other = Cable.objects.create(
-            a_terminations=[make_front_port(self.end_device, "S-A")],
-            b_terminations=[make_front_port(self.far_device, "S-B")],
-        )
-        stray = make_route(other, [30.0])[0].pathway_id
-        content = self._page(located_at_type=self.pathway_ct, located_at_id=stray)
-        self.assertIn("no longer on the cable's route", content)
+    def test_detail_says_why_a_distance_is_not_on_the_route(self):
+        content = self._page(distance_from_a=Decimal("400"))
+        self.assertIn("The distance runs past the end of the cable.", content)
+        self.assertNotIn("route-map/?segment=", content)
 
     def test_detail_without_pathways_renders(self):
-        fields = {"located_at_type": self.device_ct, "located_at_id": self.end_device.pk}
+        fields = {"located_at": self.end_device}
         self.assertIn(f"/plugins/pathways/map/#site={self.end_device.site_id}", self._page(**fields))
         with patch("netbox_fms.pathways_compat.pathways_installed", return_value=False):
             content = self._page(**fields)
@@ -576,30 +520,23 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
         )
         cls.fault_ct = ContentType.objects.get_for_model(FiberFault)
 
-    def _routed_fault(self):
-        cable = Cable.objects.create(
-            a_terminations=[make_front_port(self.end_device, "M-A")],
-            b_terminations=[make_front_port(self.far_device, "M-B")],
-            length=300,
-            length_unit="m",
-        )
+    def _marked_fault(self):
+        """A fault at jacket mark 200 on a cable marked 0..300: estimated 200 m from the A end."""
+        cable = make_cable_between("FLM", self.end_device, self.far_device, 300)
         fc = FiberCable.objects.create(cable=cable, fiber_cable_type=self.marked_type, start_mark=0, end_mark=300)
-        segments = make_route(cable, [100.0, 200.0])
-        return FiberFault.objects.create(fiber_cable=fc, location_mark=Decimal("200")), cable, segments
+        return FiberFault.objects.create(fiber_cable=fc, location_mark=Decimal("200"))
 
     @staticmethod
-    def _reshape_route(segments):
-        """Lengthen the first pathway and shorten the second, so the same mark now falls on the first."""
-        for segment, length in zip(segments, (250.0, 50.0), strict=True):
-            segment.pathway.length = length
-            segment.pathway.save()
-        return segments
+    def _remark(fault):
+        """Correct the cable's start mark, so the same jacket mark now sits 150 m from the A end."""
+        FiberCable.objects.filter(pk=fault.fiber_cable_id).update(start_mark=50)
+        fault.fiber_cable.refresh_from_db()
 
     def _url(self, fault, action):
         return reverse(f"plugins-api:netbox_fms-api:fiberfault-{action}", kwargs={"pk": fault.pk})
 
     def test_confirm_estimated_location(self):
-        fault, _cable, segments = self._routed_fault()
+        fault = self._marked_fault()
         self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.ESTIMATED)
         resp = superuser_client("fault-confirm-ui").post(
             reverse("plugins:netbox_fms:fiberfault_confirm_location", args=[fault.pk])
@@ -607,7 +544,7 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
         self.assertEqual(resp.status_code, 302)
         fault.refresh_from_db()
         self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.CONFIRMED)
-        self.assertEqual(fault.located_at_pathway_pk, segments[1].pathway_id)
+        self.assertEqual(fault.distance_from_a, Decimal("200.00"))
         self.assertEqual(fault.estimate_note, "")
 
     def test_confirm_refused_without_estimate(self):
@@ -619,10 +556,10 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
 
     def test_actions_record_the_location_before_the_change(self):
         """#198: the changelog entries of confirm and re-estimate carry the pre-change location."""
-        fault, _cable, segments = self._routed_fault()
+        fault = self._marked_fault()
         self.client.post(self._url(fault, "confirm-location"))
         FiberFault.objects.filter(pk=fault.pk).update(located_at_status=FiberFaultLocatedAtStatusChoices.ESTIMATED)
-        self._reshape_route(segments)
+        self._remark(fault)
         self.client.post(self._url(fault, "re-estimate"))
 
         confirm, reestimate = ObjectChange.objects.filter(
@@ -631,47 +568,39 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
         self.assertEqual((confirm.prechange_data or {}).get("located_at_status"), "estimated")
         self.assertEqual((reestimate.prechange_data or {}).get("located_at_status"), "estimated")
         self.assertEqual(
-            (reestimate.prechange_data["located_at_id"], reestimate.postchange_data["located_at_id"]),
-            (segments[1].pathway_id, segments[0].pathway_id),
+            (float(reestimate.prechange_data["distance_from_a"]), float(reestimate.postchange_data["distance_from_a"])),
+            (200.0, 150.0),
         )
 
-    def test_confirm_refused_for_a_stale_estimate(self):
-        fault, _cable, segments = self._routed_fault()
-        segments[1].delete()
-        resp = self.client.post(self._url(fault, "confirm-location"))
-        self.assertEqual(resp.status_code, 409)
-        fault.refresh_from_db()
-        self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.ESTIMATED)
-
     def test_confirm_via_api_returns_the_fault(self):
-        fault, _cable, _segments = self._routed_fault()
+        fault = self._marked_fault()
         resp = self.client.post(self._url(fault, "confirm-location"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data["id"], fault.pk)
         fault.refresh_from_db()
         self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.CONFIRMED)
 
-    def test_reestimate_picks_up_new_route(self):
-        fault, _cable, segments = self._routed_fault()
-        new_segments = self._reshape_route(segments)
+    def test_reestimate_picks_up_new_cable_marks(self):
+        fault = self._marked_fault()
+        self._remark(fault)
         resp = self.client.post(self._url(fault, "re-estimate"))
         self.assertEqual(resp.status_code, 200)
         fault.refresh_from_db()
-        self.assertEqual(fault.located_at_pathway_pk, new_segments[0].pathway_id)
+        self.assertEqual(fault.distance_from_a, Decimal("150.00"))
         self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.ESTIMATED)
 
     def test_reestimate_from_the_page(self):
-        fault, _cable, segments = self._routed_fault()
-        new_segments = self._reshape_route(segments)
+        fault = self._marked_fault()
+        self._remark(fault)
         resp = superuser_client("fault-reest-ui").post(
             reverse("plugins:netbox_fms:fiberfault_reestimate", args=[fault.pk])
         )
         self.assertEqual(resp.status_code, 302)
         fault.refresh_from_db()
-        self.assertEqual(fault.located_at_pathway_pk, new_segments[0].pathway_id)
+        self.assertEqual(fault.distance_from_a, Decimal("150.00"))
 
     def test_reestimate_refused_when_confirmed(self):
-        fault, _cable, segments = self._routed_fault()
+        fault = self._marked_fault()
         fault.confirm_located_at()
         fault.save()
         resp = self.client.post(self._url(fault, "re-estimate"))
@@ -682,7 +611,7 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
         self.assertEqual(resp.status_code, 302)
         fault.refresh_from_db()
         self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.CONFIRMED)
-        self.assertEqual(fault.located_at_pathway_pk, segments[1].pathway_id)
+        self.assertEqual(fault.distance_from_a, Decimal("200.00"))
 
     def test_confirm_from_the_page_refused_without_estimate(self):
         fault = create_fault_with_location(fiber_cable=self.fc)
@@ -694,7 +623,7 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
         self.assertEqual(fault.located_at_status, FiberFaultLocatedAtStatusChoices.NONE)
 
     def test_actions_need_change_permission(self):
-        fault, _cable, _segments = self._routed_fault()
+        fault = self._marked_fault()
         view_only = [(FiberFault, ["view"], None)]
         client = ui_client_with("fault-view-only", view_only)
         for name in ("fiberfault_confirm_location", "fiberfault_reestimate"):
@@ -708,7 +637,7 @@ class TestFaultLocationActions(RoutedFaultWorld, AuthedAPIClientMixin, TestCase)
             self.assertEqual(api.post(self._url(fault, action)).status_code, 403)
 
     def test_buttons_follow_the_location_status(self):
-        fault, _cable, _segments = self._routed_fault()
+        fault = self._marked_fault()
         client = superuser_client("fault-buttons")
         page = client.get(fault.get_absolute_url()).content.decode()
         self.assertIn("confirm-location/", page)
