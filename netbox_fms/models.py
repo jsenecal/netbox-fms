@@ -1,10 +1,8 @@
 from dcim.choices import CableLengthUnitChoices
 from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
-from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -13,7 +11,6 @@ from utilities.fields import ColorField, CounterCacheField
 from utilities.querysets import RestrictedQuerySet
 from utilities.tracking import TrackingModelMixin
 
-from . import pathways_compat
 from .choices import (
     ArmorTypeChoices,
     AssignmentBrokenReasonChoices,
@@ -1173,6 +1170,17 @@ class FiberStrand(NetBoxModel):
         return reverse("plugins:netbox_fms:fibercable", args=[self.fiber_cable.pk])
 
 
+def cable_device_ids(cable_id):
+    """Devices on either end of a cable, from the terminations' cached device column."""
+    from dcim.models import CableTermination
+
+    return set(
+        CableTermination.objects.filter(cable_id=cable_id, _device_id__isnull=False).values_list(
+            "_device_id", flat=True
+        )
+    )
+
+
 def validate_fault_strands(fiber_cable, strands):
     """Refuse strands that do not belong to ``fiber_cable``.
 
@@ -1240,19 +1248,24 @@ class FiberFault(NetBoxModel):
         choices=FiberFaultLocatedAtStatusChoices,
         default=FiberFaultLocatedAtStatusChoices.NONE,
     )
-    located_at_type = models.ForeignKey(
-        to="contenttypes.ContentType",
-        on_delete=models.PROTECT,
-        related_name="+",
+    located_at = models.ForeignKey(
+        to="dcim.Device",
+        on_delete=models.CASCADE,
+        related_name="located_faults",
         blank=True,
         null=True,
-        limit_choices_to=Q(app_label="dcim", model="device") | Q(app_label="netbox_pathways", model="pathway"),
+        verbose_name=_("located at"),
+        help_text=_("Closure the fault sits at, such as a broken splice."),
     )
-    located_at_id = models.PositiveBigIntegerField(
+    distance_from_a = models.DecimalField(
+        verbose_name=_("distance from A end"),
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
         blank=True,
         null=True,
+        help_text=_("Where the fault lies along the cable, in meters from its A end."),
     )
-    located_at = GenericForeignKey(ct_field="located_at_type", fk_field="located_at_id")
     estimate_note = models.CharField(
         verbose_name=_("estimate note"),
         max_length=200,
@@ -1318,90 +1331,47 @@ class FiberFault(NetBoxModel):
         """Return the badge color of the location status."""
         return FiberFaultLocatedAtStatusChoices.colors.get(self.located_at_status)
 
-    @property
-    def _located_at_key(self):
-        """(app_label, model) of the located_at link's type, or None when unset."""
-        if self.located_at_type_id is None:
-            return None
-        return self.located_at_type.app_label, self.located_at_type.model
-
-    @property
-    def located_at_pathway_pk(self):
-        """Pk of the linked pathway, or None when the link is not a pathway."""
-        return self.located_at_id if self._located_at_key == ("netbox_pathways", "pathway") else None
-
-    @property
-    def located_at_device(self):
-        """The linked Device, or None when the link is not a device (or the device is gone)."""
-        if self._located_at_key != ("dcim", "device"):
-            return None
-        return self.located_at_type.model_class().objects.filter(pk=self.located_at_id).first()
-
-    def route_segment(self):
-        """The cable's route segment through the linked pathway, or None."""
-        if self.located_at_pathway_pk is None:
-            return None
-        return pathways_compat.route_segment_for(self.fiber_cable.cable_id, self.located_at_pathway_pk)
-
-    @property
-    def located_at_is_stale(self):
-        """True when a located_at link is set but its target is gone, or the cable no longer crosses it."""
-        if self.located_at_id is None:
-            return False
-        if self.located_at_pathway_pk is not None:
-            return pathways_compat.pathways_installed() and self.route_segment() is None
-        return not self.located_at_type.model_class().objects.filter(pk=self.located_at_id).exists()
-
-    def set_located_at_pathway(self, pathway_pk):
-        """Link the fault to a pathway; the caller guarantees netbox-pathways is installed."""
-        self.located_at_type = ContentType.objects.get_by_natural_key("netbox_pathways", "pathway")
-        self.located_at_id = pathway_pk
-
     def confirm_located_at(self):
-        """Mark the located_at link confirmed and drop the estimate note (does not save)."""
+        """Mark the location confirmed and drop the estimate note (does not save)."""
         self.located_at_status = FiberFaultLocatedAtStatusChoices.CONFIRMED
         self.estimate_note = ""
 
     def clear_located_at(self):
-        """Remove the located_at link, its status and the note (does not save)."""
+        """Remove the closure, the distance, their status and the note (does not save)."""
         self.located_at_status = FiberFaultLocatedAtStatusChoices.NONE
-        self.located_at_type = None
-        self.located_at_id = None
+        self.located_at = None
+        self.distance_from_a = None
         self.estimate_note = ""
 
-    def _clean_located_at(self):
-        """Field errors for a located_at link that does not fit the cable, keyed by field.
+    def _clean_location(self):
+        """Field errors for a closure or distance that does not fit the cable, keyed by field.
 
-        NetBoxModel.clean() has already paired the type with the id. The link is checked against the route
-        and the terminations only when it is new or changed: a stored link that went stale later must not
-        block other edits, such as resolving the fault.
+        A closure and a distance are checked against the cable only when they are new or changed: a cable
+        re-terminated or re-measured later must not block other edits, such as resolving the fault.
         """
-        if not self.fiber_cable_id or self.located_at_id is None:
+        if self.located_at_id is not None and self.distance_from_a is not None:
+            return {"distance_from_a": _("A fault sits at a closure or at a distance along the cable, not both.")}
+        if not self.fiber_cable_id:
             return {}
-        key = self._located_at_key
-        if key == ("netbox_pathways", "pathway") and not pathways_compat.pathways_installed():
-            return {"located_at_type": _("netbox-pathways is not installed.")}
-        stored = FiberFault.objects.filter(
-            pk=self.pk,
-            fiber_cable_id=self.fiber_cable_id,
-            located_at_type_id=self.located_at_type_id,
-            located_at_id=self.located_at_id,
+        stored = FiberFault.objects.filter(pk=self.pk, fiber_cable_id=self.fiber_cable_id).values(
+            "located_at_id", "distance_from_a"
         )
-        if self.pk and stored.exists():
-            return {}
-        if key == ("netbox_pathways", "pathway"):
-            if self.route_segment() is None:
-                return {"located_at_id": _("The pathway is not on this cable's route.")}
-        elif key == ("dcim", "device"):
-            ends = {t._device_id for t in self.fiber_cable.cable.terminations.all()}
-            if self.located_at_id not in ends:
-                return {"located_at_id": _("The device does not terminate this cable.")}
+        stored = stored.first() if self.pk else None
+        if self.located_at_id is not None and (stored is None or stored["located_at_id"] != self.located_at_id):
+            if self.located_at_id not in cable_device_ids(self.fiber_cable.cable_id):
+                return {"located_at": _("The device does not terminate this cable.")}
+        if self.distance_from_a is not None and (stored is None or stored["distance_from_a"] != self.distance_from_a):
+            from .fault_location import cable_length_m
+
+            length = cable_length_m(self.fiber_cable)
+            if length is not None and self.distance_from_a > length:
+                return {"distance_from_a": _("The distance runs past the end of the cable.")}
         return {}
 
     def clean(self):
-        """Validate the location mark, the location link, the OTDR evidence and the resolution date."""
+        """Validate the location mark, the closure or distance, the OTDR evidence and the resolution date."""
         super().clean()
-        errors = self._clean_located_at()
+        errors = self._clean_location()
         if (self.otdr_origin_id is None) != (self.otdr_distance is None):
             missing = "otdr_origin" if self.otdr_origin_id is None else "otdr_distance"
             errors[missing] = _("OTDR origin and distance go together.")
@@ -1432,16 +1402,18 @@ class FiberFault(NetBoxModel):
         super().save(*args, **kwargs)
 
 
-def apply_user_located_at(fault, changed):
-    """Set the location status after a user edits the located_at link (does not save).
+def apply_user_located_at(fault, located_at, distance_from_a):
+    """Apply the closure and distance a user submitted, and set the location status to match (does not save).
 
-    A link the user sets is confirmed. Clearing a link resets the location, whatever its status. An unchanged
-    link keeps its status, so re-saving an estimated location does not confirm it. Forms and serializers share
-    this rule.
+    A closure or distance the user sets is confirmed. Clearing both resets the location, whatever its status.
+    An unchanged location keeps its status, so re-saving an estimated distance does not confirm it. Forms and
+    serializers share this rule.
     """
+    changed = (fault.located_at_id, fault.distance_from_a) != (getattr(located_at, "pk", None), distance_from_a)
+    fault.located_at, fault.distance_from_a = located_at, distance_from_a
     if not changed:
         return
-    if fault.located_at_id is not None:
+    if fault.located_at_id is not None or fault.distance_from_a is not None:
         fault.confirm_located_at()
     else:
         fault.clear_located_at()

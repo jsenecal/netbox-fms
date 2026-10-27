@@ -67,41 +67,50 @@ assignments recover with no user action.
 
 ## Locating a fault
 
-A fault can record where on the ground the damage is. The location is a route
-segment (the stretch between two structures on the cable's route) or a device
-where the cable terminates, such as a closure. It is what the map highlights
-and what you look at when planning a replacement.
+A fault can record where the damage is, in one of two ways:
 
-### Three sources
+- **At a closure** (`located_at`): a device where the cable terminates, for a
+  broken splice. Deleting the closure deletes the faults located at it.
+- **Along the cable** (`distance_from_a`): meters from the cable's A end, for
+  damage out on the span.
 
-- **Picked.** You choose the route segment or the device in the fault form (or
-  set `located_at` through the API). A location you pick is **confirmed**.
+A fault has one or the other, never both. With netbox-pathways installed, the
+plugin works out which route segment (the stretch between two structures on
+the cable's route) holds the distance, from the cable's current route each
+time; that segment is what the map highlights and what you look at when
+planning a replacement. Without netbox-pathways the distance is still
+recorded and estimated, it just is not drawn.
+
+### Sources
+
+- **Picked.** You choose the closure or type the distance in the fault form
+  (or set `located_at` or `distance_from_a` through the API). With
+  netbox-pathways installed, the form also offers a **Route pathway** picker:
+  choosing a pathway sets the distance to the middle of the cable's stretch
+  through it. A location you pick is **confirmed**.
 - **Estimated from a jacket mark.** Read the mark printed on the jacket at the
-  damage and enter it as `location_mark`. The plugin finds the route segment
-  that mark falls in.
+  damage and enter it as `location_mark`. The distance is
+  `|location_mark - start_mark|`, converted to meters.
 - **Estimated from an OTDR shot.** Enter the `otdr_origin` (the closure or
   patch-panel device the shot was taken from), the `otdr_distance` in meters
   and, when the origin is not an end of the faulted cable, the `otdr_strand`
-  that was shot. The plugin finds the route segment the distance lands in.
+  that was shot. The plugin works out how far into the faulted cable the shot
+  lands.
 
 If both a jacket mark and OTDR evidence are present, the jacket mark drives
 the estimate: a reading taken at the damage beats a distance measured from
 elsewhere. The OTDR evidence is kept as corroboration.
 
-Without netbox-pathways, you can still pick a device and the estimate stops
-with a note; the segment picker is hidden.
-
 ### Estimated and confirmed
 
-- **Estimated** means the plugin worked the location out from evidence. It is
+- **Estimated** means the plugin worked the distance out from evidence. It is
   labelled as an estimate everywhere it appears, and drawn dashed on the map.
 - **Confirmed** means a person picked it or accepted the estimate. Editing the
   evidence afterwards does not change a confirmed location.
 
 On the fault page, **Confirm location** turns an estimate into a confirmed
-location; a stale estimate cannot be confirmed, re-estimate it instead.
-**Re-estimate** runs the estimate again against the cable's current
-route and lengths (an estimate is otherwise recomputed only when its evidence
+location. **Re-estimate** runs the estimate again against the cable's current
+marks and lengths (an estimate is otherwise recomputed only when its evidence
 is saved). Re-estimate is not offered once the location is confirmed; clear the
 location first to estimate again. Both actions need the `change` permission on
 fiber faults. The REST API has the same two actions,
@@ -117,28 +126,27 @@ fiber faults. The REST API has the same two actions,
 2. Subtract each cable's length (converted to meters) from the distance, and
    stop at the cable where the remaining distance runs out. That cable must be
    the fault's cable.
-3. Within that cable, walk its route segments in order from the end the walk
-   entered. Recorded slack loops add their length where they sit on the route;
-   the rest of the difference between cable length and route length is spread
-   proportionally along the route. Segment length is the pathway's length, or
-   the length of its geometry. The way a pathway is drawn does not matter: each
-   one is turned to follow the route before slack loops are placed.
-4. The segment the remaining distance lands in becomes the location.
+3. The remaining distance, counted from the end the walk entered, becomes the
+   distance from the A end.
 
-The jacket-mark estimate does the same segment walk, starting from the cable's
-A end at distance `|location_mark - start_mark|`.
+### Placing the distance on the route
 
-### Estimate notes
+The cable's route segments are walked from its A end. Recorded slack loops add
+their length where they sit on the route; the rest of the difference between
+cable length and route length is spread proportionally along the route.
+Segment length is the pathway's length, or the length of its geometry. The way
+a pathway is drawn does not matter: each one is turned to follow the route
+before slack loops are placed. When the route changes, the fault follows it:
+nothing about the route is stored on the fault.
 
-When an estimate cannot be computed, no location is stored and the fault shows
+### Notes
+
+When an estimate cannot be computed, no distance is stored and the fault shows
 one of these notes:
 
 | Note | Meaning |
 |------|---------|
-| netbox-pathways is not installed. | Segments need netbox-pathways. |
-| The cable has no recorded route. | The cable has no route segments. |
-| The route has a gap at segment N. | A segment has no pathway or no length. |
-| The distance runs past the end of the cable. | The distance exceeds the walked length. |
+| The distance runs past the end of the cable. | The distance exceeds the cable's length. |
 | Cable X has no length. | A cable on the walk has no length. |
 | The cable has no start mark. | A jacket mark needs the cable's start mark. |
 | The shot lands on cable X, not this fault's cable. | The distance runs out on a different cable. |
@@ -147,19 +155,29 @@ one of these notes:
 | The shot strand has no analyzed path. | Path analysis has not produced a path for it. |
 | The shot strand's path does not cross this fault's cable. | The path never reaches the cable. |
 
-A location whose pathway or device is gone, or whose pathway the cable no
-longer runs through, is shown as stale and left off the map. A stale location
-does not block other edits of the fault, such as resolving it; the location is
-checked against the cable only when it is set or changed.
+When a distance cannot be placed on the route, the fault page shows why in the
+**Route segment** row and the fault is left off the map:
+
+| Note | Meaning |
+|------|---------|
+| netbox-pathways is not installed. | Segments need netbox-pathways. |
+| The cable has no recorded route. | The cable has no route segments. |
+| The route has a gap at segment N. | A segment has no pathway or no length. |
+| The distance runs past the end of the cable. | The distance exceeds the route. |
+| Cable X has no length. | The route walk needs the cable's length. |
+
+A closure or distance is checked against the cable only when it is set or
+changed, so a cable re-terminated or shortened later does not block other
+edits of the fault, such as resolving it.
 
 ### Map layers
 
 With netbox-pathways installed, the main map has a **Fiber Faults** group of
 layers, off by default:
 
-- **Fault Segments (Confirmed)** -- solid red lines along the located pathway.
+- **Fault Segments (Confirmed)** -- solid red lines along the segment that holds the fault.
 - **Fault Segments (Estimated)** -- dashed red lines.
-- **Faulted Closures** -- points for devices that hold a located fault.
+- **Faulted Closures** -- points for closures that hold an open fault.
 
 Only open faults you may view appear, and popovers name the fault, its cable
 and its location status. The fault page links the segment to the cable's route

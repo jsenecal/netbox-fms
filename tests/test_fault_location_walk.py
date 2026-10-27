@@ -1,11 +1,15 @@
-"""Route walk engine: distance along a cable to the route segment it lands on (#198)."""
+"""Route walk engine: distance from a cable's A end to the route segment it lands on, and back (#198, #228)."""
+
+import pytest
 
 from netbox_fms.fault_location import (
     NOTE_BEYOND,
     NOTE_NO_ROUTE,
+    NOTE_NOT_ON_ROUTE,
     RouteLeg,
     SlackPoint,
     locate_on_route,
+    pathway_midpoint,
 )
 
 
@@ -27,18 +31,18 @@ def _legs(lengths=(100.0, 100.0, 100.0), nodes=(1, 2, 3, 4)):
     ]
 
 
-def _locate(legs, distance, cable=330.0, slack=(), from_end="A"):
-    return locate_on_route(legs, cable_length_m=cable, distance_m=distance, slack=list(slack), from_end=from_end)
+def _locate(legs, distance, cable=330.0, slack=()):
+    return locate_on_route(legs, cable_length_m=cable, distance_m=distance, slack=list(slack))
+
+
+def _midpoint(legs, pathway_pk, cable=330.0, slack=()):
+    return pathway_midpoint(legs, cable_length_m=cable, slack=list(slack), pathway_pk=pathway_pk)
 
 
 def test_lands_by_scaled_length():
-    assert _locate(_legs(), 150).pathway_pk == 202
+    place = _locate(_legs(), 150)
+    assert (place.segment_pk, place.pathway_pk, place.note) == (102, 202, "")
     assert _locate(_legs(), 231).pathway_pk == 203
-    assert _locate(_legs(), 150).note == ""
-
-
-def test_from_b_end():
-    assert _locate(_legs(), 50, from_end="B").pathway_pk == 203
 
 
 def test_zero_and_exact_boundary():
@@ -86,7 +90,17 @@ def test_far_end_coil_lands_on_last_leg():
     assert _locate(_legs(), 360, cable=350.0, slack=slack).note == NOTE_BEYOND
 
 
-def test_far_end_coil_from_b_end():
-    slack = [SlackPoint(nodes=frozenset({_node(1)}), length_m=50.0)]
-    assert _locate(_legs(), 320, cable=350.0, slack=slack, from_end="B").pathway_pk == 201
-    assert _locate(_legs(), 360, cable=350.0, slack=slack, from_end="B").note == NOTE_BEYOND
+def test_midpoint_of_scaled_leg():
+    assert _midpoint(_legs(), 202).distance_m == pytest.approx(165.0)
+
+
+def test_midpoint_skips_slack_coil():
+    slack = [SlackPoint(nodes=frozenset({_node(2)}), length_m=50.0)]
+    assert _midpoint(_legs(), 202, cable=350.0, slack=slack).distance_m == 200.0
+
+
+def test_midpoint_refuses_what_it_cannot_place():
+    assert _midpoint(_legs(), 999).note == NOTE_NOT_ON_ROUTE
+    assert _midpoint([], 201).note == NOTE_NO_ROUTE
+    slack = [SlackPoint(nodes=frozenset({_node(2)}), length_m=400.0)]
+    assert _midpoint(_legs(), 201, slack=slack).note == NOTE_BEYOND

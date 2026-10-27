@@ -525,6 +525,19 @@ def assign_strand_path(circuit, strand_path, position=None, **fields):
     return FiberCircuitPath.objects.create(circuit=circuit, strand_path=strand_path, position=position, **fields)
 
 
+def make_cable_between(label, a_device, b_device, length=None):
+    """A labelled dcim Cable from a new front port on a_device to one on b_device, optionally with a length in m."""
+    from dcim.models import Cable
+
+    return Cable.objects.create(
+        label=label,
+        a_terminations=[make_front_port(a_device, f"{label}-A")],
+        b_terminations=[make_front_port(b_device, f"{label}-B")],
+        length=length,
+        length_unit="m" if length is not None else "",
+    )
+
+
 def make_route(cable, lengths, *, set_length=True, reverse=()):
     """Straight east-running chain of pathways (SRID 3348 meters), one per entry in lengths.
 
@@ -557,14 +570,14 @@ def make_route(cable, lengths, *, set_length=True, reverse=()):
 
 
 def create_fault_with_location(**fields):
-    """Create a FiberFault, then write its located_at state straight to the row.
+    """Create a FiberFault, then write its location state straight to the row.
 
     FiberFault.save() re-estimates from evidence and wipes a location that has none, so a test
-    that needs an estimated or stale link seeds it the way an estimator result would land.
+    that needs an estimated distance seeds it the way an estimator result would land.
     """
     from netbox_fms.models import FiberFault
 
-    keys = ("located_at_status", "located_at_type", "located_at_id", "estimate_note")
+    keys = ("located_at_status", "located_at", "distance_from_a", "estimate_note")
     location = {key: fields.pop(key) for key in keys if key in fields}
     fault = FiberFault.objects.create(**fields)
     if location:

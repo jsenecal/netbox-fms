@@ -9,10 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Fault location (Refs #198): a fault can be located on a route segment of its
-  cable or at a device, picked by hand (confirmed) or estimated from a jacket
-  mark or an OTDR shot (estimated, with a stated note when the estimate
-  cannot be computed). Adds "Confirm location" and "Re-estimate" actions on the
+- Fault location (Refs #198, #228): a fault can be located at a closure
+  (`located_at`, a device foreign key; deleting the closure deletes its
+  faults) or at a distance along the cable (`distance_from_a`, meters from the
+  A end), picked by hand (confirmed) or estimated from a jacket mark or an OTDR
+  shot (estimated, with a stated note when the estimate cannot be computed).
+  With netbox-pathways the distance is placed on the cable's current route
+  each time it is shown, and the form can set it from a picked route pathway. Adds "Confirm location" and "Re-estimate" actions on the
   fault page and as `confirm-location` and `re-estimate` API actions, a "Fiber
   Faults" group of layers on the netbox-pathways map, and a "crosses a damaged
   cable" ranking and badge in the circuit picker.

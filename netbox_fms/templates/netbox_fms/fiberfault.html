@@ -59,31 +59,32 @@
                     <th scope="row">{% trans "Status" %}</th>
                     <td>{% badge object.get_located_at_status_display bg_color=object.get_located_at_status_color %}</td>
                 </tr>
-                {% with device=object.located_at_device %}
                 <tr>
                     <th scope="row">{% trans "Located at" %}</th>
                     <td>
-                        {% if route_segment %}
-                            {{ route_segment.pathway|linkify }}
-                            <a href="{{ object.fiber_cable.cable.get_absolute_url }}route-map/?segment={{ route_segment.pk }}" class="btn btn-sm btn-outline-primary ms-2">
-                                <i class="mdi mdi-map-marker"></i> {% trans "Show on map" %}
-                            </a>
-                        {% elif device %}
-                            {{ device|linkify }}
-                            {% if pathways_installed and device.site_id %}
-                            <a href="/plugins/pathways/map/#site={{ device.site_id }}" class="btn btn-sm btn-outline-primary ms-2">
-                                <i class="mdi mdi-map-marker"></i> {% trans "Show on map" %}
-                            </a>
-                            {% endif %}
-                        {% else %}
-                            {{ ''|placeholder }}
-                        {% endif %}
-                        {% if located_at_is_stale %}
-                        <div class="text-danger small">{% trans "The linked location is gone or no longer on the cable's route." %}</div>
+                        {{ object.located_at|linkify|placeholder }}
+                        {% if closure_map_url %}
+                            {% include 'netbox_fms/inc/show_on_map_button.html' with url=closure_map_url %}
                         {% endif %}
                     </td>
                 </tr>
-                {% endwith %}
+                <tr>
+                    <th scope="row">{% trans "Distance from A end" %}</th>
+                    <td>{% if object.distance_from_a is not None %}{{ object.distance_from_a }} m{% else %}{{ ''|placeholder }}{% endif %}</td>
+                </tr>
+                {% if route_place %}
+                <tr>
+                    <th scope="row">{% trans "Route segment" %}</th>
+                    <td>
+                        {% if route_segment %}
+                            {{ route_segment.pathway|linkify }}
+                            {% include 'netbox_fms/inc/show_on_map_button.html' with url=segment_map_url %}
+                        {% else %}
+                            <span class="text-muted">{{ route_place.note }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
                 <tr>
                     <th scope="row">{% trans "Location mark" %}</th>
                     <td>{% if object.location_mark is not None %}{{ object.location_mark }} {{ object.fiber_cable.fiber_cable_type.get_mark_unit_display|default:'' }}{% else %}{{ ''|placeholder }}{% endif %}</td>

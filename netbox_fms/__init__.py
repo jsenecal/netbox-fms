@@ -162,10 +162,7 @@ class NetBoxFMSConfig(PluginConfig):
             geometry_type="Point",
             source="reference",
             queryset=lambda r: Device.objects.filter(
-                pk__in=FiberFault.objects.open()
-                .restrict(r.user, "view")
-                .filter(located_at_type__app_label="dcim", located_at_type__model="device")
-                .values("located_at_id")
+                pk__in=FiberFault.objects.open().restrict(r.user, "view").values("located_at")
             ).restrict(r.user, "view"),
             geometry_field="site",
             feature_fields=["name", "site", "role", "status"],
