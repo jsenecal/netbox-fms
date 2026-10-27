@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking:** NetBox 4.5 and 4.6 are no longer supported. The plugin now
+  requires NetBox 4.7.0 or later (`min_version = "4.7.0"`), and CI tests only
+  the latest NetBox 4.7 release. The compatibility shims for the older
+  releases are gone:
+  - the `DeleteMixin.delete` monkey patch that forwarded the deletion origin
+    to NetBox's collector (NetBox 4.7 forwards it natively, so the PortMapping
+    guard still lets closure deletions cascade);
+  - the `<body>`-first color-mode detection in the splice editor and trace
+    view scripts and the matching `<body>` selectors in the FMS stylesheets
+    (NetBox 4.7 themes `<html>` only);
+  - the `resolve_name(module=None)` fallback used when a port template's
+    `resolve_name()` did not accept a `device` argument.
+- The plugin devcontainer now builds on the NetBox 4.7 image.
+
 ## [0.7.0] - 2026-10-27
 
 ### Added

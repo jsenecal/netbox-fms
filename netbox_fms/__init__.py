@@ -15,7 +15,7 @@ class NetBoxFMSConfig(PluginConfig):
     author = "Jonathan Senecal"
     author_email = "contact@jonathansenecal.com"
     base_url = "fms"
-    min_version = "4.5.0"
+    min_version = "4.7.0"
     graphql_schema = "graphql.schema.schema"
     default_settings = {
         # Fixed batching window: the first plant change schedules the analysis
@@ -32,10 +32,9 @@ class NetBoxFMSConfig(PluginConfig):
 
     def ready(self):
         super().ready()
-        from netbox_fms.monkey_patches import patch_cable_profiles, patch_delete_origin
+        from netbox_fms.monkey_patches import patch_cable_profiles
 
         patch_cable_profiles()
-        patch_delete_origin()
         from .signals import connect_signals
 
         connect_signals()

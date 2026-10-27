@@ -303,7 +303,7 @@ entry point.
 | Setting | Value |
 |---------|-------|
 | `base_url` | `"fms"` |
-| `min_version` | `"4.5.0"` |
+| `min_version` | `"4.7.0"` |
 
 The `ready()` method performs two setup actions:
 

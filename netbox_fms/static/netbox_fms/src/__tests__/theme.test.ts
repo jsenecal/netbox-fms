@@ -6,17 +6,12 @@ function el(theme: string | null): Pick<Element, 'getAttribute'> {
 }
 
 describe('isDarkTheme', () => {
-  it('reads the <html> attribute when <body> carries none (NetBox 4.6+)', () => {
-    expect(isDarkTheme(el('dark'), el(null))).toBe(true);
-    expect(isDarkTheme(el('light'), el(null))).toBe(false);
+  it('reads the <html> data-bs-theme attribute', () => {
+    expect(isDarkTheme(el('dark'))).toBe(true);
+    expect(isDarkTheme(el('light'))).toBe(false);
   });
 
-  it('prefers <body> over a stale <html> attribute (NetBox 4.5 toggle)', () => {
-    expect(isDarkTheme(el('dark'), el('light'))).toBe(false);
-    expect(isDarkTheme(el('light'), el('dark'))).toBe(true);
-  });
-
-  it('defaults to light when neither element is themed', () => {
-    expect(isDarkTheme(el(null), el(null))).toBe(false);
+  it('defaults to light when <html> is not themed', () => {
+    expect(isDarkTheme(el(null))).toBe(false);
   });
 });

@@ -71,10 +71,6 @@ jobs:
         python: ["3.12", "3.13", "3.14"]
         netbox:
           # renovate: datasource=github-releases depName=netbox-community/netbox
-          - "4.5.10"
-          # renovate: datasource=github-releases depName=netbox-community/netbox
-          - "4.6.10"
-          # renovate: datasource=github-releases depName=netbox-community/netbox
           - "4.7.3"
     services:
       postgres:

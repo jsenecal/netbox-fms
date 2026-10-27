@@ -5,7 +5,7 @@
 - The plugin runs inside a Docker devcontainer with NetBox.
 - NetBox source is located at `/opt/netbox`. It is not an installable Python module; it is importable at runtime via the Django settings path.
 - Plugin source is at `/opt/netbox-fms`.
-- Requires Python 3.12+ and NetBox 4.5+.
+- Requires Python 3.12+ and NetBox 4.7+.
 
 ## Key Commands (from Makefile)
 

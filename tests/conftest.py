@@ -148,10 +148,7 @@ def changes_logged(fn):
 
 
 def make_front_port(device, name, module=None, port_type="lc"):
-    """
-    Create a FrontPort.
-    NetBox 4.5+ FrontPort no longer requires a backing RearPort.
-    """
+    """Create a FrontPort; NetBox does not require a backing RearPort."""
     global _fp_counter
     _fp_counter += 1
     kwargs = {

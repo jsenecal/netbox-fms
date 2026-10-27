@@ -1,5 +1,3 @@
-from contextlib import contextmanager
-
 from dcim.models import (
     Cable,
     CableTermination,
@@ -130,55 +128,6 @@ class TestPortMappingProtection(TestCase):
         device_pk = self.device.pk
         Device.objects.filter(pk=device_pk).delete()
         assert not Device.objects.filter(pk=device_pk).exists()
-
-    @contextmanager
-    def _netbox_45_shaped_delete(self):
-        """Install a DeleteMixin.delete without forwarding (the NetBox 4.5
-        shape), apply the shim, and yield the unpatched function; the real
-        delete is restored on exit.
-        """
-        from django.db import router
-        from netbox.models import deletion
-
-        from netbox_fms.monkey_patches import patch_delete_origin
-
-        original = deletion.DeleteMixin.delete
-
-        def delete(self, using=None, keep_parents=False):
-            using = using or router.db_for_write(self.__class__, instance=self)
-            collector = deletion.CustomCollector(using=using)
-            collector.collect([self], keep_parents=keep_parents)
-            return collector.delete()
-
-        deletion.DeleteMixin.delete = delete
-        try:
-            patch_delete_origin()
-            yield delete
-        finally:
-            deletion.DeleteMixin.delete = original
-
-    def test_patch_delete_origin_restores_forwarding(self):
-        """NetBox 4.5 shim (issue #136): when DeleteMixin.delete does not
-        forward the deletion origin to its collector, patch_delete_origin()
-        must replace it with one that does, so deleting a closure still
-        cascades through its protected PortMappings.
-        """
-        from netbox.models import deletion
-
-        with self._netbox_45_shaped_delete() as unpatched:
-            assert deletion.DeleteMixin.delete is not unpatched
-            self._create_mapping()
-            device_pk = self.device.pk
-            self.device.delete()
-            assert not Device.objects.filter(pk=device_pk).exists()
-
-    def test_patched_delete_rejects_unsaved_instance(self):
-        """The shim keeps upstream's guard: an instance whose pk is None
-        cannot be deleted (issue #136).
-        """
-        with self._netbox_45_shaped_delete():
-            with self.assertRaises(ValueError):
-                Device(name="PM-Unsaved").delete()
 
     def test_unrelated_mapping_on_fms_device_unprotected(self):
         """Regression test for issue #172: a housing holding one FMS cable

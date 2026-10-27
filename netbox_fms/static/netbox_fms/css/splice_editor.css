@@ -146,10 +146,9 @@
     stroke: var(--bs-danger);
 }
 
-/* Dark mode: boost text readability. NetBox 4.6+ themes <html> only; 4.5
-   toggles <body> and leaves <html> stale, so a themed <body> wins (mirrors
+/* Dark mode: boost text readability. NetBox themes <html> only (mirrors
    isDarkTheme() in src/theme.ts). */
-:is(body[data-bs-theme="dark"], [data-bs-theme="dark"] > body:not([data-bs-theme])) {
+[data-bs-theme="dark"] {
     :is(.cable-subtitle, .tube-label, .column-header, .scroll-hint, .cable-far-device) {
         fill: #adb5bd;
     }

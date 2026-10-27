@@ -2,7 +2,7 @@
 
 Fiber cable management, splice planning, and circuit provisioning for NetBox.
 
-**Version:** 0.1.0  |  **Requires:** NetBox 4.5+  |  **Python:** 3.12+
+**Requires:** NetBox 4.7+  |  **Python:** 3.12+
 
 ---
 
