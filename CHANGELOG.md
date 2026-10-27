@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-27
+
 ### Removed
 
 - **Breaking:** NetBox 4.5 and 4.6 are no longer supported. The plugin now
