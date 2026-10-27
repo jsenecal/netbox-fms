@@ -22,7 +22,7 @@ body:
     attributes:
       label: NetBox version
       description: Shown at the bottom of the NetBox UI or via `GET /api/status/`.
-      placeholder: "4.5.10"
+      placeholder: "4.7.3"
     validations:
       required: true
   - type: input

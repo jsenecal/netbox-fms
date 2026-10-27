@@ -6,7 +6,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/netbox-fms.svg)](https://pypi.org/project/netbox-fms/)
 [![Python](https://img.shields.io/pypi/pyversions/netbox-fms.svg)](https://pypi.org/project/netbox-fms/)
-[![NetBox](https://img.shields.io/badge/NetBox-4.5%2B-success.svg)](https://github.com/netbox-community/netbox)
+[![NetBox](https://img.shields.io/badge/NetBox-4.7%2B-success.svg)](https://github.com/netbox-community/netbox)
 [![CI](https://github.com/jsenecal/netbox-fms/actions/workflows/ci.yml/badge.svg)](https://github.com/jsenecal/netbox-fms/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jsenecal/netbox-fms/branch/main/graph/badge.svg)](https://codecov.io/gh/jsenecal/netbox-fms)
 [![Documentation](https://img.shields.io/badge/docs-jsenecal.github.io-blue)](https://jsenecal.github.io/netbox-fms/)
@@ -33,9 +33,10 @@ Define fiber cable construction as reusable blueprints, auto-instantiate compone
 
 ## Compatibility
 
-| Plugin version | NetBox version | Python    |
-|----------------|----------------|-----------|
-| 0.3.x-0.7.x    | 4.5-4.7        | 3.12-3.14 |
+| Plugin version     | NetBox version | Python    |
+|--------------------|----------------|-----------|
+| 0.8.x (unreleased) | 4.7            | 3.12-3.14 |
+| 0.3.x-0.7.x        | 4.5-4.7        | 3.12-3.14 |
 
 ## Installation
 

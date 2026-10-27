@@ -23,18 +23,6 @@
     {
       "matchDatasources": ["github-releases"],
       "matchPackageNames": ["netbox-community/netbox"],
-      "matchCurrentValue": "/^4\\.5\\./",
-      "allowedVersions": "/^4\\.5\\./"
-    },
-    {
-      "matchDatasources": ["github-releases"],
-      "matchPackageNames": ["netbox-community/netbox"],
-      "matchCurrentValue": "/^4\\.6\\./",
-      "allowedVersions": "/^4\\.6\\./"
-    },
-    {
-      "matchDatasources": ["github-releases"],
-      "matchPackageNames": ["netbox-community/netbox"],
       "matchCurrentValue": "/^4\\.7\\./",
       "allowedVersions": "/^4\\.7\\./"
     }

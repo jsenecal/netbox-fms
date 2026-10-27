@@ -1,10 +1,10 @@
-ARG NETBOX_VARIANT=v4.5.10-4.0.2
+ARG NETBOX_VARIANT=v4.7.0-5.1.1
 
 FROM ghcr.io/netbox-community/netbox:${NETBOX_VARIANT}
 
 VOLUME [ "/etc/netbox/scripts" ]
 
-ARG NETBOX_INITIALIZERS_VARIANT=4.1.*
+ARG NETBOX_INITIALIZERS_VARIANT=4.7.*
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Install APT packages (including GIS libraries required by netbox-pathways)

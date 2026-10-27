@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- NetBox 4.5 or later, fully installed and operational
+- NetBox 4.7 or later, fully installed and operational
 - Python 3.12 or later
 
 ## Install the Plugin
