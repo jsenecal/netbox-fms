@@ -71,7 +71,7 @@ jobs:
         python: ["3.12", "3.13", "3.14"]
         netbox:
           # renovate: datasource=github-releases depName=netbox-community/netbox
-          - "4.7.3"
+          - "4.7.4"
     services:
       postgres:
         image: postgis/postgis:17-3.4
